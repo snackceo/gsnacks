@@ -1,21 +1,16 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Ensure we handle potential undefined process for local safety
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
-// Simple in-memory cache to prevent redundant billing and hitting rate limits
 const cache: Record<string, { data: any, timestamp: number }> = {};
-const CACHE_TTL = 1000 * 60 * 15; // 15 minutes cache for static-ish data
-
-// Quota tracking to prevent "hammering" a 429'd endpoint
+const CACHE_TTL = 1000 * 60 * 30;
 let quotaExhaustedUntil = 0;
 
-/**
- * Robust call wrapper with exponential backoff and cooldown tracking
- */
-async function callWithRetry<T>(fn: () => Promise<T>, maxRetries = 2, initialDelay = 3000): Promise<T> {
+async function callWithRetry<T>(fn: () => Promise<T>, maxRetries = 3, initialDelay = 5000): Promise<T> {
   if (Date.now() < quotaExhaustedUntil) {
-    throw new Error("API Cooldown active due to 429.");
+    throw new Error("API_COOLDOWN_ACTIVE: Quota limit reached.");
   }
 
   let delay = initialDelay;
@@ -23,35 +18,31 @@ async function callWithRetry<T>(fn: () => Promise<T>, maxRetries = 2, initialDel
     try {
       return await fn();
     } catch (error: any) {
-      const errorMsg = error?.message || "";
-      const isRateLimit = errorMsg.includes('429') || error?.status === 429 || error?.code === 429;
+      const errorMsg = JSON.stringify(error) || error?.message || "";
+      const isRateLimit = errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED');
       
       if (isRateLimit) {
         if (i < maxRetries) {
-          console.warn(`Gemini API rate limited. Attempt ${i + 1}/${maxRetries}. Retrying in ${delay}ms...`);
+          console.warn(`Retrying Gemini API... ${i + 1}`);
           await new Promise(resolve => setTimeout(resolve, delay));
           delay *= 2;
           continue;
         } else {
-          quotaExhaustedUntil = Date.now() + 60000; // 1 minute hard cooldown after final failure
+          quotaExhaustedUntil = Date.now() + 120000;
         }
       }
       throw error;
     }
   }
-  throw new Error("Max retries exceeded");
+  throw new Error("MAX_RETRIES_EXCEEDED");
 }
 
-/**
- * Defensive JSON parsing to prevent app crashes from malformed AI output
- */
-function safeJsonParse(text: string, fallback: any) {
+function safeJsonParse(text: string | undefined, fallback: any) {
+  if (!text) return fallback;
   try {
-    // Clean potential markdown code blocks from response
     const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
     return JSON.parse(cleaned);
   } catch (e) {
-    console.error("Failed to parse AI JSON:", e);
     return fallback;
   }
 }
@@ -63,15 +54,15 @@ export const getSmartSnackRecommendations = async (history: string[]) => {
   }
 
   const fallback = [
-    { name: "Detroit Style Pretzel Rods", description: "Savory garlic-butter rods.", reason: "Regional favorite." },
-    { name: "MI Cherry Fruit Leathers", description: "Traverse City tart cherries.", reason: "High seasonality demand." },
+    { name: "Detroit Style Pretzel Rods", description: "Savory garlic-butter rods.", reason: "Regional staple." },
+    { name: "MI Cherry Fruit Leathers", description: "Traverse City tart cherries.", reason: "Local preference." },
     { name: "Mackinac Fudge Bites", description: "Decadent chocolate fudge.", reason: "Classic Michigan staple." }
   ];
 
   try {
     const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Suggest 3 unique snacks for a Michigan delivery service based on history: ${history.join(', ')}. Return pure JSON array.`,
+      contents: `Suggest 3 snacks for NinpoSnacks based on: ${history.join(', ')}. JSON array only.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -88,39 +79,24 @@ export const getSmartSnackRecommendations = async (history: string[]) => {
         }
       }
     }));
-    const data = safeJsonParse(response.text || '[]', fallback);
+    const data = safeJsonParse(response.text, fallback);
     cache[cacheKey] = { data, timestamp: Date.now() };
     return data;
   } catch (error) {
-    return fallback; 
+    return fallback;
   }
 };
 
 export const generateSnackImage = async (prompt: string) => {
-  const cacheKey = `img_${prompt}`;
-  if (cache[cacheKey] && Date.now() - cache[cacheKey].timestamp < CACHE_TTL) {
-    return cache[cacheKey].data;
-  }
-
   try {
     const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [{ text: `A professional product photo of ${prompt}, clean background, commercial lighting.` }],
-      },
-      config: { imageConfig: { aspectRatio: "1:1" } },
+      contents: { parts: [{ text: `Commercial snack photo: ${prompt}.` }] },
     }));
-    
     for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        const data = `data:image/png;base64,${part.inlineData.data}`;
-        cache[cacheKey] = { data, timestamp: Date.now() };
-        return data;
-      }
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
     }
-  } catch (error) {
-    return null;
-  }
+  } catch (error) {}
   return null;
 };
 
@@ -130,30 +106,23 @@ export const getAgentSupportResponse = async (query: string, userContext: any) =
       model: "gemini-3-flash-preview",
       contents: query,
       config: {
-        systemInstruction: `You are the Support Agent for Ninpo Snacks. User: ${JSON.stringify(userContext)}. Rules: MI returns $25 max/day, 20% fee. Be concise and ninja-themed but professional.`,
+        systemInstruction: `Ninja Support Agent for NinpoSnacks. User: ${JSON.stringify(userContext)}. MI policy: $25 max, 20% fee.`,
       }
     }));
     return response.text;
   } catch (error) {
-    return "Our system is busy handling deliveries. Please try again shortly. Standard MI policy: $25 daily limit on returns with a 20% processing fee.";
+    return "The Dojo is busy. Please try again in 60 seconds.";
   }
 };
 
 export const analyzeSalesTrends = async (salesData: any) => {
-  const cacheKey = `analysis_${salesData.length}`;
-  if (cache[cacheKey] && Date.now() - cache[cacheKey].timestamp < CACHE_TTL) {
-    return cache[cacheKey].data;
-  }
-
   try {
     const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Analyze these orders and give a 1-sentence business insight: ${JSON.stringify(salesData)}`,
+      contents: `Quick sales insight: ${JSON.stringify(salesData)}`,
     }));
-    const data = response.text || "Operations normal. Growth trends consistent.";
-    cache[cacheKey] = { data, timestamp: Date.now() };
-    return data;
+    return response.text;
   } catch (error) {
-    return "Operations stable. Monitor evening delivery peaks for optimization.";
+    return "Operations nominal.";
   }
 };

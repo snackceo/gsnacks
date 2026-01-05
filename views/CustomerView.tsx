@@ -20,6 +20,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({ products, cart, addToCart, 
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
+  const [isBotThinking, setIsBotThinking] = useState(false);
   const [chatMessages, setChatMessages] = useState<{role: 'user' | 'bot', text: string}[]>([
     {role: 'bot', text: 'Welcome to the Ninpo Dojo! How can I assist with your snacks or bottle returns today?'}
   ]);
@@ -31,21 +32,26 @@ const CustomerView: React.FC<CustomerViewProps> = ({ products, cart, addToCart, 
   }, 0);
 
   const handleSendMessage = async () => {
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() || isBotThinking) return;
     const userMsg = chatInput;
     setChatMessages(prev => [...prev, {role: 'user', text: userMsg}]);
     setChatInput("");
-    const response = await getAgentSupportResponse(userMsg, user);
-    setChatMessages(prev => [...prev, {role: 'bot', text: response || ''}]);
+    setIsBotThinking(true);
+    try {
+      const response = await getAgentSupportResponse(userMsg, user);
+      setChatMessages(prev => [...prev, {role: 'bot', text: response || 'The scroll is blurred... please try again.'}]);
+    } finally {
+      setIsBotThinking(false);
+    }
   };
 
   const handleStartScan = () => {
-    alert("Activating Ninpo Scanner... Please grant camera permissions in the metadata settings if prompt appears.");
+    alert("Ninpo Scanner engaged. (Simulation: Present your MI bottles to the camera for stealth verification).");
   };
 
   return (
     <div className="space-y-8 relative animate-in fade-in duration-500">
-      {/* Custo Stats */}
+      {/* NinpoStats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white p-6 rounded-3xl border shadow-sm flex items-center justify-between group hover:border-lime-500/50 transition-all">
           <div>
@@ -154,8 +160,6 @@ const CustomerView: React.FC<CustomerViewProps> = ({ products, cart, addToCart, 
       )}
 
       {/* Floating UI Components */}
-      
-      {/* 1. Floating Cart Action Button */}
       <button 
         onClick={() => setIsCartOpen(true)}
         className="fixed bottom-24 left-6 md:bottom-8 md:left-auto md:right-32 z-50 w-16 h-16 bg-lime-500 text-slate-900 rounded-2xl shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all border-4 border-white neon-glow"
@@ -168,7 +172,6 @@ const CustomerView: React.FC<CustomerViewProps> = ({ products, cart, addToCart, 
         )}
       </button>
 
-      {/* 2. Floating Cart Drawer Overlay */}
       {isCartOpen && (
         <div className="fixed inset-0 z-[60] flex justify-end">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm animate-in fade-in" onClick={() => setIsCartOpen(false)} />
@@ -246,7 +249,6 @@ const CustomerView: React.FC<CustomerViewProps> = ({ products, cart, addToCart, 
         </div>
       )}
 
-      {/* 3. Support Chat Component */}
       <div className="fixed bottom-24 right-6 md:bottom-8 md:right-8 z-50">
         {!isChatOpen ? (
           <button 
@@ -277,6 +279,15 @@ const CustomerView: React.FC<CustomerViewProps> = ({ products, cart, addToCart, 
                   </div>
                 </div>
               ))}
+              {isBotThinking && (
+                 <div className="flex justify-start">
+                    <div className="bg-white px-5 py-3 rounded-2xl border border-slate-100 flex gap-1">
+                       <span className="w-1.5 h-1.5 bg-lime-500 rounded-full animate-bounce" />
+                       <span className="w-1.5 h-1.5 bg-lime-500 rounded-full animate-bounce [animation-delay:0.2s]" />
+                       <span className="w-1.5 h-1.5 bg-lime-500 rounded-full animate-bounce [animation-delay:0.4s]" />
+                    </div>
+                 </div>
+              )}
             </div>
             <div className="p-5 bg-white border-t border-slate-100 flex gap-3">
               <input 
@@ -287,14 +298,13 @@ const CustomerView: React.FC<CustomerViewProps> = ({ products, cart, addToCart, 
                 placeholder="Ask your Sensei..." 
                 className="flex-1 text-xs font-bold border-slate-200 border-2 rounded-2xl px-5 py-4 outline-none focus:ring-4 focus:ring-lime-500/10 focus:border-lime-500 transition-all"
               />
-              <button onClick={handleSendMessage} className="bg-slate-900 text-white p-4 rounded-2xl hover:bg-lime-500 hover:text-slate-900 transition-all shadow-xl">
+              <button onClick={handleSendMessage} disabled={isBotThinking} className="bg-slate-900 text-white p-4 rounded-2xl hover:bg-lime-500 hover:text-slate-900 transition-all shadow-xl disabled:opacity-50">
                 <Send className="w-5 h-5" />
               </button>
             </div>
           </div>
         )}
       </div>
-
     </div>
   );
 };

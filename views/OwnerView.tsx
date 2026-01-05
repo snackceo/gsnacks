@@ -72,20 +72,27 @@ const OwnerView: React.FC<OwnerViewProps> = ({
   useEffect(() => {
     let isMounted = true;
     const fetchAnalysis = async () => {
+      if (orderCount === 0) {
+        setAiInsight("NinpoSnacks operations are nominal. Standing by for initial order volume.");
+        return;
+      }
       try {
         const insight = await analyzeSalesTrends(orders);
         if (isMounted) setAiInsight(insight || "System stable. Market dominance at 82%.");
-      } catch (e) {
-        if (isMounted) setAiInsight("Neural analytics core cooling down. Reverting to cached heuristic models.");
+      } catch (e: any) {
+        if (isMounted) {
+          const isCooldown = e?.message?.includes('COOLDOWN');
+          setAiInsight(isCooldown ? "Neural core cooling down to maintain stability. Check back shortly." : "Neural analytics offline. Reverting to local heuristic models.");
+        }
       }
     };
     fetchAnalysis();
     return () => { isMounted = false; };
-  }, [orderCount]); // Only re-run when actual new orders appear, not tracking updates
+  }, [orderCount]);
 
   useEffect(() => {
     loadRecommendations();
-  }, []); // Only load once on mount to save quota
+  }, []);
 
   const loadRecommendations = async () => {
     if (isLoadingRecs) return;
