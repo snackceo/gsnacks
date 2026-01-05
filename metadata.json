@@ -1,0 +1,8 @@
+{
+  "name": "Ninpo Snacks",
+  "description": "A full-stack on-demand snack and bottle delivery platform with integrated eco-friendly bottle deposit returns, multi-role dashboards, and real-time tracking.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
