@@ -1,9 +1,14 @@
 
 export enum UserRole {
-  CUSTOMER = 'CUSTO',
+  CUSTOMER = 'CUSTOMER',
   DRIVER = 'DRIVER',
-  ADMIN = 'ADMIN',
   OWNER = 'OWNER'
+}
+
+export enum UserTier {
+  BRONZE = 'BRONZE',
+  SILVER = 'SILVER',
+  GOLD = 'GOLD'
 }
 
 export interface User {
@@ -11,11 +16,14 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
+  tier: UserTier;
   credits: number;
   referralCode: string;
+  referredBy?: string;
   loyaltyPoints: number;
   dailyReturnTotal: number;
-  redeemedRewards?: string[];
+  acceptedPoliciesAt?: string;
+  isLocked?: boolean;
 }
 
 export interface Product {
@@ -31,15 +39,16 @@ export interface Product {
 
 export enum OrderStatus {
   PENDING = 'PENDING',
+  PAID = 'PAID',
   ASSIGNED = 'ASSIGNED',
-  OUT_FOR_DELIVERY = 'DELIVERED_ON_WAY',
-  ARRIVED = 'ARRIVED',
-  VERIFYING_RETURNS = 'VERIFYING_RETURNS',
+  PICKED_UP = 'PICKED_UP',
+  ARRIVING = 'ARRIVING',
   DELIVERED = 'DELIVERED',
-  CANCELLED = 'CANCELLED'
+  CLOSED = 'CLOSED',
+  REFUNDED = 'REFUNDED'
 }
 
-export type PaymentMethod = 'CREDITS' | 'GOOGLE_PAY' | 'STRIPE_CARD' | 'BOTTLE_CREDIT';
+export type PaymentMethod = 'CREDITS' | 'GOOGLE_PAY' | 'STRIPE_CARD';
 
 export interface Order {
   id: string;
@@ -53,7 +62,31 @@ export interface Order {
   address: string;
   status: OrderStatus;
   createdAt: string;
+  paidAt?: string;
+  deliveredAt?: string;
+  refundRequestedAt?: string;
   verificationPhoto?: string;
+  gpsCoords?: { lat: number; lng: number };
+}
+
+export interface ApprovalRequest {
+  id: string;
+  type: 'REFUND' | 'BOTTLE_RETURN';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  userId: string;
+  orderId?: string;
+  amount: number;
+  photoProof?: string;
+  createdAt: string;
+  processedAt?: string;
+}
+
+export interface AuditLog {
+  id: string;
+  userId: string;
+  action: string;
+  metadata: any;
+  timestamp: string;
 }
 
 export interface AppSettings {
