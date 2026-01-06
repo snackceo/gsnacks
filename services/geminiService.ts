@@ -1,39 +1,58 @@
 
+// Use correct import for GoogleGenAI
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 
-// Initialize Gemini API client using process.env.API_KEY directly as per guidelines
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-const cache: Record<string, { data: any, timestamp: number }> = {};
-const CACHE_TTL = 1000 * 60 * 30;
+// Session-persistent cache to reduce API calls across reloads
+const getSessionCache = () => {
+  try {
+    const saved = sessionStorage.getItem('ninpo_ai_cache');
+    return saved ? JSON.parse(saved) : {};
+  } catch (e) {
+    return {};
+  }
+};
 
-// Global flag to prevent API spamming when quota is hit
+const saveSessionCache = (cache: any) => {
+  try {
+    sessionStorage.setItem('ninpo_ai_cache', JSON.stringify(cache));
+  } catch (e) {}
+};
+
 let quotaExhaustedUntil = 0;
+let lastCallTimestamp = 0;
+const MIN_CALL_GAP = 3000; // 3 second gap between any two AI calls
 
-async function callWithRetry<T>(fn: () => Promise<T>, maxRetries = 2, initialDelay = 2000): Promise<T> {
-  // Check circuit breaker
+async function callWithRetry<T>(fn: () => Promise<T>, maxRetries = 1, initialDelay = 3000): Promise<T> {
   if (Date.now() < quotaExhaustedUntil) {
-    console.warn("Gemini API Cooldown: Skipping call to avoid quota penalties.");
+    console.warn("Gemini API Cooldown Active.");
     throw new Error("QUOTA_COOLDOWN_ACTIVE");
   }
+
+  // Throttle rapid successive calls
+  const now = Date.now();
+  const timeSinceLastCall = now - lastCallTimestamp;
+  if (timeSinceLastCall < MIN_CALL_GAP) {
+    await new Promise(resolve => setTimeout(resolve, MIN_CALL_GAP - timeSinceLastCall));
+  }
+  lastCallTimestamp = Date.now();
 
   let delay = initialDelay;
   for (let i = 0; i <= maxRetries; i++) {
     try {
       return await fn();
     } catch (error: any) {
-      const errorMsg = JSON.stringify(error) || error?.message || "";
+      const errorMsg = error?.message || JSON.stringify(error) || "";
       const isRateLimit = errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('quota');
       
       if (isRateLimit) {
-        // Trigger circuit breaker for 2 minutes
-        quotaExhaustedUntil = Date.now() + 120000;
-        console.error("Gemini Quota Exceeded. Entering 2-minute cooldown.");
+        quotaExhaustedUntil = Date.now() + 180000; // 3 minute cooldown
+        console.error("Gemini Quota Exceeded. Cooldown active.");
         break; 
       }
 
       if (i < maxRetries) {
-        console.warn(`Gemini API error, retrying... (${i + 1})`);
         await new Promise(resolve => setTimeout(resolve, delay));
         delay *= 2;
         continue;
@@ -55,89 +74,21 @@ function safeJsonParse(text: string | undefined, fallback: any) {
   }
 }
 
-export const getSmartSnackRecommendations = async (history: string[]) => {
-  const cacheKey = `recs_${history.join('_')}`;
-  if (cache[cacheKey] && Date.now() - cache[cacheKey].timestamp < CACHE_TTL) {
-    return cache[cacheKey].data;
-  }
-
-  const fallback = [
-    { name: "Detroit Style Pretzel Rods", description: "Savory garlic-butter rods.", reason: "Regional staple." },
-    { name: "MI Cherry Fruit Leathers", description: "Traverse City tart cherries.", reason: "Local preference." },
-    { name: "Mackinac Fudge Bites", description: "Decadent chocolate fudge.", reason: "Classic Michigan staple." }
-  ];
-
-  try {
-    // Fix: Structured response schema for snack recommendations
-    const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Suggest 3 snacks for Ninpo Snacks based on: ${history.join(', ')}.`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              name: { type: Type.STRING },
-              description: { type: Type.STRING },
-              reason: { type: Type.STRING }
-            },
-            required: ["name", "description", "reason"]
-          }
-        }
-      }
-    }));
-    const data = safeJsonParse(response.text, fallback);
-    cache[cacheKey] = { data, timestamp: Date.now() };
-    return data;
-  } catch (error) {
-    return fallback;
-  }
-};
-
-export const getNavigationDirections = async (destination: string, userLocation?: { latitude: number, longitude: number }) => {
-  const fallback = [
-    { instruction: "Head North on Woodward Ave", distance: "0.5 mi" },
-    { instruction: "Left onto Grand River Ave", distance: "1.2 mi" },
-    { instruction: "Arrive at Destination", distance: "0.1 mi" }
-  ];
-
-  try {
-    // Fix: Structured response schema for turn-by-turn navigation steps
-    const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `List 5 turn-by-turn steps to: ${destination}. Location: ${userLocation ? JSON.stringify(userLocation) : 'Detroit, MI'}.`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              instruction: { type: Type.STRING },
-              distance: { type: Type.STRING }
-            },
-            required: ["instruction", "distance"]
-          }
-        }
-      }
-    }));
-    return safeJsonParse(response.text, fallback);
-  } catch (error) {
-    return fallback;
-  }
-};
-
+// Analyze bottle scan using Gemini
 export const analyzeBottleScan = async (base64Data: string) => {
   try {
-    // Fix: Using multimodal input and structured JSON schema for bottle return verification
     const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [
           { inlineData: { data: base64Data, mimeType: 'image/jpeg' } },
-          { text: "Identify if there is a beverage container in this image for recycling return." }
+          { text: `Identify if this is a beverage container eligible for a Michigan 10c deposit. 
+          Analyze material (PLASTIC/CAN/GLASS) and check for a visible "MI 10c" or "ME/MI 10c" label.
+          
+          If NOT eligible, provide a very specific reason in the 'message' field (e.g., 'Not Michigan Bought', 'Label Missing or Obscured', 'Non-eligible Container Type', 'Damaged/Unscannable Barcode').
+          If eligible, provide an enthusiastic Detroit-style success message (e.g., 'Nice one! That's 10c in the bank.', 'Verified! Michigan's finest recycle.', 'Detroit Green! Added to your credits.').
+          
+          Return JSON: {valid: boolean, material: string, message: string}.` }
         ]
       },
       config: {
@@ -146,57 +97,57 @@ export const analyzeBottleScan = async (base64Data: string) => {
           type: Type.OBJECT,
           properties: {
             valid: { type: Type.BOOLEAN },
+            material: { type: Type.STRING },
             message: { type: Type.STRING }
           },
-          required: ["valid", "message"]
+          required: ["valid", "material", "message"]
         }
       }
     }));
-    return safeJsonParse(response.text, { valid: false, message: "Identification offline. Please try again later." });
+    return safeJsonParse(response.text, { valid: false, material: "UNKNOWN", message: "Verification failed." });
   } catch (error) {
-    return { valid: false, message: "Verification failed. Please try again." };
+    return { valid: false, material: "UNKNOWN", message: "System Busy. Please try later." };
   }
 };
 
-export const generateSnackImage = async (prompt: string) => {
-  try {
-    // Fix: Optimized image generation call using gemini-2.5-flash-image
-    const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: { parts: [{ text: `Professional commercial snack photography: ${prompt}. Cinematic lighting, clean background.` }] },
-    }));
-    for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
-    }
-  } catch (error) {}
-  return null;
-};
-
+// Customer support agent using Gemini
 export const getAgentSupportResponse = async (query: string, userContext: any) => {
   try {
-    // Fix: Standard support response using gemini-3-flash-preview
     const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: query,
       config: {
-        systemInstruction: `You are a helpful customer support agent for Ninpo Snacks. Be professional and friendly. User context: ${JSON.stringify(userContext)}.`,
+        systemInstruction: `You are a helpful customer support agent for Ninpo Snacks. User context: ${JSON.stringify(userContext)}. Current Detroit time: ${new Date().toLocaleTimeString()}.`,
       }
     }));
     return response.text;
   } catch (error) {
-    return "Our automated support is currently offline due to high traffic. A human agent will be with you shortly.";
+    return "I'm experiencing heavy traffic. Please try again in a moment!";
   }
 };
 
-export const analyzeSalesTrends = async (salesData: any) => {
+// Added missing export getSmartSnackRecommendations used in ManagementView
+export const getSmartSnackRecommendations = async (inventory: any[], userPreferences: string) => {
   try {
-    // Fix: Using gemini-3-pro-preview for complex data reasoning and trend analysis
     const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
-      model: "gemini-3-pro-preview",
-      contents: `Provide a concise sales analysis of this data: ${JSON.stringify(salesData)}`,
+      model: "gemini-3-flash-preview",
+      contents: `Given the current inventory: ${JSON.stringify(inventory)}. Recommendations for user: ${userPreferences}. Return JSON list of product IDs.`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            recommendedIds: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            }
+          },
+          required: ["recommendedIds"]
+        }
+      }
     }));
-    return response.text;
+    return safeJsonParse(response.text, { recommendedIds: [] });
   } catch (error) {
-    return "Analytics processing is currently queued. Performance remains within expected limits.";
+    return { recommendedIds: [] };
   }
 };

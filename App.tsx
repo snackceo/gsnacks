@@ -1,189 +1,295 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { UserRole, User, Product, Order, OrderStatus, AppSettings, LoyaltyReward } from './types';
-import { MOCK_USER, MOCK_PRODUCTS, MOCK_REWARDS } from './constants';
-import Navbar from './components/Navbar';
+import React, { useState, useEffect } from 'react';
+import { UserRole, User, Product, Order, OrderStatus, AppSettings } from './types';
+import { MOCK_USER, MOCK_PRODUCTS } from './constants';
 import CustomerView from './views/CustomerView';
 import ManagementView from './views/ManagementView';
+import LoginView from './views/LoginView';
 import LegalFooter from './components/LegalFooter';
-import { ShieldCheck, Zap, ShoppingCart, Terminal, X, Crown, Truck, User as UserIcon } from 'lucide-react';
+import { FileText, Clock, ShoppingCart, RotateCcw, XCircle } from 'lucide-react';
 
 const App: React.FC = () => {
-  // Global App State - Default to Customer now
-  const [currentUser, setCurrentUser] = useState<User>(MOCK_USER as User);
-  const [viewMode, setViewMode] = useState<'market' | 'management'>('market');
-  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-  const [resetCounter, setResetCounter] = useState(0); 
-
-  const [users] = useState<User[]>([
-    { ...MOCK_USER } as User,
-    { id: 'custo_002', name: 'Sam Rivera', email: 'sam@customail.com', role: UserRole.CUSTOMER, credits: 10.00, referralCode: 'SAM99', loyaltyPoints: 400, dailyReturnTotal: 0 },
-    { id: 'driver_001', name: 'Delivery Dan', email: 'dan@driver.com', role: UserRole.DRIVER, credits: 0, referralCode: 'DAN123', loyaltyPoints: 0, dailyReturnTotal: 0 },
-    { id: 'admin_001', name: 'Admin Alice', email: 'alice@admin.com', role: UserRole.ADMIN, credits: 0, referralCode: 'ALICE_A', loyaltyPoints: 0, dailyReturnTotal: 0 },
-    { id: 'owner_001', name: 'Executive Eve', email: 'eve@owner.com', role: UserRole.OWNER, credits: 1000.00, referralCode: 'BOSS_ONE', loyaltyPoints: 9999, dailyReturnTotal: 0 }
-  ]);
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('ninpo_user');
+    return saved ? JSON.parse(saved) : null;
+  });
   
-  const [settings, setSettings] = useState<AppSettings>({
-    deliveryFee: 2.99,
-    referralBonus: 5.00,
-    michiganDepositValue: 0.10,
-    processingFeePercent: 0.20,
-    glassHandlingFeePercent: 0.05, 
-    dailyReturnLimit: 25.00,
-    maintenanceMode: false,
+  const [users, setUsers] = useState<User[]>(() => {
+    const saved = localStorage.getItem('ninpo_all_users');
+    if (saved) return JSON.parse(saved);
+    // Default system users
+    return [
+      { id: 'custo_001', name: 'Alex Johnson', email: 'alex@customail.com', role: UserRole.CUSTOMER, credits: 24.50, referralCode: 'CUSTO77', loyaltyPoints: 1250, dailyReturnTotal: 0 },
+      { id: 'owner_001', name: 'Executive Admin', email: 'eve@owner.com', role: UserRole.OWNER, credits: 1000.00, referralCode: 'BOSS_ONE', loyaltyPoints: 9999, dailyReturnTotal: 0 }
+    ];
   });
 
-  const [cart, setCart] = useState<{ productId: string; quantity: number }[]>([]);
+  const [viewMode, setViewMode] = useState<'market' | 'management' | 'history'>('market');
+  const [isLoginViewOpen, setIsLoginViewOpen] = useState(false);
+  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
+  
+  const [orders, setOrders] = useState<Order[]>(() => {
+    const saved = localStorage.getItem('ninpo_orders');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  const [cart, setCart] = useState<{ productId: string; quantity: number }[]>(() => {
+    const saved = localStorage.getItem('ninpo_cart');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const saved = localStorage.getItem('ninpo_settings');
+    return saved ? JSON.parse(saved) : {
+      deliveryFee: 2.99,
+      referralBonus: 5.00,
+      michiganDepositValue: 0.10,
+      processingFeePercent: 0.20,
+      glassHandlingFeePercent: 0.05, 
+      dailyReturnLimit: 25.00,
+      maintenanceMode: false,
+    };
+  });
 
-  const handleRoleSwitch = (role: UserRole) => {
-    const newUser = users.find(u => u.role === role) || users[0];
-    setCurrentUser(newUser);
-    setViewMode(role === UserRole.CUSTOMER ? 'market' : 'management');
-    setIsTerminalOpen(false);
-    setResetCounter(prev => prev + 1);
-  };
+  // Persistence logic
+  useEffect(() => {
+    localStorage.setItem('ninpo_cart', JSON.stringify(cart));
+  }, [cart]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setOrders(prev => prev.map(order => {
-        if (order.status === OrderStatus.OUT_FOR_DELIVERY) {
-          return {
-            ...order,
-            trackingLocation: {
-              lat: (order.trackingLocation?.lat || 42.3314) + (Math.random() - 0.5) * 0.001,
-              lng: (order.trackingLocation?.lng || -83.0458) + (Math.random() - 0.5) * 0.001,
-            }
-          };
-        }
-        return order;
-      }));
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    localStorage.setItem('ninpo_orders', JSON.stringify(orders));
+  }, [orders]);
 
-  const addToCart = (productId: string) => {
-    setCart(prev => {
-      const existing = prev.find(item => item.productId === productId);
-      if (existing) {
-        return prev.map(item => item.productId === productId ? { ...item, quantity: item.quantity + 1 } : item);
-      }
-      return [...prev, { productId, quantity: 1 }];
+  useEffect(() => {
+    localStorage.setItem('ninpo_settings', JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem('ninpo_all_users', JSON.stringify(users));
+  }, [users]);
+
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('ninpo_user', JSON.stringify(currentUser));
+      // Sync currentUser changes back to the main users list
+      setUsers(prev => prev.map(u => u.id === currentUser.id ? currentUser : u));
+    } else {
+      localStorage.removeItem('ninpo_user');
+    }
+  }, [currentUser]);
+
+  const handleLogin = (user: User) => {
+    // Ensure user exists in our local database
+    setUsers(prev => {
+      if (!prev.find(u => u.id === user.id)) return [...prev, user];
+      return prev;
     });
+    setCurrentUser(user);
+    setIsLoginViewOpen(false);
+    setViewMode(user.role === UserRole.OWNER || user.role === UserRole.ADMIN ? 'management' : 'market');
   };
 
-  const createOrder = () => {
-    if (cart.length === 0) return;
-    const total = cart.reduce((sum, item) => {
-      const p = products.find(prod => prod.id === item.productId);
-      if (!p) return sum;
-      let itemTotal = (p.price + p.deposit) * item.quantity;
-      if (p.isGlass) {
-        const glassFee = p.price * settings.glassHandlingFeePercent * item.quantity;
-        itemTotal += glassFee;
-      }
-      return sum + itemTotal;
-    }, settings.deliveryFee);
-
-    const newOrder: Order = {
-      id: `ORD-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-      customerId: currentUser.id,
-      items: [...cart],
-      total,
-      status: OrderStatus.PENDING,
-      createdAt: new Date().toISOString(),
-      trackingLocation: { lat: 42.3314, lng: -83.0458 }
-    };
-
-    setOrders([newOrder, ...orders]);
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setViewMode('market');
     setCart([]);
-    alert("Order Received! Our team is processing it now.");
   };
 
-  const updateOrderStatus = (orderId: string, status: OrderStatus) => {
-    setOrders(prev => {
-      const updatedOrders = prev.map(o => o.id === orderId ? { ...o, status } : o);
-      if (status === OrderStatus.DELIVERED) {
-        const order = updatedOrders.find(o => o.id === orderId);
-        if (order) {
-          const pointsEarned = Math.floor(order.total * 100);
-          adjustUserLoyalty(order.customerId, pointsEarned);
+  const goHome = () => {
+    setIsLoginViewOpen(false);
+    setViewMode('market');
+  };
+
+  const toggleAuth = () => {
+    if (currentUser) {
+      handleLogout();
+    } else {
+      setIsLoginViewOpen(true);
+    }
+  };
+
+  const handleCreateOrder = (newOrder: Order) => {
+    setOrders(prev => [newOrder, ...prev]);
+    setCart([]);
+    
+    // Update stock levels
+    setProducts(prevProducts => {
+      return prevProducts.map(p => {
+        const cartItem = newOrder.items.find(item => item.productId === p.id);
+        if (cartItem) {
+          return { ...p, stock: Math.max(0, p.stock - cartItem.quantity) };
         }
-      }
-      return updatedOrders;
+        return p;
+      });
     });
-  };
 
-  const deleteOrder = (orderId: string) => {
-    setOrders(prev => prev.filter(o => o.id !== orderId));
-  };
-
-  const adjustUserCredits = (userId: string, amount: number) => {
-    if (currentUser.id === userId) {
-      setCurrentUser(prev => ({ ...prev, credits: Math.max(0, prev.credits + amount) }));
+    // Award Loyalty Points: 10 points per $1 spent
+    if (currentUser) {
+      const pointsEarned = Math.floor(newOrder.total * 10);
+      const updatedUser = {
+        ...currentUser,
+        loyaltyPoints: currentUser.loyaltyPoints + pointsEarned
+      };
+      setCurrentUser(updatedUser);
     }
   };
 
-  const adjustUserLoyalty = (userId: string, amount: number) => {
-    if (currentUser.id === userId) {
-      setCurrentUser(prev => ({ ...prev, loyaltyPoints: prev.loyaltyPoints + amount }));
+  const handleCreditUpdate = (amount: number) => {
+    if (!currentUser) return;
+    const updatedUser = {
+      ...currentUser,
+      credits: currentUser.credits + amount,
+      dailyReturnTotal: currentUser.dailyReturnTotal + Math.abs(amount)
+    };
+    setCurrentUser(updatedUser);
+  };
+
+  const handleAdjustCredits = (userId: string, amount: number) => {
+    if (currentUser && currentUser.id === userId) {
+      handleCreditUpdate(amount);
+    } else {
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, credits: u.credits + amount } : u));
     }
   };
 
-  const redeemReward = (rewardId: string) => {
-    const reward = MOCK_REWARDS.find(r => r.id === rewardId);
-    if (!reward || currentUser.loyaltyPoints < reward.cost) {
-      alert("Insufficient points for this reward.");
-      return;
+  const handleCancelOrder = (orderId: string) => {
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: OrderStatus.CANCELLED } : o));
+    alert("Order cancelled.");
+  };
+
+  const handleReorder = (order: Order) => {
+    setCart(order.items.map(item => ({ productId: item.productId, quantity: item.quantity })));
+    setViewMode('market');
+    alert("Items added to cart from previous order.");
+  };
+
+  const handleDeleteOrder = (id: string) => {
+    if (window.confirm("Delete this order record permanently?")) {
+      setOrders(prev => prev.filter(o => o.id !== id));
     }
-    adjustUserLoyalty(currentUser.id, -reward.cost);
-    if (reward.type === 'CREDIT' && reward.value) {
-      adjustUserCredits(currentUser.id, reward.value);
-    }
-    setCurrentUser(prev => ({
-      ...prev,
-      redeemedRewards: [...(prev.redeemedRewards || []), rewardId]
-    }));
-    alert(`Reward Claimed: ${reward.title}! Your balance has been updated.`);
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 selection:bg-lime-500 selection:text-white">
-      <Navbar 
-        currentUser={currentUser} 
-        setCurrentUser={setCurrentUser} 
-        cartCount={cart.length} 
-        isDevMode={false}
-        setIsDevMode={() => {}}
-        onHomeClick={() => setResetCounter(c => c+1)}
-        viewMode={viewMode}
-        setViewMode={setViewMode}
-        onLogout={() => handleRoleSwitch(UserRole.CUSTOMER)}
-      />
-      
-      {settings.maintenanceMode && currentUser.role === UserRole.OWNER && (
-        <div className="bg-red-600 text-white text-[10px] font-black uppercase py-2 px-4 text-center tracking-[0.3em] sticky top-16 z-30">
-          Maintenance Mode Active • Public Storefront Offline
-        </div>
-      )}
+    <div className="min-h-screen flex flex-col bg-ninpo-black font-sans selection:bg-ninpo-lime selection:text-ninpo-black text-white">
+      <header className="w-full pt-6 px-4 sm:px-6 lg:px-8">
+        <div className="container mx-auto">
+          <div className="bg-ninpo-midnight rounded-[2rem] p-6 lg:p-8 border border-white/5 flex flex-col lg:flex-row lg:items-center justify-between gap-6 shadow-2xl">
+            <button 
+              onClick={goHome}
+              className="flex items-center gap-4 lg:gap-6 hover:opacity-80 transition-opacity text-left active:scale-95 duration-200"
+            >
+              <div className="w-16 h-16 lg:w-20 lg:h-20 bg-ninpo-lime rounded-2xl flex items-center justify-center neon-glow flex-shrink-0">
+                <span className="text-ninpo-black font-black text-4xl lg:text-5xl">N</span>
+              </div>
+              <div>
+                <h1 className="text-white text-3xl lg:text-4xl font-black leading-none tracking-tight uppercase">Ninpo</h1>
+                <h1 className="text-ninpo-lime text-3xl lg:text-4xl font-black leading-none tracking-tight uppercase">Snacks</h1>
+              </div>
+            </button>
 
-      <main className="flex-1">
-        <div className={`${viewMode === 'market' ? 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8' : ''} py-8`}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:flex items-stretch gap-4">
+              <div className="bg-ninpo-grey rounded-xl p-4 flex flex-col items-center justify-center text-center lg:min-w-[160px]">
+                <span className="text-[10px] font-black text-ninpo-lime uppercase tracking-widest mb-1">
+                  {currentUser ? 'Balance' : 'Session'}
+                </span>
+                <span className="text-white font-black text-[11px] uppercase truncate w-full">
+                  {currentUser ? `$${currentUser.credits.toFixed(2)}` : 'Guest'}
+                </span>
+              </div>
+              
+              <button 
+                onClick={toggleAuth}
+                className={`text-white rounded-xl font-black text-sm uppercase tracking-widest hover:brightness-110 transition-all active:scale-95 flex items-center justify-center py-4 lg:px-12 ${currentUser ? 'bg-ninpo-grey border border-white/10' : 'bg-ninpo-red'}`}
+              >
+                {currentUser ? 'Logout' : 'Login'}
+              </button>
+
+              <button 
+                onClick={() => setViewMode(viewMode === 'history' ? 'market' : 'history')}
+                className={`hidden sm:flex rounded-xl p-4 flex-col items-center justify-center text-center lg:min-w-[120px] transition-all border ${viewMode === 'history' ? 'bg-ninpo-lime text-ninpo-black border-ninpo-lime' : 'bg-ninpo-grey text-white border-white/5'}`}
+              >
+                <Clock className={`w-5 h-5 mb-1 ${viewMode === 'history' ? 'text-ninpo-black' : 'text-slate-400'}`} />
+                <span className="font-black text-[11px] uppercase">History</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 py-8 px-4 sm:px-6 lg:px-8">
+        <div className="container mx-auto">
           {viewMode === 'market' ? (
             <CustomerView 
-              key={`custo-${resetCounter}`}
-              products={products} cart={cart} addToCart={addToCart} createOrder={createOrder}
-              orders={orders.filter(o => o.customerId === currentUser.id)}
-              user={currentUser} settings={settings} onCreditUpdate={(amt) => adjustUserCredits(currentUser.id, amt)}
-              onRedeemReward={redeemReward}
+              products={products} 
+              cart={cart} 
+              addToCart={(id) => setCart(prev => {
+                const existing = prev.find(i => i.productId === id);
+                if (existing) {
+                  return prev.map(i => i.productId === id ? { ...i, quantity: i.quantity + 1 } : i);
+                }
+                return [...prev, { productId: id, quantity: 1 }];
+              })}
+              removeFromCart={(id) => setCart(prev => prev.filter(i => i.productId !== id))}
+              updateCartQuantity={(id, q) => setCart(prev => prev.map(i => i.productId === id ? { ...i, quantity: Math.max(1, q) } : i))}
+              createOrder={handleCreateOrder}
+              orders={orders.filter(o => o.customerId === (currentUser?.id || 'custo_001'))}
+              user={currentUser || (MOCK_USER as User)} 
+              settings={settings} 
+              onCreditUpdate={handleCreditUpdate}
             />
+          ) : viewMode === 'history' ? (
+            <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-bottom">
+              <div className="flex justify-between items-center">
+                <h2 className="text-3xl font-black text-white uppercase tracking-tighter">Your Orders</h2>
+                <button onClick={() => setViewMode('market')} className="text-xs font-black text-ninpo-lime uppercase tracking-widest hover:underline flex items-center gap-2">
+                  <ShoppingCart className="w-4 h-4" /> Back to Market
+                </button>
+              </div>
+              {orders.filter(o => o.customerId === (currentUser?.id || 'custo_001')).length === 0 ? (
+                <div className="py-20 text-center bg-ninpo-midnight rounded-[3rem] border border-white/5">
+                  <FileText className="w-16 h-16 text-slate-800 mx-auto mb-4" />
+                  <p className="text-slate-500 font-bold uppercase tracking-widest">No past orders found.</p>
+                </div>
+              ) : (
+                <div className="grid gap-4">
+                  {orders.filter(o => o.customerId === (currentUser?.id || 'custo_001')).map(order => (
+                    <div key={order.id} className="bg-ninpo-midnight p-8 rounded-[2rem] border border-white/5 flex flex-col md:flex-row justify-between items-center gap-6">
+                      <div>
+                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{order.id}</p>
+                        <h4 className="text-white font-bold uppercase text-lg">{order.address}</h4>
+                        <p className="text-slate-400 text-xs mt-1">{new Date(order.createdAt).toLocaleDateString()} • {order.items.length} items</p>
+                      </div>
+                      <div className="text-right flex flex-col items-end gap-3">
+                        <span className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${order.status === OrderStatus.DELIVERED ? 'bg-ninpo-lime/10 text-ninpo-lime' : order.status === OrderStatus.CANCELLED ? 'bg-ninpo-red/10 text-ninpo-red' : 'bg-amber-400/10 text-amber-400'}`}>
+                          {order.status.replace(/_/g, ' ')}
+                        </span>
+                        <p className="text-white font-black text-xl">${order.total.toFixed(2)}</p>
+                        <div className="flex gap-4">
+                          {order.status === OrderStatus.PENDING && (
+                            <button onClick={() => handleCancelOrder(order.id)} className="text-ninpo-red text-[10px] font-black uppercase tracking-widest flex items-center gap-1 hover:opacity-50"><XCircle className="w-4 h-4" /> Cancel</button>
+                          )}
+                          <button onClick={() => handleReorder(order)} className="text-ninpo-lime text-[10px] font-black uppercase tracking-widest flex items-center gap-1 hover:opacity-50"><RotateCcw className="w-4 h-4" /> Reorder</button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           ) : (
             <ManagementView 
-              key={`mgmt-${resetCounter}`}
-              user={currentUser} products={products} setProducts={setProducts}
-              orders={orders} users={users} settings={settings} setSettings={setSettings}
-              updateOrder={updateOrderStatus} deleteOrder={deleteOrder} adjustCredits={adjustUserCredits}
+              user={currentUser as User} 
+              products={products} 
+              setProducts={setProducts}
+              orders={orders} 
+              users={users} 
+              settings={settings} 
+              setSettings={setSettings}
+              updateOrder={(id, status) => {
+                setOrders(prev => prev.map(o => o.id === id ? {...o, status} : o));
+              }} 
+              deleteOrder={handleDeleteOrder} 
+              adjustCredits={handleAdjustCredits}
             />
           )}
         </div>
@@ -191,39 +297,24 @@ const App: React.FC = () => {
 
       <LegalFooter />
 
-      {/* Floating Terminal Access */}
-      <div className="fixed bottom-6 left-6 z-[100]">
-        {!isTerminalOpen ? (
-          <button 
-            onClick={() => setIsTerminalOpen(true)}
-            className="w-12 h-12 bg-slate-900/10 hover:bg-slate-900 text-slate-400 hover:text-lime-500 rounded-full flex items-center justify-center transition-all backdrop-blur-sm border border-slate-900/5 group"
-            title="Terminal Access"
-          >
-            <Terminal className="w-5 h-5 group-hover:scale-110 transition-transform" />
-          </button>
-        ) : (
-          <div className="bg-slate-900 rounded-3xl p-6 shadow-2xl border border-white/10 w-64 animate-in slide-in-from-bottom-4">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-[10px] font-black text-white uppercase tracking-widest">Ninpo Terminal</h3>
-              <button onClick={() => setIsTerminalOpen(false)} className="text-slate-500 hover:text-white"><X className="w-4 h-4"/></button>
-            </div>
-            <div className="space-y-2">
-              <button onClick={() => handleRoleSwitch(UserRole.OWNER)} className="w-full flex items-center gap-3 p-3 bg-white/5 hover:bg-lime-500 text-white hover:text-slate-900 rounded-xl transition-all group">
-                <Crown className="w-4 h-4 text-lime-500 group-hover:text-slate-900" />
-                <span className="text-[10px] font-black uppercase tracking-widest">Executive (Owner)</span>
-              </button>
-              <button onClick={() => handleRoleSwitch(UserRole.DRIVER)} className="w-full flex items-center gap-3 p-3 bg-white/5 hover:bg-white text-white hover:text-slate-900 rounded-xl transition-all group">
-                <Truck className="w-4 h-4 text-slate-400 group-hover:text-slate-900" />
-                <span className="text-[10px] font-black uppercase tracking-widest">Fleet Agent</span>
-              </button>
-              <button onClick={() => handleRoleSwitch(UserRole.CUSTOMER)} className="w-full flex items-center gap-3 p-3 bg-white/5 hover:bg-white text-white hover:text-slate-900 rounded-xl transition-all group">
-                <UserIcon className="w-4 h-4 text-slate-400 group-hover:text-slate-900" />
-                <span className="text-[10px] font-black uppercase tracking-widest">Market Profile</span>
-              </button>
-            </div>
+      {isLoginViewOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-ninpo-black/95 backdrop-blur-2xl" onClick={goHome} />
+          <LoginView users={users} onLogin={handleLogin} onCancel={goHome} />
+        </div>
+      )}
+
+      <footer className="w-full bg-ninpo-black/90 backdrop-blur-md border-t border-white/5 p-6 lg:p-10 z-40">
+        <div className="container mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
+          <p className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.4em] text-center md:text-left">
+            © 2025 Ninpo Snacks LLC • Detroit Area
+          </p>
+          <div className="flex gap-8">
+            <span className="text-[9px] font-black text-slate-700 uppercase tracking-widest">v1.4.2 (Stable)</span>
+            <span className="text-[9px] font-black text-ninpo-lime uppercase tracking-widest">AI Core Online</span>
           </div>
-        )}
-      </div>
+        </div>
+      </footer>
     </div>
   );
 };

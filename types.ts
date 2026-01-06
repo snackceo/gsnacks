@@ -14,8 +14,8 @@ export interface User {
   credits: number;
   referralCode: string;
   loyaltyPoints: number;
-  dailyReturnTotal: number; // Tracking the $25/day Michigan limit
-  redeemedRewards?: string[]; // IDs of rewards already claimed
+  dailyReturnTotal: number;
+  redeemedRewards?: string[];
 }
 
 export interface Product {
@@ -26,18 +26,20 @@ export interface Product {
   category: string;
   stock: number;
   image: string;
-  isGlass?: boolean; // Flag for glass handling fees
-  isUsed?: boolean; // New: Flag for used/pre-owned items
-  condition?: string; // New: Description of used item condition
+  isGlass?: boolean;
 }
 
 export enum OrderStatus {
   PENDING = 'PENDING',
   ASSIGNED = 'ASSIGNED',
   OUT_FOR_DELIVERY = 'DELIVERED_ON_WAY',
+  ARRIVED = 'ARRIVED',
+  VERIFYING_RETURNS = 'VERIFYING_RETURNS',
   DELIVERED = 'DELIVERED',
   CANCELLED = 'CANCELLED'
 }
+
+export type PaymentMethod = 'CREDITS' | 'GOOGLE_PAY' | 'STRIPE_CARD' | 'BOTTLE_CREDIT';
 
 export interface Order {
   id: string;
@@ -45,27 +47,21 @@ export interface Order {
   driverId?: string;
   items: { productId: string; quantity: number }[];
   total: number;
+  estimatedReturnCredit: number;
+  verifiedReturnCredit?: number;
+  paymentMethod: PaymentMethod;
+  address: string;
   status: OrderStatus;
   createdAt: string;
-  trackingLocation?: { lat: number; lng: number };
   verificationPhoto?: string;
 }
 
 export interface AppSettings {
   deliveryFee: number;
   referralBonus: number;
-  michiganDepositValue: number; // 0.10
-  processingFeePercent: number; // 0.20
-  glassHandlingFeePercent: number; // Handling fee as a percentage (e.g. 0.05)
-  dailyReturnLimit: number; // 25.00
+  michiganDepositValue: number;
+  processingFeePercent: number;
+  glassHandlingFeePercent: number;
+  dailyReturnLimit: number;
   maintenanceMode: boolean;
-}
-
-export interface LoyaltyReward {
-  id: string;
-  title: string;
-  description: string;
-  cost: number;
-  type: 'CREDIT' | 'DISCOUNT' | 'PERK';
-  value?: number;
 }
