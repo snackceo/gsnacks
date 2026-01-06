@@ -15,6 +15,7 @@ export interface User {
   referralCode: string;
   loyaltyPoints: number;
   dailyReturnTotal: number; // Tracking the $25/day Michigan limit
+  redeemedRewards?: string[]; // IDs of rewards already claimed
 }
 
 export interface Product {
@@ -25,6 +26,9 @@ export interface Product {
   category: string;
   stock: number;
   image: string;
+  isGlass?: boolean; // Flag for glass handling fees
+  isUsed?: boolean; // New: Flag for used/pre-owned items
+  condition?: string; // New: Description of used item condition
 }
 
 export enum OrderStatus {
@@ -52,7 +56,16 @@ export interface AppSettings {
   referralBonus: number;
   michiganDepositValue: number; // 0.10
   processingFeePercent: number; // 0.20
-  glassHandlingFee: number; // 0.15 suggested
+  glassHandlingFeePercent: number; // Handling fee as a percentage (e.g. 0.05)
   dailyReturnLimit: number; // 25.00
   maintenanceMode: boolean;
+}
+
+export interface LoyaltyReward {
+  id: string;
+  title: string;
+  description: string;
+  cost: number;
+  type: 'CREDIT' | 'DISCOUNT' | 'PERK';
+  value?: number;
 }

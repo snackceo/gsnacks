@@ -7,46 +7,92 @@
   <meta name="description" content="Ninpo Snacks - The elite snack and bottle return platform for Michigan.">
   <meta name="theme-color" content="#a3e635">
   <title>Ninpo Snacks | Custo Logistics</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    // Shim process for browser environment to support Gemini API requirements
-    window.process = window.process || { env: {} };
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+          borderRadius: {
+            '4xl': '2rem',
+            '5xl': '3rem',
+          },
+          colors: {
+            lime: {
+              400: '#bef264',
+              500: '#a3e635',
+              600: '#65a30d',
+            }
+          }
+        }
+      }
+    }
   </script>
-  <style>
-    body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
-    .glass {
-      background: rgba(255, 255, 255, 0.92);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(0, 0, 0, 0.05);
+  
+  <style type="text/tailwindcss">
+    @layer components {
+      .glass {
+        @apply bg-white/90 backdrop-blur-md border border-slate-200/50;
+      }
+      .neon-glow {
+        box-shadow: 0 0 20px rgba(163, 230, 53, 0.4);
+      }
     }
-    .neon-glow {
-      box-shadow: 0 0 20px rgba(163, 230, 53, 0.3);
+
+    /* Standard Animation Definitions (Replacing tailwindcss-animate plugin) */
+    .animate-in {
+      animation-duration: 500ms;
+      animation-fill-mode: forwards;
+      animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     }
+    .fade-in { animation-name: fadeIn; }
+    .slide-in-from-right { animation-name: slideInRight; }
+    .slide-in-from-left { animation-name: slideInLeft; }
+    .slide-in-from-bottom { animation-name: slideInBottom; }
+    .zoom-in { animation-name: zoomIn; }
+
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    @keyframes slideInLeft { from { transform: translateX(-20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes slideInBottom { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes zoomIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
     ::-webkit-scrollbar-thumb:hover { background: #a3e635; }
-    
-    @keyframes fadeInScale {
-      from { opacity: 0; transform: scale(0.98); }
-      to { opacity: 1; transform: scale(1); }
-    }
-    .animate-in { animation: fadeInScale 0.4s ease-out forwards; }
   </style>
-<script type="importmap">
+
+  <script>
+    // Critical environment shims
+    window.process = { 
+      env: { 
+        API_KEY: "" // Will be injected by the environment
+      } 
+    };
+  </script>
+
+  <script type="importmap">
 {
   "imports": {
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom": "https://esm.sh/react-dom@^19.2.3",
-    "recharts": "https://esm.sh/recharts@^3.6.0?external=react,react-dom",
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/": "https://esm.sh/react-dom@19.0.0/",
+    "react/": "https://esm.sh/react@19.0.0/",
+    "lucide-react": "https://esm.sh/lucide-react@0.460.0",
+    "recharts": "https://esm.sh/recharts@3.6.0?external=react,react-dom",
+    "@google/genai": "https://esm.sh/@google/genai@1.34.0",
+    "vite": "https://esm.sh/vite@^7.3.0",
     "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "vite": "https://esm.sh/vite@^7.3.0"
+    "tailwindcss-animate": "https://esm.sh/tailwindcss-animate@^1.0.7"
   }
 }
 </script>
