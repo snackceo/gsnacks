@@ -7,42 +7,24 @@ import ManagementView from './views/ManagementView';
 import DriverView from './views/DriverView';
 import LoginView from './views/LoginView';
 import LegalFooter from './components/LegalFooter';
-import { analyzeBottleScan } from './services/geminiService';
 import { 
-  ShoppingBag, X, Trash2, Loader2, BarChart4, Binary, 
-  MapPin, CreditCard, Scan, Camera, ShieldCheck, Zap, Bell, Landmark
+  ShoppingBag, X, Trash2, Loader2, Binary, 
+  Zap, Landmark, WifiOff, RefreshCcw
 } from 'lucide-react';
 
 /**
- * PRODUCTION ENVIRONMENT CONFIG
- * Render injects these at build time. 
- * We use process.env to ensure compatibility with standard CI/CD pipelines.
+ * LOGISTICS HUB CONFIGURATION
+ * VITE_BACKEND_URL: Point this to your Render Web Service URL in Render settings.
  */
-const STRIPE_PUBLISHABLE_KEY = (process.env as any).VITE_STRIPE_PUBLISHABLE_KEY || '';
-const GPAY_MERCHANT_ID = (process.env as any).VITE_GOOGLE_PAY_MERCHANT_ID || '';
-const GPAY_ENV = (process.env as any).VITE_GPAY_ENV || 'TEST';
-
-interface Toast {
-  id: string;
-  message: string;
-  type: 'info' | 'success' | 'warning';
-}
+const BACKEND_URL = (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
 const useNinpoCore = () => {
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const getInitialState = <T,>(key: string, defaultValue: T): T => {
-    try {
-      const saved = localStorage.getItem(`ninpo_${key}`);
-      return saved ? JSON.parse(saved) : defaultValue;
-    } catch { return defaultValue; }
-  };
-
-  const [currentUser, setCurrentUser] = useState<User | null>(() => getInitialState('user', null));
-  const [users, setUsers] = useState<User[]>(() => getInitialState('all_users', [
-    { id: 'custo_001', name: 'Alex Johnson', email: 'alex@customail.com', role: UserRole.CUSTOMER, tier: UserTier.BRONZE, credits: 24.50, referralCode: 'ALEX77', loyaltyPoints: 1250, dailyReturnTotal: 0 },
-    { id: 'owner_001', name: 'Executive Admin', email: 'eve@owner.com', role: UserRole.OWNER, tier: UserTier.GOLD, credits: 1000.00, referralCode: 'BOSS_ONE', loyaltyPoints: 9999, dailyReturnTotal: 0 }
-  ]));
-  const [settings, setSettings] = useState<AppSettings>(() => getInitialState('settings', {
+  const [toasts, setToasts] = useState<{id: string; message: string; type: 'info' | 'success' | 'warning'}[]>([]);
+  const [isBackendOnline, setIsBackendOnline] = useState<boolean>(true);
+  
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [settings, setSettings] = useState<AppSettings>({
     deliveryFee: 2.99,
     referralBonus: 5.00,
     michiganDepositValue: 0.10,
@@ -50,204 +32,119 @@ const useNinpoCore = () => {
     glassHandlingFeePercent: 0.02,
     dailyReturnLimit: 25.00,
     maintenanceMode: false,
-  }));
-  const [products, setProducts] = useState<Product[]>(() => getInitialState('products', MOCK_PRODUCTS));
-  const [orders, setOrders] = useState<Order[]>(() => getInitialState('orders', []));
-  const [approvals, setApprovals] = useState<ApprovalRequest[]>(() => getInitialState('approvals', []));
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => getInitialState('logs', []));
-  const [cart, setCart] = useState<{ productId: string; quantity: number }[]>(() => getInitialState('cart', []));
+  });
+  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [cart, setCart] = useState<{ productId: string; quantity: number }[]>([]);
 
-  useEffect(() => {
-    const registry = { all_users: users, settings, products, orders, approvals, logs: auditLogs, cart };
-    Object.entries(registry).forEach(([k, v]) => localStorage.setItem(`ninpo_${k}`, JSON.stringify(v)));
-    if (currentUser) localStorage.setItem('ninpo_user', JSON.stringify(currentUser));
-    else localStorage.removeItem('ninpo_user');
-  }, [users, settings, products, orders, approvals, auditLogs, cart, currentUser]);
-
-  const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
+  const addToast = useCallback((message: string, type: any = 'info') => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   }, []);
 
-  const adjustCredits = useCallback((userId: string, amount: number, reason: string) => {
-    setUsers(prev => prev.map(u => {
-      if (u.id === userId) {
-        if (reason.includes('BOTTLE') && (u.dailyReturnTotal + amount) > settings.dailyReturnLimit) {
-          addToast("DAILY LIMIT REACHED", 'warning');
-          return u;
-        }
-        const newCredits = Number((u.credits + amount).toFixed(2));
-        const newDaily = reason.includes('BOTTLE') ? Number((u.dailyReturnTotal + amount).toFixed(2)) : u.dailyReturnTotal;
-        if (currentUser?.id === userId) setCurrentUser(cu => cu ? { ...cu, credits: newCredits, dailyReturnTotal: newDaily } : null);
-        return { ...u, credits: newCredits, dailyReturnTotal: newDaily };
+  const syncWithBackend = useCallback(async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/sync`);
+      if (response.ok) {
+        setIsBackendOnline(true);
+      } else {
+        setIsBackendOnline(false);
       }
-      return u;
-    }));
-  }, [currentUser?.id, settings.dailyReturnLimit, addToast]);
+    } catch (err) {
+      setIsBackendOnline(false);
+    }
+  }, []);
 
-  const updateOrder = useCallback((id: string, status: OrderStatus, metadata?: any) => {
-    setOrders(prev => {
-      const order = prev.find(o => o.id === id);
-      if (!order) return prev;
-      if (status === OrderStatus.DELIVERED && order.status !== OrderStatus.DELIVERED) {
-        const points = Math.floor(order.total);
-        setUsers(uPrev => uPrev.map(u => {
-          if (u.id === order.customerId) {
-            const customerOrders = prev.filter(ord => ord.customerId === u.id && ord.id !== id);
-            const totalSpend = customerOrders.reduce((sum, ord) => sum + ord.total, 0) + order.total;
-            const newTier = totalSpend > 500 ? UserTier.GOLD : totalSpend > 150 ? UserTier.SILVER : UserTier.BRONZE;
-            if (currentUser?.id === u.id) {
-              setCurrentUser(cu => cu ? { ...cu, loyaltyPoints: cu.loyaltyPoints + points, tier: newTier } : null);
-              addToast(`+${points} POINTS EARNED`, 'success');
-            }
-            return { ...u, loyaltyPoints: u.loyaltyPoints + points, tier: newTier };
-          }
-          return u;
-        }));
-      }
-      return prev.map(o => o.id === id ? { ...o, status, ...metadata } : o);
-    });
-  }, [currentUser?.id, addToast]);
+  useEffect(() => {
+    syncWithBackend();
+    const interval = setInterval(syncWithBackend, 30000);
+    return () => clearInterval(interval);
+  }, [syncWithBackend]);
+
+  const adjustCredits = useCallback(async (userId: string, amount: number, reason: string) => {
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, credits: u.credits + amount } : u));
+    try {
+      await fetch(`${BACKEND_URL}/api/users/${userId}/credits`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, reason })
+      });
+    } catch (e) {
+      addToast("Failed to sync credits to MongoDB", "warning");
+    }
+  }, [addToast]);
+
+  const updateOrder = useCallback(async (id: string, status: OrderStatus, metadata?: any) => {
+    setOrders(prev => prev.map(o => o.id === id ? { ...o, status, ...metadata } : o));
+    try {
+      await fetch(`${BACKEND_URL}/api/orders/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, ...metadata })
+      });
+    } catch (e) {
+      addToast("Order update failed to sync", "warning");
+    }
+  }, [addToast]);
 
   return {
     currentUser, setCurrentUser, users, setUsers, settings, setSettings,
     products, setProducts, orders, setOrders, approvals, setApprovals,
-    auditLogs, setAuditLogs, cart, setCart, toasts, addToast, adjustCredits, updateOrder
+    auditLogs, setAuditLogs, cart, setCart, toasts, addToast, adjustCredits, updateOrder,
+    isBackendOnline, syncWithBackend
   };
 };
 
 const App: React.FC = () => {
   const core = useNinpoCore();
-  const [address, setAddress] = useState(() => localStorage.getItem('ninpo_last_address') || '');
+  const [address, setAddress] = useState('');
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
   const [viewMode, setViewMode] = useState<'market' | 'management' | 'driver'>('market');
   const [isLoginViewOpen, setIsLoginViewOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
 
-  // References for Payment SDKs
-  const stripeRef = useRef<any>(null);
-  const gpayClientRef = useRef<any>(null);
-
-  useEffect(() => {
-    if ((window as any).Stripe && STRIPE_PUBLISHABLE_KEY) {
-      stripeRef.current = (window as any).Stripe(STRIPE_PUBLISHABLE_KEY);
-    }
-    if ((window as any).google?.payments?.api?.PaymentsClient) {
-      gpayClientRef.current = new (window as any).google.payments.api.PaymentsClient({
-        environment: GPAY_ENV as any
-      });
-    }
-  }, []);
-
-  const finalizeOrder = async (paymentMethod: 'CREDITS' | 'GOOGLE_PAY' | 'STRIPE_CARD') => {
-    const subtotal = core.cart.reduce((s, i) => {
-      const p = core.products.find(prod => prod.id === i.productId);
-      return s + (p?.price || 0) * i.quantity;
-    }, 0);
-    const fee = core.currentUser?.tier === UserTier.GOLD ? 0 : core.settings.deliveryFee;
-    const total = subtotal + fee;
-
-    const newOrder: Order = {
-      id: `ORD-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-      customerId: core.currentUser!.id,
-      items: [...core.cart],
-      total,
-      estimatedReturnCredit: 0,
-      paymentMethod,
-      address,
-      status: OrderStatus.PAID,
-      createdAt: new Date().toISOString(),
-    };
-
-    core.setProducts(prev => prev.map(p => {
-      const item = core.cart.find(i => i.productId === p.id);
-      return item ? { ...p, stock: Math.max(0, p.stock - item.quantity) } : p;
-    }));
-
-    core.setOrders(prev => [newOrder, ...prev]);
-    core.setCart([]);
-    setIsProcessingOrder(false);
-    setIsCartOpen(false);
-    core.addToast("HUB DISPATCHING CARGO TO " + address.toUpperCase(), 'success');
-  };
-
-  const handleCreateOrder = async () => {
-    if (isProcessingOrder || !core.currentUser || core.cart.length === 0 || !address.trim() || !acceptedPolicies) return;
-    const subtotal = core.cart.reduce((s, i) => {
-      const p = core.products.find(prod => prod.id === i.productId);
-      return s + (p?.price || 0) * i.quantity;
-    }, 0);
-    const fee = core.currentUser.tier === UserTier.GOLD ? 0 : core.settings.deliveryFee;
-    const total = subtotal + fee;
-
-    if (core.currentUser.credits < total) {
-      core.addToast("INSUFFICIENT CREDITS", 'warning');
-      return;
-    }
-
-    setIsProcessingOrder(true);
-    await new Promise(r => setTimeout(r, 1200));
-    core.adjustCredits(core.currentUser.id, -total, 'PURCHASE');
-    await finalizeOrder('CREDITS');
-  };
-
   const handleExternalPayment = async (type: 'STRIPE' | 'GPAY') => {
-    if (isProcessingOrder || !core.currentUser || core.cart.length === 0 || !address.trim() || !acceptedPolicies) return;
+    if (isProcessingOrder || !core.currentUser) return;
     setIsProcessingOrder(true);
-    core.addToast(`SECURE HANDSHAKE: ${type}`, 'info');
-
+    
     try {
-      if (type === 'GPAY') {
-        if (!gpayClientRef.current) throw new Error("GPAY_NOT_CONFIGURED");
-        
-        const paymentDataRequest = {
-          apiVersion: 2,
-          apiVersionMinor: 0,
-          allowedPaymentMethods: [{
-            type: 'CARD',
-            parameters: { 
-              allowedAuthMethods: ["PAN_ONLY", "CRYPTOGRAM_3DS"], 
-              allowedCardNetworks: ["VISA", "MASTERCARD"] 
-            },
-            tokenizationSpecification: { 
-              type: 'PAYMENT_GATEWAY', 
-              parameters: { 
-                'gateway': 'stripe', 
-                'stripe:version': '2020-08-27', 
-                'stripe:publishableKey': STRIPE_PUBLISHABLE_KEY 
-              } 
-            }
-          }],
-          merchantInfo: { 
-            merchantId: GPAY_MERCHANT_ID, 
-            merchantName: 'Ninpo Snacks' 
-          },
-          transactionInfo: { 
-            totalPriceStatus: 'FINAL', 
-            totalPrice: '1.00', 
-            currencyCode: 'USD', 
-            countryCode: 'US' 
-          }
-        };
-        await new Promise(r => setTimeout(r, 1500));
-      } else if (type === 'STRIPE') {
-        if (!stripeRef.current) throw new Error("STRIPE_NOT_CONFIGURED");
-        // Simulated Stripe Checkout Redirect
-        await new Promise(r => setTimeout(r, 1500));
-      }
+      const response = await fetch(`${BACKEND_URL}/api/payments/create-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          items: core.cart,
+          userId: core.currentUser.id,
+          gateway: type 
+        })
+      });
 
-      core.addToast("EXTERNAL AUTH SUCCESSFUL", 'success');
-      await finalizeOrder(type === 'STRIPE' ? 'STRIPE_CARD' : 'GOOGLE_PAY');
-    } catch (err) {
-      core.addToast(`GATEWAY ERROR: CHECK LOGS`, 'warning');
+      if (!response.ok) throw new Error("Payment gateway handshake failed.");
+      
+      const { sessionUrl } = await response.json();
+      core.addToast("REDIRECTING TO SECURE VAULT", 'success');
+      window.location.href = sessionUrl; 
+    } catch (err: any) {
+      core.addToast(err.message, 'warning');
       setIsProcessingOrder(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-ninpo-black text-white flex flex-col relative overflow-x-hidden selection:bg-ninpo-lime selection:text-ninpo-black">
+    <div className="min-h-screen bg-ninpo-black text-white flex flex-col relative overflow-x-hidden selection:bg-ninpo-lime selection:text-ninpo-black font-sans">
+      {!core.isBackendOnline && (
+        <div className="bg-ninpo-red text-white py-2 text-center text-[9px] font-black uppercase tracking-[0.3em] flex items-center justify-center gap-4 z-[12000] sticky top-0">
+          <WifiOff className="w-3 h-3" />
+          Mainframe Disconnected - Operating in Offline Buffer
+          <button onClick={core.syncWithBackend} className="bg-white/20 px-3 py-1 rounded hover:bg-white/30 transition-all flex items-center gap-1">
+            <RefreshCcw className="w-2 h-2" /> Reconnect
+          </button>
+        </div>
+      )}
+
       <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[11000] flex flex-col gap-2 w-full max-w-xs px-4 pointer-events-none">
         {core.toasts.map(t => (
           <div key={t.id} className={`animate-in slide-in-top flex items-center gap-3 px-6 py-4 rounded-full border shadow-neon backdrop-blur-xl pointer-events-auto ${t.type === 'success' ? 'bg-ninpo-lime/10 border-ninpo-lime text-ninpo-lime' : t.type === 'warning' ? 'bg-ninpo-red/10 border-ninpo-red text-ninpo-red' : 'bg-white/10 border-white/20 text-white'}`}>
@@ -278,26 +175,14 @@ const App: React.FC = () => {
       </header>
 
       <main className="flex-1 px-6 py-10 max-w-[1600px] w-full mx-auto">
-        {viewMode === 'market' && (
-          <CustomerView 
-            products={core.products} 
-            orders={core.orders.filter(o => o.customerId === core.currentUser?.id)} 
-            currentUser={core.currentUser} 
-            openLogin={() => setIsLoginViewOpen(true)} 
-            onRequestRefund={() => {}} 
-            addToCart={(id) => {
-              if (!core.currentUser) { setIsLoginViewOpen(true); return; }
-              core.setCart(prev => {
-                const existing = prev.find(i => i.productId === id);
-                return existing ? prev.map(i => i.productId === id ? { ...i, quantity: i.quantity + 1 } : i) : [...prev, { productId: id, quantity: 1 }];
-              });
-              core.addToast("ADDED TO CARGO");
-            }} 
-            updateUserProfile={() => {}} 
-            reorderItems={() => {}} 
-            onRedeemPoints={() => {}} 
-          />
-        )}
+        {viewMode === 'market' && <CustomerView products={core.products} orders={core.orders.filter(o => o.customerId === core.currentUser?.id)} currentUser={core.currentUser} openLogin={() => setIsLoginViewOpen(true)} onRequestRefund={() => {}} addToCart={(id) => {
+          if (!core.currentUser) { setIsLoginViewOpen(true); return; }
+          core.setCart(prev => {
+            const existing = prev.find(i => i.productId === id);
+            return existing ? prev.map(i => i.productId === id ? { ...i, quantity: i.quantity + 1 } : i) : [...prev, { productId: id, quantity: 1 }];
+          });
+          core.addToast("ADDED TO CARGO");
+        }} updateUserProfile={() => {}} reorderItems={() => {}} onRedeemPoints={() => {}} />}
         {viewMode === 'management' && <ManagementView user={core.currentUser!} products={core.products} setProducts={core.setProducts} orders={core.orders} users={core.users} settings={core.settings} setSettings={core.setSettings} approvals={core.approvals} setApprovals={core.setApprovals} auditLogs={core.auditLogs} updateOrder={core.updateOrder} adjustCredits={core.adjustCredits} updateUserProfile={() => {}} />}
         {viewMode === 'driver' && <DriverView orders={core.orders} updateOrder={core.updateOrder} />}
       </main>
@@ -346,7 +231,7 @@ const App: React.FC = () => {
                 Accept Hub Protocol
               </label>
               <div className="grid grid-cols-1 gap-2">
-                <button onClick={handleCreateOrder} disabled={!address.trim() || !acceptedPolicies || isProcessingOrder || core.cart.length === 0} className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-xl font-black uppercase text-[10px] shadow-neon flex items-center justify-center gap-2 disabled:opacity-30">
+                <button disabled={!address.trim() || !acceptedPolicies || isProcessingOrder || core.cart.length === 0} className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-xl font-black uppercase text-[10px] shadow-neon flex items-center justify-center gap-2 disabled:opacity-30">
                   {isProcessingOrder ? <Loader2 className="w-4 h-4 animate-spin" /> : "Pay with Credits"}
                 </button>
                 <div className="grid grid-cols-2 gap-2">
