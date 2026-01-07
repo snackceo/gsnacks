@@ -1,9 +1,13 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 export const analyzeBottleScan = async (base64Data: string) => {
+  // Use process.env.API_KEY as injected by the environment
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) return { valid: false, material: "ERROR", message: "API Key missing." };
+  
+  const ai = new GoogleGenAI({ apiKey });
+  
   try {
     const response: GenerateContentResponse = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -23,7 +27,7 @@ export const analyzeBottleScan = async (base64Data: string) => {
             material: { type: Type.STRING },
             message: { type: Type.STRING }
           },
-          required: ["valid", "material", "message"]
+          propertyOrdering: ["valid", "material", "message"]
         }
       }
     });
@@ -34,15 +38,20 @@ export const analyzeBottleScan = async (base64Data: string) => {
 };
 
 export const getAdvancedInventoryInsights = async (inventory: any[], orders: any[]) => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) return "Intelligence engine unavailable: Missing Key.";
+  
+  const ai = new GoogleGenAI({ apiKey });
+
   try {
     const response: GenerateContentResponse = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
       contents: `Perform a deep audit of this snack inventory and recent order history. 
       Inventory: ${JSON.stringify(inventory)}
       Orders: ${JSON.stringify(orders)}
-      Suggest 3 strategic actions to maximize profit and minimize stockouts.`,
+      Identify logistics bottlenecks, popular snack trends in the data, and suggest 3 strategic actions to maximize profit.`,
       config: {
-        thinkingConfig: { thinkingBudget: 4000 }
+        thinkingConfig: { thinkingBudget: 32768 } // Use max budget for pro model
       }
     });
     return response.text;

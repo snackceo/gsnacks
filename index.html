@@ -12,6 +12,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
   
+  <!-- External Payment SDKs -->
+  <script src="https://js.stripe.com/v3/"></script>
+  <script src="https://pay.google.com/gp/p/js/pay.js"></script>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -31,20 +35,6 @@
               grey: '#2a2a2a',
               lightgrey: '#444'
             }
-          },
-          borderRadius: {
-            '3xl': '1.5rem',
-            '4xl': '2rem',
-            '5xl': '3.5rem',
-          },
-          animation: {
-            'pulse-slow': 'pulseSlow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-          },
-          keyframes: {
-            pulseSlow: {
-              '0%, 100%': { opacity: 1, transform: 'scale(1)' },
-              '50%': { opacity: 0.9, transform: 'scale(1.03)' },
-            }
           }
         }
       }
@@ -56,60 +46,36 @@
       .shadow-neon {
         box-shadow: 0 0 30px rgba(0, 255, 65, 0.4);
       }
-      .no-scrollbar::-webkit-scrollbar {
-        display: none;
-      }
-      .no-scrollbar {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-      }
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     }
-
     .animate-in {
-      animation-duration: 400ms;
-      animation-fill-mode: forwards;
-      animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+      animation: fadeIn 0.4s ease-out forwards;
     }
-    .fade-in { animation-name: fadeIn; }
-    .slide-in-bottom { animation-name: slideInBottom; }
-    .slide-in-right { animation-name: slideInRight; }
-
-    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    @keyframes slideInBottom { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-    @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
-
-    body {
-      background-color: #050505;
-      color: white;
-      overscroll-behavior-y: none;
+    @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+    @keyframes scan {
+      0% { transform: translateY(0); opacity: 0; }
+      20% { opacity: 1; }
+      80% { opacity: 1; }
+      100% { transform: translateY(200px); opacity: 0; }
     }
-
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: #050505; }
-    ::-webkit-scrollbar-thumb { background: #00ff41; border-radius: 10px; }
+    body { background-color: #050505; color: white; margin: 0; }
   </style>
-
-  <script>
-    window.process = { 
-      env: { 
-        API_KEY: "" 
-      } 
-    };
-  </script>
 
   <script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@19.0.0",
     "react-dom": "https://esm.sh/react-dom@19.0.0",
-    "react-dom/": "https://esm.sh/react-dom@19.0.0/",
-    "react/": "https://esm.sh/react@19.0.0/",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
     "lucide-react": "https://esm.sh/lucide-react@0.460.0",
     "recharts": "https://esm.sh/recharts@3.6.0?external=react,react-dom",
     "@google/genai": "https://esm.sh/@google/genai@1.34.0",
-    "tailwindcss-animate": "https://esm.sh/tailwindcss-animate@^1.0.7",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
     "vite": "https://esm.sh/vite@^7.3.0",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "tailwindcss-animate": "https://esm.sh/tailwindcss-animate@^1.0.7"
   }
 }
 </script>

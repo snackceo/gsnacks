@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserRole, UserTier } from '../types';
-import { Shield, Lock, Cpu, Fingerprint, AlertCircle, ChevronRight, Binary, UserPlus, LogIn, Gift } from 'lucide-react';
+import { Shield, Lock, Cpu, Fingerprint, AlertCircle, ChevronRight, Binary, UserPlus, LogIn, Gift, PartyPopper } from 'lucide-react';
 
 interface LoginViewProps {
   users: User[];
@@ -19,6 +19,7 @@ const LoginView: React.FC<LoginViewProps> = ({ users, onLogin, onRegister, onCan
   const [referralCodeInput, setReferralCodeInput] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
   const usernameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -38,7 +39,6 @@ const LoginView: React.FC<LoginViewProps> = ({ users, onLogin, onRegister, onCan
           return;
         }
 
-        // Validate Referral Code (Optional)
         let startingCredits = 0;
         let referredBy: string | undefined = undefined;
         if (referralCodeInput.trim()) {
@@ -62,10 +62,12 @@ const LoginView: React.FC<LoginViewProps> = ({ users, onLogin, onRegister, onCan
           credits: startingCredits,
           referredBy: referredBy,
           referralCode: `NINPO_${username.toUpperCase().slice(0, 3)}${Math.floor(Math.random()*100)}`,
-          loyaltyPoints: 100,
+          loyaltyPoints: 100, // Welcome points
           dailyReturnTotal: 0
         };
-        onRegister(newUser);
+        
+        setShowWelcome(true);
+        setTimeout(() => onRegister(newUser), 1500);
       } else {
         const foundUser = users.find(u => u.name.toLowerCase() === username.toLowerCase());
         
@@ -87,6 +89,20 @@ const LoginView: React.FC<LoginViewProps> = ({ users, onLogin, onRegister, onCan
       }
     }, 1200);
   };
+
+  if (showWelcome) {
+    return (
+      <div className="text-center space-y-8 p-12 bg-ninpo-midnight rounded-[3rem] border border-ninpo-lime/20 shadow-neon animate-in zoom-in">
+        <div className="w-24 h-24 bg-ninpo-lime/10 rounded-full flex items-center justify-center mx-auto border border-ninpo-lime/20">
+          <PartyPopper className="w-12 h-12 text-ninpo-lime animate-bounce" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-black uppercase text-white tracking-widest">Uplink Successful</h2>
+          <p className="text-[10px] font-black text-slate-500 uppercase mt-2 tracking-widest">+100 Welcome Points Credited</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div 
