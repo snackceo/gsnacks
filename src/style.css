@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --ninpo-lime: #00ff41;
+    --ninpo-black: #050505;
+  }
+
+  html, body {
+    @apply bg-ninpo-black text-white selection:bg-ninpo-lime selection:text-ninpo-black;
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    background-color: #050505 !important;
+  }
+
+  #root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+@layer components {
+  .shadow-neon {
+    box-shadow: 0 0 20px rgba(0, 255, 65, 0.3);
+  }
+
+  .shadow-neon-strong {
+    box-shadow: 0 0 40px rgba(0, 255, 65, 0.5);
+  }
+
+  .glass {
+    @apply bg-ninpo-midnight/80 backdrop-blur-xl border border-white/10;
+  }
+
+  .no-scrollbar::-webkit-scrollbar { 
+    display: none; 
+  }
+  
+  .no-scrollbar { 
+    -ms-overflow-style: none; 
+    scrollbar-width: none; 
+  }
+
+  .animate-in {
+    @apply opacity-0;
+    animation: fadeIn 0.4s ease-out forwards;
+  }
+
+  .scanning-line {
+    @apply absolute w-full h-1 bg-ninpo-lime/40 blur-sm pointer-events-none;
+    animation: scan 2s linear infinite;
+  }
+}
+
+@keyframes fadeIn { 
+  from { opacity: 0; transform: scale(0.98); } 
+  to { opacity: 1; transform: scale(1); } 
+}
+
+@keyframes scan {
+  0% { transform: translateY(0); opacity: 0; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: translateY(200px); opacity: 0; }
+}
+
+.group:hover .grayscale {
+  filter: grayscale(0%);
+}

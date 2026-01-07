@@ -1,19 +1,25 @@
-
 /** @type {import('tailwindcss').Config} */
 import tailwindAnimate from 'tailwindcss-animate';
 
 export default {
   content: [
     "./index.html",
-    "./**/*.{js,ts,jsx,tsx}",
+    "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {
+      colors: {
+        ninpo: {
+          black: "#050505",
+          midnight: "#0a0e14",
+          lime: "#00ff41",
+        },
+      },
       borderRadius: {
         '4xl': '2rem',
         '5xl': '3rem',
-      }
+      },
     },
   },
   plugins: [tailwindAnimate],
-}
+};
