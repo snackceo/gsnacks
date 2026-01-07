@@ -1,84 +1,180 @@
-
 import express from 'express';
-import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import Stripe from 'stripe';
+import crypto from 'crypto';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Initialize Stripe only if key is present
-const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+/* =========================
+   STRIPE
+========================= */
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY)
+  : null;
+
+const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+/* =========================
+   IMPORTANT:
+   Stripe webhooks require RAW body
+========================= */
+app.use(
+  '/api/stripe/webhook',
+  express.raw({ type: 'application/json' })
+);
 
 app.use(cors());
-app.use(express.json());
 
-// MongoDB Connection
-const connectDB = async () => {
-  try {
-    const uri = process.env.MONGO_URI;
-    if (!uri) {
-      console.warn("WARNING: MONGO_URI is missing. Backend running in ephemeral mode.");
-      return;
-    }
-    await mongoose.connect(uri);
-    console.log("LOGISTICS HUB: Connected to MongoDB Cluster.");
-  } catch (err) {
-    console.error("LOGISTICS HUB: MongoDB Connection Error:", err.message);
+app.use((req, res, next) => {
+  if (req.originalUrl === '/api/stripe/webhook') {
+    next();
+  } else {
+    express.json()(req, res, next);
   }
-};
-connectDB();
-
-// Root Route for Health Check (Visible in Browser)
-app.get('/', (req, res) => {
-  res.send('<h1>NINPO MAINFRAME ONLINE</h1><p>Logistics Node 01 is active and listening.</p>');
 });
 
-// API Routes
-app.get('/api/sync', async (req, res) => {
+
+/* =========================
+   SERVER-TRUSTED DATA
+   (Replace with Mongo later)
+========================= */
+const PRODUCTS = [
+  { id: 'cola', name: 'Cola', price: 2.5 },
+  { id: 'orange', name: 'Orange Soda', price: 2.0 },
+  { id: 'water', name: 'Spring Water', price: 1.5 }
+];
+
+const ORDERS = [];
+
+/* =========================
+   HEALTH CHECK
+========================= */
+app.get('/', (_, res) => {
+  res.send('NINPO MAINFRAME ONLINE');
+});
+
+app.get('/api/sync', (_, res) => {
   res.json({
-    status: "online",
-    message: "Ninpo Mainframe Active",
+    status: 'online',
     timestamp: new Date().toISOString()
   });
 });
 
+/* =========================
+   CREATE STRIPE SESSION
+========================= */
 app.post('/api/payments/create-session', async (req, res) => {
-  const { items, userId } = req.body;
-  
   if (!stripe) {
-    return res.status(500).json({ error: "Stripe integration not configured on host." });
+    return res.status(500).json({ error: 'Stripe not configured' });
   }
+
+  const { items, userId } = req.body;
+
+  if (!Array.isArray(items) || !userId) {
+    return res.status(400).json({ error: 'Invalid request payload' });
+  }
+
+  let totalCents = 0;
+  const lineItems = [];
+
+  for (const item of items) {
+    const product = PRODUCTS.find(p => p.id === item.productId);
+    if (!product) {
+      return res.status(400).json({
+        error: `Invalid product: ${item.productId}`
+      });
+    }
+
+    const unitAmount = Math.round(product.price * 100);
+    totalCents += unitAmount * item.quantity;
+
+    lineItems.push({
+      price_data: {
+        currency: 'usd',
+        product_data: { name: product.name },
+        unit_amount: unitAmount
+      },
+      quantity: item.quantity
+    });
+  }
+
+  const orderId = crypto.randomUUID();
+
+  ORDERS.push({
+    id: orderId,
+    customerId: userId,
+    items,
+    total: totalCents / 100,
+    paymentMethod: 'STRIPE_CARD',
+    status: 'PENDING',
+    createdAt: new Date().toISOString()
+  });
 
   try {
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: items.map(item => ({
-        price_data: {
-          currency: 'usd',
-          product_data: { name: `Batch SKU: ${item.productId}` },
-          unit_amount: 500, 
-        },
-        quantity: item.quantity,
-      })),
       mode: 'payment',
-      success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/success`,
-      cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/cancel`,
+      payment_method_types: ['card'],
+      line_items: lineItems,
+      metadata: {
+        orderId,
+        userId
+      },
+      success_url:
+        `${process.env.FRONTEND_URL || 'http://localhost:5173'}/success`,
+      cancel_url:
+        `${process.env.FRONTEND_URL || 'http://localhost:5173'}/cancel`
     });
 
     res.json({ sessionUrl: session.url });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Stripe session creation failed' });
   }
 });
 
-app.post('/api/ai/analyze-bottle', async (req, res) => {
-  res.json({ valid: true, material: "ALUMINUM", message: "Mainframe Analysis Successful." });
+/* =========================
+   STRIPE WEBHOOK
+========================= */
+app.post('/api/stripe/webhook', (req, res) => {
+  if (!stripe || !webhookSecret) {
+    return res.status(500).send('Webhook not configured');
+  }
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      req.headers['stripe-signature'],
+      webhookSecret
+    );
+  } catch (err) {
+    console.error('Webhook signature verification failed.');
+    return res.status(400).send('Invalid signature');
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const orderId = session.metadata?.orderId;
+
+    const order = ORDERS.find(o => o.id === orderId);
+    if (order) {
+      order.status = 'PAID';
+      order.paidAt = new Date().toISOString();
+      console.log(`ORDER PAID: ${orderId}`);
+    }
+  }
+
+  res.json({ received: true });
 });
 
+/* =========================
+   SERVER START
+========================= */
 app.listen(PORT, () => {
-  console.log(`LOGISTICS HUB: Listening on Node ${PORT}`);
+  console.log(`LOGISTICS HUB ONLINE @ ${PORT}`);
 });

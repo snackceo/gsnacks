@@ -8,6 +8,8 @@ import CustomerView from './views/CustomerView';
 import ManagementView from './views/ManagementView';
 import DriverView from './views/DriverView';
 import LoginView from './views/LoginView';
+import PaymentSuccess from './views/PaymentSuccess';
+import PaymentCancel from './views/PaymentCancel';
 
 import Header from './components/Header';
 import CartDrawer from './components/CartDrawer';
@@ -113,6 +115,10 @@ function App() {
               />
             }
           />
+
+          {/* PAYMENT RESULTS */}
+          <Route path="/success" element={<PaymentSuccess />} />
+          <Route path="/cancel" element={<PaymentCancel />} />
 
           {/* MANAGEMENT — OWNER ONLY */}
           <Route
