@@ -1,32 +1,29 @@
+import { useNavigate } from 'react-router-dom';
 import { UserRole } from '../types';
 
 interface Props {
   currentUserRole?: UserRole;
   isLoggedIn: boolean;
-  onLogoClick: () => void;
-  onLogout: () => void;
   onLogin: () => void;
-  onSelectMarket: () => void;
-  onSelectManagement: () => void;
-  onSelectDriver: () => void;
+  onLogout: () => void;
 }
 
 const Header = ({
   currentUserRole,
   isLoggedIn,
-  onLogoClick,
-  onLogout,
   onLogin,
-  onSelectMarket,
-  onSelectManagement,
-  onSelectDriver
+  onLogout
 }: Props) => {
+  const navigate = useNavigate();
+
   return (
     <header className="px-6 pt-8 max-w-[1600px] w-full mx-auto z-50">
       <div className="bg-ninpo-midnight/80 backdrop-blur-xl rounded-[2.5rem] p-5 border border-white/10 flex items-center justify-between">
+
+        {/* Logo */}
         <div
           className="flex items-center gap-4 cursor-pointer"
-          onClick={onLogoClick}
+          onClick={() => navigate('/')}
         >
           <div className="w-10 h-10 bg-ninpo-lime rounded-xl flex items-center justify-center">
             <span className="text-ninpo-black font-black text-xl">N</span>
@@ -36,11 +33,16 @@ const Header = ({
           </span>
         </div>
 
+        {/* Actions */}
         <div className="flex gap-2">
           {currentUserRole === UserRole.OWNER && (
             <>
-              <button onClick={onSelectManagement}>Management</button>
-              <button onClick={onSelectDriver}>Logistics</button>
+              <button onClick={() => navigate('/management')}>
+                Management
+              </button>
+              <button onClick={() => navigate('/driver')}>
+                Logistics
+              </button>
             </>
           )}
 

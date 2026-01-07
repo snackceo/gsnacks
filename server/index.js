@@ -65,8 +65,8 @@ app.post('/api/payments/create-session', async (req, res) => {
         quantity: item.quantity,
       })),
       mode: 'payment',
-      success_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/success`,
-      cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/cancel`,
+      success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/success`,
+      cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/cancel`,
     });
 
     res.json({ sessionUrl: session.url });
