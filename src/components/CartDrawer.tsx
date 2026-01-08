@@ -71,6 +71,8 @@ const CartDrawer = ({
           ) : (
             cart.map(item => {
               const p = products.find(prod => prod.id === item.productId);
+              const price = (p as any)?.price ?? 0;
+
               return (
                 <div
                   key={item.productId}
@@ -79,15 +81,18 @@ const CartDrawer = ({
                   <img
                     src={p?.image}
                     className="w-12 h-12 rounded-xl object-cover grayscale"
+                    alt={p?.name ?? 'Product'}
                   />
+
                   <div className="flex-1">
                     <p className="text-[10px] font-black uppercase">
-                      {p?.name}
+                      {p?.name ?? item.productId}
                     </p>
                     <p className="text-[9px] font-bold text-ninpo-lime mt-1">
-                      {item.quantity} x ${p?.price.toFixed(2)}
+                      {item.quantity} x ${(price as number).toFixed(2)}
                     </p>
                   </div>
+
                   <button
                     onClick={() => onRemoveItem(item.productId)}
                     className="text-slate-600 hover:text-ninpo-red"
