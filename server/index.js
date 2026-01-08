@@ -33,7 +33,6 @@ mongoose
 
 /* =========================
    MODELS (Product/Order inline for now)
-   Expanded to match frontend Product shape
 ========================= */
 const productSchema = new mongoose.Schema(
   {
@@ -43,7 +42,6 @@ const productSchema = new mongoose.Schema(
     deposit: { type: Number, default: 0 },
     stock: { type: Number, default: 0 },
 
-    // Frontend fields (optional but recommended)
     category: { type: String, default: 'DRINK' },
     image: { type: String, default: '' },
     isGlass: { type: Boolean, default: false }
@@ -116,13 +114,16 @@ app.use((req, res, next) => {
 /* =========================
    HELPERS
 ========================= */
-const isProd = process.env.NODE_ENV === 'production';
 
+// Production auth cookie for: ninposnacks.com + api.ninposnacks.com
+// This fixes sticky sessions + logout not clearing.
 function setAuthCookie(res, token) {
   res.cookie('auth_token', token, {
     httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? 'none' : 'lax',
+    secure: true,
+    sameSite: 'lax',
+    domain: '.ninposnacks.com',
+    path: '/',
     maxAge: 7 * 24 * 60 * 60 * 1000
   });
 }
@@ -130,8 +131,10 @@ function setAuthCookie(res, token) {
 function clearAuthCookie(res) {
   res.clearCookie('auth_token', {
     httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? 'none' : 'lax'
+    secure: true,
+    sameSite: 'lax',
+    domain: '.ninposnacks.com',
+    path: '/'
   });
 }
 
@@ -141,11 +144,7 @@ function authRequired(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    // normalize shape for frontend
-    req.user = {
-      ...decoded,
-      id: decoded.userId
-    };
+    req.user = { ...decoded, id: decoded.userId };
     return next();
   } catch {
     return res.status(401).json({ error: 'Invalid session' });
@@ -196,7 +195,6 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     const user = await User.create({ username, password });
-
     const role = isOwnerUsername(user.username) ? 'OWNER' : 'CUSTOMER';
 
     const token = jwt.sign(
@@ -254,15 +252,12 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.get('/api/auth/me', authRequired, (req, res) => {
-  // returns the decoded token payload + id normalization
   res.json({ ok: true, user: req.user });
 });
 
 /* =========================
    PRODUCTS
 ========================= */
-
-// Public: storefront fetches products here
 app.get('/api/products', async (req, res) => {
   try {
     const docs = await Product.find({}).sort({ createdAt: -1 }).lean();
@@ -284,20 +279,10 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
-// Owner: add product
 app.post('/api/products', authRequired, ownerRequired, async (req, res) => {
   try {
-    const {
-      id,
-      frontendId,
-      name,
-      price,
-      deposit,
-      stock,
-      category,
-      image,
-      isGlass
-    } = req.body || {};
+    const { id, frontendId, name, price, deposit, stock, category, image, isGlass } =
+      req.body || {};
 
     const finalFrontendId = (frontendId || id || '').trim();
     if (!finalFrontendId) return res.status(400).json({ error: 'id is required' });
@@ -333,11 +318,14 @@ app.post('/api/products', authRequired, ownerRequired, async (req, res) => {
     });
   } catch (err) {
     console.error('CREATE PRODUCT ERROR:', err);
+    // Handle duplicate frontendId cleanly
+    if (err?.code === 11000) {
+      return res.status(409).json({ error: 'Product ID already exists' });
+    }
     res.status(500).json({ error: 'Failed to create product' });
   }
 });
 
-// Owner: update product
 app.patch('/api/products/:id', authRequired, ownerRequired, async (req, res) => {
   try {
     const frontendId = req.params.id;
@@ -354,11 +342,9 @@ app.patch('/api/products/:id', authRequired, ownerRequired, async (req, res) => 
     if (updates.stock !== undefined) updates.stock = Number(updates.stock);
     if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
 
-    const updated = await Product.findOneAndUpdate(
-      { frontendId },
-      updates,
-      { new: true }
-    ).lean();
+    const updated = await Product.findOneAndUpdate({ frontendId }, updates, {
+      new: true
+    }).lean();
 
     if (!updated) return res.status(404).json({ error: 'Product not found' });
 
@@ -382,7 +368,6 @@ app.patch('/api/products/:id', authRequired, ownerRequired, async (req, res) => 
   }
 });
 
-// Owner: delete product
 app.delete('/api/products/:id', authRequired, ownerRequired, async (req, res) => {
   try {
     const frontendId = req.params.id;
@@ -403,7 +388,6 @@ app.post('/api/payments/create-session', async (req, res) => {
     if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
 
     const { items, userId } = req.body || {};
-
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'Cart is empty' });
     }
