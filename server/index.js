@@ -4,6 +4,9 @@ import dotenv from 'dotenv';
 import Stripe from 'stripe';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
+import jwt from 'jsonwebtoken';
+import cookieParser from 'cookie-parser';
+import User from './models/User';  // Import the User model
 
 dotenv.config();
 
@@ -28,10 +31,12 @@ mongoose
   .catch(err => console.error('MongoDB connection error:', err));
 
 /* =========================
-   MODELS
+   MONGOOSE MODELS
 ========================= */
+
+// Product Schema
 const productSchema = new mongoose.Schema({
-  frontendId: { type: String, required: true, unique: true },
+  frontendId: { type: String, required: true, unique: true }, // IMPORTANT
   name: String,
   price: Number,
   deposit: Number,
@@ -40,6 +45,7 @@ const productSchema = new mongoose.Schema({
 
 const Product = mongoose.model('Product', productSchema);
 
+// Order Schema
 const orderSchema = new mongoose.Schema({
   customerId: String,
   items: Array,
@@ -59,12 +65,9 @@ app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
 /* =========================
    MIDDLEWARE
 ========================= */
-app.use(cors({ origin: '*' }));
-
-app.use((req, res, next) => {
-  if (req.originalUrl === '/api/stripe/webhook') return next();
-  express.json()(req, res, next);
-});
+app.use(cors({ origin: '*', credentials: true }));
+app.use(cookieParser());
+app.use(express.json());
 
 /* =========================
    CREATE STRIPE SESSION
@@ -81,7 +84,6 @@ app.post('/api/payments/create-session', async (req, res) => {
     let totalCents = 0;
 
     for (const item of items) {
-      // MATCH BY frontendId — NOT ObjectId
       const product = await Product.findOne({ frontendId: item.productId });
 
       if (!product) {
@@ -122,7 +124,7 @@ app.post('/api/payments/create-session', async (req, res) => {
 
     res.json({ sessionUrl: session.url });
   } catch (err) {
-    console.error('STRIPE ERROR:', err);
+    console.error(err);
     res.status(500).json({ error: 'Stripe session failed' });
   }
 });
@@ -148,6 +150,66 @@ app.post('/api/stripe/webhook', (req, res) => {
   }
 
   res.json({ received: true });
+});
+
+/* =========================
+   LOGIN (USER)
+========================= */
+
+// Register a new user
+app.post('/api/auth/register', async (req, res) => {
+  const { username, password } = req.body;
+
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new User({ username, password: hashedPassword });
+    await newUser.save();
+    res.status(201).json({ message: 'User registered successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to register user' });
+  }
+});
+
+// Login user and send JWT
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+
+  const user = await User.findOne({ username });
+  if (!user) {
+    return res.status(400).json({ error: 'Invalid credentials' });
+  }
+
+  const validPassword = await bcrypt.compare(password, user.password);
+  if (!validPassword) {
+    return res.status(400).json({ error: 'Invalid credentials' });
+  }
+
+  const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
+
+  // Send JWT as cookie for persistent login
+  res.cookie('auth_token', token, { httpOnly: true, secure: true, sameSite: 'Strict' });
+  res.json({ message: 'Login successful' });
+});
+
+// Protect routes
+const authenticate = (req, res, next) => {
+  const token = req.cookies.auth_token;
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    req.user = decoded;
+    next();
+  });
+};
+
+// Example of a protected route
+app.get('/api/protected', authenticate, (req, res) => {
+  res.json({ message: 'You have access to this route', userId: req.user.userId });
 });
 
 /* =========================
