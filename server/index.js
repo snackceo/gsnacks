@@ -43,10 +43,64 @@ app.use((req, res, next) => {
    (Replace with Mongo later)
 ========================= */
 const PRODUCTS = [
-  { id: 'cola', name: 'Cola', price: 2.5 },
-  { id: 'orange', name: 'Orange Soda', price: 2.0 },
-  { id: 'water', name: 'Spring Water', price: 1.5 }
+  {
+    id: '1',
+    name: 'NINPO WASABI PEAS',
+    price: 4.5,
+    deposit: 0,
+    stock: 50
+  },
+  {
+    id: '2',
+    name: 'KYOTO MATCHA MOCHI',
+    price: 6.99,
+    deposit: 0,
+    stock: 20
+  },
+  {
+    id: '3',
+    name: 'SEA SALT POCKY STICKS',
+    price: 3.25,
+    deposit: 0,
+    stock: 100
+  },
+  {
+    id: '4',
+    name: 'ORGANIC NORI CRISPS',
+    price: 2.99,
+    deposit: 0,
+    stock: 75
+  },
+  {
+    id: '5',
+    name: 'RAMUNE SODA CLASSIC',
+    price: 3.5,
+    deposit: 0.1,
+    stock: 40
+  },
+  {
+    id: '6',
+    name: 'CALPICO MELON BLEND',
+    price: 3.75,
+    deposit: 0.1,
+    stock: 35
+  },
+  {
+    id: '7',
+    name: 'NINPO LOGO HOODIE',
+    price: 45,
+    deposit: 0,
+    stock: 5
+  },
+  {
+    id: '8',
+    name: 'TACTICAL GEAR BOTTLE',
+    price: 18.5,
+    deposit: 0,
+    stock: 8
+  }
 ];
+
 
 const ORDERS = [];
 
