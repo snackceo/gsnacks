@@ -106,15 +106,16 @@ app.use((req, res, next) => {
 /* =========================
    HELPERS
 ========================= */
-const isProd = process.env.NODE_ENV === 'production';
-
+// You are now serving backend from https://api.ninposnacks.com
+// Frontend is https://ninposnacks.com
+// This is SAME-SITE (same eTLD+1), so we should use SameSite=Lax and a domain cookie.
 function setAuthCookie(res, token) {
-  // Cross-site cookie (frontend domain != backend domain) requires:
-  // sameSite: 'none' AND secure: true
   res.cookie('auth_token', token, {
     httpOnly: true,
-    secure: isProd,         // true on Render/production (https)
-    sameSite: isProd ? 'none' : 'lax',
+    secure: true,            // required for HTTPS
+    sameSite: 'lax',         // correct for same-site subdomains
+    domain: '.ninposnacks.com',
+    path: '/',
     maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
   });
 }
@@ -122,8 +123,10 @@ function setAuthCookie(res, token) {
 function clearAuthCookie(res) {
   res.clearCookie('auth_token', {
     httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? 'none' : 'lax'
+    secure: true,
+    sameSite: 'lax',
+    domain: '.ninposnacks.com',
+    path: '/'
   });
 }
 
