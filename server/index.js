@@ -50,13 +50,12 @@ const orderSchema = new mongoose.Schema({
   customerId: { type: String, required: true },
   items: [{
     productId: { type: String, required: true },
-    quantity: { type: Number, required: true },
+    quantity: { type: Number, required: true }
   }],
   total: { type: Number, required: true },
   paymentMethod: { type: String, required: true },
   status: { type: String, required: true },
   createdAt: { type: Date, default: Date.now },
-  paidAt: { type: Date },
 });
 
 const Order = mongoose.model('Order', orderSchema);
@@ -69,14 +68,7 @@ app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
 /* =========================
    MIDDLEWARE
 ========================= */
-app.use(
-  cors({
-    origin: '*', // For testing, allow all origins
-    methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  })
-);
-
+app.use(cors());
 app.use((req, res, next) => {
   if (req.originalUrl === '/api/stripe/webhook') {
     return next();
@@ -105,9 +97,14 @@ app.post('/api/payments/create-session', async (req, res) => {
   try {
     // Fetch product data from MongoDB
     for (const item of items) {
-      const product = await Product.findById(item.productId);
+      // Convert productId to ObjectId
+      const productId = mongoose.Types.ObjectId(item.productId);
+      const product = await Product.findById(productId);
+
       if (!product) {
-        return res.status(400).json({ error: `Invalid product: ${item.productId}` });
+        return res.status(400).json({
+          error: `Invalid product: ${item.productId}`,
+        });
       }
 
       lineItems.push({
@@ -145,7 +142,7 @@ app.post('/api/payments/create-session', async (req, res) => {
     res.json({ sessionUrl: session.url });
   } catch (err) {
     console.error('STRIPE ERROR:', err);
-    res.status(500).json({ error: 'Stripe session creation failed' });
+    res.status(500).json({ error: 'Stripe session creation failed', details: err.message });
   }
 });
 
