@@ -50,12 +50,13 @@ const orderSchema = new mongoose.Schema({
   customerId: { type: String, required: true },
   items: [{
     productId: { type: String, required: true },
-    quantity: { type: Number, required: true }
+    quantity: { type: Number, required: true },
   }],
   total: { type: Number, required: true },
   paymentMethod: { type: String, required: true },
   status: { type: String, required: true },
   createdAt: { type: Date, default: Date.now },
+  paidAt: { type: Date },
 });
 
 const Order = mongoose.model('Order', orderSchema);
@@ -68,7 +69,14 @@ app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
 /* =========================
    MIDDLEWARE
 ========================= */
-app.use(cors());
+app.use(
+  cors({
+    origin: '*', // For testing, allow all origins
+    methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
+
 app.use((req, res, next) => {
   if (req.originalUrl === '/api/stripe/webhook') {
     return next();
@@ -94,46 +102,44 @@ app.post('/api/payments/create-session', async (req, res) => {
   let totalCents = 0;
   const lineItems = [];
 
-  // Fetch product data from MongoDB
-  for (const item of items) {
-    const product = await Product.findById(item.productId);
-    if (!product) {
-      return res.status(400).json({
-        error: `Invalid product: ${item.productId}`,
+  try {
+    // Fetch product data from MongoDB
+    for (const item of items) {
+      const product = await Product.findById(item.productId);
+      if (!product) {
+        return res.status(400).json({ error: `Invalid product: ${item.productId}` });
+      }
+
+      lineItems.push({
+        price_data: {
+          currency: 'usd',
+          product_data: { name: product.name },
+          unit_amount: Math.round(product.price * 100),
+        },
+        quantity: item.quantity,
       });
+
+      totalCents += Math.round(product.price * 100) * item.quantity;
     }
 
-    lineItems.push({
-      price_data: {
-        currency: 'usd',
-        product_data: { name: product.name },
-        unit_amount: Math.round(product.price * 100),
-      },
-      quantity: item.quantity,
+    const orderId = crypto.randomUUID();
+
+    const newOrder = new Order({
+      customerId: userId,
+      items,
+      total: totalCents / 100,
+      paymentMethod: 'STRIPE_CARD',
+      status: 'PENDING',
     });
 
-    totalCents += Math.round(product.price * 100) * item.quantity;
-  }
+    await newOrder.save();
 
-  const orderId = crypto.randomUUID();
-
-  const newOrder = new Order({
-    customerId: userId,
-    items,
-    total: totalCents / 100,
-    paymentMethod: 'STRIPE_CARD',
-    status: 'PENDING',
-  });
-
-  await newOrder.save();
-
-  try {
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: lineItems,
       metadata: { orderId, userId },
-      success_url: `${process.env.FRONTEND_URL}/success`,
-      cancel_url: `${process.env.FRONTEND_URL}/cancel`,
+      success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/success`,
+      cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/cancel`,
     });
 
     res.json({ sessionUrl: session.url });
