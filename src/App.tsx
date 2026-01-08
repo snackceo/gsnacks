@@ -40,6 +40,7 @@ function App() {
       const res = await fetch(`${BACKEND_URL}/api/payments/create-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           items: core.cart,
           userId: core.currentUser.id,
@@ -60,7 +61,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-ninpo-black text-white flex flex-col relative overflow-x-hidden font-sans">
-
       <BackendStatusBanner
         isOnline={core.isBackendOnline}
         onReconnect={core.syncWithBackend}
@@ -72,12 +72,11 @@ function App() {
         currentUserRole={core.currentUser?.role}
         isLoggedIn={!!core.currentUser}
         onLogin={() => setIsLoginViewOpen(true)}
-        onLogout={() => core.setCurrentUser(null)}
+        onLogout={() => core.logout?.()}
       />
 
       <main className="flex-1 px-6 py-10 max-w-[1600px] w-full mx-auto">
         <Routes>
-
           {/* CUSTOMER / MARKET */}
           <Route
             path="/"
@@ -160,7 +159,6 @@ function App() {
               )
             }
           />
-
         </Routes>
       </main>
 
@@ -194,14 +192,9 @@ function App() {
       {isLoginViewOpen && (
         <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/90">
           <LoginView
-            users={core.users}
-            onLogin={u => {
-              core.setCurrentUser(u);
-              setIsLoginViewOpen(false);
-            }}
-            onRegister={u => {
-              core.setUsers(p => [...p, u]);
-              core.setCurrentUser(u);
+            onSuccess={async () => {
+              // After backend sets cookie, restore current user from /api/auth/me
+              if (core.restoreSession) await core.restoreSession();
               setIsLoginViewOpen(false);
             }}
             onCancel={() => setIsLoginViewOpen(false)}
