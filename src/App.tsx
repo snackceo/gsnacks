@@ -59,6 +59,9 @@ function App() {
     }
   };
 
+  // total quantity across all cart lines (used for badge)
+  const cartCount = core.cart.reduce((sum, i) => sum + (i.quantity || 0), 0);
+
   return (
     <div className="min-h-screen bg-ninpo-black text-white flex flex-col relative overflow-x-hidden font-sans">
       <BackendStatusBanner
@@ -92,6 +95,23 @@ function App() {
                 addToCart={(productId) => {
                   if (!core.currentUser) {
                     setIsLoginViewOpen(true);
+                    return;
+                  }
+
+                  const product = core.products.find(p => p.id === productId);
+                  const stock = (product as any)?.stock ?? 0;
+                  const inCart =
+                    core.cart.find(i => i.productId === productId)?.quantity ??
+                    0;
+
+                  // Enforce stock locally (prevents adding beyond available stock)
+                  if (stock <= 0) {
+                    core.addToast('OUT OF STOCK', 'warning');
+                    return;
+                  }
+
+                  if (inCart >= stock) {
+                    core.addToast(`MAX STOCK REACHED (${stock})`, 'warning');
                     return;
                   }
 
@@ -163,23 +183,21 @@ function App() {
       </main>
 
       {/* CART BUTTON */}
-<button
-  onClick={() => setIsCartOpen(true)}
-  className="fixed bottom-10 right-10 z-[9000] w-16 h-16 bg-ninpo-lime text-ninpo-black rounded-[1.5rem] shadow-neon flex items-center justify-center"
-  aria-label="Open cart"
->
-  <span className="relative flex items-center justify-center w-full h-full">
-    <ShoppingBag className="w-7 h-7" />
+      <button
+        onClick={() => setIsCartOpen(true)}
+        className="fixed bottom-10 right-10 z-[9000] w-16 h-16 bg-ninpo-lime text-ninpo-black rounded-[1.5rem] shadow-neon flex items-center justify-center"
+        aria-label="Open cart"
+      >
+        <span className="relative flex items-center justify-center w-full h-full">
+          <ShoppingBag className="w-7 h-7" />
 
-    {core.cart.reduce((sum, i) => sum + (i.quantity || 0), 0) > 0 && (
-      <span className="absolute -top-2 -right-2 min-w-[24px] h-6 px-2 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center border-2 border-ninpo-black">
-        {core.cart.reduce((sum, i) => sum + (i.quantity || 0), 0)}
-      </span>
-    )}
-  </span>
-</button>
-
-
+          {cartCount > 0 && (
+            <span className="absolute -top-2 -right-2 min-w-[24px] h-6 px-2 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center border-2 border-ninpo-black">
+              {cartCount}
+            </span>
+          )}
+        </span>
+      </button>
 
       {/* CART DRAWER */}
       <CartDrawer
