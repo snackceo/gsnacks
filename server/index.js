@@ -97,8 +97,8 @@ app.post('/api/payments/create-session', async (req, res) => {
   try {
     // Fetch product data from MongoDB
     for (const item of items) {
-      // Convert productId to ObjectId
-      const productId = mongoose.Types.ObjectId(item.productId);
+      // Correctly create ObjectId using `new`
+      const productId = new mongoose.Types.ObjectId(item.productId);
       const product = await Product.findById(productId);
 
       if (!product) {
