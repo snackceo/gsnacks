@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import Stripe from 'stripe';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
+import session from 'express-session'; // Add this import
 
 dotenv.config();
 
@@ -30,6 +31,18 @@ mongoose.connect(process.env.MONGO_URI, {
 }).catch((err) => {
   console.error("MongoDB connection error:", err);
 });
+
+/* =========================
+   SESSION SETUP (For login persistence)
+========================= */
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || 'your_secret_key', 
+    resave: false, 
+    saveUninitialized: false, 
+    cookie: { secure: false } // set to true if using https
+  })
+);
 
 /* =========================
    MONGOOSE MODELS
@@ -61,11 +74,6 @@ const orderSchema = new mongoose.Schema({
 const Order = mongoose.model('Order', orderSchema);
 
 /* =========================
-   STRIPE WEBHOOK (RAW BODY)
-========================= */
-app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
-
-/* =========================
    MIDDLEWARE
 ========================= */
 app.use(cors());
@@ -74,6 +82,35 @@ app.use((req, res, next) => {
     return next();
   }
   express.json()(req, res, next);
+});
+
+/* =========================
+   LOGIN (for testing purposes)
+========================= */
+app.post('/api/login', (req, res) => {
+  const { userId, userName } = req.body; // Assuming you pass userId & userName when logging in
+
+  req.session.user = { userId, userName };  // Store the user in session
+  res.json({ message: "Logged in successfully" });
+});
+
+// Check if the user is logged in
+app.get('/api/me', (req, res) => {
+  if (req.session.user) {
+    res.json(req.session.user);  // Return user info from session
+  } else {
+    res.status(401).json({ message: "Not logged in" });
+  }
+});
+
+// Logout
+app.post('/api/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      return res.status(500).json({ message: "Failed to log out" });
+    }
+    res.json({ message: "Logged out successfully" });
+  });
 });
 
 /* =========================
@@ -94,43 +131,42 @@ app.post('/api/payments/create-session', async (req, res) => {
   let totalCents = 0;
   const lineItems = [];
 
-  try {
-    // Fetch product data from MongoDB
-    for (const item of items) {
-      // Correctly create ObjectId using `new`
-      const productId = new mongoose.Types.ObjectId(item.productId);
-      const product = await Product.findById(productId);
+  // Fetch product data from MongoDB
+  for (const item of items) {
+    const productId = mongoose.Types.ObjectId(item.productId);
+    const product = await Product.findById(productId);
 
-      if (!product) {
-        return res.status(400).json({
-          error: `Invalid product: ${item.productId}`,
-        });
-      }
-
-      lineItems.push({
-        price_data: {
-          currency: 'usd',
-          product_data: { name: product.name },
-          unit_amount: Math.round(product.price * 100),
-        },
-        quantity: item.quantity,
+    if (!product) {
+      return res.status(400).json({
+        error: `Invalid product: ${item.productId}`,
       });
-
-      totalCents += Math.round(product.price * 100) * item.quantity;
     }
 
-    const orderId = crypto.randomUUID();
-
-    const newOrder = new Order({
-      customerId: userId,
-      items,
-      total: totalCents / 100,
-      paymentMethod: 'STRIPE_CARD',
-      status: 'PENDING',
+    lineItems.push({
+      price_data: {
+        currency: 'usd',
+        product_data: { name: product.name },
+        unit_amount: Math.round(product.price * 100),
+      },
+      quantity: item.quantity,
     });
 
-    await newOrder.save();
+    totalCents += Math.round(product.price * 100) * item.quantity;
+  }
 
+  const orderId = crypto.randomUUID();
+
+  const newOrder = new Order({
+    customerId: userId,
+    items,
+    total: totalCents / 100,
+    paymentMethod: 'STRIPE_CARD',
+    status: 'PENDING',
+  });
+
+  await newOrder.save();
+
+  try {
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: lineItems,
