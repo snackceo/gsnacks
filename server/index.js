@@ -4,7 +4,6 @@ import dotenv from 'dotenv';
 import Stripe from 'stripe';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
-import session from 'express-session'; // Add this import
 
 dotenv.config();
 
@@ -23,173 +22,115 @@ const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 /* =========================
    MONGO DB
 ========================= */
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-}).then(() => {
-  console.log("MongoDB Connected");
-}).catch((err) => {
-  console.error("MongoDB connection error:", err);
-});
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log('MongoDB Connected'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
 /* =========================
-   SESSION SETUP (For login persistence)
+   MODELS
 ========================= */
-app.use(
-  session({
-    secret: process.env.SESSION_SECRET || 'your_secret_key', 
-    resave: false, 
-    saveUninitialized: false, 
-    cookie: { secure: false } // set to true if using https
-  })
-);
-
-/* =========================
-   MONGOOSE MODELS
-========================= */
-
-// Product Schema
 const productSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  price: { type: Number, required: true },
-  deposit: { type: Number, required: true },
-  stock: { type: Number, required: true },
+  frontendId: { type: String, required: true, unique: true },
+  name: String,
+  price: Number,
+  deposit: Number,
+  stock: Number
 });
 
 const Product = mongoose.model('Product', productSchema);
 
-// Order Schema
 const orderSchema = new mongoose.Schema({
-  customerId: { type: String, required: true },
-  items: [{
-    productId: { type: String, required: true },
-    quantity: { type: Number, required: true }
-  }],
-  total: { type: Number, required: true },
-  paymentMethod: { type: String, required: true },
-  status: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now },
+  customerId: String,
+  items: Array,
+  total: Number,
+  paymentMethod: String,
+  status: String,
+  createdAt: { type: Date, default: Date.now }
 });
 
 const Order = mongoose.model('Order', orderSchema);
 
 /* =========================
-   MIDDLEWARE
+   STRIPE WEBHOOK (RAW BODY)
 ========================= */
-app.use(cors());
-app.use((req, res, next) => {
-  if (req.originalUrl === '/api/stripe/webhook') {
-    return next();
-  }
-  express.json()(req, res, next);
-});
+app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
 
 /* =========================
-   LOGIN (for testing purposes)
+   MIDDLEWARE
 ========================= */
-app.post('/api/login', (req, res) => {
-  const { userId, userName } = req.body; // Assuming you pass userId & userName when logging in
+app.use(cors({ origin: '*' }));
 
-  req.session.user = { userId, userName };  // Store the user in session
-  res.json({ message: "Logged in successfully" });
-});
-
-// Check if the user is logged in
-app.get('/api/me', (req, res) => {
-  if (req.session.user) {
-    res.json(req.session.user);  // Return user info from session
-  } else {
-    res.status(401).json({ message: "Not logged in" });
-  }
-});
-
-// Logout
-app.post('/api/logout', (req, res) => {
-  req.session.destroy((err) => {
-    if (err) {
-      return res.status(500).json({ message: "Failed to log out" });
-    }
-    res.json({ message: "Logged out successfully" });
-  });
+app.use((req, res, next) => {
+  if (req.originalUrl === '/api/stripe/webhook') return next();
+  express.json()(req, res, next);
 });
 
 /* =========================
    CREATE STRIPE SESSION
 ========================= */
 app.post('/api/payments/create-session', async (req, res) => {
-  if (!stripe) {
-    return res.status(500).json({ error: 'Stripe not configured' });
-  }
+  try {
+    const { items, userId } = req.body;
 
-  const { items, userId } = req.body;
-
-  if (!Array.isArray(items) || items.length === 0 || !userId) {
-    console.error('INVALID PAYLOAD:', req.body);
-    return res.status(400).json({ error: 'Invalid request payload' });
-  }
-
-  let totalCents = 0;
-  const lineItems = [];
-
-  // Fetch product data from MongoDB
-  for (const item of items) {
-    const productId = mongoose.Types.ObjectId(item.productId);
-    const product = await Product.findById(productId);
-
-    if (!product) {
-      return res.status(400).json({
-        error: `Invalid product: ${item.productId}`,
-      });
+    if (!items || items.length === 0) {
+      return res.status(400).json({ error: 'Cart is empty' });
     }
 
-    lineItems.push({
-      price_data: {
-        currency: 'usd',
-        product_data: { name: product.name },
-        unit_amount: Math.round(product.price * 100),
-      },
-      quantity: item.quantity,
+    const lineItems = [];
+    let totalCents = 0;
+
+    for (const item of items) {
+      // MATCH BY frontendId — NOT ObjectId
+      const product = await Product.findOne({ frontendId: item.productId });
+
+      if (!product) {
+        return res.status(400).json({
+          error: `Product not found: ${item.productId}`
+        });
+      }
+
+      lineItems.push({
+        price_data: {
+          currency: 'usd',
+          product_data: { name: product.name },
+          unit_amount: Math.round(product.price * 100)
+        },
+        quantity: item.quantity
+      });
+
+      totalCents += Math.round(product.price * 100) * item.quantity;
+    }
+
+    const orderId = crypto.randomUUID();
+
+    await Order.create({
+      customerId: userId || 'GUEST',
+      items,
+      total: totalCents / 100,
+      paymentMethod: 'STRIPE',
+      status: 'PENDING'
     });
 
-    totalCents += Math.round(product.price * 100) * item.quantity;
-  }
-
-  const orderId = crypto.randomUUID();
-
-  const newOrder = new Order({
-    customerId: userId,
-    items,
-    total: totalCents / 100,
-    paymentMethod: 'STRIPE_CARD',
-    status: 'PENDING',
-  });
-
-  await newOrder.save();
-
-  try {
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: lineItems,
-      metadata: { orderId, userId },
+      metadata: { orderId },
       success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/success`,
-      cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/cancel`,
+      cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/cancel`
     });
 
     res.json({ sessionUrl: session.url });
   } catch (err) {
     console.error('STRIPE ERROR:', err);
-    res.status(500).json({ error: 'Stripe session creation failed', details: err.message });
+    res.status(500).json({ error: 'Stripe session failed' });
   }
 });
 
 /* =========================
    STRIPE WEBHOOK
 ========================= */
-app.post('/api/stripe/webhook', async (req, res) => {
-  if (!stripe || !webhookSecret) {
-    return res.status(500).send('Webhook not configured');
-  }
-
+app.post('/api/stripe/webhook', (req, res) => {
   let event;
 
   try {
@@ -199,21 +140,11 @@ app.post('/api/stripe/webhook', async (req, res) => {
       webhookSecret
     );
   } catch (err) {
-    console.error('Webhook signature verification failed');
     return res.status(400).send('Invalid signature');
   }
 
   if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const orderId = session.metadata?.orderId;
-
-    const order = await Order.findById(orderId);
-    if (order) {
-      order.status = 'PAID';
-      order.paidAt = new Date().toISOString();
-      await order.save();
-      console.log(`ORDER PAID: ${orderId}`);
-    }
+    console.log('Payment completed');
   }
 
   res.json({ received: true });
@@ -226,16 +157,6 @@ app.get('/', (_, res) => {
   res.send('NINPO MAINFRAME ONLINE');
 });
 
-app.get('/api/sync', (_, res) => {
-  res.json({
-    status: 'online',
-    timestamp: new Date().toISOString(),
-  });
-});
-
-/* =========================
-   START SERVER
-========================= */
 app.listen(PORT, () => {
   console.log(`LOGISTICS HUB ONLINE @ ${PORT}`);
 });
