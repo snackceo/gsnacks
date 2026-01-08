@@ -164,11 +164,19 @@ function App() {
 
       {/* CART BUTTON */}
       <button
-        onClick={() => setIsCartOpen(true)}
-        className="fixed bottom-10 right-10 z-[9000] w-16 h-16 bg-ninpo-lime text-ninpo-black rounded-[1.5rem] shadow-neon flex items-center justify-center"
-      >
-        <ShoppingBag className="w-7 h-7" />
-      </button>
+  onClick={() => setIsCartOpen(true)}
+  className="fixed bottom-10 right-10 z-[9000] w-16 h-16 bg-ninpo-lime text-ninpo-black rounded-[1.5rem] shadow-neon flex items-center justify-center relative"
+  aria-label="Open cart"
+>
+  <ShoppingBag className="w-7 h-7" />
+
+  {core.cart.reduce((sum, i) => sum + (i.quantity || 0), 0) > 0 && (
+    <span className="absolute -top-2 -right-2 min-w-[24px] h-6 px-2 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center border-2 border-ninpo-black">
+      {core.cart.reduce((sum, i) => sum + (i.quantity || 0), 0)}
+    </span>
+  )}
+</button>
+
 
       {/* CART DRAWER */}
       <CartDrawer

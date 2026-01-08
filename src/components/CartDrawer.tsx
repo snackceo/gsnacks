@@ -79,7 +79,10 @@ const CartDrawer = ({
                   className="flex gap-4 bg-ninpo-card p-4 rounded-2xl border border-white/5"
                 >
                   <img
-                    src={p?.image}
+                    src={p?.image || '/placeholder.png'}
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = '/placeholder.png';
+                    }}
                     className="w-12 h-12 rounded-xl object-cover grayscale"
                     alt={p?.name ?? 'Product'}
                   />
