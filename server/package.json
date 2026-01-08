@@ -1,4 +1,3 @@
-
 {
   "name": "ninpo-snacks-backend",
   "version": "1.0.0",
@@ -9,10 +8,10 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "mongoose": "^7.0.0",
-    "stripe": "^12.0.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.0.3"
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "mongoose": "^7.8.8",
+    "stripe": "^12.0.0"
   }
 }

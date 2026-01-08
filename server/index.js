@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import Stripe from 'stripe';
 import crypto from 'crypto';
+import mongoose from 'mongoose';
 
 dotenv.config();
 
@@ -13,109 +14,66 @@ const PORT = process.env.PORT || 5000;
    STRIPE
 ========================= */
 const stripe = process.env.STRIPE_SECRET_KEY
-  ? new Stripe(process.env.STRIPE_SECRET_KEY)
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-10-16' })
   : null;
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 /* =========================
-   IMPORTANT:
-   Stripe webhooks require RAW body
+   MONGO DB
 ========================= */
-app.use(
-  '/api/stripe/webhook',
-  express.raw({ type: 'application/json' })
-);
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+}).then(() => {
+  console.log("MongoDB Connected");
+}).catch((err) => {
+  console.error("MongoDB connection error:", err);
+});
 
+/* =========================
+   MONGOOSE MODELS
+========================= */
+
+// Product Schema
+const productSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  price: { type: Number, required: true },
+  deposit: { type: Number, required: true },
+  stock: { type: Number, required: true },
+});
+
+const Product = mongoose.model('Product', productSchema);
+
+// Order Schema
+const orderSchema = new mongoose.Schema({
+  customerId: { type: String, required: true },
+  items: [{
+    productId: { type: String, required: true },
+    quantity: { type: Number, required: true }
+  }],
+  total: { type: Number, required: true },
+  paymentMethod: { type: String, required: true },
+  status: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now },
+});
+
+const Order = mongoose.model('Order', orderSchema);
+
+/* =========================
+   STRIPE WEBHOOK (RAW BODY)
+========================= */
+app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
+
+/* =========================
+   MIDDLEWARE
+========================= */
 app.use(cors());
-
 app.use((req, res, next) => {
   if (req.originalUrl === '/api/stripe/webhook') {
-    next();
-  } else {
-    express.json()(req, res, next);
+    return next();
   }
-});
-
-
-/* =========================
-   SERVER-TRUSTED DATA
-   (Replace with Mongo later)
-========================= */
-const PRODUCTS = [
-  {
-    id: '1',
-    name: 'NINPO WASABI PEAS',
-    price: 4.5,
-    deposit: 0,
-    stock: 50
-  },
-  {
-    id: '2',
-    name: 'KYOTO MATCHA MOCHI',
-    price: 6.99,
-    deposit: 0,
-    stock: 20
-  },
-  {
-    id: '3',
-    name: 'SEA SALT POCKY STICKS',
-    price: 3.25,
-    deposit: 0,
-    stock: 100
-  },
-  {
-    id: '4',
-    name: 'ORGANIC NORI CRISPS',
-    price: 2.99,
-    deposit: 0,
-    stock: 75
-  },
-  {
-    id: '5',
-    name: 'RAMUNE SODA CLASSIC',
-    price: 3.5,
-    deposit: 0.1,
-    stock: 40
-  },
-  {
-    id: '6',
-    name: 'CALPICO MELON BLEND',
-    price: 3.75,
-    deposit: 0.1,
-    stock: 35
-  },
-  {
-    id: '7',
-    name: 'NINPO LOGO HOODIE',
-    price: 45,
-    deposit: 0,
-    stock: 5
-  },
-  {
-    id: '8',
-    name: 'TACTICAL GEAR BOTTLE',
-    price: 18.5,
-    deposit: 0,
-    stock: 8
-  }
-];
-
-
-const ORDERS = [];
-
-/* =========================
-   HEALTH CHECK
-========================= */
-app.get('/', (_, res) => {
-  res.send('NINPO MAINFRAME ONLINE');
-});
-
-app.get('/api/sync', (_, res) => {
-  res.json({
-    status: 'online',
-    timestamp: new Date().toISOString()
-  });
+  express.json()(req, res, next);
 });
 
 /* =========================
@@ -128,64 +86,59 @@ app.post('/api/payments/create-session', async (req, res) => {
 
   const { items, userId } = req.body;
 
-  if (!Array.isArray(items) || !userId) {
+  if (!Array.isArray(items) || items.length === 0 || !userId) {
+    console.error('INVALID PAYLOAD:', req.body);
     return res.status(400).json({ error: 'Invalid request payload' });
   }
 
   let totalCents = 0;
   const lineItems = [];
 
+  // Fetch product data from MongoDB
   for (const item of items) {
-    const product = PRODUCTS.find(p => p.id === item.productId);
+    const product = await Product.findById(item.productId);
     if (!product) {
       return res.status(400).json({
-        error: `Invalid product: ${item.productId}`
+        error: `Invalid product: ${item.productId}`,
       });
     }
-
-    const unitAmount = Math.round(product.price * 100);
-    totalCents += unitAmount * item.quantity;
 
     lineItems.push({
       price_data: {
         currency: 'usd',
         product_data: { name: product.name },
-        unit_amount: unitAmount
+        unit_amount: Math.round(product.price * 100),
       },
-      quantity: item.quantity
+      quantity: item.quantity,
     });
+
+    totalCents += Math.round(product.price * 100) * item.quantity;
   }
 
   const orderId = crypto.randomUUID();
 
-  ORDERS.push({
-    id: orderId,
+  const newOrder = new Order({
     customerId: userId,
     items,
     total: totalCents / 100,
     paymentMethod: 'STRIPE_CARD',
     status: 'PENDING',
-    createdAt: new Date().toISOString()
   });
+
+  await newOrder.save();
 
   try {
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
-      payment_method_types: ['card'],
       line_items: lineItems,
-      metadata: {
-        orderId,
-        userId
-      },
-      success_url:
-        `${process.env.FRONTEND_URL || 'http://localhost:5173'}/success`,
-      cancel_url:
-        `${process.env.FRONTEND_URL || 'http://localhost:5173'}/cancel`
+      metadata: { orderId, userId },
+      success_url: `${process.env.FRONTEND_URL}/success`,
+      cancel_url: `${process.env.FRONTEND_URL}/cancel`,
     });
 
     res.json({ sessionUrl: session.url });
   } catch (err) {
-    console.error(err);
+    console.error('STRIPE ERROR:', err);
     res.status(500).json({ error: 'Stripe session creation failed' });
   }
 });
@@ -193,7 +146,7 @@ app.post('/api/payments/create-session', async (req, res) => {
 /* =========================
    STRIPE WEBHOOK
 ========================= */
-app.post('/api/stripe/webhook', (req, res) => {
+app.post('/api/stripe/webhook', async (req, res) => {
   if (!stripe || !webhookSecret) {
     return res.status(500).send('Webhook not configured');
   }
@@ -207,7 +160,7 @@ app.post('/api/stripe/webhook', (req, res) => {
       webhookSecret
     );
   } catch (err) {
-    console.error('Webhook signature verification failed.');
+    console.error('Webhook signature verification failed');
     return res.status(400).send('Invalid signature');
   }
 
@@ -215,10 +168,11 @@ app.post('/api/stripe/webhook', (req, res) => {
     const session = event.data.object;
     const orderId = session.metadata?.orderId;
 
-    const order = ORDERS.find(o => o.id === orderId);
+    const order = await Order.findById(orderId);
     if (order) {
       order.status = 'PAID';
       order.paidAt = new Date().toISOString();
+      await order.save();
       console.log(`ORDER PAID: ${orderId}`);
     }
   }
@@ -227,7 +181,21 @@ app.post('/api/stripe/webhook', (req, res) => {
 });
 
 /* =========================
-   SERVER START
+   HEALTH CHECK
+========================= */
+app.get('/', (_, res) => {
+  res.send('NINPO MAINFRAME ONLINE');
+});
+
+app.get('/api/sync', (_, res) => {
+  res.json({
+    status: 'online',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/* =========================
+   START SERVER
 ========================= */
 app.listen(PORT, () => {
   console.log(`LOGISTICS HUB ONLINE @ ${PORT}`);
