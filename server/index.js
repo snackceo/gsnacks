@@ -33,30 +33,43 @@ mongoose
 
 /* =========================
    MODELS (Product/Order inline for now)
+   Expanded to match frontend Product shape
 ========================= */
-const productSchema = new mongoose.Schema({
-  frontendId: { type: String, required: true, unique: true }, // IMPORTANT
-  name: { type: String, required: true },
-  price: { type: Number, required: true },
-  deposit: { type: Number, default: 0 },
-  stock: { type: Number, default: 0 }
-});
+const productSchema = new mongoose.Schema(
+  {
+    frontendId: { type: String, required: true, unique: true }, // used by frontend/cart
+    name: { type: String, required: true },
+    price: { type: Number, required: true },
+    deposit: { type: Number, default: 0 },
+    stock: { type: Number, default: 0 },
+
+    // Frontend fields (optional but recommended)
+    category: { type: String, default: 'DRINK' },
+    image: { type: String, default: '' },
+    isGlass: { type: Boolean, default: false }
+  },
+  { timestamps: true }
+);
+
 const Product = mongoose.model('Product', productSchema);
 
-const orderSchema = new mongoose.Schema({
-  orderId: { type: String, required: true, unique: true }, // we store our UUID here
-  customerId: { type: String, default: 'GUEST' },
-  items: [
-    {
-      productId: { type: String, required: true }, // frontendId
-      quantity: { type: Number, required: true }
-    }
-  ],
-  total: { type: Number, required: true },
-  paymentMethod: { type: String, default: 'STRIPE' },
-  status: { type: String, default: 'PENDING' },
-  paidAt: { type: Date }
-}, { timestamps: true });
+const orderSchema = new mongoose.Schema(
+  {
+    orderId: { type: String, required: true, unique: true }, // our UUID
+    customerId: { type: String, default: 'GUEST' },
+    items: [
+      {
+        productId: { type: String, required: true }, // frontendId
+        quantity: { type: Number, required: true }
+      }
+    ],
+    total: { type: Number, required: true },
+    paymentMethod: { type: String, default: 'STRIPE' },
+    status: { type: String, default: 'PENDING' },
+    paidAt: { type: Date }
+  },
+  { timestamps: true }
+);
 
 const Order = mongoose.model('Order', orderSchema);
 
@@ -72,22 +85,19 @@ app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
 const allowedOrigins = [
   'https://ninposnacks.com',
   'https://www.ninposnacks.com',
-  // Your Render frontend (if different):
   'https://gsnacks.onrender.com',
-  // Local dev:
   'http://localhost:5173'
 ];
 
 app.use(
   cors({
     origin: (origin, cb) => {
-      // allow non-browser requests (like curl/postman) where origin is undefined
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes(origin)) return cb(null, true);
       return cb(new Error(`CORS blocked origin: ${origin}`));
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
   })
 );
@@ -106,27 +116,22 @@ app.use((req, res, next) => {
 /* =========================
    HELPERS
 ========================= */
-// You are now serving backend from https://api.ninposnacks.com
-// Frontend is https://ninposnacks.com
-// This is SAME-SITE (same eTLD+1), so we should use SameSite=Lax and a domain cookie.
+const isProd = process.env.NODE_ENV === 'production';
+
 function setAuthCookie(res, token) {
   res.cookie('auth_token', token, {
     httpOnly: true,
-    secure: true,            // required for HTTPS
-    sameSite: 'lax',         // correct for same-site subdomains
-    domain: '.ninposnacks.com',
-    path: '/',
-    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000
   });
 }
 
 function clearAuthCookie(res) {
   res.clearCookie('auth_token', {
     httpOnly: true,
-    secure: true,
-    sameSite: 'lax',
-    domain: '.ninposnacks.com',
-    path: '/'
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax'
   });
 }
 
@@ -136,11 +141,32 @@ function authRequired(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    // normalize shape for frontend
+    req.user = {
+      ...decoded,
+      id: decoded.userId
+    };
     return next();
   } catch {
     return res.status(401).json({ error: 'Invalid session' });
   }
+}
+
+function isOwnerUsername(username) {
+  const list = (process.env.OWNER_USERNAMES || process.env.OWNER_USERNAME || '')
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean);
+
+  return list.includes((username || '').toLowerCase());
+}
+
+function ownerRequired(req, res, next) {
+  const u = req.user;
+  if (!u?.username || !isOwnerUsername(u.username)) {
+    return res.status(403).json({ error: 'Owner access required' });
+  }
+  return next();
 }
 
 /* =========================
@@ -171,15 +197,19 @@ app.post('/api/auth/register', async (req, res) => {
 
     const user = await User.create({ username, password });
 
-    // Create session immediately after register
+    const role = isOwnerUsername(user.username) ? 'OWNER' : 'CUSTOMER';
+
     const token = jwt.sign(
-      { userId: user._id.toString(), username: user.username },
+      { userId: user._id.toString(), username: user.username, role },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
     setAuthCookie(res, token);
-    res.json({ ok: true, user: { id: user._id.toString(), username: user.username } });
+    res.json({
+      ok: true,
+      user: { id: user._id.toString(), username: user.username, role }
+    });
   } catch (err) {
     console.error('REGISTER ERROR:', err);
     res.status(500).json({ error: 'Failed to register' });
@@ -199,14 +229,19 @@ app.post('/api/auth/login', async (req, res) => {
     const ok = await user.comparePassword(password);
     if (!ok) return res.status(400).json({ error: 'Invalid credentials' });
 
+    const role = isOwnerUsername(user.username) ? 'OWNER' : 'CUSTOMER';
+
     const token = jwt.sign(
-      { userId: user._id.toString(), username: user.username },
+      { userId: user._id.toString(), username: user.username, role },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
     setAuthCookie(res, token);
-    res.json({ ok: true, user: { id: user._id.toString(), username: user.username } });
+    res.json({
+      ok: true,
+      user: { id: user._id.toString(), username: user.username, role }
+    });
   } catch (err) {
     console.error('LOGIN ERROR:', err);
     res.status(500).json({ error: 'Login failed' });
@@ -219,11 +254,149 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.get('/api/auth/me', authRequired, (req, res) => {
+  // returns the decoded token payload + id normalization
   res.json({ ok: true, user: req.user });
 });
 
 /* =========================
-   CREATE STRIPE SESSION
+   PRODUCTS
+========================= */
+
+// Public: storefront fetches products here
+app.get('/api/products', async (req, res) => {
+  try {
+    const docs = await Product.find({}).sort({ createdAt: -1 }).lean();
+    const products = docs.map(d => ({
+      id: d.frontendId,
+      frontendId: d.frontendId,
+      name: d.name,
+      price: d.price,
+      deposit: d.deposit ?? 0,
+      stock: d.stock ?? 0,
+      category: d.category ?? 'DRINK',
+      image: d.image ?? '',
+      isGlass: !!d.isGlass
+    }));
+    res.json({ ok: true, products });
+  } catch (err) {
+    console.error('GET PRODUCTS ERROR:', err);
+    res.status(500).json({ error: 'Failed to load products' });
+  }
+});
+
+// Owner: add product
+app.post('/api/products', authRequired, ownerRequired, async (req, res) => {
+  try {
+    const {
+      id,
+      frontendId,
+      name,
+      price,
+      deposit,
+      stock,
+      category,
+      image,
+      isGlass
+    } = req.body || {};
+
+    const finalFrontendId = (frontendId || id || '').trim();
+    if (!finalFrontendId) return res.status(400).json({ error: 'id is required' });
+    if (!name) return res.status(400).json({ error: 'name is required' });
+    if (price === undefined || price === null || Number.isNaN(Number(price))) {
+      return res.status(400).json({ error: 'price is required' });
+    }
+
+    const created = await Product.create({
+      frontendId: finalFrontendId,
+      name,
+      price: Number(price),
+      deposit: Number(deposit || 0),
+      stock: Number(stock || 0),
+      category: category || 'DRINK',
+      image: image || '',
+      isGlass: !!isGlass
+    });
+
+    res.json({
+      ok: true,
+      product: {
+        id: created.frontendId,
+        frontendId: created.frontendId,
+        name: created.name,
+        price: created.price,
+        deposit: created.deposit ?? 0,
+        stock: created.stock ?? 0,
+        category: created.category ?? 'DRINK',
+        image: created.image ?? '',
+        isGlass: !!created.isGlass
+      }
+    });
+  } catch (err) {
+    console.error('CREATE PRODUCT ERROR:', err);
+    res.status(500).json({ error: 'Failed to create product' });
+  }
+});
+
+// Owner: update product
+app.patch('/api/products/:id', authRequired, ownerRequired, async (req, res) => {
+  try {
+    const frontendId = req.params.id;
+
+    const updates = {};
+    const allowed = ['name', 'price', 'deposit', 'stock', 'category', 'image', 'isGlass'];
+
+    for (const k of allowed) {
+      if (req.body?.[k] !== undefined) updates[k] = req.body[k];
+    }
+
+    if (updates.price !== undefined) updates.price = Number(updates.price);
+    if (updates.deposit !== undefined) updates.deposit = Number(updates.deposit);
+    if (updates.stock !== undefined) updates.stock = Number(updates.stock);
+    if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
+
+    const updated = await Product.findOneAndUpdate(
+      { frontendId },
+      updates,
+      { new: true }
+    ).lean();
+
+    if (!updated) return res.status(404).json({ error: 'Product not found' });
+
+    res.json({
+      ok: true,
+      product: {
+        id: updated.frontendId,
+        frontendId: updated.frontendId,
+        name: updated.name,
+        price: updated.price,
+        deposit: updated.deposit ?? 0,
+        stock: updated.stock ?? 0,
+        category: updated.category ?? 'DRINK',
+        image: updated.image ?? '',
+        isGlass: !!updated.isGlass
+      }
+    });
+  } catch (err) {
+    console.error('UPDATE PRODUCT ERROR:', err);
+    res.status(500).json({ error: 'Failed to update product' });
+  }
+});
+
+// Owner: delete product
+app.delete('/api/products/:id', authRequired, ownerRequired, async (req, res) => {
+  try {
+    const frontendId = req.params.id;
+    const deleted = await Product.findOneAndDelete({ frontendId }).lean();
+    if (!deleted) return res.status(404).json({ error: 'Product not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE PRODUCT ERROR:', err);
+    res.status(500).json({ error: 'Failed to delete product' });
+  }
+});
+
+/* =========================
+   PAYMENTS
 ========================= */
 app.post('/api/payments/create-session', async (req, res) => {
   try {
@@ -268,8 +441,7 @@ app.post('/api/payments/create-session', async (req, res) => {
       status: 'PENDING'
     });
 
-    const frontendUrl =
-      process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
