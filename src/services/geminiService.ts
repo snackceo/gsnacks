@@ -91,3 +91,4 @@ export const getAdvancedInventoryInsights = async (inventory: any[], orders: any
     return "Audit transmission interrupted.";
   }
 };
+export const getInventoryInsights = getAdvancedInventoryInsights;
