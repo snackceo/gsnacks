@@ -17,7 +17,7 @@ export enum OrderStatus {
 
 export type PaymentMethod = 'STRIPE_CARD' | 'GOOGLE_PAY';
 
-export enum MembershipTier {
+export enum UserTier {
   NONE = 'NONE',
   BRONZE = 'BRONZE',
   SILVER = 'SILVER',
@@ -29,7 +29,7 @@ export interface User {
   name: string;
   role: UserRole;
   creditBalance: number;
-  membershipTier: MembershipTier;
+  membershipTier: UserTier;
 }
 
 export interface Product {
