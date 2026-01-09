@@ -132,29 +132,74 @@ app.use((req, res, next) => {
 });
 
 /* =========================
-   HELPERS
+   COOKIE HELPERS (FIXED LOGOUT)
 ========================= */
-function setAuthCookie(res, token) {
-  res.cookie('auth_token', token, {
+
+/**
+ * Cookie options MUST match between set and clear, otherwise the browser will not remove it.
+ * We support:
+ * - Production on *.ninposnacks.com (secure + domain)
+ * - Local dev on localhost (not secure + no domain)
+ */
+function getCookieOptions(req) {
+  const host = (req.headers.host || '').toLowerCase();
+
+  const isLocalhost =
+    host.includes('localhost') || host.startsWith('127.0.0.1') || host.includes('0.0.0.0');
+
+  // If you're deploying to ninposnacks.com (or api.ninposnacks.com), treat as production cookie.
+  const isNinpoDomain = host.includes('ninposnacks.com');
+
+  const secure = !isLocalhost; // secure cookies required on HTTPS
+  const base = {
     httpOnly: true,
-    secure: true,
     sameSite: 'lax',
-    domain: '.ninposnacks.com',
-    path: '/',
-    maxAge: 7 * 24 * 60 * 60 * 1000
-  });
+    secure,
+    path: '/'
+  };
+
+  // Only set domain on your real domain; never on localhost.
+  if (isNinpoDomain && !isLocalhost) {
+    return { ...base, domain: '.ninposnacks.com' };
+  }
+
+  return base;
 }
 
-function clearAuthCookie(res) {
+function setAuthCookie(req, res, token) {
+  const opts = {
+    ...getCookieOptions(req),
+    maxAge: 7 * 24 * 60 * 60 * 1000
+  };
+
+  res.cookie('auth_token', token, opts);
+}
+
+function clearAuthCookie(req, res) {
+  // Clear using the "current environment" options
+  res.clearCookie('auth_token', getCookieOptions(req));
+
+  // Extra safety: also clear the other variant so you don't get "logged back in"
+  // when switching between localhost and production during testing.
   res.clearCookie('auth_token', {
     httpOnly: true,
-    secure: true,
     sameSite: 'lax',
+    secure: true,
     domain: '.ninposnacks.com',
+    path: '/'
+  });
+
+  res.clearCookie('auth_token', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: false,
     path: '/'
   });
 }
 
+/* =========================
+   AUTH HELPERS
+========================= */
 function authRequired(req, res, next) {
   const token = req.cookies?.auth_token;
   if (!token) return res.status(401).json({ error: 'Not logged in' });
@@ -265,7 +310,7 @@ app.post('/api/auth/register', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    setAuthCookie(res, token);
+    setAuthCookie(req, res, token);
     res.json({
       ok: true,
       user: { id: user._id.toString(), username: user.username, role }
@@ -297,7 +342,7 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    setAuthCookie(res, token);
+    setAuthCookie(req, res, token);
     res.json({
       ok: true,
       user: { id: user._id.toString(), username: user.username, role }
@@ -309,7 +354,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.post('/api/auth/logout', (req, res) => {
-  clearAuthCookie(res);
+  clearAuthCookie(req, res);
   res.json({ ok: true });
 });
 
@@ -512,10 +557,8 @@ app.post('/api/payments/create-session', async (req, res) => {
     let totalCents = 0;
 
     // Reserve stock atomically.
-    // If any item cannot be reserved, transaction aborts and nothing changes.
     await sessionDb.withTransaction(async () => {
       for (const item of items) {
-        // Decrement only if stock is sufficient
         const updated = await Product.findOneAndUpdate(
           { frontendId: item.productId, stock: { $gte: item.quantity } },
           { $inc: { stock: -item.quantity } },
@@ -523,7 +566,6 @@ app.post('/api/payments/create-session', async (req, res) => {
         );
 
         if (!updated) {
-          // Find current stock to return a helpful error
           const current = await Product.findOne(
             { frontendId: item.productId },
             { stock: 1, name: 1 }
@@ -569,7 +611,6 @@ app.post('/api/payments/create-session', async (req, res) => {
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-    // Create Stripe session AFTER stock is reserved + order is created
     const stripeSession = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: lineItems,
@@ -578,11 +619,7 @@ app.post('/api/payments/create-session', async (req, res) => {
       cancel_url: `${frontendUrl}/cancel`
     });
 
-    // Save Stripe session id on the order (not in transaction; safe)
-    await Order.findOneAndUpdate(
-      { orderId },
-      { stripeSessionId: stripeSession.id }
-    );
+    await Order.findOneAndUpdate({ orderId }, { stripeSessionId: stripeSession.id });
 
     res.json({ sessionUrl: stripeSession.url });
   } catch (err) {
@@ -621,7 +658,6 @@ app.post('/api/stripe/webhook', async (req, res) => {
 
     const type = event.type;
 
-    // Payment succeeded
     if (type === 'checkout.session.completed') {
       const session = event.data.object;
       const orderId = session?.metadata?.orderId;
@@ -630,8 +666,6 @@ app.post('/api/stripe/webhook', async (req, res) => {
         await sessionDb.withTransaction(async () => {
           const order = await Order.findOne({ orderId }).session(sessionDb);
           if (!order) return;
-
-          // Idempotent: if already paid, do nothing
           if (order.status === 'PAID') return;
 
           order.status = 'PAID';
@@ -650,7 +684,6 @@ app.post('/api/stripe/webhook', async (req, res) => {
       return;
     }
 
-    // Session expired / payment failed: restock the reserved items
     if (type === 'checkout.session.expired' || type === 'payment_intent.payment_failed') {
       const obj = event.data.object;
       const orderId = obj?.metadata?.orderId;
@@ -659,11 +692,8 @@ app.post('/api/stripe/webhook', async (req, res) => {
         await sessionDb.withTransaction(async () => {
           const order = await Order.findOne({ orderId }).session(sessionDb);
           if (!order) return;
-
-          // If already canceled or paid, do nothing
           if (order.status === 'CANCELED' || order.status === 'PAID') return;
 
-          // Restock all items
           for (const it of order.items || []) {
             await Product.findOneAndUpdate(
               { frontendId: it.productId },

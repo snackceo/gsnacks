@@ -97,14 +97,16 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   });
 
   const chartData = useMemo(() => {
-    return orders
-      .slice(0, 15)
-      .map(o => ({
-        name: o.id.slice(-4),
-        revenue: o.total
-      }))
-      .reverse();
-  }, [orders]);
+  return (orders || [])
+    .filter((o: any) => o && o.id) // prevents o.id being undefined
+    .slice(0, 15)
+    .map((o: any) => ({
+      name: String(o.id).slice(-4),
+      revenue: Number(o.total || 0)
+    }))
+    .reverse();
+}, [orders]);
+
 
   const handleApprove = (approval: ApprovalRequest) => {
     adjustCredits(approval.userId, approval.amount, `AUTH_APPROVED: ${approval.type}`);
