@@ -55,19 +55,33 @@ const orderSchema = new mongoose.Schema(
   {
     orderId: { type: String, required: true, unique: true }, // our UUID
     customerId: { type: String, default: 'GUEST' },
+
+    // Optional fields (frontend currently may not send all of these yet)
+    address: { type: String, default: '' },
+    driverId: { type: String, default: '' },
+    gpsCoords: {
+      lat: { type: Number },
+      lng: { type: Number }
+    },
+    verificationPhoto: { type: String, default: '' },
+
     items: [
       {
         productId: { type: String, required: true }, // frontendId
         quantity: { type: Number, required: true }
       }
     ],
+
     total: { type: Number, required: true },
+
+    // Keep schema flexible; frontend maps to its own union
     paymentMethod: { type: String, default: 'STRIPE' },
 
     // PENDING = created/reserved, PAID = confirmed, CANCELED = released/restocked
     status: { type: String, default: 'PENDING' },
 
     paidAt: { type: Date },
+    deliveredAt: { type: Date },
 
     // Stripe references
     stripeSessionId: { type: String },
@@ -184,6 +198,36 @@ function normalizeCart(items) {
     productId,
     quantity
   }));
+}
+
+// Map DB order -> frontend Order shape
+function mapOrderForFrontend(d) {
+  // Frontend enum does not include CANCELED, so map it to CLOSED.
+  const mappedStatus = d.status === 'CANCELED' ? 'CLOSED' : d.status;
+
+  return {
+    id: d.orderId,
+    customerId: d.customerId || 'GUEST',
+    driverId: d.driverId || undefined,
+    items: Array.isArray(d.items) ? d.items : [],
+    total: Number(d.total || 0),
+
+    // Frontend expects these fields; safe defaults
+    estimatedReturnCredit: 0,
+    verifiedReturnCredit: undefined,
+
+    paymentMethod: d.paymentMethod === 'STRIPE' ? 'STRIPE_CARD' : d.paymentMethod,
+
+    address: d.address || '',
+    status: mappedStatus,
+
+    createdAt: d.createdAt ? new Date(d.createdAt).toISOString() : new Date().toISOString(),
+    paidAt: d.paidAt ? new Date(d.paidAt).toISOString() : undefined,
+    deliveredAt: d.deliveredAt ? new Date(d.deliveredAt).toISOString() : undefined,
+
+    verificationPhoto: d.verificationPhoto || undefined,
+    gpsCoords: d.gpsCoords?.lat && d.gpsCoords?.lng ? d.gpsCoords : undefined
+  };
 }
 
 /* =========================
@@ -398,6 +442,53 @@ app.delete('/api/products/:id', authRequired, ownerRequired, async (req, res) =>
 });
 
 /* =========================
+   ORDERS (OWNER DASHBOARD)
+========================= */
+app.get('/api/orders', authRequired, ownerRequired, async (req, res) => {
+  try {
+    const docs = await Order.find({}).sort({ createdAt: -1 }).lean();
+    const orders = docs.map(mapOrderForFrontend);
+    res.json({ ok: true, orders });
+  } catch (err) {
+    console.error('GET ORDERS ERROR:', err);
+    res.status(500).json({ error: 'Failed to load orders' });
+  }
+});
+
+app.patch('/api/orders/:id', authRequired, ownerRequired, async (req, res) => {
+  try {
+    const orderId = String(req.params.id || '').trim();
+    if (!orderId) return res.status(400).json({ error: 'Invalid order id' });
+
+    const allowed = ['status', 'driverId', 'address', 'gpsCoords', 'verificationPhoto'];
+
+    const updates = {};
+    for (const k of allowed) {
+      if (req.body?.[k] !== undefined) updates[k] = req.body[k];
+    }
+
+    // Auto-set timestamps for common status moves (safe, optional)
+    if (updates.status === 'DELIVERED') {
+      updates.deliveredAt = new Date();
+    }
+    if (updates.status === 'PAID') {
+      updates.paidAt = new Date();
+    }
+
+    const updated = await Order.findOneAndUpdate({ orderId }, updates, {
+      new: true
+    }).lean();
+
+    if (!updated) return res.status(404).json({ error: 'Order not found' });
+
+    res.json({ ok: true, order: mapOrderForFrontend(updated) });
+  } catch (err) {
+    console.error('PATCH ORDER ERROR:', err);
+    res.status(500).json({ error: 'Failed to update order' });
+  }
+});
+
+/* =========================
    PAYMENTS (ENFORCE INVENTORY)
 ========================= */
 app.post('/api/payments/create-session', async (req, res) => {
@@ -408,6 +499,8 @@ app.post('/api/payments/create-session', async (req, res) => {
 
     const rawItems = req.body?.items;
     const userId = req.body?.userId;
+    const address = String(req.body?.address || '').trim();
+    const gateway = String(req.body?.gateway || 'STRIPE').toUpperCase();
 
     const items = normalizeCart(rawItems);
     if (!Array.isArray(items) || items.length === 0) {
@@ -463,9 +556,10 @@ app.post('/api/payments/create-session', async (req, res) => {
           {
             orderId,
             customerId: userId || 'GUEST',
+            address: address || '',
             items,
             total: totalCents / 100,
-            paymentMethod: 'STRIPE',
+            paymentMethod: gateway === 'GPAY' ? 'GOOGLE_PAY' : 'STRIPE',
             status: 'PENDING'
           }
         ],
@@ -476,7 +570,6 @@ app.post('/api/payments/create-session', async (req, res) => {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
     // Create Stripe session AFTER stock is reserved + order is created
-    // If Stripe fails, we revert reservation below.
     const stripeSession = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: lineItems,
@@ -493,19 +586,6 @@ app.post('/api/payments/create-session', async (req, res) => {
 
     res.json({ sessionUrl: stripeSession.url });
   } catch (err) {
-    // If we already reserved stock & created an order, revert if Stripe failed or any error occurred after reservation.
-    // We can detect by the presence of metadata/orderId is not available here reliably, so we do best-effort:
-    // If error was inside transaction, it already rolled back.
-    // If error happened after transaction (Stripe call), we need to restock by reading the order.
-    try {
-      const possibleOrderId = req.body?.orderId; // (not set by frontend)
-      // Best effort: if transaction committed, order exists with a recent PENDING status and no stripeSessionId.
-      // We cannot know orderId unless we track it. So we restock only when we can find by stripe session metadata later.
-      // To handle Stripe failure after reservation, we rely on withTransaction block finishing before stripe call,
-      // so if stripe call fails, we will not have an orderId here. Therefore we do NOT restock here.
-      // (Stripe failures are rare; if needed we can return orderId to frontend and retry safely.)
-    } catch {}
-
     console.error('STRIPE SESSION ERROR:', err);
 
     if (err?.code === 'INSUFFICIENT_STOCK') {
@@ -570,9 +650,8 @@ app.post('/api/stripe/webhook', async (req, res) => {
       return;
     }
 
-    // Payment failed / session expired: restock the reserved items
+    // Session expired / payment failed: restock the reserved items
     if (type === 'checkout.session.expired' || type === 'payment_intent.payment_failed') {
-      // checkout.session.expired includes metadata with orderId
       const obj = event.data.object;
       const orderId = obj?.metadata?.orderId;
 
@@ -604,7 +683,6 @@ app.post('/api/stripe/webhook', async (req, res) => {
       return;
     }
 
-    // Default: acknowledge
     res.json({ received: true });
   } catch (err) {
     console.error('WEBHOOK ERROR:', err);

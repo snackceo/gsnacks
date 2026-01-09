@@ -62,52 +62,6 @@ export const useNinpoCore = () => {
     return () => clearInterval(i);
   }, [syncWithBackend]);
 
-  // -------- Session restore (cookie-based) ----------
-  const restoreSession = useCallback(async () => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/auth/me`, {
-        credentials: 'include'
-      });
-
-      if (!res.ok) {
-        setCurrentUser(null);
-        return false;
-      }
-
-      const data = await res.json().catch(() => ({}));
-      const u = data?.user;
-
-      // Normalize into your frontend User shape (best-effort)
-      const mapped: any = {
-        id: u?.id || u?.userId,
-        name: u?.username || 'USER',
-        username: u?.username,
-        email: u?.username ? `${u.username}@ninposnacks.com` : undefined,
-        role: u?.role || 'CUSTOMER'
-      };
-
-      setCurrentUser(mapped as User);
-      return true;
-    } catch {
-      setCurrentUser(null);
-      return false;
-    }
-  }, []);
-
-  const logout = useCallback(async () => {
-    try {
-      await fetch(`${BACKEND_URL}/api/auth/logout`, {
-        method: 'POST',
-        credentials: 'include'
-      });
-    } catch {
-      // ignore
-    } finally {
-      setCurrentUser(null);
-      addToast('SIGNED OUT', 'info');
-    }
-  }, [addToast]);
-
   // -------- Products ----------
   const fetchProducts = useCallback(async () => {
     try {
@@ -196,6 +150,80 @@ export const useNinpoCore = () => {
     [addToast]
   );
 
+  // -------- Orders (OWNER) ----------
+  const fetchOrders = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/orders`, {
+        credentials: 'include'
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || 'Failed to load orders');
+      }
+
+      const data = await res.json().catch(() => ({}));
+      const list = Array.isArray(data?.orders) ? data.orders : [];
+      setOrders(list);
+      return list as Order[];
+    } catch (e: any) {
+      addToast(e?.message ?? 'Orders feed offline', 'warning');
+      return [];
+    }
+  }, [addToast]);
+
+  // -------- Session restore (cookie-based) ----------
+  const restoreSession = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/auth/me`, {
+        credentials: 'include'
+      });
+
+      if (!res.ok) {
+        setCurrentUser(null);
+        return false;
+      }
+
+      const data = await res.json().catch(() => ({}));
+      const u = data?.user;
+
+      // Normalize into your frontend User shape (best-effort)
+      const mapped: any = {
+        id: u?.id || u?.userId,
+        name: u?.username || 'USER',
+        username: u?.username,
+        email: u?.username ? `${u.username}@ninposnacks.com` : undefined,
+        role: u?.role || 'CUSTOMER'
+      };
+
+      setCurrentUser(mapped as User);
+
+      // If OWNER, auto-load orders for dashboard
+      if ((mapped?.role || '').toUpperCase() === 'OWNER') {
+        fetchOrders();
+      }
+
+      return true;
+    } catch {
+      setCurrentUser(null);
+      return false;
+    }
+  }, [fetchOrders]);
+
+  const logout = useCallback(async () => {
+    try {
+      await fetch(`${BACKEND_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+    } catch {
+      // ignore
+    } finally {
+      setCurrentUser(null);
+      addToast('SIGNED OUT', 'info');
+    }
+  }, [addToast]);
+
   // Load products + restore session on first mount
   useEffect(() => {
     restoreSession();
@@ -214,6 +242,7 @@ export const useNinpoCore = () => {
         await fetch(`${BACKEND_URL}/api/users/${userId}/credits`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ amount, reason })
         });
       } catch {
@@ -228,11 +257,21 @@ export const useNinpoCore = () => {
       setOrders(prev => prev.map(o => (o.id === id ? { ...o, status, ...metadata } : o)));
 
       try {
-        await fetch(`${BACKEND_URL}/api/orders/${id}`, {
+        const res = await fetch(`${BACKEND_URL}/api/orders/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ status, ...metadata })
         });
+
+        // If backend returns updated order, reconcile
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const updated = data?.order;
+          if (updated?.id) {
+            setOrders(prev => prev.map(o => (o.id === id ? updated : o)));
+          }
+        }
       } catch {
         addToast('Order update failed to sync', 'warning');
       }
@@ -258,18 +297,22 @@ export const useNinpoCore = () => {
     cart,
     setCart,
     toasts,
+
     addToast,
     adjustCredits,
     updateOrder,
     isBackendOnline,
     syncWithBackend,
 
-    // new:
+    // session + products
     restoreSession,
     logout,
     fetchProducts,
     createProduct,
     updateProduct,
-    deleteProduct
+    deleteProduct,
+
+    // orders
+    fetchOrders
   };
 };

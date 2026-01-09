@@ -44,7 +44,8 @@ function App() {
         body: JSON.stringify({
           items: core.cart,
           userId: core.currentUser.id,
-          gateway: type
+          gateway: type,
+          address: address // NEW: stored on order for owner dashboard
         })
       });
 
@@ -139,7 +140,7 @@ function App() {
           <Route path="/success" element={<PaymentSuccess />} />
           <Route path="/cancel" element={<PaymentCancel />} />
 
-          {/* MANAGEMENT — OWNER ONLY */}
+          {/* OWNER MANAGEMENT */}
           <Route
             path="/management"
             element={
