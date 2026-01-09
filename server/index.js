@@ -56,7 +56,6 @@ const orderSchema = new mongoose.Schema(
     orderId: { type: String, required: true, unique: true }, // our UUID
     customerId: { type: String, default: 'GUEST' },
 
-    // Optional fields (frontend currently may not send all of these yet)
     address: { type: String, default: '' },
     driverId: { type: String, default: '' },
     gpsCoords: {
@@ -73,8 +72,6 @@ const orderSchema = new mongoose.Schema(
     ],
 
     total: { type: Number, required: true },
-
-    // Keep schema flexible; frontend maps to its own union
     paymentMethod: { type: String, default: 'STRIPE' },
 
     // PENDING = created/reserved, PAID = confirmed, CANCELED = released/restocked
@@ -83,7 +80,6 @@ const orderSchema = new mongoose.Schema(
     paidAt: { type: Date },
     deliveredAt: { type: Date },
 
-    // Stripe references
     stripeSessionId: { type: String },
     stripePaymentIntentId: { type: String }
   },
@@ -134,23 +130,17 @@ app.use((req, res, next) => {
 /* =========================
    COOKIE HELPERS (FIXED LOGOUT)
 ========================= */
-
-/**
- * Cookie options MUST match between set and clear, otherwise the browser will not remove it.
- * We support:
- * - Production on *.ninposnacks.com (secure + domain)
- * - Local dev on localhost (not secure + no domain)
- */
 function getCookieOptions(req) {
   const host = (req.headers.host || '').toLowerCase();
 
   const isLocalhost =
-    host.includes('localhost') || host.startsWith('127.0.0.1') || host.includes('0.0.0.0');
+    host.includes('localhost') ||
+    host.startsWith('127.0.0.1') ||
+    host.includes('0.0.0.0');
 
-  // If you're deploying to ninposnacks.com (or api.ninposnacks.com), treat as production cookie.
   const isNinpoDomain = host.includes('ninposnacks.com');
 
-  const secure = !isLocalhost; // secure cookies required on HTTPS
+  const secure = !isLocalhost;
   const base = {
     httpOnly: true,
     sameSite: 'lax',
@@ -158,7 +148,6 @@ function getCookieOptions(req) {
     path: '/'
   };
 
-  // Only set domain on your real domain; never on localhost.
   if (isNinpoDomain && !isLocalhost) {
     return { ...base, domain: '.ninposnacks.com' };
   }
@@ -176,11 +165,9 @@ function setAuthCookie(req, res, token) {
 }
 
 function clearAuthCookie(req, res) {
-  // Clear using the "current environment" options
   res.clearCookie('auth_token', getCookieOptions(req));
 
-  // Extra safety: also clear the other variant so you don't get "logged back in"
-  // when switching between localhost and production during testing.
+  // Extra safety for mixed testing
   res.clearCookie('auth_token', {
     httpOnly: true,
     sameSite: 'lax',
@@ -230,7 +217,9 @@ function ownerRequired(req, res, next) {
   return next();
 }
 
-// Normalize / validate cart, and merge duplicate product lines
+/* =========================
+   CART / ORDER HELPERS
+========================= */
 function normalizeCart(items) {
   const map = new Map(); // productId -> qty
   for (const it of items || []) {
@@ -245,9 +234,7 @@ function normalizeCart(items) {
   }));
 }
 
-// Map DB order -> frontend Order shape
 function mapOrderForFrontend(d) {
-  // Frontend enum does not include CANCELED, so map it to CLOSED.
   const mappedStatus = d.status === 'CANCELED' ? 'CLOSED' : d.status;
 
   return {
@@ -257,7 +244,6 @@ function mapOrderForFrontend(d) {
     items: Array.isArray(d.items) ? d.items : [],
     total: Number(d.total || 0),
 
-    // Frontend expects these fields; safe defaults
     estimatedReturnCredit: 0,
     verifiedReturnCredit: undefined,
 
@@ -273,6 +259,19 @@ function mapOrderForFrontend(d) {
     verificationPhoto: d.verificationPhoto || undefined,
     gpsCoords: d.gpsCoords?.lat && d.gpsCoords?.lng ? d.gpsCoords : undefined
   };
+}
+
+async function restockOrderItems(order, sessionDb) {
+  for (const it of order.items || []) {
+    const qty = Number(it.quantity || 0);
+    if (!qty || qty <= 0) continue;
+
+    await Product.findOneAndUpdate(
+      { frontendId: it.productId },
+      { $inc: { stock: qty } },
+      { session: sessionDb }
+    );
+  }
 }
 
 /* =========================
@@ -500,7 +499,14 @@ app.get('/api/orders', authRequired, ownerRequired, async (req, res) => {
   }
 });
 
+/**
+ * PATCH /api/orders/:id
+ * - Accepts frontend statuses, including CLOSED (manual cancel).
+ * - If status is CLOSED -> immediately restocks and sets DB status to CANCELED.
+ */
 app.patch('/api/orders/:id', authRequired, ownerRequired, async (req, res) => {
+  const sessionDb = await mongoose.startSession();
+
   try {
     const orderId = String(req.params.id || '').trim();
     if (!orderId) return res.status(400).json({ error: 'Invalid order id' });
@@ -512,14 +518,60 @@ app.patch('/api/orders/:id', authRequired, ownerRequired, async (req, res) => {
       if (req.body?.[k] !== undefined) updates[k] = req.body[k];
     }
 
+    const requestedStatus = updates.status ? String(updates.status).trim() : null;
+
+    // Manual cancel from frontend typically sends CLOSED.
+    const isManualCancel =
+      requestedStatus === 'CLOSED' || requestedStatus === 'CANCELED';
+
+    // If cancel requested, do it transactionally and restock immediately.
+    if (isManualCancel) {
+      let updatedOrderDoc = null;
+
+      await sessionDb.withTransaction(async () => {
+        const order = await Order.findOne({ orderId }).session(sessionDb);
+        if (!order) return;
+
+        // Conservative: do not allow cancel after paid (refund flow would be separate).
+        if (order.status === 'PAID') {
+          const e = new Error('Cannot cancel a PAID order (refund flow required).');
+          e.code = 'CANNOT_CANCEL_PAID';
+          throw e;
+        }
+
+        // Idempotent: if already canceled, do nothing
+        if (order.status === 'CANCELED') {
+          updatedOrderDoc = order;
+          return;
+        }
+
+        await restockOrderItems(order, sessionDb);
+
+        order.status = 'CANCELED';
+        // Keep optional metadata updates if supplied
+        if (updates.driverId !== undefined) order.driverId = String(updates.driverId || '');
+        if (updates.address !== undefined) order.address = String(updates.address || '');
+        if (updates.gpsCoords !== undefined) order.gpsCoords = updates.gpsCoords;
+        if (updates.verificationPhoto !== undefined) order.verificationPhoto = String(updates.verificationPhoto || '');
+
+        await order.save({ session: sessionDb });
+        updatedOrderDoc = order;
+      });
+
+      if (!updatedOrderDoc) return res.status(404).json({ error: 'Order not found' });
+
+      return res.json({ ok: true, order: mapOrderForFrontend(updatedOrderDoc) });
+    }
+
     // Auto-set timestamps for common status moves (safe, optional)
-    if (updates.status === 'DELIVERED') {
+    if (requestedStatus === 'DELIVERED') {
       updates.deliveredAt = new Date();
     }
-    if (updates.status === 'PAID') {
+    if (requestedStatus === 'PAID') {
       updates.paidAt = new Date();
     }
 
+    // Normal update
     const updated = await Order.findOneAndUpdate({ orderId }, updates, {
       new: true
     }).lean();
@@ -528,8 +580,13 @@ app.patch('/api/orders/:id', authRequired, ownerRequired, async (req, res) => {
 
     res.json({ ok: true, order: mapOrderForFrontend(updated) });
   } catch (err) {
+    if (err?.code === 'CANNOT_CANCEL_PAID') {
+      return res.status(400).json({ error: err.message });
+    }
     console.error('PATCH ORDER ERROR:', err);
     res.status(500).json({ error: 'Failed to update order' });
+  } finally {
+    sessionDb.endSession();
   }
 });
 
@@ -556,7 +613,6 @@ app.post('/api/payments/create-session', async (req, res) => {
     const lineItems = [];
     let totalCents = 0;
 
-    // Reserve stock atomically.
     await sessionDb.withTransaction(async () => {
       for (const item of items) {
         const updated = await Product.findOneAndUpdate(
@@ -694,13 +750,7 @@ app.post('/api/stripe/webhook', async (req, res) => {
           if (!order) return;
           if (order.status === 'CANCELED' || order.status === 'PAID') return;
 
-          for (const it of order.items || []) {
-            await Product.findOneAndUpdate(
-              { frontendId: it.productId },
-              { $inc: { stock: Number(it.quantity || 0) } },
-              { session: sessionDb }
-            );
-          }
+          await restockOrderItems(order, sessionDb);
 
           order.status = 'CANCELED';
           await order.save({ session: sessionDb });

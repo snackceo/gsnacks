@@ -19,14 +19,15 @@ import {
   Loader2,
   Terminal,
   Sliders,
-  AlertTriangle,
   ShieldAlert,
   Navigation2,
   PackageCheck,
   EyeOff,
   PackageX,
   Plus,
-  RefreshCw
+  RefreshCw,
+  UserCheck,
+  XCircle
 } from 'lucide-react';
 import {
   LineChart,
@@ -97,16 +98,15 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   });
 
   const chartData = useMemo(() => {
-  return (orders || [])
-    .filter((o: any) => o && o.id) // prevents o.id being undefined
-    .slice(0, 15)
-    .map((o: any) => ({
-      name: String(o.id).slice(-4),
-      revenue: Number(o.total || 0)
-    }))
-    .reverse();
-}, [orders]);
-
+    return (orders || [])
+      .filter((o: any) => o && (o as any).id)
+      .slice(0, 15)
+      .map((o: any) => ({
+        name: String(o.id).slice(-4),
+        revenue: Number(o.total || 0)
+      }))
+      .reverse();
+  }, [orders]);
 
   const handleApprove = (approval: ApprovalRequest) => {
     adjustCredits(approval.userId, approval.amount, `AUTH_APPROVED: ${approval.type}`);
@@ -134,8 +134,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     );
   };
 
-  const handleLogisticsUpdate = (orderId: string, status: OrderStatus) => {
-    updateOrder(orderId, status);
+  const handleLogisticsUpdate = (orderId: string, status: OrderStatus, metadata?: any) => {
+    updateOrder(orderId, status, metadata);
   };
 
   // ---- Orders API (OWNER) ----
@@ -152,11 +152,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Orders fetch failed');
 
-      // This view receives `orders` from parent, so we can only force a refresh by
-      // triggering the backend patch pattern in parent core. If you want this button to
-      // instantly update, wire `core.fetchOrders` from App into this view later.
-      // For now we rely on the fact your core auto-loads orders on restoreSession,
-      // and status updates round-trip.
+      // NOTE:
+      // This view receives `orders` from parent state. This button checks connectivity,
+      // but does not directly set `orders` here. Your parent core should re-fetch orders
+      // on session restore / status updates (which you already have).
     } catch (e: any) {
       setOrdersError(e?.message || 'Orders fetch failed');
     } finally {
@@ -251,17 +250,27 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
+  const canCancel = (o: Order) => {
+    // Cancel is allowed for anything not delivered/refunded/closed.
+    // Backend will block cancel if already PAID (it returns an error). We keep the UI conservative.
+    return (
+      o.status !== OrderStatus.DELIVERED &&
+      o.status !== OrderStatus.REFUNDED &&
+      o.status !== OrderStatus.CLOSED
+    );
+  };
+
   return (
     <div className="flex flex-col xl:flex-row gap-12 animate-in fade-in pb-32">
       <aside className="w-full xl:w-72 space-y-2">
         {[
           { id: 'analytics', label: 'Dashboard', icon: BarChart3 },
-          { id: 'orders', label: 'Logistics', icon: Truck },
+          { id: 'orders', label: 'Orders', icon: Truck },
           { id: 'approvals', label: 'Auth Hub', icon: ShieldCheck },
           { id: 'inventory', label: 'Inventory', icon: Package },
-          { id: 'users', label: 'User Base', icon: Users },
+          { id: 'users', label: 'Users', icon: Users },
           { id: 'logs', label: 'Audit Logs', icon: Terminal },
-          { id: 'settings', label: 'Global Node', icon: Sliders }
+          { id: 'settings', label: 'Settings', icon: Sliders }
         ].map(m => (
           <button
             key={m.id}
@@ -283,7 +292,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
               <div>
                 <h2 className="text-xl font-black uppercase text-white tracking-widest">
-                  Mainframe Overview
+                  Main Dashboard
                 </h2>
                 <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
                   Revenue snapshots & operational pulse
@@ -300,14 +309,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 ) : (
                   <BrainCircuit className="w-6 h-6" />
                 )}
-                Strategic Audit Run
+                Run Audit
               </button>
             </div>
 
             {aiInsights && (
-              <div className="bg-ninpo-midnight p-8 rounded-[2rem] border border-ninpo-lime/20 text-xs text-slate-300 leading-relaxed shadow-xl">
+              <div className="bg-ninpo-midnight p-8 rounded-[2rem] border border-ninpo-lime/20 text-xs text-slate-300 leading-relaxed shadow-xl whitespace-pre-wrap">
                 <p className="font-black text-ninpo-lime uppercase mb-4 tracking-widest flex items-center gap-2">
-                  <ShieldAlert className="w-4 h-4" /> Strategic Intelligence Report:
+                  <ShieldAlert className="w-4 h-4" /> Audit Report
                 </p>
                 {aiInsights}
               </div>
@@ -335,7 +344,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         )}
 
         {/* =========================
-            ORDERS LIST (STEP 1)
+            ORDERS LIST
         ========================= */}
         {activeModule === 'orders' && (
           <div className="space-y-6">
@@ -398,21 +407,36 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                             className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase border tracking-widest ${
                               o.status === OrderStatus.PAID
                                 ? 'text-blue-400 border-blue-400/20 bg-blue-400/5'
+                                : o.status === OrderStatus.CLOSED
+                                ? 'text-slate-400 border-slate-400/20 bg-slate-400/5'
                                 : 'text-ninpo-lime border-ninpo-lime/20 bg-ninpo-lime/5'
                             }`}
                           >
                             {String(o.status).replace('_', ' ')}
                           </span>
+
+                          {o.driverId && (
+                            <span className="px-4 py-2 rounded-xl text-[9px] font-black uppercase border tracking-widest text-white/70 border-white/10 bg-white/5">
+                              DRIVER: {o.driverId}
+                            </span>
+                          )}
                         </div>
 
                         <p className="text-[11px] text-slate-500 mt-4">
-                          CustomerId: <span className="text-slate-300 font-bold">{o.customerId}</span>
+                          CustomerId:{' '}
+                          <span className="text-slate-300 font-bold">{o.customerId}</span>
                         </p>
+
+                        {o.address && (
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            Address: <span className="text-slate-300 font-bold">{o.address}</span>
+                          </p>
+                        )}
                       </div>
 
                       <div className="md:text-right">
                         <p className="text-white font-black text-2xl tracking-tighter">
-                          ${o.total.toFixed(2)}
+                          ${Number(o.total || 0).toFixed(2)}
                         </p>
                         <p className="text-[10px] font-bold text-slate-700 uppercase mt-1">
                           {o.items.length} LINE ITEMS
@@ -442,11 +466,25 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex gap-4 border-t border-white/5 pt-6">
+                    {/* ACTIONS */}
+                    <div className="flex flex-col md:flex-row gap-4 border-t border-white/5 pt-6">
+                      {/* Assign to Me (owner-as-driver) */}
+                      {(o.status === OrderStatus.PENDING || o.status === OrderStatus.PAID) && (
+                        <button
+                          onClick={() =>
+                            handleLogisticsUpdate(o.id, OrderStatus.ASSIGNED, { driverId: 'OWNER' })
+                          }
+                          className="flex-1 py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] transition-all shadow-neon"
+                        >
+                          <UserCheck className="w-5 h-5" /> Assign to Me
+                        </button>
+                      )}
+
+                      {/* Progress buttons */}
                       {o.status === OrderStatus.PAID && (
                         <button
                           onClick={() => handleLogisticsUpdate(o.id, OrderStatus.PICKED_UP)}
-                          className="flex-1 py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] transition-all shadow-neon"
+                          className="flex-1 py-5 bg-white/10 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] transition-all"
                         >
                           <PackageCheck className="w-5 h-5" /> Mark Picked Up
                         </button>
@@ -469,6 +507,16 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                           <CheckCircle2 className="w-5 h-5" /> Mark Delivered
                         </button>
                       )}
+
+                      {/* Cancel (immediate restock on backend) */}
+                      {canCancel(o) && (
+                        <button
+                          onClick={() => handleLogisticsUpdate(o.id, OrderStatus.CLOSED)}
+                          className="md:w-[240px] py-5 bg-ninpo-red/10 text-ninpo-red rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition-all"
+                        >
+                          <XCircle className="w-5 h-5" /> Cancel (Restock)
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))
@@ -478,7 +526,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         )}
 
         {/* =========================
-            APPROVALS (unchanged)
+            APPROVALS
         ========================= */}
         {activeModule === 'approvals' && (
           <div className="space-y-6">
@@ -548,7 +596,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         )}
 
         {/* =========================
-            INVENTORY (kept, minimal)
+            INVENTORY
         ========================= */}
         {activeModule === 'inventory' && (
           <div className="space-y-6">
@@ -607,7 +655,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 disabled={isCreating}
                 className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.01] transition-all shadow-neon"
               >
-                {isCreating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
+                {isCreating ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Plus className="w-5 h-5" />
+                )}
                 Create
               </button>
             </div>
@@ -644,10 +696,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             </div>
           </div>
         )}
-
-        {/* NOTE: users/logs/settings kept as-is in your original file if you need them;
-                 your uploaded ManagementView ends after settings + preview modal. */}
-
       </div>
 
       {previewPhoto && (
