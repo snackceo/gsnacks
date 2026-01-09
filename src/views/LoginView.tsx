@@ -6,8 +6,21 @@ interface LoginViewProps {
   onCancel?: () => void;
 }
 
-const BACKEND_URL =
-  (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
+const runtimeBackendUrl = () => {
+  const envUrl = (import.meta as any).env?.VITE_BACKEND_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim()) return envUrl.trim();
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname.toLowerCase();
+    if (host === 'ninposnacks.com' || host.endsWith('.ninposnacks.com')) {
+      return 'https://api.ninposnacks.com';
+    }
+  }
+
+  return 'http://localhost:5000';
+};
+
+const BACKEND_URL = runtimeBackendUrl();
 
 const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onCancel }) => {
   const [isRegisterMode, setIsRegisterMode] = useState(false);
@@ -33,7 +46,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onCancel }) => {
       const res = await fetch(`${BACKEND_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', // REQUIRED for cookie session
+        credentials: 'include',
         body: JSON.stringify({ username, password })
       });
 
@@ -45,7 +58,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onCancel }) => {
         return;
       }
 
-      // Success: backend set auth cookie
       onSuccess();
     } catch {
       setError('Network error while authenticating');
@@ -56,10 +68,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onCancel }) => {
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center px-6">
-      <div
-        className="max-w-md w-full relative z-10 animate-in fade-in zoom-in duration-500"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="max-w-md w-full relative z-10 animate-in fade-in zoom-in duration-500">
         <div className="text-center mb-12">
           <div className="inline-flex items-center justify-center w-20 h-20 bg-ninpo-lime rounded-3xl mb-6 shadow-xl relative group">
             <Cpu className="w-10 h-10 text-ninpo-black" />
@@ -89,6 +98,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onCancel }) => {
             <form onSubmit={submit} className="space-y-6">
               <input
                 ref={usernameRef}
+                id="username"
+                name="username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -98,6 +109,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onCancel }) => {
               />
 
               <input
+                id="password"
+                name="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

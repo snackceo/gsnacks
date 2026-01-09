@@ -8,9 +8,27 @@ import DriverView from './views/DriverView';
 import ManagementView from './views/ManagementView';
 import PaymentSuccess from './views/PaymentSuccess';
 import PaymentCancel from './views/PaymentCancel';
+import CustomerView from './views/CustomerView';
 
-const BACKEND_URL =
-  (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
+// Runtime-safe backend URL fallback:
+// - If VITE_BACKEND_URL is set at build time, we use it.
+// - If not set and we're on ninposnacks.com, use your Render API domain.
+// - Otherwise (local dev), use localhost.
+const runtimeBackendUrl = () => {
+  const envUrl = (import.meta as any).env?.VITE_BACKEND_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim()) return envUrl.trim();
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname.toLowerCase();
+    if (host === 'ninposnacks.com' || host.endsWith('.ninposnacks.com')) {
+      return 'https://api.ninposnacks.com';
+    }
+  }
+
+  return 'http://localhost:5000';
+};
+
+const BACKEND_URL = runtimeBackendUrl();
 
 const App: React.FC = () => {
   const core = useNinpoCore();
@@ -25,6 +43,26 @@ const App: React.FC = () => {
     () => core.cart.reduce((sum, i) => sum + (i.quantity || 0), 0),
     [core.cart]
   );
+
+  const addToCart = (productId: string) => {
+    core.setCart(prev => {
+      const existing = prev.find(i => i.productId === productId);
+      if (existing) {
+        return prev.map(i =>
+          i.productId === productId ? { ...i, quantity: (i.quantity || 0) + 1 } : i
+        );
+      }
+      return [...prev, { productId, quantity: 1 }];
+    });
+
+    // Open cart to match typical store UX
+    setCartOpen(true);
+  };
+
+  const reorderItems = (items: { productId: string; quantity: number }[]) => {
+    core.setCart(Array.isArray(items) ? items : []);
+    setCartOpen(true);
+  };
 
   const handleExternalPayment = async (type: 'STRIPE' | 'GPAY') => {
     if (!core.currentUser || isProcessingOrder) return;
@@ -47,7 +85,10 @@ const App: React.FC = () => {
 
       const depositValue = Number(core.settings?.michiganDepositValue ?? 0.1);
       const dailyCap = Number(core.settings?.dailyReturnLimit ?? 25);
-      const estimatedReturnCredit = Math.min(returnUpcs.length * depositValue, dailyCap);
+      const estimatedReturnCredit = Math.min(
+        returnUpcs.length * depositValue,
+        dailyCap
+      );
 
       const res = await fetch(`${BACKEND_URL}/api/payments/create-session`, {
         method: 'POST',
@@ -103,10 +144,41 @@ const App: React.FC = () => {
       )}
 
       <Routes>
-        <Route path="/login" element={<LoginView />} />
+        {/* STORE FRONT (PUBLIC) */}
+        <Route
+          path="/"
+          element={
+            <CustomerView
+              products={core.products}
+              orders={core.orders}
+              currentUser={core.currentUser}
+              openLogin={() => navigate('/login')}
+              onRequestRefund={() => {}}
+              addToCart={addToCart}
+              updateUserProfile={() => {}}
+              reorderItems={reorderItems}
+              onRedeemPoints={() => {}}
+            />
+          }
+        />
 
-        
+        {/* LOGIN (NOT FORCED) */}
+        <Route
+          path="/login"
+          element={
+            <LoginView
+              onSuccess={() => {
+                // After login cookie is set, restore session and go back to store
+                // This avoids forcing management.
+                core.restoreSession();
+                navigate('/', { replace: true });
+              }}
+              onCancel={() => navigate('/', { replace: true })}
+            />
+          }
+        />
 
+        {/* PROTECTED */}
         <Route
           path="/driver"
           element={
@@ -145,8 +217,8 @@ const App: React.FC = () => {
         <Route path="/success" element={<PaymentSuccess clearCart={core.clearCart} />} />
         <Route path="/cancel" element={<PaymentCancel />} />
 
-        <Route path="/" element={<Navigate to="/management" replace />} />
-        <Route path="*" element={<Navigate to="/management" replace />} />
+        {/* Catch-all goes to store */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
   );

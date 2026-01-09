@@ -10,8 +10,21 @@ import {
 } from '../types';
 import { MOCK_PRODUCTS } from '../constants';
 
-const BACKEND_URL =
-  (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
+const runtimeBackendUrl = () => {
+  const envUrl = (import.meta as any).env?.VITE_BACKEND_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim()) return envUrl.trim();
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname.toLowerCase();
+    if (host === 'ninposnacks.com' || host.endsWith('.ninposnacks.com')) {
+      return 'https://api.ninposnacks.com';
+    }
+  }
+
+  return 'http://localhost:5000';
+};
+
+const BACKEND_URL = runtimeBackendUrl();
 
 type Toast = { id: string; message: string; type: 'info' | 'success' | 'warning' };
 
@@ -26,9 +39,9 @@ export const useNinpoCore = () => {
     deliveryFee: 2.99,
     referralBonus: 5.0,
     michiganDepositValue: 0.1,
-    processingFeePercent: 2.9,
-    glassHandlingFeePercent: 20,
-    dailyReturnLimit: 25,
+    processingFeePercent: 0.05,
+    glassHandlingFeePercent: 0.02,
+    dailyReturnLimit: 25.0,
     maintenanceMode: false
   });
 
@@ -60,7 +73,12 @@ export const useNinpoCore = () => {
     }
   }, []);
 
-  // -------- Auth ----------
+  useEffect(() => {
+    syncWithBackend();
+    const i = setInterval(syncWithBackend, 30000);
+    return () => clearInterval(i);
+  }, [syncWithBackend]);
+
   const restoreSession = useCallback(async () => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/auth/me`, {
@@ -101,12 +119,10 @@ export const useNinpoCore = () => {
       // ignore
     } finally {
       setCurrentUser(null);
-      setOrders([]);
-      setCart([]);
+      addToast('SIGNED OUT', 'info');
     }
-  }, []);
+  }, [addToast]);
 
-  // -------- Products ----------
   const fetchProducts = useCallback(async () => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/products`, {
@@ -128,52 +144,71 @@ export const useNinpoCore = () => {
   }, [addToast]);
 
   const createProduct = useCallback(
-    async (p: any) => {
+    async (p: Partial<Product>) => {
       const res = await fetch(`${BACKEND_URL}/api/products`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(p)
+        body: JSON.stringify({
+          id: p.id,
+          name: p.name,
+          price: p.price,
+          deposit: (p as any).deposit ?? 0,
+          stock: p.stock ?? 0,
+          category: p.category ?? 'DRINK',
+          image: p.image ?? '',
+          isGlass: (p as any).isGlass ?? false
+        })
       });
 
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to create product');
+      if (!res.ok) throw new Error(data?.error || 'Create product failed');
 
-      setProducts(prev => [data.product, ...prev]);
-      return data.product as Product;
+      const created = data.product as Product;
+      setProducts(prev => [created, ...prev]);
+      addToast('PRODUCT CREATED', 'success');
+      return created;
     },
-    []
+    [addToast]
   );
 
-  const updateProduct = useCallback(async (id: string, updates: any) => {
-    const res = await fetch(`${BACKEND_URL}/api/products/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(updates)
-    });
+  const updateProduct = useCallback(
+    async (id: string, updates: Partial<Product>) => {
+      const res = await fetch(`${BACKEND_URL}/api/products/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(updates)
+      });
 
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error || 'Failed to update product');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Update product failed');
 
-    setProducts(prev => prev.map(p => (p.id === id ? data.product : p)));
-    return data.product as Product;
-  }, []);
+      const updated = data.product as Product;
+      setProducts(prev => prev.map(p => (p.id === id ? updated : p)));
+      addToast('PRODUCT UPDATED', 'success');
+      return updated;
+    },
+    [addToast]
+  );
 
-  const deleteProduct = useCallback(async (id: string) => {
-    const res = await fetch(`${BACKEND_URL}/api/products/${id}`, {
-      method: 'DELETE',
-      credentials: 'include'
-    });
+  const deleteProduct = useCallback(
+    async (id: string) => {
+      const res = await fetch(`${BACKEND_URL}/api/products/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
 
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error || 'Failed to delete product');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Delete product failed');
 
-    setProducts(prev => prev.filter(p => p.id !== id));
-    return true;
-  }, []);
+      setProducts(prev => prev.filter(p => p.id !== id));
+      addToast('PRODUCT REMOVED', 'success');
+      return true;
+    },
+    [addToast]
+  );
 
-  // -------- Orders ----------
   const fetchOrders = useCallback(async () => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/orders`, {
@@ -192,33 +227,33 @@ export const useNinpoCore = () => {
     }
   }, [addToast]);
 
-  // Load products + restore session on first mount
   useEffect(() => {
     restoreSession();
     fetchProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load orders whenever session is present (owner sees all; customers see their own).
-  useEffect(() => {
-    if (currentUser) {
-      fetchOrders();
-    } else {
-      setOrders([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser]);
+  const adjustCredits = useCallback(
+    async (userId: string, amount: number, reason: string) => {
+      setUsers(prev =>
+        prev.map(u =>
+          u.id === userId ? { ...u, credits: (u.credits || 0) + amount } : u
+        )
+      );
 
-  // -------- Existing order/user helpers ----------
-  const adjustCredits = useCallback(async (userId: string, amount: number, reason: string) => {
-    setUsers(prev =>
-      prev.map(u =>
-        u.id === userId ? { ...u, credits: (u.credits || 0) + amount } : u
-      )
-    );
-
-    addToast(`CREDITS ${amount >= 0 ? 'ADDED' : 'DEDUCTED'}: ${reason}`, 'success');
-  }, [addToast]);
+      try {
+        await fetch(`${BACKEND_URL}/api/users/${userId}/credits`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ amount, reason })
+        });
+      } catch {
+        addToast('Failed to sync credits to MongoDB', 'warning');
+      }
+    },
+    [addToast]
+  );
 
   const updateOrder = useCallback(
     async (id: string, status: OrderStatus, metadata?: any) => {
@@ -265,14 +300,18 @@ export const useNinpoCore = () => {
 
     adjustCredits,
     updateOrder,
+
     isBackendOnline,
     syncWithBackend,
 
     restoreSession,
     logout,
+
     fetchProducts,
     createProduct,
     updateProduct,
-    deleteProduct
+    deleteProduct,
+
+    fetchOrders
   };
 };
