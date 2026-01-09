@@ -1,19 +1,24 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { useNinpoCore } from './hooks/useNinpoCore';
 
-import CartDrawer from './components/CartDrawer';
-import LoginView from './views/LoginView';
-import DriverView from './views/DriverView';
+import { useNinpoCore } from './hooks/useNinpoCore';
+import { UserRole } from './types';
+
+import CustomerView from './views/CustomerView';
 import ManagementView from './views/ManagementView';
+import DriverView from './views/DriverView';
+import LoginView from './views/LoginView';
 import PaymentSuccess from './views/PaymentSuccess';
 import PaymentCancel from './views/PaymentCancel';
-import CustomerView from './views/CustomerView';
 
-// Runtime-safe backend URL fallback:
-// - If VITE_BACKEND_URL is set at build time, we use it.
-// - If not set and we're on ninposnacks.com, use your Render API domain.
-// - Otherwise (local dev), use localhost.
+import Header from './components/Header';
+import CartDrawer from './components/CartDrawer';
+import LegalFooter from './components/LegalFooter';
+import BackendStatusBanner from './components/BackendStatusBanner';
+import ToastStack from './components/ToastStack';
+
+import { ShoppingBag } from 'lucide-react';
+
 const runtimeBackendUrl = () => {
   const envUrl = (import.meta as any).env?.VITE_BACKEND_URL;
   if (envUrl && typeof envUrl === 'string' && envUrl.trim()) return envUrl.trim();
@@ -30,19 +35,25 @@ const runtimeBackendUrl = () => {
 
 const BACKEND_URL = runtimeBackendUrl();
 
-const App: React.FC = () => {
+function App() {
   const core = useNinpoCore();
   const navigate = useNavigate();
 
-  const [cartOpen, setCartOpen] = useState(false);
   const [address, setAddress] = useState('');
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
+
+  const [isCartOpen, setIsCartOpen] = useState(false);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
 
-  const cartQty = useMemo(
+  // Total quantity across all cart lines (badge)
+  const cartCount = useMemo(
     () => core.cart.reduce((sum, i) => sum + (i.quantity || 0), 0),
     [core.cart]
   );
+
+  const removeCartItem = (productId: string) => {
+    core.setCart(prev => prev.filter(i => i.productId !== productId));
+  };
 
   const addToCart = (productId: string) => {
     core.setCart(prev => {
@@ -54,17 +65,15 @@ const App: React.FC = () => {
       }
       return [...prev, { productId, quantity: 1 }];
     });
-
-    // Open cart to match typical store UX
-    setCartOpen(true);
+    setIsCartOpen(true);
   };
 
   const reorderItems = (items: { productId: string; quantity: number }[]) => {
     core.setCart(Array.isArray(items) ? items : []);
-    setCartOpen(true);
+    setIsCartOpen(true);
   };
 
-  const handleExternalPayment = async (type: 'STRIPE' | 'GPAY') => {
+  const handleExternalPayment = async (gateway: 'STRIPE' | 'GPAY') => {
     if (!core.currentUser || isProcessingOrder) return;
 
     setIsProcessingOrder(true);
@@ -85,10 +94,7 @@ const App: React.FC = () => {
 
       const depositValue = Number(core.settings?.michiganDepositValue ?? 0.1);
       const dailyCap = Number(core.settings?.dailyReturnLimit ?? 25);
-      const estimatedReturnCredit = Math.min(
-        returnUpcs.length * depositValue,
-        dailyCap
-      );
+      const estimatedReturnCredit = Math.min(returnUpcs.length * depositValue, dailyCap);
 
       const res = await fetch(`${BACKEND_URL}/api/payments/create-session`, {
         method: 'POST',
@@ -97,8 +103,8 @@ const App: React.FC = () => {
         body: JSON.stringify({
           items: core.cart,
           userId: core.currentUser.id,
-          gateway: type,
-          address: address,
+          gateway,
+          address,
           returnUpcs,
           estimatedReturnCredit
         })
@@ -111,117 +117,134 @@ const App: React.FC = () => {
       window.location.href = sessionUrl;
     } catch (err: any) {
       core.addToast(err?.message ?? 'Payment error', 'warning');
+      setIsProcessingOrder(false);
     } finally {
       setIsProcessingOrder(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-ninpo-black text-white">
-      <CartDrawer
-        open={cartOpen}
-        onClose={() => setCartOpen(false)}
-        cart={core.cart}
-        setCart={core.setCart}
-        products={core.products}
-        user={core.currentUser}
-        address={address}
-        setAddress={setAddress}
-        acceptedPolicies={acceptedPolicies}
-        setAcceptedPolicies={setAcceptedPolicies}
-        onPayStripe={() => handleExternalPayment('STRIPE')}
-        onPayGPay={() => handleExternalPayment('GPAY')}
-        isProcessingOrder={isProcessingOrder}
+    <div className="min-h-screen bg-ninpo-black text-white flex flex-col relative overflow-x-hidden font-sans">
+      <BackendStatusBanner isOnline={core.isBackendOnline} onReconnect={core.syncWithBackend} />
+      <ToastStack toasts={core.toasts} />
+
+      {/* TOP HEADER (logo left, Sign In right) */}
+      <Header
+        currentUserRole={core.currentUser?.role}
+        isLoggedIn={!!core.currentUser}
+        onLogin={() => navigate('/login')}
+        onLogout={() => core.logout?.()}
       />
 
-      {cartQty > 0 && (
+      {/* CART DRAWER (correct prop names for your CartDrawer.tsx) */}
+      <CartDrawer
+        isOpen={isCartOpen}
+        cart={core.cart}
+        products={core.products}
+        address={address}
+        acceptedPolicies={acceptedPolicies}
+        isProcessing={isProcessingOrder}
+        onClose={() => setIsCartOpen(false)}
+        onAddressChange={setAddress}
+        onPolicyChange={setAcceptedPolicies}
+        onRemoveItem={removeCartItem}
+        onPayCredits={() => {}}
+        onPayExternal={handleExternalPayment}
+      />
+
+      {/* Main content */}
+      <main className="flex-1 px-6 py-10 max-w-[1600px] w-full mx-auto">
+        <Routes>
+          {/* STORE FRONT */}
+          <Route
+            path="/"
+            element={
+              <CustomerView
+                products={core.products}
+                orders={core.orders.filter(o => o.customerId === core.currentUser?.id)}
+                currentUser={core.currentUser}
+                openLogin={() => navigate('/login')}
+                onRequestRefund={() => {}}
+                addToCart={addToCart}
+                updateUserProfile={() => {}}
+                reorderItems={reorderItems}
+                onRedeemPoints={() => {}}
+              />
+            }
+          />
+
+          {/* LOGIN ONLY WHEN CLICKED */}
+          <Route
+            path="/login"
+            element={
+              <LoginView
+                onSuccess={() => {
+                  core.restoreSession();
+                  navigate('/', { replace: true });
+                }}
+                onCancel={() => navigate('/', { replace: true })}
+              />
+            }
+          />
+
+          {/* OWNER PROTECTED */}
+          <Route
+            path="/management"
+            element={
+              core.currentUser?.role === UserRole.OWNER ? (
+                <ManagementView
+                  user={core.currentUser}
+                  products={core.products}
+                  setProducts={core.setProducts}
+                  orders={core.orders}
+                  users={core.users}
+                  settings={core.settings}
+                  setSettings={core.setSettings}
+                  approvals={core.approvals}
+                  setApprovals={core.setApprovals}
+                  auditLogs={core.auditLogs}
+                  updateOrder={core.updateOrder}
+                  adjustCredits={core.adjustCredits}
+                />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+
+          <Route
+            path="/driver"
+            element={
+              core.currentUser?.role === UserRole.OWNER ? (
+                <DriverView orders={core.orders} updateOrder={core.updateOrder} />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+
+          <Route path="/success" element={<PaymentSuccess clearCart={core.clearCart} />} />
+          <Route path="/cancel" element={<PaymentCancel />} />
+
+          {/* Unknown routes return to store */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
+
+      {/* Floating Cart Button */}
+      {cartCount > 0 && (
         <button
-          className="fixed bottom-8 right-8 bg-ninpo-lime text-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-neon"
-          onClick={() => setCartOpen(true)}
+          onClick={() => setIsCartOpen(true)}
+          className="fixed bottom-8 right-8 z-[9000] bg-ninpo-lime text-ninpo-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-neon flex items-center gap-3"
         >
-          Cart ({cartQty})
+          <ShoppingBag className="w-4 h-4" />
+          Cart ({cartCount})
         </button>
       )}
 
-      <Routes>
-        {/* STORE FRONT (PUBLIC) */}
-        <Route
-          path="/"
-          element={
-            <CustomerView
-              products={core.products}
-              orders={core.orders}
-              currentUser={core.currentUser}
-              openLogin={() => navigate('/login')}
-              onRequestRefund={() => {}}
-              addToCart={addToCart}
-              updateUserProfile={() => {}}
-              reorderItems={reorderItems}
-              onRedeemPoints={() => {}}
-            />
-          }
-        />
-
-        {/* LOGIN (NOT FORCED) */}
-        <Route
-          path="/login"
-          element={
-            <LoginView
-              onSuccess={() => {
-                // After login cookie is set, restore session and go back to store
-                // This avoids forcing management.
-                core.restoreSession();
-                navigate('/', { replace: true });
-              }}
-              onCancel={() => navigate('/', { replace: true })}
-            />
-          }
-        />
-
-        {/* PROTECTED */}
-        <Route
-          path="/driver"
-          element={
-            core.currentUser?.role === 'OWNER' ? (
-              <DriverView orders={core.orders} updateOrder={core.updateOrder} />
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-
-        <Route
-          path="/management"
-          element={
-            core.currentUser?.role === 'OWNER' ? (
-              <ManagementView
-                user={core.currentUser}
-                products={core.products}
-                setProducts={core.setProducts}
-                orders={core.orders}
-                users={core.users}
-                settings={core.settings}
-                setSettings={core.setSettings}
-                approvals={core.approvals}
-                setApprovals={core.setApprovals}
-                auditLogs={core.auditLogs}
-                updateOrder={core.updateOrder}
-                adjustCredits={core.adjustCredits}
-              />
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-
-        <Route path="/success" element={<PaymentSuccess clearCart={core.clearCart} />} />
-        <Route path="/cancel" element={<PaymentCancel />} />
-
-        {/* Catch-all goes to store */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <LegalFooter />
     </div>
   );
-};
+}
 
 export default App;
