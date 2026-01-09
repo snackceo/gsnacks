@@ -434,13 +434,46 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         )}
                       </div>
 
-                      <div className="md:text-right">
+                      {/* UPDATED HEADER RIGHT-SIDE */}
+                      <div className="md:text-right space-y-2">
                         <p className="text-white font-black text-2xl tracking-tighter">
                           ${Number(o.total || 0).toFixed(2)}
                         </p>
-                        <p className="text-[10px] font-bold text-slate-700 uppercase mt-1">
+
+                        <p className="text-[10px] font-bold text-slate-700 uppercase">
                           {o.items.length} LINE ITEMS
                         </p>
+
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-600 space-y-1">
+                          <div className="flex items-center justify-between md:justify-end md:gap-3">
+                            <span className="md:hidden">Est Credit:</span>
+                            <span className="text-slate-300">
+                              Est Credit: ${Number(o.estimatedReturnCredit || 0).toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between md:justify-end md:gap-3">
+                            <span className="md:hidden">Verified:</span>
+                            <span className="text-slate-300">
+                              Verified:{' '}
+                              {o.verifiedReturnCredit === undefined
+                                ? '—'
+                                : `$${Number(o.verifiedReturnCredit || 0).toFixed(2)}`}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between md:justify-end md:gap-3">
+                            <span className="md:hidden">Final Charged:</span>
+                            <span className="text-slate-300">
+                              Final Charged:{' '}
+                              {o.capturedAmount === undefined
+                                ? 'Not captured'
+                                : o.capturedAmount === 0
+                                ? '$0.00 (voided)'
+                                : `$${Number(o.capturedAmount || 0).toFixed(2)}`}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </div>
 

@@ -1,39 +1,6 @@
-
 export enum UserRole {
   CUSTOMER = 'CUSTOMER',
   OWNER = 'OWNER'
-}
-
-export enum UserTier {
-  BRONZE = 'BRONZE',
-  SILVER = 'SILVER',
-  GOLD = 'GOLD'
-}
-
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  tier: UserTier;
-  credits: number;
-  referralCode: string;
-  referredBy?: string;
-  loyaltyPoints: number;
-  dailyReturnTotal: number;
-  acceptedPoliciesAt?: string;
-  isLocked?: boolean;
-}
-
-export interface Product {
-  id: string;
-  name: string;
-  price: number;
-  deposit: number;
-  category: string;
-  stock: number;
-  image: string;
-  isGlass?: boolean;
 }
 
 export enum OrderStatus {
@@ -43,11 +10,38 @@ export enum OrderStatus {
   PICKED_UP = 'PICKED_UP',
   ARRIVING = 'ARRIVING',
   DELIVERED = 'DELIVERED',
-  CLOSED = 'CLOSED',
-  REFUNDED = 'REFUNDED'
+  REFUND_REQUESTED = 'REFUND_REQUESTED',
+  REFUNDED = 'REFUNDED',
+  CLOSED = 'CLOSED'
 }
 
-export type PaymentMethod = 'CREDITS' | 'GOOGLE_PAY' | 'STRIPE_CARD';
+export type PaymentMethod = 'STRIPE_CARD' | 'GOOGLE_PAY';
+
+export enum MembershipTier {
+  NONE = 'NONE',
+  BRONZE = 'BRONZE',
+  SILVER = 'SILVER',
+  GOLD = 'GOLD'
+}
+
+export interface User {
+  id: string;
+  name: string;
+  role: UserRole;
+  creditBalance: number;
+  membershipTier: MembershipTier;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  price: number;
+  deposit: number;
+  stock: number;
+  category: string;
+  image: string;
+  isGlass: boolean;
+}
 
 export interface Order {
   id: string;
@@ -57,6 +51,11 @@ export interface Order {
   total: number;
   estimatedReturnCredit: number;
   verifiedReturnCredit?: number;
+
+  // Dollars (derived from Stripe cents fields on backend)
+  authorizedAmount?: number;
+  capturedAmount?: number;
+
   paymentMethod: PaymentMethod;
   address: string;
   status: OrderStatus;
@@ -68,32 +67,49 @@ export interface Order {
   gpsCoords?: { lat: number; lng: number };
 }
 
+export interface AppSettings {
+  michiganDepositValue: number;
+  dailyReturnLimit: number;
+  requirePhotoForRefunds: boolean;
+  allowGuestCheckout: boolean;
+  showAdvancedInventoryInsights: boolean;
+}
+
+export type ApprovalType = 'REFUND' | 'CREDIT_ADJUSTMENT' | 'MEMBERSHIP_UPGRADE';
+
+export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
 export interface ApprovalRequest {
   id: string;
-  type: 'REFUND' | 'BOTTLE_RETURN';
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  type: ApprovalType;
   userId: string;
-  orderId?: string;
   amount: number;
+  orderId?: string;
+  reason?: string;
   photoProof?: string;
+  status: ApprovalStatus;
   createdAt: string;
   processedAt?: string;
 }
 
+export type AuditLogType =
+  | 'LOGIN'
+  | 'LOGOUT'
+  | 'ORDER_CREATED'
+  | 'ORDER_UPDATED'
+  | 'ORDER_CANCELED'
+  | 'PRODUCT_CREATED'
+  | 'PRODUCT_UPDATED'
+  | 'PRODUCT_DELETED'
+  | 'CREDIT_ADJUSTED'
+  | 'APPROVAL_APPROVED'
+  | 'APPROVAL_REJECTED'
+  | 'SETTINGS_UPDATED';
+
 export interface AuditLog {
   id: string;
-  userId: string;
-  action: string;
-  metadata: any;
-  timestamp: string;
-}
-
-export interface AppSettings {
-  deliveryFee: number;
-  referralBonus: number;
-  michiganDepositValue: number;
-  processingFeePercent: number;
-  glassHandlingFeePercent: number;
-  dailyReturnLimit: number;
-  maintenanceMode: boolean;
+  type: AuditLogType;
+  actorId: string;
+  details: string;
+  createdAt: string;
 }

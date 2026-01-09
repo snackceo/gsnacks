@@ -253,6 +253,19 @@ function mapOrderForFrontend(d) {
   // Frontend enum does not include CANCELED, so map it to CLOSED.
   const mappedStatus = d.status === 'CANCELED' ? 'CLOSED' : d.status;
 
+  const authorizedCents = Number(d.amountAuthorizedCents ?? 0);
+  const capturedCents = Number(d.amountCapturedCents ?? 0);
+
+  const authorizedAmount =
+    Number.isFinite(authorizedCents) ? Math.round((authorizedCents / 100) * 100) / 100 : 0;
+
+  // Only expose capturedAmount once capture/void has happened (capturedAt exists).
+  // This preserves a clean UI state for orders that are only authorized.
+  const capturedAmount =
+    d.capturedAt && Number.isFinite(capturedCents)
+      ? Math.round((capturedCents / 100) * 100) / 100
+      : undefined;
+
   return {
     id: d.orderId,
     customerId: d.customerId || 'GUEST',
@@ -260,9 +273,14 @@ function mapOrderForFrontend(d) {
     items: Array.isArray(d.items) ? d.items : [],
     total: Number(d.total || 0),
 
+    // Bottle returns
     estimatedReturnCredit: Number(d.estimatedReturnCredit || 0),
     verifiedReturnCredit:
       d.verifiedReturnCredit !== undefined ? Number(d.verifiedReturnCredit || 0) : undefined,
+
+    // NEW: expose money movement to UI (dollars)
+    authorizedAmount,
+    capturedAmount,
 
     paymentMethod: d.paymentMethod === 'STRIPE' ? 'STRIPE_CARD' : d.paymentMethod,
 
@@ -277,6 +295,7 @@ function mapOrderForFrontend(d) {
     gpsCoords: d.gpsCoords?.lat && d.gpsCoords?.lng ? d.gpsCoords : undefined
   };
 }
+
 
 async function restockOrderItems(order, sessionDb) {
   for (const it of order.items || []) {
