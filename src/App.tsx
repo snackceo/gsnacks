@@ -137,7 +137,10 @@ function App() {
           />
 
           {/* PAYMENT RESULTS */}
-          <Route path="/success" element={<PaymentSuccess />} />
+          <Route
+            path="/success"
+            element={<PaymentSuccess clearCart={core.clearCart} />}
+          />
           <Route path="/cancel" element={<PaymentCancel />} />
 
           {/* OWNER MANAGEMENT */}
