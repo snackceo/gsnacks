@@ -64,6 +64,11 @@ const orderSchema = new mongoose.Schema(
     },
     verificationPhoto: { type: String, default: '' },
 
+    // Bottle returns (client preview + driver verification)
+    returnUpcs: { type: [String], default: [] },
+    estimatedReturnCredit: { type: Number, default: 0 }, // dollars (preview)
+    verifiedReturnCredit: { type: Number, default: 0 }, // dollars (driver)
+
     items: [
       {
         productId: { type: String, required: true }, // frontendId
@@ -71,17 +76,27 @@ const orderSchema = new mongoose.Schema(
       }
     ],
 
-    total: { type: Number, required: true },
+    total: { type: Number, required: true }, // dollars, pre-credit
+
     paymentMethod: { type: String, default: 'STRIPE' },
 
-    // PENDING = created/reserved, PAID = confirmed, CANCELED = released/restocked
+    /**
+     * PENDING: order created, stock reserved, payment NOT captured yet
+     * PAID: payment captured (after driver verification)
+     * CANCELED: canceled/re-stocked
+     */
     status: { type: String, default: 'PENDING' },
 
-    paidAt: { type: Date },
-    deliveredAt: { type: Date },
-
+    // Stripe references + amounts (cents)
     stripeSessionId: { type: String },
-    stripePaymentIntentId: { type: String }
+    stripePaymentIntentId: { type: String },
+    authorizedAt: { type: Date },
+    amountAuthorizedCents: { type: Number, default: 0 },
+    capturedAt: { type: Date },
+    amountCapturedCents: { type: Number, default: 0 },
+
+    paidAt: { type: Date },
+    deliveredAt: { type: Date }
   },
   { timestamps: true }
 );
@@ -235,6 +250,7 @@ function normalizeCart(items) {
 }
 
 function mapOrderForFrontend(d) {
+  // Frontend enum does not include CANCELED, so map it to CLOSED.
   const mappedStatus = d.status === 'CANCELED' ? 'CLOSED' : d.status;
 
   return {
@@ -244,8 +260,9 @@ function mapOrderForFrontend(d) {
     items: Array.isArray(d.items) ? d.items : [],
     total: Number(d.total || 0),
 
-    estimatedReturnCredit: 0,
-    verifiedReturnCredit: undefined,
+    estimatedReturnCredit: Number(d.estimatedReturnCredit || 0),
+    verifiedReturnCredit:
+      d.verifiedReturnCredit !== undefined ? Number(d.verifiedReturnCredit || 0) : undefined,
 
     paymentMethod: d.paymentMethod === 'STRIPE' ? 'STRIPE_CARD' : d.paymentMethod,
 
@@ -271,6 +288,18 @@ async function restockOrderItems(order, sessionDb) {
       { $inc: { stock: qty } },
       { session: sessionDb }
     );
+  }
+}
+
+async function voidStripeAuthorizationBestEffort(order) {
+  if (!stripe) return;
+  const pi = order?.stripePaymentIntentId;
+  if (!pi) return;
+
+  try {
+    await stripe.paymentIntents.cancel(pi);
+  } catch {
+    // ignore (best-effort)
   }
 }
 
@@ -486,12 +515,18 @@ app.delete('/api/products/:id', authRequired, ownerRequired, async (req, res) =>
 });
 
 /* =========================
-   ORDERS (OWNER DASHBOARD)
+   ORDERS
+   - Owner sees all
+   - Customers see their own
 ========================= */
-app.get('/api/orders', authRequired, ownerRequired, async (req, res) => {
+app.get('/api/orders', authRequired, async (req, res) => {
   try {
-    const docs = await Order.find({}).sort({ createdAt: -1 }).lean();
+    const isOwner = isOwnerUsername(req.user?.username);
+    const q = isOwner ? {} : { customerId: req.user?.id };
+
+    const docs = await Order.find(q).sort({ createdAt: -1 }).lean();
     const orders = docs.map(mapOrderForFrontend);
+
     res.json({ ok: true, orders });
   } catch (err) {
     console.error('GET ORDERS ERROR:', err);
@@ -500,9 +535,9 @@ app.get('/api/orders', authRequired, ownerRequired, async (req, res) => {
 });
 
 /**
- * PATCH /api/orders/:id
+ * PATCH /api/orders/:id (owner-only)
  * - Accepts frontend statuses, including CLOSED (manual cancel).
- * - If status is CLOSED -> immediately restocks and sets DB status to CANCELED.
+ * - CLOSED -> immediately restocks and sets DB status to CANCELED, and voids Stripe authorization if present.
  */
 app.patch('/api/orders/:id', authRequired, ownerRequired, async (req, res) => {
   const sessionDb = await mongoose.startSession();
@@ -511,7 +546,14 @@ app.patch('/api/orders/:id', authRequired, ownerRequired, async (req, res) => {
     const orderId = String(req.params.id || '').trim();
     if (!orderId) return res.status(400).json({ error: 'Invalid order id' });
 
-    const allowed = ['status', 'driverId', 'address', 'gpsCoords', 'verificationPhoto'];
+    const allowed = [
+      'status',
+      'driverId',
+      'address',
+      'gpsCoords',
+      'verificationPhoto',
+      'verifiedReturnCredit'
+    ];
 
     const updates = {};
     for (const k of allowed) {
@@ -521,10 +563,8 @@ app.patch('/api/orders/:id', authRequired, ownerRequired, async (req, res) => {
     const requestedStatus = updates.status ? String(updates.status).trim() : null;
 
     // Manual cancel from frontend typically sends CLOSED.
-    const isManualCancel =
-      requestedStatus === 'CLOSED' || requestedStatus === 'CANCELED';
+    const isManualCancel = requestedStatus === 'CLOSED' || requestedStatus === 'CANCELED';
 
-    // If cancel requested, do it transactionally and restock immediately.
     if (isManualCancel) {
       let updatedOrderDoc = null;
 
@@ -532,14 +572,12 @@ app.patch('/api/orders/:id', authRequired, ownerRequired, async (req, res) => {
         const order = await Order.findOne({ orderId }).session(sessionDb);
         if (!order) return;
 
-        // Conservative: do not allow cancel after paid (refund flow would be separate).
         if (order.status === 'PAID') {
           const e = new Error('Cannot cancel a PAID order (refund flow required).');
           e.code = 'CANNOT_CANCEL_PAID';
           throw e;
         }
 
-        // Idempotent: if already canceled, do nothing
         if (order.status === 'CANCELED') {
           updatedOrderDoc = order;
           return;
@@ -548,11 +586,17 @@ app.patch('/api/orders/:id', authRequired, ownerRequired, async (req, res) => {
         await restockOrderItems(order, sessionDb);
 
         order.status = 'CANCELED';
-        // Keep optional metadata updates if supplied
+
         if (updates.driverId !== undefined) order.driverId = String(updates.driverId || '');
         if (updates.address !== undefined) order.address = String(updates.address || '');
         if (updates.gpsCoords !== undefined) order.gpsCoords = updates.gpsCoords;
-        if (updates.verificationPhoto !== undefined) order.verificationPhoto = String(updates.verificationPhoto || '');
+        if (updates.verificationPhoto !== undefined)
+          order.verificationPhoto = String(updates.verificationPhoto || '');
+
+        if (updates.verifiedReturnCredit !== undefined) {
+          const v = Number(updates.verifiedReturnCredit);
+          order.verifiedReturnCredit = Number.isFinite(v) ? Math.max(0, v) : 0;
+        }
 
         await order.save({ session: sessionDb });
         updatedOrderDoc = order;
@@ -560,10 +604,11 @@ app.patch('/api/orders/:id', authRequired, ownerRequired, async (req, res) => {
 
       if (!updatedOrderDoc) return res.status(404).json({ error: 'Order not found' });
 
+      await voidStripeAuthorizationBestEffort(updatedOrderDoc);
+
       return res.json({ ok: true, order: mapOrderForFrontend(updatedOrderDoc) });
     }
 
-    // Auto-set timestamps for common status moves (safe, optional)
     if (requestedStatus === 'DELIVERED') {
       updates.deliveredAt = new Date();
     }
@@ -571,7 +616,10 @@ app.patch('/api/orders/:id', authRequired, ownerRequired, async (req, res) => {
       updates.paidAt = new Date();
     }
 
-    // Normal update
+    if (updates.verifiedReturnCredit !== undefined) {
+      updates.verifiedReturnCredit = Math.max(0, Number(updates.verifiedReturnCredit || 0));
+    }
+
     const updated = await Order.findOneAndUpdate({ orderId }, updates, {
       new: true
     }).lean();
@@ -591,8 +639,16 @@ app.patch('/api/orders/:id', authRequired, ownerRequired, async (req, res) => {
 });
 
 /* =========================
-   PAYMENTS (ENFORCE INVENTORY)
+   PAYMENTS
+   Option 2: Authorize at checkout, capture after driver verification.
 ========================= */
+
+/**
+ * POST /api/payments/create-session
+ * - reserves inventory
+ * - creates order (PENDING)
+ * - creates Stripe Checkout Session with capture_method = manual (authorize only)
+ */
 app.post('/api/payments/create-session', async (req, res) => {
   const sessionDb = await mongoose.startSession();
 
@@ -603,6 +659,13 @@ app.post('/api/payments/create-session', async (req, res) => {
     const userId = req.body?.userId;
     const address = String(req.body?.address || '').trim();
     const gateway = String(req.body?.gateway || 'STRIPE').toUpperCase();
+
+    const incomingUpcs = Array.isArray(req.body?.returnUpcs) ? req.body.returnUpcs : [];
+    const returnUpcs = incomingUpcs.map(String).map(s => s.trim()).filter(Boolean);
+
+    const depositValue = Number(process.env.MI_DEPOSIT_VALUE || 0.1); // dollars
+    const dailyCap = Number(process.env.DAILY_RETURN_CAP || 25); // dollars
+    const computedEstimatedCredit = Math.min(returnUpcs.length * depositValue, dailyCap);
 
     const items = normalizeCart(rawItems);
     if (!Array.isArray(items) || items.length === 0) {
@@ -657,8 +720,15 @@ app.post('/api/payments/create-session', async (req, res) => {
             address: address || '',
             items,
             total: totalCents / 100,
+
+            returnUpcs,
+            estimatedReturnCredit: computedEstimatedCredit,
+            verifiedReturnCredit: 0,
+
             paymentMethod: gateway === 'GPAY' ? 'GOOGLE_PAY' : 'STRIPE',
-            status: 'PENDING'
+            status: 'PENDING',
+
+            amountAuthorizedCents: totalCents
           }
         ],
         { session: sessionDb }
@@ -667,9 +737,13 @@ app.post('/api/payments/create-session', async (req, res) => {
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
+    // Manual capture => authorize now, capture later
     const stripeSession = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: lineItems,
+      payment_intent_data: {
+        capture_method: 'manual'
+      },
       metadata: { orderId },
       success_url: `${frontendUrl}/success`,
       cancel_url: `${frontendUrl}/cancel`
@@ -691,8 +765,105 @@ app.post('/api/payments/create-session', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/payments/capture (owner-only)
+ * - Driver submits verifiedReturnCredit
+ * - Server captures final amount = authorized - verified credit (never increases)
+ */
+app.post('/api/payments/capture', authRequired, ownerRequired, async (req, res) => {
+  const sessionDb = await mongoose.startSession();
+
+  try {
+    if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+
+    const orderId = String(req.body?.orderId || '').trim();
+    if (!orderId) return res.status(400).json({ error: 'orderId is required' });
+
+    const verifiedReturnCredit = Math.max(0, Number(req.body?.verifiedReturnCredit || 0));
+    if (!Number.isFinite(verifiedReturnCredit)) {
+      return res.status(400).json({ error: 'verifiedReturnCredit must be a number' });
+    }
+
+    let updatedOrderDoc = null;
+
+    await sessionDb.withTransaction(async () => {
+      const order = await Order.findOne({ orderId }).session(sessionDb);
+      if (!order) return;
+
+      if (order.status === 'PAID') {
+        updatedOrderDoc = order;
+        return;
+      }
+
+      if (order.status === 'CANCELED') {
+        const e = new Error('Cannot capture a canceled order.');
+        e.code = 'ORDER_CANCELED';
+        throw e;
+      }
+
+      const pi = order.stripePaymentIntentId;
+      if (!pi) {
+        const e = new Error('No Stripe PaymentIntent found for this order yet.');
+        e.code = 'NO_PAYMENT_INTENT';
+        throw e;
+      }
+
+      const authorizedCents = Number(
+        order.amountAuthorizedCents || Math.round(Number(order.total || 0) * 100)
+      );
+      const creditCents = Math.round(verifiedReturnCredit * 100);
+
+      const finalCaptureCents = Math.max(0, authorizedCents - creditCents);
+
+      // If capture would be 0, void the authorization instead of capturing 0.
+      if (finalCaptureCents === 0) {
+        try {
+          await stripe.paymentIntents.cancel(pi);
+        } catch {
+          // ignore
+        }
+
+        order.status = 'PAID';
+        order.paidAt = new Date();
+        order.capturedAt = new Date();
+        order.amountCapturedCents = 0;
+        order.verifiedReturnCredit = verifiedReturnCredit;
+
+        await order.save({ session: sessionDb });
+        updatedOrderDoc = order;
+        return;
+      }
+
+      const captured = await stripe.paymentIntents.capture(pi, {
+        amount_to_capture: finalCaptureCents
+      });
+
+      order.status = 'PAID';
+      order.paidAt = new Date();
+      order.capturedAt = new Date();
+      order.amountCapturedCents = Number(captured?.amount_received || finalCaptureCents);
+      order.verifiedReturnCredit = verifiedReturnCredit;
+
+      await order.save({ session: sessionDb });
+      updatedOrderDoc = order;
+    });
+
+    if (!updatedOrderDoc) return res.status(404).json({ error: 'Order not found' });
+
+    res.json({ ok: true, order: mapOrderForFrontend(updatedOrderDoc) });
+  } catch (err) {
+    if (err?.code === 'ORDER_CANCELED') return res.status(400).json({ error: err.message });
+    if (err?.code === 'NO_PAYMENT_INTENT') return res.status(400).json({ error: err.message });
+
+    console.error('CAPTURE ERROR:', err);
+    res.status(500).json({ error: 'Failed to capture payment' });
+  } finally {
+    sessionDb.endSession();
+  }
+});
+
 /* =========================
-   STRIPE WEBHOOK (CONFIRM / RESTOCK)
+   STRIPE WEBHOOK (AUTHORIZE / RESTOCK)
 ========================= */
 app.post('/api/stripe/webhook', async (req, res) => {
   const sessionDb = await mongoose.startSession();
@@ -714,6 +885,7 @@ app.post('/api/stripe/webhook', async (req, res) => {
 
     const type = event.type;
 
+    // Checkout complete => payment authorized (manual capture)
     if (type === 'checkout.session.completed') {
       const session = event.data.object;
       const orderId = session?.metadata?.orderId;
@@ -722,24 +894,31 @@ app.post('/api/stripe/webhook', async (req, res) => {
         await sessionDb.withTransaction(async () => {
           const order = await Order.findOne({ orderId }).session(sessionDb);
           if (!order) return;
-          if (order.status === 'PAID') return;
 
-          order.status = 'PAID';
-          order.paidAt = new Date();
+          if (order.status === 'CANCELED') {
+            await voidStripeAuthorizationBestEffort(order);
+            return;
+          }
+
+          const paymentIntentId = session?.payment_intent?.toString();
+
           order.stripeSessionId = order.stripeSessionId || session.id;
-          order.stripePaymentIntentId =
-            order.stripePaymentIntentId || session.payment_intent?.toString();
+          if (paymentIntentId) {
+            order.stripePaymentIntentId = order.stripePaymentIntentId || paymentIntentId;
+          }
+          order.authorizedAt = order.authorizedAt || new Date();
 
           await order.save({ session: sessionDb });
         });
 
-        console.log(`ORDER PAID: ${orderId}`);
+        console.log(`ORDER AUTHORIZED: ${orderId}`);
       }
 
       res.json({ received: true });
       return;
     }
 
+    // Session expired / payment failed: restock reserved items and cancel order
     if (type === 'checkout.session.expired' || type === 'payment_intent.payment_failed') {
       const obj = event.data.object;
       const orderId = obj?.metadata?.orderId;
@@ -748,6 +927,7 @@ app.post('/api/stripe/webhook', async (req, res) => {
         await sessionDb.withTransaction(async () => {
           const order = await Order.findOne({ orderId }).session(sessionDb);
           if (!order) return;
+
           if (order.status === 'CANCELED' || order.status === 'PAID') return;
 
           await restockOrderItems(order, sessionDb);

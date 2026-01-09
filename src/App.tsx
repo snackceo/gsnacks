@@ -1,35 +1,30 @@
-import { useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-
+import React, { useMemo, useState } from 'react';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useNinpoCore } from './hooks/useNinpoCore';
-import { UserRole } from './types';
 
-import CustomerView from './views/CustomerView';
-import ManagementView from './views/ManagementView';
-import DriverView from './views/DriverView';
+import CartDrawer from './components/CartDrawer';
 import LoginView from './views/LoginView';
+import DriverView from './views/DriverView';
+import ManagementView from './views/ManagementView';
 import PaymentSuccess from './views/PaymentSuccess';
 import PaymentCancel from './views/PaymentCancel';
-
-import Header from './components/Header';
-import CartDrawer from './components/CartDrawer';
-import LegalFooter from './components/LegalFooter';
-import BackendStatusBanner from './components/BackendStatusBanner';
-import ToastStack from './components/ToastStack';
-
-import { ShoppingBag } from 'lucide-react';
 
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
-function App() {
+const App: React.FC = () => {
   const core = useNinpoCore();
+  const navigate = useNavigate();
 
+  const [cartOpen, setCartOpen] = useState(false);
   const [address, setAddress] = useState('');
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
-  const [isLoginViewOpen, setIsLoginViewOpen] = useState(false);
-  const [isCartOpen, setIsCartOpen] = useState(false);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
+
+  const cartQty = useMemo(
+    () => core.cart.reduce((sum, i) => sum + (i.quantity || 0), 0),
+    [core.cart]
+  );
 
   const handleExternalPayment = async (type: 'STRIPE' | 'GPAY') => {
     if (!core.currentUser || isProcessingOrder) return;
@@ -37,6 +32,26 @@ function App() {
     setIsProcessingOrder(true);
 
     try {
+      // Pull scanned return UPCs from localStorage (CartDrawer writes these)
+      const LS_KEY_UPCS = 'ninpo_return_upcs_v1';
+      let returnUpcs: string[] = [];
+      try {
+        const raw = localStorage.getItem(LS_KEY_UPCS);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) {
+          returnUpcs = parsed.map(String).map(s => s.trim()).filter(Boolean);
+        }
+      } catch {
+        // ignore
+      }
+
+      const depositValue = Number(core.settings?.michiganDepositValue ?? 0.1);
+      const dailyCap = Number(core.settings?.dailyReturnLimit ?? 25);
+      const estimatedReturnCredit = Math.min(
+        returnUpcs.length * depositValue,
+        dailyCap
+      );
+
       const res = await fetch(`${BACKEND_URL}/api/payments/create-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -45,7 +60,9 @@ function App() {
           items: core.cart,
           userId: core.currentUser.id,
           gateway: type,
-          address: address // NEW: stored on order for owner dashboard
+          address,
+          returnUpcs,
+          estimatedReturnCredit
         })
       });
 
@@ -56,185 +73,90 @@ function App() {
       window.location.href = sessionUrl;
     } catch (err: any) {
       core.addToast(err?.message ?? 'Payment error', 'warning');
+    } finally {
       setIsProcessingOrder(false);
     }
   };
 
-  // total quantity across all cart lines (used for badge)
-  const cartCount = core.cart.reduce((sum, i) => sum + (i.quantity || 0), 0);
-
   return (
-    <div className="min-h-screen bg-ninpo-black text-white flex flex-col relative overflow-x-hidden font-sans">
-      <BackendStatusBanner
-        isOnline={core.isBackendOnline}
-        onReconnect={core.syncWithBackend}
-      />
-
-      <ToastStack toasts={core.toasts} />
-
-      <Header
-        currentUserRole={core.currentUser?.role}
-        isLoggedIn={!!core.currentUser}
-        onLogin={() => setIsLoginViewOpen(true)}
-        onLogout={() => core.logout?.()}
-      />
-
-      <main className="flex-1 px-6 py-10 max-w-[1600px] w-full mx-auto">
-        <Routes>
-          {/* CUSTOMER / MARKET */}
-          <Route
-            path="/"
-            element={
-              <CustomerView
-                products={core.products}
-                orders={core.orders.filter(
-                  o => o.customerId === core.currentUser?.id
-                )}
-                currentUser={core.currentUser}
-                openLogin={() => setIsLoginViewOpen(true)}
-                onRequestRefund={() => {}}
-                addToCart={(productId) => {
-                  if (!core.currentUser) {
-                    setIsLoginViewOpen(true);
-                    return;
-                  }
-
-                  const product = core.products.find(p => p.id === productId);
-                  const stock = (product as any)?.stock ?? 0;
-                  const inCart =
-                    core.cart.find(i => i.productId === productId)?.quantity ??
-                    0;
-
-                  // Enforce stock locally (prevents adding beyond available stock)
-                  if (stock <= 0) {
-                    core.addToast('OUT OF STOCK', 'warning');
-                    return;
-                  }
-
-                  if (inCart >= stock) {
-                    core.addToast(`MAX STOCK REACHED (${stock})`, 'warning');
-                    return;
-                  }
-
-                  core.setCart(prev => {
-                    const existing = prev.find(i => i.productId === productId);
-                    return existing
-                      ? prev.map(i =>
-                          i.productId === productId
-                            ? { ...i, quantity: i.quantity + 1 }
-                            : i
-                        )
-                      : [...prev, { productId, quantity: 1 }];
-                  });
-
-                  core.addToast('ADDED TO CARGO', 'success');
-                }}
-                updateUserProfile={() => {}}
-                reorderItems={() => {}}
-                onRedeemPoints={() => {}}
-              />
-            }
-          />
-
-          {/* PAYMENT RESULTS */}
-          <Route path="/success" element={<PaymentSuccess />} />
-          <Route path="/cancel" element={<PaymentCancel />} />
-
-          {/* OWNER MANAGEMENT */}
-          <Route
-            path="/management"
-            element={
-              core.currentUser?.role === UserRole.OWNER ? (
-                <ManagementView
-                  user={core.currentUser}
-                  products={core.products}
-                  setProducts={core.setProducts}
-                  orders={core.orders}
-                  users={core.users}
-                  settings={core.settings}
-                  setSettings={core.setSettings}
-                  approvals={core.approvals}
-                  setApprovals={core.setApprovals}
-                  auditLogs={core.auditLogs}
-                  updateOrder={core.updateOrder}
-                  adjustCredits={core.adjustCredits}
-                  updateUserProfile={() => {}}
-                />
-              ) : (
-                <Navigate to="/" replace />
-              )
-            }
-          />
-
-          {/* DRIVER — OWNER ONLY FOR NOW */}
-          <Route
-            path="/driver"
-            element={
-              core.currentUser?.role === UserRole.OWNER ? (
-                <DriverView
-                  orders={core.orders}
-                  updateOrder={core.updateOrder}
-                />
-              ) : (
-                <Navigate to="/" replace />
-              )
-            }
-          />
-        </Routes>
-      </main>
-
-      {/* CART BUTTON */}
-      <button
-        onClick={() => setIsCartOpen(true)}
-        className="fixed bottom-10 right-10 z-[9000] w-16 h-16 bg-ninpo-lime text-ninpo-black rounded-[1.5rem] shadow-neon flex items-center justify-center"
-        aria-label="Open cart"
-      >
-        <span className="relative flex items-center justify-center w-full h-full">
-          <ShoppingBag className="w-7 h-7" />
-
-          {cartCount > 0 && (
-            <span className="absolute -top-2 -right-2 min-w-[24px] h-6 px-2 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center border-2 border-ninpo-black">
-              {cartCount}
-            </span>
-          )}
-        </span>
-      </button>
-
-      {/* CART DRAWER */}
+    <div className="min-h-screen bg-ninpo-black text-white">
       <CartDrawer
-        isOpen={isCartOpen}
+        open={cartOpen}
+        onClose={() => setCartOpen(false)}
         cart={core.cart}
+        setCart={core.setCart}
         products={core.products}
+        user={core.currentUser}
         address={address}
+        setAddress={setAddress}
         acceptedPolicies={acceptedPolicies}
-        isProcessing={isProcessingOrder}
-        onClose={() => setIsCartOpen(false)}
-        onAddressChange={setAddress}
-        onPolicyChange={setAcceptedPolicies}
-        onRemoveItem={id =>
-          core.setCart(prev => prev.filter(i => i.productId !== id))
-        }
-        onPayCredits={() => {}}
-        onPayExternal={handleExternalPayment}
+        setAcceptedPolicies={setAcceptedPolicies}
+        onPayStripe={() => handleExternalPayment('STRIPE')}
+        onPayGPay={() => handleExternalPayment('GPAY')}
+        isProcessingOrder={isProcessingOrder}
       />
 
-      {/* LOGIN MODAL */}
-      {isLoginViewOpen && (
-        <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/90">
-          <LoginView
-            onSuccess={async () => {
-              // After backend sets cookie, restore current user from /api/auth/me
-              if (core.restoreSession) await core.restoreSession();
-              setIsLoginViewOpen(false);
-            }}
-            onCancel={() => setIsLoginViewOpen(false)}
-          />
-        </div>
+      {cartQty > 0 && (
+        <button
+          className="fixed bottom-8 right-8 bg-ninpo-lime text-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-neon"
+          onClick={() => setCartOpen(true)}
+        >
+          Cart ({cartQty})
+        </button>
       )}
 
-      <LegalFooter />
+      <Routes>
+        <Route path="/login" element={<LoginView />} />
+
+        <Route
+          path="/driver"
+          element={
+            core.currentUser?.role === 'OWNER' ? (
+              <DriverView
+                orders={core.orders}
+                updateOrder={core.updateOrder}
+              />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+
+        <Route
+          path="/management"
+          element={
+            core.currentUser?.role === 'OWNER' ? (
+              <ManagementView
+                user={core.currentUser}
+                products={core.products}
+                setProducts={core.setProducts}
+                orders={core.orders}
+                users={core.users}
+                settings={core.settings}
+                setSettings={core.setSettings}
+                approvals={core.approvals}
+                setApprovals={core.setApprovals}
+                auditLogs={core.auditLogs}
+                updateOrder={core.updateOrder}
+                adjustCredits={core.adjustCredits}
+              />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+
+        <Route
+          path="/success"
+          element={<PaymentSuccess clearCart={core.clearCart} />}
+        />
+        <Route path="/cancel" element={<PaymentCancel />} />
+
+        <Route path="/" element={<Navigate to="/management" replace />} />
+        <Route path="*" element={<Navigate to="/management" replace />} />
+      </Routes>
     </div>
   );
-}
+};
 
 export default App;

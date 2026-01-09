@@ -1,17 +1,26 @@
 import { useEffect, useState } from 'react';
-import { useNinpoCore } from '../hooks/useNinpoCore';
+import { Order } from '../types';
 
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
-function PaymentSuccess() {
-  const { clearCart } = useNinpoCore();
-  const [order, setOrder] = useState<any>(null);
+function money(n: any) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '$0.00';
+  return `$${v.toFixed(2)}`;
+}
+
+function PaymentSuccess({ clearCart }: { clearCart: () => void }) {
+  const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Clear cart ONCE
     clearCart();
+    try {
+      localStorage.removeItem('ninpo_return_upcs_v1');
+    } catch {
+      // ignore
+    }
 
     const fetchLatestOrder = async () => {
       try {
@@ -19,54 +28,44 @@ function PaymentSuccess() {
           credentials: 'include'
         });
 
-        const data = await res.json();
-        if (data?.orders?.length) {
-          setOrder(data.orders[0]); // newest order (sorted desc in backend)
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && Array.isArray(data?.orders) && data.orders.length) {
+          setOrder(data.orders[0]);
         }
       } catch {
-        // silent fail; UI still works
+        // silent fail
       } finally {
         setLoading(false);
       }
     };
 
     fetchLatestOrder();
-  }, []);
+  }, [clearCart]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-ninpo-black text-white px-6">
       <div className="text-center space-y-6 max-w-md">
-        <h1 className="text-3xl font-black uppercase text-ninpo-lime">
-          Payment Complete
-        </h1>
+        <h1 className="text-3xl font-black uppercase text-ninpo-lime">Order Authorized</h1>
 
         <p className="text-xs uppercase tracking-widest opacity-70">
-          Order confirmed. Preparing for delivery.
-        </p>
+          Your payment is authorized. The driver will verify bottle returns at pickup, then the final amount is captured.        </p>
 
         {loading && (
-          <p className="text-xs uppercase tracking-widest opacity-50">
-            Retrieving order details…
-          </p>
+          <p className="text-xs uppercase tracking-widest opacity-50">Retrieving order details…</p>
         )}
 
         {order && (
           <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-left space-y-3 text-xs">
-            <p className="uppercase tracking-widest opacity-60">
-              Order ID
-            </p>
+            <p className="uppercase tracking-widest opacity-60">Order ID</p>
             <p className="font-black">{order.id}</p>
 
-            <p className="uppercase tracking-widest opacity-60 mt-4">
-              Total
-            </p>
-            <p className="font-black text-ninpo-lime">
-              ${Number(order.total).toFixed(2)}
-            </p>
+            <p className="uppercase tracking-widest opacity-60 mt-4">Estimated bottle credit (preview)</p>
+            <p className="font-black text-ninpo-lime">{money(order.estimatedReturnCredit || 0)}</p>
 
-            <p className="uppercase tracking-widest opacity-60 mt-4">
-              Status
-            </p>
+            <p className="uppercase tracking-widest opacity-60 mt-4">Order total (pre-credit)</p>
+            <p className="font-black">{money(order.total)}</p>
+
+            <p className="uppercase tracking-widest opacity-60 mt-4">Status</p>
             <p className="font-black">{order.status}</p>
           </div>
         )}
