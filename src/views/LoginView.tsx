@@ -55,101 +55,103 @@ const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onCancel }) => {
   };
 
   return (
-    <div
-      className="max-w-md w-full relative z-10 animate-in fade-in zoom-in duration-500"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div className="text-center mb-12">
-        <div className="inline-flex items-center justify-center w-20 h-20 bg-ninpo-lime rounded-3xl mb-6 shadow-xl relative group">
-          <Cpu className="w-10 h-10 text-ninpo-black" />
-        </div>
+    <div className="min-h-screen w-full flex items-center justify-center px-6">
+      <div
+        className="max-w-md w-full relative z-10 animate-in fade-in zoom-in duration-500"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="text-center mb-12">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-ninpo-lime rounded-3xl mb-6 shadow-xl relative group">
+            <Cpu className="w-10 h-10 text-ninpo-black" />
+          </div>
 
-        <h2 className="text-3xl font-black text-white tracking-widest uppercase mb-2">
-          {isRegisterMode ? 'Create Account' : 'Sign In'}
-        </h2>
+          <h2 className="text-3xl font-black text-white tracking-widest uppercase mb-2">
+            {isRegisterMode ? 'Create Account' : 'Sign In'}
+          </h2>
 
-        <div className="flex items-center justify-center gap-2 opacity-40">
-          <Binary className="w-3 h-3 text-ninpo-lime" />
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-            Secure Delivery System
-          </p>
-        </div>
-      </div>
-
-      <div className="bg-ninpo-midnight/80 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-10 shadow-2xl relative overflow-hidden">
-        {isAuthenticating ? (
-          <div className="py-20 flex flex-col items-center justify-center text-center space-y-8">
-            <Fingerprint className="w-12 h-12 text-ninpo-lime animate-pulse" />
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-              Verifying Identity...
+          <div className="flex items-center justify-center gap-2 opacity-40">
+            <Binary className="w-3 h-3 text-ninpo-lime" />
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              Secure Delivery System
             </p>
           </div>
-        ) : (
-          <form onSubmit={submit} className="space-y-6">
-            <input
-              ref={usernameRef}
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              placeholder="Username"
-              className="w-full bg-white/5 border border-white/5 rounded-2xl py-5 px-6 text-white font-bold uppercase tracking-widest text-sm focus:border-ninpo-lime outline-none transition-all placeholder:text-slate-500"
-            />
+        </div>
 
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              placeholder="Password"
-              className="w-full bg-white/5 border border-white/5 rounded-2xl py-5 px-6 text-white font-bold uppercase tracking-widest text-sm focus:border-ninpo-lime outline-none transition-all placeholder:text-slate-500"
-            />
-
-            {error && (
-              <p className="text-[10px] font-black text-ninpo-red uppercase text-center">
-                {error}
+        <div className="bg-ninpo-midnight/80 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-10 shadow-2xl relative overflow-hidden">
+          {isAuthenticating ? (
+            <div className="py-20 flex flex-col items-center justify-center text-center space-y-8">
+              <Fingerprint className="w-12 h-12 text-ninpo-lime animate-pulse" />
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                Verifying Identity...
               </p>
-            )}
+            </div>
+          ) : (
+            <form onSubmit={submit} className="space-y-6">
+              <input
+                ref={usernameRef}
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                placeholder="Username"
+                className="w-full bg-white/5 border border-white/5 rounded-2xl py-5 px-6 text-white font-bold uppercase tracking-widest text-sm focus:border-ninpo-lime outline-none transition-all placeholder:text-slate-500"
+              />
 
-            <button
-              type="submit"
-              className="w-full py-6 bg-ninpo-lime text-ninpo-black rounded-2xl flex items-center justify-center gap-4 group transition-all shadow-xl active:scale-95"
-            >
-              <span className="text-[11px] font-black uppercase tracking-widest">
-                {isRegisterMode ? 'Complete Sign Up' : 'Authorize Access'}
-              </span>
-              <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-            </button>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                placeholder="Password"
+                className="w-full bg-white/5 border border-white/5 rounded-2xl py-5 px-6 text-white font-bold uppercase tracking-widest text-sm focus:border-ninpo-lime outline-none transition-all placeholder:text-slate-500"
+              />
 
-            <div className="pt-2 flex justify-between items-center">
+              {error && (
+                <p className="text-[10px] font-black text-ninpo-red uppercase text-center">
+                  {error}
+                </p>
+              )}
+
               <button
-                type="button"
-                onClick={() => setIsRegisterMode(!isRegisterMode)}
-                className="text-[10px] font-black text-slate-500 hover:text-ninpo-lime uppercase tracking-widest transition-colors flex items-center gap-2"
+                type="submit"
+                className="w-full py-6 bg-ninpo-lime text-ninpo-black rounded-2xl flex items-center justify-center gap-4 group transition-all shadow-xl active:scale-95"
               >
-                {isRegisterMode ? (
-                  <>
-                    <LogIn className="w-4 h-4" /> Already registered? Log in
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="w-4 h-4" /> New? Create account
-                  </>
-                )}
+                <span className="text-[11px] font-black uppercase tracking-widest">
+                  {isRegisterMode ? 'Complete Sign Up' : 'Authorize Access'}
+                </span>
+                <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </button>
 
-              {onCancel && (
+              <div className="pt-2 flex justify-between items-center">
                 <button
                   type="button"
-                  onClick={onCancel}
-                  className="text-[10px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors"
+                  onClick={() => setIsRegisterMode(!isRegisterMode)}
+                  className="text-[10px] font-black text-slate-500 hover:text-ninpo-lime uppercase tracking-widest transition-colors flex items-center gap-2"
                 >
-                  Cancel
+                  {isRegisterMode ? (
+                    <>
+                      <LogIn className="w-4 h-4" /> Already registered? Log in
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="w-4 h-4" /> New? Create account
+                    </>
+                  )}
                 </button>
-              )}
-            </div>
-          </form>
-        )}
+
+                {onCancel && (
+                  <button
+                    type="button"
+                    onClick={onCancel}
+                    className="text-[10px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

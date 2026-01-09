@@ -78,6 +78,46 @@ const App: React.FC = () => {
     }
   };
 
+  const PublicHome = () => {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center px-6">
+        <div className="w-full max-w-xl text-center space-y-6">
+          <div className="text-3xl font-black uppercase tracking-widest text-white">
+            Ninpo Snacks
+          </div>
+          <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+            Select where you want to go
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-6">
+            <button
+              onClick={() => navigate('/login')}
+              className="py-5 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest shadow-neon"
+            >
+              Login
+            </button>
+
+            <button
+              onClick={() => {
+                if (core.currentUser?.role === 'OWNER') navigate('/management');
+                else navigate('/login');
+              }}
+              className="py-5 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest border border-white/10 hover:bg-white/15 transition"
+            >
+              Management
+            </button>
+          </div>
+
+          {core.currentUser && (
+            <div className="pt-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+              Logged in as: {core.currentUser.username}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-ninpo-black text-white">
       <CartDrawer
@@ -106,16 +146,30 @@ const App: React.FC = () => {
       )}
 
       <Routes>
-        <Route path="/login" element={<LoginView />} />
+        {/* Public home: no forced redirect to /management */}
+        <Route path="/" element={<PublicHome />} />
+
+        {/* Login: now correctly wired with required handlers */}
+        <Route
+          path="/login"
+          element={
+            <LoginView
+              onSuccess={() => {
+                // After login cookie is set, route to management.
+                // Hard reload ensures any core auth/bootstrap logic re-runs cleanly.
+                navigate('/management', { replace: true });
+                window.location.reload();
+              }}
+              onCancel={() => navigate('/', { replace: true })}
+            />
+          }
+        />
 
         <Route
           path="/driver"
           element={
             core.currentUser?.role === 'OWNER' ? (
-              <DriverView
-                orders={core.orders}
-                updateOrder={core.updateOrder}
-              />
+              <DriverView orders={core.orders} updateOrder={core.updateOrder} />
             ) : (
               <Navigate to="/login" replace />
             )
@@ -146,14 +200,11 @@ const App: React.FC = () => {
           }
         />
 
-        <Route
-          path="/success"
-          element={<PaymentSuccess clearCart={core.clearCart} />}
-        />
+        <Route path="/success" element={<PaymentSuccess clearCart={core.clearCart} />} />
         <Route path="/cancel" element={<PaymentCancel />} />
 
-        <Route path="/" element={<Navigate to="/management" replace />} />
-        <Route path="*" element={<Navigate to="/management" replace />} />
+        {/* Catch-all: go home (NOT management) so you don't get forced to login */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
   );
