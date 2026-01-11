@@ -40,6 +40,30 @@ const mapLedgerEntry = (entry) => ({
   createdAt: entry.createdAt ? new Date(entry.createdAt).toISOString() : undefined
 });
 
+const tierRank = {
+  BRONZE: 1,
+  SILVER: 2,
+  GOLD: 3,
+  PLATINUM: 4
+};
+
+const autoTierForPoints = (points) => {
+  if (points >= 2000) return 'GOLD';
+  if (points >= 500) return 'SILVER';
+  return 'BRONZE';
+};
+
+const maybeAutoPromote = ({ user, previousPoints, nextPoints }) => {
+  if (nextPoints <= previousPoints) return;
+  if (user.membershipTier === 'PLATINUM') return;
+
+  const autoTier = autoTierForPoints(nextPoints);
+  const currentTier = String(user.membershipTier || 'BRONZE').toUpperCase();
+  if ((tierRank[autoTier] || 0) > (tierRank[currentTier] || 0)) {
+    user.membershipTier = autoTier;
+  }
+};
+
 router.get('/', authRequired, ownerRequired, async (_req, res) => {
   try {
     const users = await User.find({}).sort({ createdAt: -1 }).lean();
@@ -140,6 +164,12 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
     }
 
     user.set(updates);
+
+    if (updates.loyaltyPoints !== undefined && updates.membershipTier === undefined) {
+      const nextPoints = Number(user.loyaltyPoints || 0);
+      maybeAutoPromote({ user, previousPoints, nextPoints });
+    }
+
     await user.save();
 
     const nextCredits = Number(user.creditBalance || 0);
