@@ -81,6 +81,27 @@ const fmtDelta = (value: number) => {
   return `${normalized >= 0 ? '+' : '-'}${formatted}`;
 };
 
+const getTierStyles = (tier: string) => {
+  switch (tier) {
+    case 'SILVER':
+      return 'border-slate-300/40 bg-slate-400/20 text-slate-200';
+    case 'GOLD':
+      return 'border-yellow-400/40 bg-yellow-500/20 text-yellow-200';
+    case 'PLATINUM':
+      return 'border-indigo-400/40 bg-indigo-500/20 text-indigo-200';
+    case 'BRONZE':
+    default:
+      return 'border-amber-500/40 bg-amber-700/30 text-amber-200';
+  }
+};
+
+const isNewSignupWithBonus = (user: User) => {
+  const createdAt = user.createdAt ? new Date(user.createdAt) : null;
+  if (!createdAt || Number.isNaN(createdAt.getTime())) return false;
+  const ageMs = Date.now() - createdAt.getTime();
+  return Number(user.loyaltyPoints || 0) >= 100 && ageMs < 24 * 60 * 60 * 1000;
+};
+
 const ManagementView: React.FC<ManagementViewProps> = ({
   products,
   setProducts,
@@ -1233,6 +1254,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   const ledgerEntries = userLedgers[u.id] || [];
                   const ledgerBusy = ledgerLoading[u.id];
                   const ledgerError = ledgerErrors[u.id];
+                  const tierLabel = (u.membershipTier || 'BRONZE').toString().toUpperCase();
+                  const showSignupBonus = isNewSignupWithBonus(u);
 
                   return (
                     <div
@@ -1242,15 +1265,27 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     >
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                            USER: {u.username || u.name || u.id}
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 flex flex-wrap items-center gap-2">
+                            <span>USER: {u.username || u.name || u.id}</span>
+                            <span
+                              className={`px-2.5 py-1 rounded-full border text-[9px] font-black uppercase tracking-[0.3em] ${getTierStyles(
+                                tierLabel
+                              )}`}
+                            >
+                              {tierLabel}
+                            </span>
                           </p>
                           <p className="text-white font-black text-lg uppercase mt-1">
-                            {u.membershipTier || 'BRONZE'} STATUS
+                            {tierLabel} STATUS
                           </p>
                           <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-2">
                             Role: {u.role || 'CUSTOMER'}
                           </p>
+                          {showSignupBonus && (
+                            <p className="text-[10px] text-ninpo-lime font-bold uppercase tracking-widest mt-2">
+                              Signup bonus awarded
+                            </p>
+                          )}
                         </div>
 
                         <div className="flex flex-wrap gap-3">
