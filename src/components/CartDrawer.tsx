@@ -31,6 +31,8 @@ interface CartDrawerProps {
 
 const LS_KEY_UPCS = 'ninpo_return_upcs_v1';
 const LS_KEY_UPC_ELIGIBILITY = 'ninpo_upc_eligibility_v1';
+const BACKEND_URL =
+  (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
 // Business defaults (we can later move these into settings)
 const MI_DEPOSIT_VALUE = 0.1; // 10¢
@@ -190,7 +192,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     }
 
     try {
-      const response = await fetch(`/api/upc/eligibility?upc=${encodeURIComponent(upc)}`);
+      const response = await fetch(
+        `${BACKEND_URL}/api/upc/eligibility?upc=${encodeURIComponent(upc)}`
+      );
       if (response.ok) {
         const data = await response.json();
         const isEligible = data?.eligible !== false;
