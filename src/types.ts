@@ -43,6 +43,14 @@ export interface UserStatsSummary {
   lastOrderAt?: string | null;
 }
 
+export interface LedgerEntry {
+  id: string;
+  userId: string;
+  delta: number;
+  reason: string;
+  createdAt?: string;
+}
+
 export interface Product {
   id: string;
   name: string;

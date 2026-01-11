@@ -8,7 +8,8 @@ import {
   AppSettings,
   ApprovalRequest,
   AuditLog,
-  UserStatsSummary
+  UserStatsSummary,
+  LedgerEntry
 } from '../types';
 import {
   Truck,
@@ -72,6 +73,14 @@ const fmtTime = (iso?: string) => {
   return d.toLocaleString();
 };
 
+const fmtDelta = (value: number) => {
+  const normalized = Number(value || 0);
+  const formatted = Math.abs(normalized).toLocaleString(undefined, {
+    maximumFractionDigits: 2
+  });
+  return `${normalized >= 0 ? '+' : '-'}${formatted}`;
+};
+
 const ManagementView: React.FC<ManagementViewProps> = ({
   products,
   setProducts,
@@ -97,6 +106,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [userFilter, setUserFilter] = useState('');
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [userDrafts, setUserDrafts] = useState<Record<string, Partial<User>>>({});
+  const [userLedgers, setUserLedgers] = useState<Record<string, LedgerEntry[]>>({});
+  const [ledgerLoading, setLedgerLoading] = useState<Record<string, boolean>>({});
+  const [ledgerErrors, setLedgerErrors] = useState<Record<string, string | null>>({});
 
   // Inventory create form
   const [isCreating, setIsCreating] = useState(false);
@@ -722,7 +734,29 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }));
   };
 
+  const fetchUserLedger = async (userId: string) => {
+    setLedgerLoading(prev => ({ ...prev, [userId]: true }));
+    setLedgerErrors(prev => ({ ...prev, [userId]: null }));
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/users/${userId}/ledger`, {
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to load ledger');
+      const entries = Array.isArray(data?.ledger) ? data.ledger : [];
+      setUserLedgers(prev => ({ ...prev, [userId]: entries }));
+    } catch (e: any) {
+      setLedgerErrors(prev => ({
+        ...prev,
+        [userId]: e?.message || 'Failed to load ledger'
+      }));
+    } finally {
+      setLedgerLoading(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
   const toggleUserDetails = (user: User) => {
+    const shouldExpand = expandedUserId !== user.id;
     setExpandedUserId(prev => (prev === user.id ? null : user.id));
     setUserDrafts(prev => {
       if (prev[user.id]) return prev;
@@ -735,6 +769,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         }
       };
     });
+    if (shouldExpand && !userLedgers[user.id] && !ledgerLoading[user.id]) {
+      fetchUserLedger(user.id);
+    }
   };
 
   const saveUserDraft = async (userId: string) => {
@@ -1186,6 +1223,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   const stats = userStats[u.id];
                   const draft = userDrafts[u.id] || {};
                   const isExpanded = expandedUserId === u.id;
+                  const ledgerEntries = userLedgers[u.id] || [];
+                  const ledgerBusy = ledgerLoading[u.id];
+                  const ledgerError = ledgerErrors[u.id];
 
                   return (
                     <div
@@ -1226,7 +1266,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                             : 'max-h-0 opacity-0 group-hover:max-h-[520px] group-hover:opacity-100'
                         }`}
                       >
-                        <div className="border-t border-white/5 pt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="border-t border-white/5 pt-5 grid grid-cols-1 lg:grid-cols-3 gap-6">
                           <div className="space-y-4">
                             <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
                               Summary
@@ -1324,6 +1364,64 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                                 {isExpanded ? 'Collapse' : 'Pin Details'}
                               </button>
                             </div>
+                          </div>
+
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                                Ledger
+                              </p>
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  fetchUserLedger(u.id);
+                                }}
+                                className="px-3 py-1 rounded-xl bg-white/5 border border-white/10 text-[9px] font-black uppercase tracking-widest text-white/70 hover:text-white"
+                              >
+                                Refresh
+                              </button>
+                            </div>
+
+                            {ledgerError && (
+                              <div className="text-[10px] text-ninpo-red">{ledgerError}</div>
+                            )}
+
+                            {ledgerBusy ? (
+                              <div className="text-[10px] text-slate-500 uppercase tracking-widest">
+                                Loading ledger...
+                              </div>
+                            ) : ledgerEntries.length === 0 ? (
+                              <div className="text-[10px] text-slate-500 uppercase tracking-widest">
+                                No ledger entries yet.
+                              </div>
+                            ) : (
+                              <div className="space-y-2 max-h-44 overflow-auto pr-1">
+                                {ledgerEntries.map(entry => (
+                                  <div
+                                    key={entry.id}
+                                    className="border border-white/5 rounded-2xl px-3 py-2 bg-black/30"
+                                  >
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <span className="text-slate-200 font-bold">
+                                        {entry.reason || 'UPDATE'}
+                                      </span>
+                                      <span
+                                        className={
+                                          Number(entry.delta || 0) >= 0
+                                            ? 'text-ninpo-lime font-bold'
+                                            : 'text-ninpo-red font-bold'
+                                        }
+                                      >
+                                        {fmtDelta(entry.delta)}
+                                      </span>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500">
+                                      {fmtTime(entry.createdAt)}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
