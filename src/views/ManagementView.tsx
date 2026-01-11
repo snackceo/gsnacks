@@ -126,6 +126,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [isUsersLoading, setIsUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [isChartReady, setIsChartReady] = useState(false);
+  const [isChartVisible, setIsChartVisible] = useState(false);
   const [userFilter, setUserFilter] = useState('');
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [userDrafts, setUserDrafts] = useState<Record<string, Partial<User>>>({});
@@ -194,6 +195,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const upcItemsRef = useRef<UpcItem[]>([]);
   const upcDepositRef = useRef<number>(settings.michiganDepositValue || 0.1);
   const upcAudioContextRef = useRef<AudioContext | null>(null);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
 
   const chartData = useMemo(() => {
     return (orders || [])
@@ -267,6 +269,38 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       if (secondFrame) {
         window.cancelAnimationFrame(secondFrame);
       }
+    };
+  }, [activeModule]);
+
+  useEffect(() => {
+    if (activeModule !== 'analytics') {
+      setIsChartVisible(false);
+      return;
+    }
+
+    const container = chartContainerRef.current;
+    if (!container) {
+      setIsChartVisible(false);
+      return;
+    }
+
+    let frameId = 0;
+    const updateVisibility = () => {
+      const hasSize = container.offsetHeight > 0 && container.offsetWidth > 0;
+      setIsChartVisible(hasSize);
+    };
+
+    updateVisibility();
+    frameId = window.requestAnimationFrame(updateVisibility);
+
+    const observer = new ResizeObserver(updateVisibility);
+    observer.observe(container);
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      observer.disconnect();
     };
   }, [activeModule]);
 
@@ -1010,9 +1044,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
               </div>
             )}
 
-            <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 h-80 min-h-[320px]">
-              {isChartReady ? (
-                <ResponsiveContainer width="100%" height="100%">
+            <div
+              ref={chartContainerRef}
+              className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 h-80 min-h-[320px]"
+            >
+              {isChartReady && isChartVisible ? (
+                <ResponsiveContainer width="100%" height={320}>
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#222" />
                     <XAxis dataKey="name" stroke="#555" fontSize={9} />
