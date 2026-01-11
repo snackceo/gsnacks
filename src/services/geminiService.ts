@@ -48,7 +48,10 @@ export const analyzeBottleScan = async (base64Data: string) => {
       contents: {
         parts: [
           { inlineData: { data: base64Data, mimeType: 'image/jpeg' } },
-          { text: "Verify Michigan 10c deposit eligibility. Return JSON: {valid: boolean, material: string, message: string}." }
+          {
+            text:
+              "Assess container condition only (clean, empty, undamaged). Do not decide eligibility; eligibility is strictly UPC-whitelist based. Return JSON: {valid: boolean, material: string, message: string} where valid reflects condition acceptability."
+          }
         ]
       },
       config: {
