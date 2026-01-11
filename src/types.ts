@@ -43,6 +43,16 @@ export interface Product {
   isGlass: boolean;
 }
 
+export interface UpcItem {
+  upc: string;
+  name: string;
+  depositValue: number;
+  isGlass: boolean;
+  isEligible: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Order {
   id: string;
   customerId: string;
