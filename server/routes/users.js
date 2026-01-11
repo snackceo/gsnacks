@@ -146,6 +146,7 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
       if (!Number.isFinite(updates.creditBalance)) {
         return res.status(400).json({ error: 'creditBalance must be a number' });
       }
+      updates.creditBalance = Math.max(0, updates.creditBalance);
     }
 
     if (updates.loyaltyPoints !== undefined) {
@@ -153,6 +154,7 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
       if (!Number.isFinite(updates.loyaltyPoints)) {
         return res.status(400).json({ error: 'loyaltyPoints must be a number' });
       }
+      updates.loyaltyPoints = Math.max(0, updates.loyaltyPoints);
     }
 
     if (updates.membershipTier !== undefined) {
