@@ -131,6 +131,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [userLedgers, setUserLedgers] = useState<Record<string, LedgerEntry[]>>({});
   const [ledgerLoading, setLedgerLoading] = useState<Record<string, boolean>>({});
   const [ledgerErrors, setLedgerErrors] = useState<Record<string, string | null>>({});
+  const [settingsDraft, setSettingsDraft] = useState<AppSettings>(settings);
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsSaved, setSettingsSaved] = useState(false);
 
   // Inventory create form
   const [isCreating, setIsCreating] = useState(false);
@@ -220,6 +225,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     };
   }, [activeModule]);
 
+  useEffect(() => {
+    if (!settingsDirty) {
+      setSettingsDraft(settings);
+    }
+  }, [settings, settingsDirty]);
+
   const handleApprove = (approval: ApprovalRequest) => {
     adjustCredits(approval.userId, approval.amount, `AUTH_APPROVED: ${approval.type}`);
 
@@ -248,6 +259,37 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
   const handleLogisticsUpdate = (orderId: string, status: OrderStatus, metadata?: any) => {
     updateOrder(orderId, status, metadata);
+  };
+
+  const updateSettingsDraft = (updates: Partial<AppSettings>) => {
+    setSettingsDraft(prev => ({ ...prev, ...updates }));
+    setSettingsDirty(true);
+    setSettingsSaved(false);
+  };
+
+  const saveSettings = async () => {
+    setIsSavingSettings(true);
+    setSettingsError(null);
+
+    const nextSettings: AppSettings = {
+      ...settingsDraft,
+      michiganDepositValue: Number(settingsDraft.michiganDepositValue || 0),
+      dailyReturnLimit: Number(settingsDraft.dailyReturnLimit || 0),
+      requirePhotoForRefunds: Boolean(settingsDraft.requirePhotoForRefunds),
+      allowGuestCheckout: Boolean(settingsDraft.allowGuestCheckout),
+      showAdvancedInventoryInsights: Boolean(settingsDraft.showAdvancedInventoryInsights),
+      allowPlatinumTier: Boolean(settingsDraft.allowPlatinumTier)
+    };
+
+    try {
+      setSettings(nextSettings);
+      setSettingsDirty(false);
+      setSettingsSaved(true);
+    } catch (e: any) {
+      setSettingsError(e?.message || 'Failed to save settings');
+    } finally {
+      setIsSavingSettings(false);
+    }
   };
 
   // ---- Orders API (OWNER) ----
@@ -1510,6 +1552,160 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* =========================
+            SETTINGS
+        ========================= */}
+        {activeModule === 'settings' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-black uppercase text-white tracking-widest">
+                Settings
+              </h2>
+              <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
+                Manage returns, checkout, and membership rules.
+              </p>
+            </div>
+
+            {settingsError && (
+              <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                {settingsError}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Returns Rules
+                </p>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Michigan Deposit Value
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.michiganDepositValue}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          michiganDepositValue: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Daily Return Limit
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.dailyReturnLimit}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          dailyReturnLimit: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-ninpo-lime"
+                      checked={settingsDraft.requirePhotoForRefunds}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          requirePhotoForRefunds: e.target.checked
+                        })
+                      }
+                    />
+                    Require photo for refunds
+                  </label>
+                </div>
+              </div>
+
+              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Checkout Rules
+                </p>
+                <div className="space-y-4">
+                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-ninpo-lime"
+                      checked={settingsDraft.allowGuestCheckout}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          allowGuestCheckout: e.target.checked
+                        })
+                      }
+                    />
+                    Allow guest checkout
+                  </label>
+                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-ninpo-lime"
+                      checked={settingsDraft.showAdvancedInventoryInsights}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          showAdvancedInventoryInsights: e.target.checked
+                        })
+                      }
+                    />
+                    Show advanced inventory insights
+                  </label>
+                </div>
+              </div>
+
+              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Membership
+                </p>
+                <div className="space-y-4">
+                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-ninpo-lime"
+                      checked={settingsDraft.allowPlatinumTier}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          allowPlatinumTier: e.target.checked
+                        })
+                      }
+                    />
+                    Allow Platinum tier
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                {settingsSaved && !settingsDirty
+                  ? 'Settings saved.'
+                  : settingsDirty
+                    ? 'Unsaved changes.'
+                    : 'All changes are up to date.'}
+              </div>
+              <button
+                onClick={saveSettings}
+                disabled={isSavingSettings || !settingsDirty}
+                className="px-8 py-5 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed shadow-neon"
+              >
+                {isSavingSettings ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-5 h-5" />
+                )}
+                Save Settings
+              </button>
+            </div>
           </div>
         )}
 
