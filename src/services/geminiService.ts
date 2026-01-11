@@ -1,9 +1,6 @@
-
-import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-
-const getApiKey = () => {
-  return (import.meta as any).env?.VITE_API_KEY || "";
-};
+// src/services/geminiService.ts
+// Option A: Production-correct. NO frontend Gemini key.
+// This file ONLY calls your backend proxy endpoints.
 
 const getBackendUrl = () => {
   return (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -22,76 +19,126 @@ const fetchWithTimeout = async (url: string, options: any, timeout = 15000) => {
   }
 };
 
-export const analyzeBottleScan = async (base64Data: string) => {
-  const apiKey = getApiKey();
-  
-  // Try Backend Proxy First for Security
-  try {
-    const response = await fetchWithTimeout(`${getBackendUrl()}/api/ai/analyze-bottle`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: base64Data })
-    });
-    if (response.ok) return await response.json();
-  } catch (err) {
-    console.warn("Backend AI Proxy unresponsive. Falling back to local key if available.");
-  }
-  
-  // Local Key Fallback
-  if (!apiKey) return { valid: false, material: "OFFLINE", message: "Intelligence Node Unreachable." };
+/**
+ * Backend should receive RAW base64 (no data URL prefix).
+ * If input is "data:image/jpeg;base64,....", strip the prefix.
+ */
+const normalizeBase64 = (input: string) => {
+  if (!input) return '';
+  const s = String(input);
 
-  const ai = new GoogleGenAI({ apiKey });
-  
+  if (s.startsWith('data:') && s.includes(',')) {
+    return s.split(',')[1] || '';
+  }
+
+  return s;
+};
+
+export type BottleScanResult = {
+  valid: boolean;
+  material: string;
+  message: string;
+};
+
+export const analyzeBottleScan = async (base64Data: string): Promise<BottleScanResult> => {
+  const backendUrl = getBackendUrl();
+  const normalized = normalizeBase64(base64Data);
+
+  if (!normalized) {
+    return {
+      valid: false,
+      material: 'ERROR',
+      message: 'No image data provided.'
+    };
+  }
+
   try {
-    const response: GenerateContentResponse = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: {
-        parts: [
-          { inlineData: { data: base64Data, mimeType: 'image/jpeg' } },
-          {
-            text:
-              "Assess container condition only (clean, empty, undamaged). Do not decide eligibility; eligibility is strictly UPC-whitelist based. Return JSON: {valid: boolean, material: string, message: string} where valid reflects condition acceptability."
-          }
-        ]
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/ai/analyze-bottle`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ image: normalized })
       },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            valid: { type: Type.BOOLEAN },
-            material: { type: Type.STRING },
-            message: { type: Type.STRING }
-          },
-          required: ["valid", "material", "message"]
-        }
+      15000
+    );
+
+    if (!response.ok) {
+      // Try to surface server error text if present, but keep UI stable
+      let detail = '';
+      try {
+        const data = await response.json();
+        detail = data?.error || data?.message || '';
+      } catch {
+        // ignore
       }
-    });
-    return JSON.parse(response.text || "{}");
-  } catch (error) {
-    return { valid: false, material: "ERROR", message: "Verification protocol failure." };
+
+      return {
+        valid: false,
+        material: 'OFFLINE',
+        message: detail || 'Intelligence Node Unreachable.'
+      };
+    }
+
+    const data = await response.json();
+
+    // Defensive normalization (backend should already return this shape)
+    return {
+      valid: !!data?.valid,
+      material: String(data?.material || 'UNKNOWN'),
+      message: String(data?.message || 'Analysis complete.')
+    };
+  } catch {
+    return {
+      valid: false,
+      material: 'OFFLINE',
+      message: 'Intelligence Node Unreachable.'
+    };
   }
 };
 
-export const getAdvancedInventoryInsights = async (inventory: any[], orders: any[]) => {
-  const apiKey = getApiKey();
-  if (!apiKey) return "Strategic engine offline: No Auth Key found.";
-  
-  const ai = new GoogleGenAI({ apiKey });
+export const getAdvancedInventoryInsights = async (
+  inventory: any[],
+  orders: any[],
+  model?: string
+): Promise<string> => {
+  const backendUrl = getBackendUrl();
 
   try {
-    const response: GenerateContentResponse = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
-      contents: `Perform Logistics Audit:
-      Inventory: ${JSON.stringify(inventory)}
-      Orders: ${JSON.stringify(orders)}`,
-      config: {
-        thinkingConfig: { thinkingBudget: 15000 } 
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/ai/inventory-audit`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ inventory, orders, model })
+      },
+      20000
+    );
+
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const data = await response.json();
+        detail = data?.error || data?.message || '';
+      } catch {
+        // ignore
       }
-    });
-    return response.text;
-  } catch (error) {
-    return "Audit transmission interrupted.";
+      return detail || 'Strategic engine offline: Intelligence Node Unreachable.';
+    }
+
+    const data = await response.json();
+
+    // Allow either { insights: string } or { text: string } from backend
+    if (typeof data?.insights === 'string' && data.insights.trim()) return data.insights;
+    if (typeof data?.text === 'string' && data.text.trim()) return data.text;
+
+    return 'Audit transmission interrupted.';
+  } catch {
+    return 'Strategic engine offline: Intelligence Node Unreachable.';
   }
 };
+
+// Preserve existing import name used elsewhere
 export const getInventoryInsights = getAdvancedInventoryInsights;

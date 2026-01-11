@@ -8,6 +8,7 @@ import {
   AppSettings,
   ApprovalRequest,
   AuditLog,
+  AuditLogType,
   UserStatsSummary,
   LedgerEntry
 } from '../types';
@@ -47,6 +48,7 @@ import { getAdvancedInventoryInsights } from '../services/geminiService';
 
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
+const SETTINGS_STORAGE_KEY = 'ninpo:settings';
 
 interface ManagementViewProps {
   user: User;
@@ -58,13 +60,13 @@ interface ManagementViewProps {
   settings: AppSettings;
   setSettings: (s: AppSettings) => void;
   approvals: ApprovalRequest[];
-  setApprovals: React.Dispatch<React.SetStateAction<ApprovalRequest[]>>;
   auditLogs: AuditLog[];
   updateOrder: (id: string, status: OrderStatus, metadata?: any) => void;
   adjustCredits: (userId: string, amount: number, reason: string) => void;
   updateUserProfile: (id: string, updates: Partial<User>) => void;
   fetchUsers: () => Promise<User[]>;
-  fetchUserStats: (userId: string) => Promise<UserStatsSummary | null>;
+  fetchApprovals: () => Promise<ApprovalRequest[]>;
+  fetchAuditLogs: () => Promise<AuditLog[]>;
 }
 
 const fmtTime = (iso?: string) => {
@@ -112,13 +114,13 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   settings,
   setSettings,
   approvals,
-  setApprovals,
   auditLogs,
   updateOrder,
   adjustCredits,
   updateUserProfile,
   fetchUsers,
-  fetchUserStats
+  fetchApprovals,
+  fetchAuditLogs
 }) => {
   const [activeModule, setActiveModule] = useState<string>('analytics');
   const [isAuditing, setIsAuditing] = useState(false);
@@ -126,13 +128,28 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [isUsersLoading, setIsUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
+  const [isChartReady, setIsChartReady] = useState(false);
+  const [isChartVisible, setIsChartVisible] = useState(false);
   const [userFilter, setUserFilter] = useState('');
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [userDrafts, setUserDrafts] = useState<Record<string, Partial<User>>>({});
   const [userLedgers, setUserLedgers] = useState<Record<string, LedgerEntry[]>>({});
   const [ledgerLoading, setLedgerLoading] = useState<Record<string, boolean>>({});
   const [ledgerErrors, setLedgerErrors] = useState<Record<string, string | null>>({});
-  const [userStatsLoading, setUserStatsLoading] = useState<Record<string, boolean>>({});
+  const [settingsDraft, setSettingsDraft] = useState<AppSettings>(settings);
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsSaved, setSettingsSaved] = useState(false);
+  const [isAuditLogsLoading, setIsAuditLogsLoading] = useState(false);
+  const [auditLogsError, setAuditLogsError] = useState<string | null>(null);
+  const [auditModel, setAuditModel] = useState('gemini-3-flash');
+
+  useEffect(() => {
+    if (!settingsDirty) {
+      setSettingsDraft(settings);
+    }
+  }, [settings, settingsDirty]);
 
   // Inventory create form
   const [isCreating, setIsCreating] = useState(false);
@@ -175,6 +192,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [upcScannerOpen, setUpcScannerOpen] = useState(false);
   const [upcScannerError, setUpcScannerError] = useState<string | null>(null);
   const [isUpcScanning, setIsUpcScanning] = useState(false);
+  const [approvalFilter, setApprovalFilter] =
+    useState<ApprovalRequest['status']>('PENDING');
+  const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
+  const [auditTypeFilter, setAuditTypeFilter] = useState<'ALL' | AuditLogType>('ALL');
+  const [auditActorFilter, setAuditActorFilter] = useState('');
+  const [auditRangeFilter, setAuditRangeFilter] = useState<'24h' | '7d' | '30d'>('7d');
   const allowPlatinumTier = Boolean(settings.allowPlatinumTier);
 
   const upcVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -184,6 +207,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const upcItemsRef = useRef<UpcItem[]>([]);
   const upcDepositRef = useRef<number>(settings.michiganDepositValue || 0.1);
   const upcAudioContextRef = useRef<AudioContext | null>(null);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
 
   const chartData = useMemo(() => {
     return (orders || [])
@@ -196,34 +220,249 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       .reverse();
   }, [orders]);
 
-  const handleApprove = (approval: ApprovalRequest) => {
-    adjustCredits(approval.userId, approval.amount, `AUTH_APPROVED: ${approval.type}`);
+  const filteredApprovals = useMemo(() => {
+    return approvals.filter(approval => approval.status === approvalFilter);
+  }, [approvals, approvalFilter]);
 
-    setApprovals(prev =>
-      prev.map(a =>
-        a.id === approval.id
-          ? { ...a, status: 'APPROVED', processedAt: new Date().toISOString() }
-          : a
-      )
-    );
+  const auditTypeOptions = useMemo(() => {
+    const types = Array.from(new Set(auditLogs.map(log => log.type))).sort();
+    return ['ALL', ...types] as const;
+  }, [auditLogs]);
 
-    if (approval.type === 'REFUND' && approval.orderId) {
-      updateOrder(approval.orderId, OrderStatus.REFUNDED);
+  const filteredAuditLogs = useMemo(() => {
+    const rangeMsMap = {
+      '24h': 24 * 60 * 60 * 1000,
+      '7d': 7 * 24 * 60 * 60 * 1000,
+      '30d': 30 * 24 * 60 * 60 * 1000
+    };
+    const cutoff = Date.now() - rangeMsMap[auditRangeFilter];
+    const actorNeedle = auditActorFilter.trim().toLowerCase();
+
+    return auditLogs
+      .filter(log => {
+        if (auditTypeFilter !== 'ALL' && log.type !== auditTypeFilter) return false;
+        if (actorNeedle && !log.actorId.toLowerCase().includes(actorNeedle)) return false;
+        if (log.createdAt) {
+          const createdAt = new Date(log.createdAt).getTime();
+          if (!Number.isNaN(createdAt) && createdAt < cutoff) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const aTime = new Date(a.createdAt).getTime();
+        const bTime = new Date(b.createdAt).getTime();
+        if (Number.isNaN(aTime) && Number.isNaN(bTime)) return 0;
+        if (Number.isNaN(aTime)) return 1;
+        if (Number.isNaN(bTime)) return -1;
+        return bTime - aTime;
+      });
+  }, [auditLogs, auditActorFilter, auditRangeFilter, auditTypeFilter]);
+
+  useEffect(() => {
+    if (activeModule !== 'analytics') {
+      setIsChartReady(false);
+      return;
+    }
+
+    let firstFrame = 0;
+    let secondFrame = 0;
+
+    firstFrame = window.requestAnimationFrame(() => {
+      firstFrame = 0;
+      secondFrame = window.requestAnimationFrame(() => {
+        setIsChartReady(true);
+      });
+    });
+
+    return () => {
+      if (firstFrame) {
+        window.cancelAnimationFrame(firstFrame);
+      }
+      if (secondFrame) {
+        window.cancelAnimationFrame(secondFrame);
+      }
+    };
+  }, [activeModule]);
+
+  useEffect(() => {
+    if (activeModule !== 'logs') return;
+
+    let isActive = true;
+    const loadAuditLogs = async () => {
+      setIsAuditLogsLoading(true);
+      setAuditLogsError(null);
+
+      try {
+        await fetchAuditLogs();
+      } catch (e: any) {
+        if (isActive) {
+          setAuditLogsError(e?.message || 'Failed to load audit logs');
+        }
+      } finally {
+        if (isActive) {
+          setIsAuditLogsLoading(false);
+        }
+      }
+    };
+
+    loadAuditLogs();
+    return () => {
+      isActive = false;
+    };
+  }, [activeModule, fetchAuditLogs]);
+
+  useEffect(() => {
+    if (activeModule !== 'approvals') return;
+    fetchApprovals().catch(() => {});
+  }, [activeModule, fetchApprovals]);
+
+  useEffect(() => {
+    if (activeModule !== 'analytics') {
+      setIsChartVisible(false);
+      return;
+    }
+
+    const container = chartContainerRef.current;
+    if (!container) {
+      setIsChartVisible(false);
+      return;
+    }
+
+    let frameId = 0;
+    const updateVisibility = () => {
+      const hasSize = container.offsetHeight > 0 && container.offsetWidth > 0;
+      setIsChartVisible(hasSize);
+    };
+
+    updateVisibility();
+    frameId = window.requestAnimationFrame(updateVisibility);
+
+    const observer = new ResizeObserver(updateVisibility);
+    observer.observe(container);
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      observer.disconnect();
+    };
+  }, [activeModule]);
+
+  useEffect(() => {
+    if (!settingsDirty) {
+      setSettingsDraft(settings);
+    }
+  }, [settings, settingsDirty]);
+
+  const handleApprove = async (approval: ApprovalRequest) => {
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/api/approvals/${approval.id}/approve`,
+        {
+          method: 'POST',
+          credentials: 'include'
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Approval failed');
+
+      adjustCredits(approval.userId, approval.amount, `AUTH_APPROVED: ${approval.type}`);
+
+      if (approval.type === 'REFUND' && approval.orderId) {
+        updateOrder(approval.orderId, OrderStatus.REFUNDED);
+      }
+
+      await fetchApprovals();
+    } catch {
+      // keep existing state on failure
     }
   };
 
-  const handleReject = (id: string) => {
-    setApprovals(prev =>
-      prev.map(a =>
-        a.id === id
-          ? { ...a, status: 'REJECTED', processedAt: new Date().toISOString() }
-          : a
-      )
-    );
+  const handleReject = async (id: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/approvals/${id}/reject`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Reject failed');
+
+      await fetchApprovals();
+    } catch {
+      // keep existing state on failure
+    }
   };
 
   const handleLogisticsUpdate = (orderId: string, status: OrderStatus, metadata?: any) => {
     updateOrder(orderId, status, metadata);
+  };
+
+  const updateSettingsDraft = (updates: Partial<AppSettings>) => {
+    setSettingsDraft(prev => ({ ...prev, ...updates }));
+    setSettingsDirty(true);
+    setSettingsSaved(false);
+  };
+
+  const saveSettings = async () => {
+    setIsSavingSettings(true);
+    setSettingsError(null);
+    setSettingsSaved(false);
+
+    const nextSettings: AppSettings = {
+      ...settingsDraft,
+      deliveryFee: Number(settingsDraft.deliveryFee || 0),
+      referralBonus: Number(settingsDraft.referralBonus || 0),
+      michiganDepositValue: Number(settingsDraft.michiganDepositValue || 0),
+      processingFeePercent: Number(settingsDraft.processingFeePercent || 0),
+      glassHandlingFeePercent: Number(settingsDraft.glassHandlingFeePercent || 0),
+      returnProcessingFeePercent: Number(
+        settingsDraft.returnProcessingFeePercent || 0
+      ),
+      dailyReturnLimit: Number(settingsDraft.dailyReturnLimit || 0),
+      requirePhotoForRefunds: Boolean(settingsDraft.requirePhotoForRefunds),
+      allowGuestCheckout: Boolean(settingsDraft.allowGuestCheckout),
+      showAdvancedInventoryInsights: Boolean(settingsDraft.showAdvancedInventoryInsights),
+      allowPlatinumTier: Boolean(settingsDraft.allowPlatinumTier)
+    };
+
+    const persistSettings = (payload: AppSettings) => {
+      if (typeof window === 'undefined') return false;
+      try {
+        window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(nextSettings)
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to save settings');
+
+      const savedSettings = (data?.settings as AppSettings) || nextSettings;
+      setSettings(savedSettings);
+      persistSettings(savedSettings);
+      setSettingsDirty(false);
+      setSettingsSaved(true);
+    } catch (e: any) {
+      const stored = persistSettings(nextSettings);
+      if (stored) {
+        setSettings(nextSettings);
+        setSettingsDirty(false);
+        setSettingsSaved(true);
+      } else {
+        setSettingsError(e?.message || 'Failed to save settings');
+      }
+    } finally {
+      setIsSavingSettings(false);
+    }
   };
 
   // ---- Orders API (OWNER) ----
@@ -699,7 +938,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const runAudit = async () => {
     setIsAuditing(true);
     try {
-      const report = await getAdvancedInventoryInsights(products as any, orders as any);
+      const report = await getAdvancedInventoryInsights(
+        products as any,
+        orders as any,
+        auditModel
+      );
       setAiInsights(report || 'NO OUTPUT');
     } catch {
       setAiInsights('Audit transmission interrupted.');
@@ -832,6 +1075,23 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
+  const handleDownloadAuditCsv = () => {
+    const headers = ['type', 'actorId', 'details', 'createdAt'];
+    const escapeValue = (value: string) =>
+      `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = filteredAuditLogs.map(log =>
+      [log.type, log.actorId, log.details, log.createdAt].map(escapeValue).join(',')
+    );
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `audit-logs-${new Date().toISOString()}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="flex flex-col xl:flex-row gap-12 animate-in fade-in pb-32">
       <aside className="w-full xl:w-72 space-y-2">
@@ -872,18 +1132,33 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 </p>
               </div>
 
-              <button
-                onClick={runAudit}
-                disabled={isAuditing}
-                className="px-8 py-5 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all flex items-center gap-3"
-              >
-                {isAuditing ? (
-                  <Loader2 className="w-6 h-6 animate-spin" />
-                ) : (
-                  <BrainCircuit className="w-6 h-6" />
-                )}
-                Run Audit
-              </button>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                    Audit Model
+                  </span>
+                  <select
+                    value={auditModel}
+                    onChange={event => setAuditModel(event.target.value)}
+                    className="min-w-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white"
+                  >
+                    <option value="gemini-3-flash">gemini-3-flash</option>
+                    <option value="gemini-3-pro">gemini-3-pro</option>
+                  </select>
+                </div>
+                <button
+                  onClick={runAudit}
+                  disabled={isAuditing}
+                  className="px-8 py-5 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all flex items-center gap-3"
+                >
+                  {isAuditing ? (
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  ) : (
+                    <BrainCircuit className="w-6 h-6" />
+                  )}
+                  Run Audit
+                </button>
+              </div>
             </div>
 
             {aiInsights && (
@@ -895,23 +1170,38 @@ const ManagementView: React.FC<ManagementViewProps> = ({
               </div>
             )}
 
-            <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#222" />
-                  <XAxis dataKey="name" stroke="#555" fontSize={9} />
-                  <YAxis stroke="#555" fontSize={9} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#111',
-                      border: 'none',
-                      borderRadius: '1rem',
-                      fontSize: '10px'
-                    }}
-                  />
-                  <Line type="monotone" dataKey="revenue" stroke="#00ff41" strokeWidth={3} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
+            <div
+              ref={chartContainerRef}
+              className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 h-80 min-h-[320px]"
+            >
+              {isChartReady && isChartVisible ? (
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#222" />
+                    <XAxis dataKey="name" stroke="#555" fontSize={9} />
+                    <YAxis stroke="#555" fontSize={9} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#111',
+                        border: 'none',
+                        borderRadius: '1rem',
+                        fontSize: '10px'
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="revenue"
+                      stroke="#00ff41"
+                      strokeWidth={3}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  Loading chart…
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -960,11 +1250,25 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </p>
                 </div>
               ) : (
-                orders.map(o => (
-                  <div
-                    key={o.id}
-                    className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6"
-                  >
+                orders.map(o => {
+                  const estimatedGross = Number(
+                    o.estimatedReturnCreditGross ?? o.estimatedReturnCredit ?? 0
+                  );
+                  const estimatedNet = Number(o.estimatedReturnCredit || 0);
+                  const verifiedGross =
+                    o.verifiedReturnCreditGross !== undefined
+                      ? Number(o.verifiedReturnCreditGross || 0)
+                      : undefined;
+                  const verifiedNet =
+                    o.verifiedReturnCredit !== undefined
+                      ? Number(o.verifiedReturnCredit || 0)
+                      : undefined;
+
+                  return (
+                    <div
+                      key={o.id}
+                      className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6"
+                    >
                     <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
                       <div>
                         <p className="text-[10px] font-black text-slate-600 uppercase">
@@ -1019,9 +1323,19 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
                         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-600 space-y-1">
                           <div className="flex items-center justify-between md:justify-end md:gap-3">
+                            <span className="md:hidden">Delivery Fee:</span>
+                            <span className="text-slate-300">
+                              Delivery Fee: ${Number(o.deliveryFee || 0).toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between md:justify-end md:gap-3">
                             <span className="md:hidden">Est Credit:</span>
                             <span className="text-slate-300">
-                              Est Credit: ${Number(o.estimatedReturnCredit || 0).toFixed(2)}
+                              Est Credit: ${estimatedNet.toFixed(2)}
+                              {estimatedGross !== estimatedNet
+                                ? ` (gross $${estimatedGross.toFixed(2)})`
+                                : ''}
                             </span>
                           </div>
 
@@ -1029,9 +1343,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                             <span className="md:hidden">Verified:</span>
                             <span className="text-slate-300">
                               Verified:{' '}
-                              {o.verifiedReturnCredit === undefined
+                              {verifiedNet === undefined
                                 ? '—'
-                                : `$${Number(o.verifiedReturnCredit || 0).toFixed(2)}`}
+                                : `$${verifiedNet.toFixed(2)}`}
+                              {verifiedNet !== undefined &&
+                              verifiedGross !== undefined &&
+                              verifiedGross !== verifiedNet
+                                ? ` (gross $${verifiedGross.toFixed(2)})`
+                                : ''}
                             </span>
                           </div>
 
@@ -1124,8 +1443,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         </button>
                       )}
                     </div>
-                  </div>
-                ))
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
@@ -1141,7 +1461,25 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             </h2>
 
             <div className="space-y-4">
-              {approvals.length === 0 ? (
+              <div className="flex flex-wrap gap-3">
+                {(['PENDING', 'APPROVED', 'REJECTED'] as ApprovalRequest['status'][]).map(
+                  status => (
+                    <button
+                      key={status}
+                      onClick={() => setApprovalFilter(status)}
+                      className={`px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                        approvalFilter === status
+                          ? 'bg-white text-ninpo-black border-white'
+                          : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+                      }`}
+                    >
+                      {status.toLowerCase()}
+                    </button>
+                  )
+                )}
+              </div>
+
+              {filteredApprovals.length === 0 ? (
                 <div className="p-20 bg-ninpo-card rounded-[3rem] border border-dashed border-white/10 flex flex-col items-center justify-center text-center">
                   <ShieldCheck className="w-12 h-12 text-slate-800 mb-4" />
                   <p className="text-[10px] uppercase font-black text-slate-700 tracking-[0.4em]">
@@ -1149,17 +1487,21 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </p>
                 </div>
               ) : (
-                approvals.map(a => (
+                filteredApprovals.map(a => (
                   <div
                     key={a.id}
-                    className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4 transition-all hover:border-white/10"
+                    className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4 transition-all hover:border-white/10 cursor-pointer"
+                    onClick={() => setSelectedApproval(a)}
                   >
                     <div className="flex flex-col md:flex-row justify-between items-center gap-6">
                       <div className="flex items-center gap-6">
                         {a.photoProof && (
                           <div
                             className="relative group cursor-pointer"
-                            onClick={() => setPreviewPhoto(a.photoProof!)}
+                            onClick={event => {
+                              event.stopPropagation();
+                              setPreviewPhoto(a.photoProof!);
+                            }}
                           >
                             <img
                               src={a.photoProof}
@@ -1176,18 +1518,30 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                           <p className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">
                             USER: {a.userId} • AMOUNT: ${a.amount.toFixed(2)}
                           </p>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">
+                            ORDER: {a.orderId || 'N/A'} • REQUESTED: {fmtTime(a.createdAt)}
+                          </p>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">
+                            REASON: {a.reason || '—'}
+                          </p>
                         </div>
                       </div>
 
                       <div className="flex gap-3">
                         <button
-                          onClick={() => handleApprove(a)}
+                          onClick={event => {
+                            event.stopPropagation();
+                            handleApprove(a);
+                          }}
                           className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
                         >
                           Approve
                         </button>
                         <button
-                          onClick={() => handleReject(a.id)}
+                          onClick={event => {
+                            event.stopPropagation();
+                            handleReject(a.id);
+                          }}
                           className="px-6 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
                         >
                           Reject
@@ -1499,6 +1853,351 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* =========================
+            AUDIT LOGS
+        ========================= */}
+        {activeModule === 'logs' && (
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black uppercase text-white tracking-widest">
+                  Audit Logs
+                </h2>
+                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
+                  type • actorId • details • createdAt
+                </p>
+              </div>
+
+              <button
+                onClick={handleDownloadAuditCsv}
+                disabled={filteredAuditLogs.length === 0}
+                className="px-7 py-4 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Download CSV
+              </button>
+            </div>
+
+            <div className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Type
+                  </label>
+                  <select
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
+                    value={auditTypeFilter}
+                    onChange={e =>
+                      setAuditTypeFilter(e.target.value as 'ALL' | AuditLogType)
+                    }
+                  >
+                    {auditTypeOptions.map(option => (
+                      <option key={option} value={option}>
+                        {option.toLowerCase()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Actor
+                  </label>
+                  <input
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
+                    placeholder="Filter by actorId"
+                    value={auditActorFilter}
+                    onChange={e => setAuditActorFilter(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Time Range
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {(['24h', '7d', '30d'] as const).map(range => (
+                      <button
+                        key={range}
+                        onClick={() => setAuditRangeFilter(range)}
+                        className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                          auditRangeFilter === range
+                            ? 'bg-white text-ninpo-black border-white'
+                            : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+                        }`}
+                      >
+                        {range}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-ninpo-card rounded-[2.5rem] border border-white/5 overflow-hidden">
+              <div className="grid grid-cols-4 gap-4 px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-600 border-b border-white/5">
+                <span>Type</span>
+                <span>Actor</span>
+                <span>Details</span>
+                <span>Created</span>
+              </div>
+
+              {isAuditLogsLoading ? (
+                <div className="p-16 text-center text-[10px] uppercase tracking-widest text-slate-600">
+                  Loading audit logs...
+                </div>
+              ) : auditLogsError ? (
+                <div className="p-6 text-center text-[10px] uppercase tracking-widest text-ninpo-red">
+                  {auditLogsError}
+                </div>
+              ) : filteredAuditLogs.length === 0 ? (
+                <div className="p-16 text-center text-[10px] uppercase tracking-widest text-slate-600">
+                  No audit logs match your filters.
+                </div>
+              ) : (
+                <div className="divide-y divide-white/5">
+                  {filteredAuditLogs.map(log => (
+                    <div
+                      key={log.id}
+                      className="grid grid-cols-1 md:grid-cols-4 gap-3 px-6 py-4 text-[11px] text-slate-300"
+                    >
+                      <span className="font-bold text-white/80">{log.type}</span>
+                      <span className="text-white/70">{log.actorId}</span>
+                      <span className="text-slate-400">{log.details}</span>
+                      <span className="text-slate-500">{fmtTime(log.createdAt)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* =========================
+            SETTINGS
+        ========================= */}
+        {activeModule === 'settings' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-black uppercase text-white tracking-widest">
+                Settings
+              </h2>
+              <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
+                Manage returns, checkout, and membership rules.
+              </p>
+            </div>
+
+            {settingsError && (
+              <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                {settingsError}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Returns Rules
+                </p>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Michigan Deposit Value
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.michiganDepositValue}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          michiganDepositValue: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Daily Return Limit
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.dailyReturnLimit}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          dailyReturnLimit: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-ninpo-lime"
+                      checked={settingsDraft.requirePhotoForRefunds}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          requirePhotoForRefunds: e.target.checked
+                        })
+                      }
+                    />
+                    Require photo for refunds
+                  </label>
+                </div>
+              </div>
+
+              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Fees
+                </p>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Delivery Fee
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.deliveryFee}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          deliveryFee: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Processing Fee Percent
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.processingFeePercent}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          processingFeePercent: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Glass Handling Fee Percent
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.glassHandlingFeePercent}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          glassHandlingFeePercent: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Return Processing Fee Percent
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.returnProcessingFeePercent}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          returnProcessingFeePercent: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Checkout Rules
+                </p>
+                <div className="space-y-4">
+                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-ninpo-lime"
+                      checked={settingsDraft.allowGuestCheckout}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          allowGuestCheckout: e.target.checked
+                        })
+                      }
+                    />
+                    Allow guest checkout
+                  </label>
+                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-ninpo-lime"
+                      checked={settingsDraft.showAdvancedInventoryInsights}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          showAdvancedInventoryInsights: e.target.checked
+                        })
+                      }
+                    />
+                    Show advanced inventory insights
+                  </label>
+                </div>
+              </div>
+
+              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Membership
+                </p>
+                <div className="space-y-4">
+                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-ninpo-lime"
+                      checked={settingsDraft.allowPlatinumTier}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          allowPlatinumTier: e.target.checked
+                        })
+                      }
+                    />
+                    Allow Platinum tier
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                {settingsSaved && !settingsDirty
+                  ? 'Settings saved.'
+                  : settingsDirty
+                    ? 'Unsaved changes.'
+                    : 'All changes are up to date.'}
+              </div>
+              <button
+                onClick={saveSettings}
+                disabled={isSavingSettings || !settingsDirty}
+                className="px-8 py-5 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed shadow-neon"
+              >
+                {isSavingSettings ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-5 h-5" />
+                )}
+                Save Settings
+              </button>
+            </div>
           </div>
         )}
 
@@ -1962,6 +2661,79 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             >
               <EyeOff className="w-7 h-7" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {selectedApproval && (
+        <div
+          className="fixed inset-0 z-[14000] flex items-center justify-center p-6 bg-ninpo-black/80 backdrop-blur-xl animate-in fade-in duration-300"
+          onClick={() => setSelectedApproval(null)}
+        >
+          <div
+            className="relative max-w-4xl w-full rounded-[3rem] overflow-hidden border border-white/10 shadow-neon bg-ninpo-card p-8 space-y-6"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <p className="text-white font-black uppercase tracking-widest text-[12px]">
+                  {selectedApproval.type} • {selectedApproval.status}
+                </p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase mt-2 tracking-widest">
+                  USER: {selectedApproval.userId} • AMOUNT: $
+                  {selectedApproval.amount.toFixed(2)}
+                </p>
+              </div>
+              <button
+                className="px-5 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                onClick={() => setSelectedApproval(null)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 text-[11px] text-slate-300 uppercase tracking-widest">
+              <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                <p className="text-slate-500 font-bold">Reason</p>
+                <p className="text-white font-semibold mt-2">{selectedApproval.reason || '—'}</p>
+              </div>
+              <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                <p className="text-slate-500 font-bold">Order ID</p>
+                <p className="text-white font-semibold mt-2">
+                  {selectedApproval.orderId || 'N/A'}
+                </p>
+              </div>
+              <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                <p className="text-slate-500 font-bold">Created</p>
+                <p className="text-white font-semibold mt-2">
+                  {fmtTime(selectedApproval.createdAt)}
+                </p>
+              </div>
+              <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                <p className="text-slate-500 font-bold">Processed</p>
+                <p className="text-white font-semibold mt-2">
+                  {selectedApproval.processedAt ? fmtTime(selectedApproval.processedAt) : '—'}
+                </p>
+              </div>
+            </div>
+
+            {selectedApproval.photoProof && (
+              <div className="space-y-3">
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                  Photo Proof
+                </p>
+                <button
+                  className="w-full rounded-[2rem] overflow-hidden border border-white/10 bg-black"
+                  onClick={() => setPreviewPhoto(selectedApproval.photoProof!)}
+                >
+                  <img
+                    src={selectedApproval.photoProof}
+                    alt="Approval proof"
+                    className="w-full max-h-[320px] object-cover"
+                  />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

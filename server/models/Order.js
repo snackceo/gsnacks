@@ -16,7 +16,9 @@ const orderSchema = new mongoose.Schema(
     // Bottle returns (client preview + driver verification)
     returnUpcs: { type: [String], default: [] },
     verifiedReturnUpcs: { type: [String], default: [] },
+    estimatedReturnCreditGross: { type: Number, default: 0 }, // dollars (gross)
     estimatedReturnCredit: { type: Number, default: 0 }, // dollars (preview)
+    verifiedReturnCreditGross: { type: Number, default: 0 }, // dollars (gross)
     verifiedReturnCredit: { type: Number, default: 0 }, // dollars (driver)
 
     items: [
@@ -27,6 +29,9 @@ const orderSchema = new mongoose.Schema(
     ],
 
     total: { type: Number, required: true }, // dollars, pre-credit
+    deliveryFee: { type: Number, default: 0 }, // dollars
+    deliveryFeeDiscountPercent: { type: Number, default: 0 }, // percent
+    deliveryFeeFinal: { type: Number, default: 0 }, // dollars
     creditApplied: { type: Number, default: 0 }, // dollars
 
     paymentMethod: { type: String, default: 'STRIPE' },

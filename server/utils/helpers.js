@@ -132,12 +132,15 @@ function mapOrderForFrontend(d) {
     driverId: d.driverId || undefined,
     items: Array.isArray(d.items) ? d.items : [],
     total: Number(d.total || 0),
+    deliveryFee: Number(d.deliveryFeeFinal ?? d.deliveryFee ?? 0),
     creditApplied: Number(d.creditApplied || 0),
 
     // Bottle returns
     returnUpcs: Array.isArray(d.returnUpcs) ? d.returnUpcs : [],
     verifiedReturnUpcs: Array.isArray(d.verifiedReturnUpcs) ? d.verifiedReturnUpcs : [],
+    estimatedReturnCreditGross: Number(d.estimatedReturnCreditGross || 0),
     estimatedReturnCredit: Number(d.estimatedReturnCredit || 0),
+    verifiedReturnCreditGross: Number(d.verifiedReturnCreditGross || 0),
     verifiedReturnCredit:
       d.verifiedReturnCredit !== undefined
         ? Number(d.verifiedReturnCredit || 0)

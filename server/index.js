@@ -13,6 +13,10 @@ import productsRouter from './routes/products.js';
 import createStripeRouter from './routes/stripe.js';
 import upcRouter from './routes/upc.js';
 import usersRouter from './routes/users.js';
+import aiRouter from './routes/ai.js';
+import approvalsRouter from './routes/approvals.js';
+import settingsRouter from './routes/settings.js';
+import auditLogsRouter from './routes/audit-logs.js';
 
 dotenv.config();
 
@@ -86,6 +90,10 @@ app.use('/api/payments', createPaymentsRouter({ stripe }));
 app.use('/api/stripe', createStripeRouter({ stripe, webhookSecret }));
 app.use('/api/upc', upcRouter);
 app.use('/api/users', usersRouter);
+app.use('/api/ai', aiRouter);
+app.use('/api/approvals', approvalsRouter);
+app.use('/api/settings', settingsRouter);
+app.use('/api/audit-logs', auditLogsRouter);
 
 /* =========================
    START SERVER

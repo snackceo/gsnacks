@@ -78,8 +78,11 @@ export interface Order {
   driverId?: string;
   items: { productId: string; quantity: number }[];
   total: number;
+  deliveryFee?: number;
   creditApplied?: number;
+  estimatedReturnCreditGross?: number;
   estimatedReturnCredit: number;
+  verifiedReturnCreditGross?: number;
   verifiedReturnCredit?: number;
   returnUpcs?: string[];
   verifiedReturnUpcs?: string[];
@@ -100,8 +103,14 @@ export interface Order {
 }
 
 export interface AppSettings {
+  deliveryFee: number;
+  referralBonus: number;
   michiganDepositValue: number;
+  processingFeePercent: number;
+  glassHandlingFeePercent: number;
+  returnProcessingFeePercent: number;
   dailyReturnLimit: number;
+  maintenanceMode: boolean;
   requirePhotoForRefunds: boolean;
   allowGuestCheckout: boolean;
   showAdvancedInventoryInsights: boolean;
