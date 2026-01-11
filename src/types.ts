@@ -21,15 +21,19 @@ export enum UserTier {
   NONE = 'NONE',
   BRONZE = 'BRONZE',
   SILVER = 'SILVER',
-  GOLD = 'GOLD'
+  GOLD = 'GOLD',
+  PLATINUM = 'PLATINUM'
 }
 
 export interface User {
   id: string;
-  name: string;
+  name?: string;
+  username?: string;
   role: UserRole;
   creditBalance: number;
+  loyaltyPoints?: number;
   membershipTier: UserTier;
+  createdAt?: string;
 }
 
 export interface Product {
