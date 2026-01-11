@@ -108,6 +108,7 @@ export interface AppSettings {
   michiganDepositValue: number;
   processingFeePercent: number;
   glassHandlingFeePercent: number;
+  returnProcessingFeePercent: number;
   dailyReturnLimit: number;
   maintenanceMode: boolean;
   requirePhotoForRefunds: boolean;

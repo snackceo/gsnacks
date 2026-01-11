@@ -35,6 +35,7 @@ const defaultSettings: AppSettings = {
   michiganDepositValue: 0.1,
   processingFeePercent: 0.05,
   glassHandlingFeePercent: 0.02,
+  returnProcessingFeePercent: 0,
   dailyReturnLimit: 25.0,
   maintenanceMode: false,
   requirePhotoForRefunds: false,
@@ -58,6 +59,9 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     ),
     glassHandlingFeePercent: Number(
       data.glassHandlingFeePercent ?? defaultSettings.glassHandlingFeePercent
+    ),
+    returnProcessingFeePercent: Number(
+      data.returnProcessingFeePercent ?? defaultSettings.returnProcessingFeePercent
     ),
     dailyReturnLimit: Number(data.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
     maintenanceMode: Boolean(
