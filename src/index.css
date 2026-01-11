@@ -72,3 +72,12 @@
 .group:hover .grayscale {
   filter: grayscale(0%);
 }
+
+.ticker-track {
+  animation: ticker 22s linear infinite;
+}
+
+@keyframes ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}

@@ -37,10 +37,16 @@ const Header = ({
         <div className="flex gap-2">
           {currentUserRole === UserRole.OWNER && (
             <>
-              <button onClick={() => navigate('/management')}>
+              <button
+                onClick={() => navigate('/management')}
+                className="px-5 py-2 rounded-full bg-ninpo-lime text-ninpo-black text-xs font-black uppercase tracking-widest shadow-neon hover:bg-white transition"
+              >
                 Management
               </button>
-              <button onClick={() => navigate('/driver')}>
+              <button
+                onClick={() => navigate('/driver')}
+                className="px-5 py-2 rounded-full bg-white/10 text-white text-xs font-black uppercase tracking-widest border border-white/10 hover:bg-white/20 transition"
+              >
                 Logistics
               </button>
             </>

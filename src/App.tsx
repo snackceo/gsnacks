@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
 import { useNinpoCore } from './hooks/useNinpoCore';
 import { UserRole } from './types';
@@ -24,6 +24,7 @@ const BACKEND_URL =
 
 function App() {
   const core = useNinpoCore();
+  const location = useLocation();
 
   const [address, setAddress] = useState('');
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
@@ -62,6 +63,9 @@ function App() {
 
   // total quantity across all cart lines (used for badge)
   const cartCount = core.cart.reduce((sum, i) => sum + (i.quantity || 0), 0);
+  const hideCustomerUi =
+    location.pathname.startsWith('/management') ||
+    location.pathname.startsWith('/driver');
 
   return (
     <div className="min-h-screen bg-ninpo-black text-white flex flex-col relative overflow-x-hidden font-sans">
@@ -85,54 +89,58 @@ function App() {
           <Route
             path="/"
             element={
-              <CustomerView
-                products={core.products}
-                orders={core.orders.filter(
-                  o => o.customerId === core.currentUser?.id
-                )}
-                currentUser={core.currentUser}
-                openLogin={() => setIsLoginViewOpen(true)}
-                onRequestRefund={() => {}}
-                addToCart={(productId) => {
-                  if (!core.currentUser) {
-                    setIsLoginViewOpen(true);
-                    return;
-                  }
+              core.currentUser?.role === UserRole.OWNER ? (
+                <Navigate to="/management" replace />
+              ) : (
+                <CustomerView
+                  products={core.products}
+                  orders={core.orders.filter(
+                    o => o.customerId === core.currentUser?.id
+                  )}
+                  currentUser={core.currentUser}
+                  openLogin={() => setIsLoginViewOpen(true)}
+                  onRequestRefund={() => {}}
+                  addToCart={(productId) => {
+                    if (!core.currentUser) {
+                      setIsLoginViewOpen(true);
+                      return;
+                    }
 
-                  const product = core.products.find(p => p.id === productId);
-                  const stock = (product as any)?.stock ?? 0;
-                  const inCart =
-                    core.cart.find(i => i.productId === productId)?.quantity ??
-                    0;
+                    const product = core.products.find(p => p.id === productId);
+                    const stock = (product as any)?.stock ?? 0;
+                    const inCart =
+                      core.cart.find(i => i.productId === productId)?.quantity ??
+                      0;
 
-                  // Enforce stock locally (prevents adding beyond available stock)
-                  if (stock <= 0) {
-                    core.addToast('OUT OF STOCK', 'warning');
-                    return;
-                  }
+                    // Enforce stock locally (prevents adding beyond available stock)
+                    if (stock <= 0) {
+                      core.addToast('OUT OF STOCK', 'warning');
+                      return;
+                    }
 
-                  if (inCart >= stock) {
-                    core.addToast(`MAX STOCK REACHED (${stock})`, 'warning');
-                    return;
-                  }
+                    if (inCart >= stock) {
+                      core.addToast(`MAX STOCK REACHED (${stock})`, 'warning');
+                      return;
+                    }
 
-                  core.setCart(prev => {
-                    const existing = prev.find(i => i.productId === productId);
-                    return existing
-                      ? prev.map(i =>
-                          i.productId === productId
-                            ? { ...i, quantity: i.quantity + 1 }
-                            : i
-                        )
-                      : [...prev, { productId, quantity: 1 }];
-                  });
+                    core.setCart(prev => {
+                      const existing = prev.find(i => i.productId === productId);
+                      return existing
+                        ? prev.map(i =>
+                            i.productId === productId
+                              ? { ...i, quantity: i.quantity + 1 }
+                              : i
+                          )
+                        : [...prev, { productId, quantity: 1 }];
+                    });
 
-                  core.addToast('ADDED TO CARGO', 'success');
-                }}
-                updateUserProfile={() => {}}
-                reorderItems={() => {}}
-                onRedeemPoints={() => {}}
-              />
+                    core.addToast('ADDED TO CARGO', 'success');
+                  }}
+                  updateUserProfile={() => {}}
+                  reorderItems={() => {}}
+                  onRedeemPoints={core.redeemPoints}
+                />
+              )
             }
           />
 
@@ -161,7 +169,8 @@ function App() {
                   auditLogs={core.auditLogs}
                   updateOrder={core.updateOrder}
                   adjustCredits={core.adjustCredits}
-                  updateUserProfile={() => {}}
+                  updateUserProfile={core.updateUserProfile}
+                  fetchUsers={core.fetchUsers}
                 />
               ) : (
                 <Navigate to="/" replace />
@@ -187,39 +196,43 @@ function App() {
       </main>
 
       {/* CART BUTTON */}
-      <button
-        onClick={() => setIsCartOpen(true)}
-        className="fixed bottom-10 right-10 z-[9000] w-16 h-16 bg-ninpo-lime text-ninpo-black rounded-[1.5rem] shadow-neon flex items-center justify-center"
-        aria-label="Open cart"
-      >
-        <span className="relative flex items-center justify-center w-full h-full">
-          <ShoppingBag className="w-7 h-7" />
+      {!hideCustomerUi && (
+        <>
+          <button
+            onClick={() => setIsCartOpen(true)}
+            className="fixed bottom-10 right-10 z-[9000] w-16 h-16 bg-ninpo-lime text-ninpo-black rounded-[1.5rem] shadow-neon flex items-center justify-center"
+            aria-label="Open cart"
+          >
+            <span className="relative flex items-center justify-center w-full h-full">
+              <ShoppingBag className="w-7 h-7" />
 
-          {cartCount > 0 && (
-            <span className="absolute -top-2 -right-2 min-w-[24px] h-6 px-2 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center border-2 border-ninpo-black">
-              {cartCount}
+              {cartCount > 0 && (
+                <span className="absolute -top-2 -right-2 min-w-[24px] h-6 px-2 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center border-2 border-ninpo-black">
+                  {cartCount}
+                </span>
+              )}
             </span>
-          )}
-        </span>
-      </button>
+          </button>
 
-      {/* CART DRAWER */}
-      <CartDrawer
-        isOpen={isCartOpen}
-        cart={core.cart}
-        products={core.products}
-        address={address}
-        acceptedPolicies={acceptedPolicies}
-        isProcessing={isProcessingOrder}
-        onClose={() => setIsCartOpen(false)}
-        onAddressChange={setAddress}
-        onPolicyChange={setAcceptedPolicies}
-        onRemoveItem={id =>
-          core.setCart(prev => prev.filter(i => i.productId !== id))
-        }
-        onPayCredits={() => {}}
-        onPayExternal={handleExternalPayment}
-      />
+          {/* CART DRAWER */}
+          <CartDrawer
+            isOpen={isCartOpen}
+            cart={core.cart}
+            products={core.products}
+            address={address}
+            acceptedPolicies={acceptedPolicies}
+            isProcessing={isProcessingOrder}
+            onClose={() => setIsCartOpen(false)}
+            onAddressChange={setAddress}
+            onPolicyChange={setAcceptedPolicies}
+            onRemoveItem={id =>
+              core.setCart(prev => prev.filter(i => i.productId !== id))
+            }
+            onPayCredits={() => {}}
+            onPayExternal={handleExternalPayment}
+          />
+        </>
+      )}
 
       {/* LOGIN MODAL */}
       {isLoginViewOpen && (

@@ -46,6 +46,8 @@ import { getAdvancedInventoryInsights } from '../services/geminiService';
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
+const LS_KEY_BANNER = 'ninpo_management_banner_v1';
+
 interface ManagementViewProps {
   user: User;
   products: Product[];
@@ -60,6 +62,7 @@ interface ManagementViewProps {
   updateOrder: (id: string, status: OrderStatus, metadata?: any) => void;
   adjustCredits: (userId: string, amount: number, reason: string) => void;
   updateUserProfile: (id: string, updates: Partial<User>) => void;
+  fetchUsers: () => Promise<User[]>;
 }
 
 const fmtTime = (iso?: string) => {
@@ -80,12 +83,21 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   setApprovals,
   auditLogs,
   updateOrder,
-  adjustCredits
+  adjustCredits,
+  updateUserProfile,
+  fetchUsers
 }) => {
   const [activeModule, setActiveModule] = useState<string>('analytics');
   const [isAuditing, setIsAuditing] = useState(false);
   const [aiInsights, setAiInsights] = useState<string | null>(null);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [isUsersLoading, setIsUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [userFilter, setUserFilter] = useState('');
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [userDrafts, setUserDrafts] = useState<Record<string, Partial<User>>>({});
+  const [bannerInput, setBannerInput] = useState('');
+  const [bannerMessages, setBannerMessages] = useState<string[]>([]);
 
   // Inventory create form
   const [isCreating, setIsCreating] = useState(false);
@@ -146,6 +158,40 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         revenue: Number(o.total || 0)
       }))
       .reverse();
+  }, [orders]);
+
+  const userStats = useMemo(() => {
+    const stats = new Map<
+      string,
+      { orderCount: number; totalSpend: number; lastOrderAt?: string }
+    >();
+
+    for (const order of orders || []) {
+      const userId = order.customerId;
+      if (!userId) continue;
+
+      const existing = stats.get(userId) || {
+        orderCount: 0,
+        totalSpend: 0,
+        lastOrderAt: undefined
+      };
+
+      const nextCount = existing.orderCount + 1;
+      const nextTotal = existing.totalSpend + Number(order.total || 0);
+      const lastOrderAt =
+        !existing.lastOrderAt ||
+        new Date(order.createdAt).getTime() > new Date(existing.lastOrderAt).getTime()
+          ? order.createdAt
+          : existing.lastOrderAt;
+
+      stats.set(userId, {
+        orderCount: nextCount,
+        totalSpend: nextTotal,
+        lastOrderAt
+      });
+    }
+
+    return stats;
   }, [orders]);
 
   const handleApprove = (approval: ApprovalRequest) => {
@@ -670,6 +716,110 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     );
   };
 
+  useEffect(() => {
+    if (activeModule !== 'users') return;
+    if (users.length > 0) return;
+
+    let mounted = true;
+    setIsUsersLoading(true);
+    setUsersError(null);
+    fetchUsers()
+      .catch((e: any) => {
+        if (!mounted) return;
+        setUsersError(e?.message || 'Failed to load users');
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setIsUsersLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [activeModule, fetchUsers, users.length]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LS_KEY_BANNER);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setBannerMessages(parsed.map(String).map(s => s.trim()).filter(Boolean));
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_KEY_BANNER, JSON.stringify(bannerMessages));
+    } catch {
+      // ignore
+    }
+  }, [bannerMessages]);
+
+  const addBannerMessage = () => {
+    const next = bannerInput.trim();
+    if (!next) return;
+    setBannerMessages(prev => [next, ...prev]);
+    setBannerInput('');
+  };
+
+  const removeBannerMessage = (idx: number) => {
+    setBannerMessages(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const filteredUsers = useMemo(() => {
+    const needle = userFilter.trim().toLowerCase();
+    if (!needle) return users;
+    return users.filter(u =>
+      [u.username, u.name, u.role, u.membershipTier]
+        .filter(Boolean)
+        .some(v => String(v).toLowerCase().includes(needle))
+    );
+  }, [userFilter, users]);
+
+  const handleUserDraftChange = (userId: string, updates: Partial<User>) => {
+    setUserDrafts(prev => ({
+      ...prev,
+      [userId]: { ...prev[userId], ...updates }
+    }));
+  };
+
+  const toggleUserDetails = (user: User) => {
+    setExpandedUserId(prev => (prev === user.id ? null : user.id));
+    setUserDrafts(prev => {
+      if (prev[user.id]) return prev;
+      return {
+        ...prev,
+        [user.id]: {
+          creditBalance: user.creditBalance,
+          loyaltyPoints: user.loyaltyPoints,
+          membershipTier: user.membershipTier
+        }
+      };
+    });
+  };
+
+  const saveUserDraft = async (userId: string) => {
+    const updates = userDrafts[userId];
+    if (!updates) return;
+    try {
+      await updateUserProfile(userId, updates);
+      setUserDrafts(prev => {
+        const next = { ...prev };
+        delete next[userId];
+        return next;
+      });
+    } catch {
+      // handled by upstream toast
+    }
+  };
+
+  const tickerItems =
+    bannerMessages.length > 0 ? [...bannerMessages, ...bannerMessages] : [];
+
   return (
     <div className="flex flex-col xl:flex-row gap-12 animate-in fade-in pb-32">
       <aside className="w-full xl:w-72 space-y-2">
@@ -698,6 +848,69 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       </aside>
 
       <div className="flex-1 space-y-8">
+        <div className="space-y-4">
+          <div className="bg-ninpo-midnight/80 backdrop-blur-xl rounded-[2.5rem] border border-white/10 p-6 space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  Broadcast Banner
+                </p>
+                <p className="text-white font-black text-lg uppercase mt-1">
+                  Live announcements & promotions
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+                <input
+                  value={bannerInput}
+                  onChange={e => setBannerInput(e.target.value)}
+                  placeholder="Add announcement..."
+                  className="flex-1 lg:w-80 bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
+                />
+                <button
+                  onClick={addBannerMessage}
+                  className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/40">
+              {tickerItems.length === 0 ? (
+                <div className="px-6 py-4 text-[10px] uppercase tracking-widest text-slate-600 font-bold">
+                  No broadcasts yet — add one above.
+                </div>
+              ) : (
+                <div className="ticker-track flex items-center gap-8 px-6 py-4 whitespace-nowrap">
+                  {tickerItems.map((message, idx) => (
+                    <span
+                      key={`${message}-${idx}`}
+                      className="text-[11px] font-black uppercase tracking-[0.3em] text-ninpo-lime"
+                    >
+                      {message}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {bannerMessages.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {bannerMessages.map((message, idx) => (
+                  <button
+                    key={`${message}-${idx}`}
+                    onClick={() => removeBannerMessage(idx)}
+                    className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white/80 hover:border-ninpo-red/40 hover:text-ninpo-red transition"
+                    title="Remove message"
+                  >
+                    {message}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
         {activeModule === 'analytics' && (
           <div className="space-y-8">
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -1036,6 +1249,215 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 ))
               )}
             </div>
+          </div>
+        )}
+
+        {/* =========================
+            USERS
+        ========================= */}
+        {activeModule === 'users' && (
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black uppercase text-white tracking-widest">
+                  Users
+                </h2>
+                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
+                  accounts • loyalty • credits • tier
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+                <input
+                  value={userFilter}
+                  onChange={e => setUserFilter(e.target.value)}
+                  placeholder="Filter by username, tier, role..."
+                  className="flex-1 md:w-64 bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
+                />
+                <button
+                  onClick={() => {
+                    setIsUsersLoading(true);
+                    setUsersError(null);
+                    fetchUsers()
+                      .catch((e: any) => setUsersError(e?.message || 'Failed to load users'))
+                      .finally(() => setIsUsersLoading(false));
+                  }}
+                  className="px-6 py-3 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all flex items-center justify-center gap-3"
+                >
+                  {isUsersLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {usersError && (
+              <div className="bg-ninpo-card p-6 rounded-[2rem] border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                {usersError}
+              </div>
+            )}
+
+            {isUsersLoading && users.length === 0 ? (
+              <div className="p-12 bg-ninpo-card rounded-[2.5rem] border border-white/5 text-center text-[10px] text-slate-500 uppercase tracking-widest">
+                Loading users...
+              </div>
+            ) : filteredUsers.length === 0 ? (
+              <div className="p-20 bg-ninpo-card rounded-[3rem] border border-dashed border-white/10 flex flex-col items-center justify-center text-center">
+                <Users className="w-12 h-12 text-slate-800 mb-4" />
+                <p className="text-[10px] uppercase font-black text-slate-700 tracking-[0.4em]">
+                  No Users Found
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-6">
+                {filteredUsers.map(u => {
+                  const stats = userStats.get(u.id);
+                  const draft = userDrafts[u.id] || {};
+                  const isExpanded = expandedUserId === u.id;
+
+                  return (
+                    <div
+                      key={u.id}
+                      className="group bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4 transition-all hover:border-white/10"
+                      onClick={() => toggleUserDetails(u)}
+                    >
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                            USER: {u.username || u.name || u.id}
+                          </p>
+                          <p className="text-white font-black text-lg uppercase mt-1">
+                            {u.membershipTier || 'BRONZE'} STATUS
+                          </p>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-2">
+                            Role: {u.role || 'CUSTOMER'}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-3">
+                          <div className="px-4 py-2 rounded-xl text-[9px] font-black uppercase border tracking-widest text-white/80 border-white/10 bg-white/5">
+                            Credits: ${Number(u.creditBalance || 0).toFixed(2)}
+                          </div>
+                          <div className="px-4 py-2 rounded-xl text-[9px] font-black uppercase border tracking-widest text-white/80 border-white/10 bg-white/5">
+                            Points: {Number(u.loyaltyPoints || 0)}
+                          </div>
+                          <div className="px-4 py-2 rounded-xl text-[9px] font-black uppercase border tracking-widest text-white/80 border-white/10 bg-white/5">
+                            Orders: {stats?.orderCount ?? 0}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        className={`overflow-hidden transition-all duration-300 ${
+                          isExpanded
+                            ? 'max-h-[520px] opacity-100'
+                            : 'max-h-0 opacity-0 group-hover:max-h-[520px] group-hover:opacity-100'
+                        }`}
+                      >
+                        <div className="border-t border-white/5 pt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          <div className="space-y-4">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                              Summary
+                            </p>
+                            <div className="space-y-2 text-[11px] text-slate-400">
+                              <p>
+                                Total Spend:{' '}
+                                <span className="text-slate-200 font-bold">
+                                  ${Number(stats?.totalSpend || 0).toFixed(2)}
+                                </span>
+                              </p>
+                              <p>
+                                Last Order:{' '}
+                                <span className="text-slate-200 font-bold">
+                                  {stats?.lastOrderAt ? fmtTime(stats.lastOrderAt) : '—'}
+                                </span>
+                              </p>
+                              <p>
+                                Joined:{' '}
+                                <span className="text-slate-200 font-bold">
+                                  {fmtTime(u.createdAt)}
+                                </span>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-4">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                              Manage
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              <input
+                                type="number"
+                                className="bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
+                                placeholder="Credits"
+                                value={draft.creditBalance ?? u.creditBalance ?? 0}
+                                onClick={e => e.stopPropagation()}
+                                onChange={e =>
+                                  handleUserDraftChange(u.id, {
+                                    creditBalance: Number(e.target.value)
+                                  })
+                                }
+                              />
+                              <input
+                                type="number"
+                                className="bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
+                                placeholder="Points"
+                                value={draft.loyaltyPoints ?? u.loyaltyPoints ?? 0}
+                                onClick={e => e.stopPropagation()}
+                                onChange={e =>
+                                  handleUserDraftChange(u.id, {
+                                    loyaltyPoints: Number(e.target.value)
+                                  })
+                                }
+                              />
+                              <select
+                                className="bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
+                                value={(draft.membershipTier ?? u.membershipTier ?? 'BRONZE').toString()}
+                                onClick={e => e.stopPropagation()}
+                                onChange={e =>
+                                  handleUserDraftChange(u.id, {
+                                    membershipTier: e.target.value as any
+                                  })
+                                }
+                              >
+                                <option value="BRONZE">Bronze</option>
+                                <option value="SILVER">Silver</option>
+                                <option value="GOLD">Gold</option>
+                                <option value="PLATINUM">Platinum (secret)</option>
+                              </select>
+                            </div>
+
+                            <div className="flex flex-wrap gap-3">
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  saveUserDraft(u.id);
+                                }}
+                                className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setExpandedUserId(prev => (prev === u.id ? null : u.id));
+                                }}
+                                className="px-6 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                              >
+                                {isExpanded ? 'Collapse' : 'Pin Details'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
