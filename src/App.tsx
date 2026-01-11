@@ -251,9 +251,9 @@ function App() {
                 </span>
               )}
             </span>
-          )}
-        </span>
-      </button>
+          </button>
+        </>
+      )}
 
       {/* CART DRAWER */}
       <CartDrawer
