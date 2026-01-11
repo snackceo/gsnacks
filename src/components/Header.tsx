@@ -46,7 +46,10 @@ const Header = ({
             </>
           )}
 
-          <button onClick={isLoggedIn ? onLogout : onLogin}>
+          <button
+            onClick={isLoggedIn ? onLogout : onLogin}
+            className="px-5 py-2 rounded-full bg-ninpo-red text-white text-xs font-black uppercase tracking-widest shadow-lg shadow-ninpo-red/30 hover:bg-ninpo-red/90 transition"
+          >
             {isLoggedIn ? 'Logout' : 'Sign In'}
           </button>
         </div>
