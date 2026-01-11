@@ -33,6 +33,7 @@ const LS_KEY_UPCS = 'ninpo_return_upcs_v1';
 const LS_KEY_UPC_ELIGIBILITY = 'ninpo_upc_eligibility_v1';
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
+const UPC_ELIGIBILITY_TTL_MS = 24 * 60 * 60 * 1000;
 
 // Business defaults (we can later move these into settings)
 const MI_DEPOSIT_VALUE = 0.1; // 10¢
@@ -74,6 +75,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [hasEligibilityCache, setHasEligibilityCache] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -102,6 +104,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
         eligibilityCacheRef.current = parsed as UpcEligibilityCache;
+        setHasEligibilityCache(Object.keys(parsed).length > 0);
       }
     } catch {
       // ignore
@@ -126,11 +129,29 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       }
     };
     eligibilityCacheRef.current = next;
+    setHasEligibilityCache(true);
     try {
       localStorage.setItem(LS_KEY_UPC_ELIGIBILITY, JSON.stringify(next));
     } catch {
       // ignore
     }
+  };
+
+  const clearEligibilityCache = () => {
+    eligibilityCacheRef.current = {};
+    setHasEligibilityCache(false);
+    try {
+      localStorage.removeItem(LS_KEY_UPC_ELIGIBILITY);
+    } catch {
+      // ignore
+    }
+  };
+
+  const isEligibilityCacheFresh = (checkedAt?: string) => {
+    if (!checkedAt) return false;
+    const parsed = Date.parse(checkedAt);
+    if (!Number.isFinite(parsed)) return false;
+    return Date.now() - parsed < UPC_ELIGIBILITY_TTL_MS;
   };
 
   const playScannerTone = (frequency: number, durationMs: number, gain = 0.2) => {
@@ -180,7 +201,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     }
 
     const cached = eligibilityCacheRef.current[upc];
-    if (cached) {
+    if (cached && isEligibilityCacheFresh(cached.checkedAt)) {
       if (!cached.isEligible) {
         playScannerTone(220, 240, 0.25);
         setScannerError(NOT_ELIGIBLE_MESSAGE);
@@ -574,6 +595,14 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                   >
                     Clear
                   </button>
+
+                  <button
+                    onClick={clearEligibilityCache}
+                    disabled={!hasEligibilityCache}
+                    className="px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
+                  >
+                    Refresh eligibility
+                  </button>
                 </div>
               </div>
 
@@ -694,11 +723,10 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={onPayCredits}
-                disabled
-                className="py-4 bg-white/5 rounded-xl text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center justify-center gap-2 disabled:opacity-40"
-                title="Credits checkout will be wired in a later step"
+                disabled={!canCheckout}
+                className="py-4 bg-white/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-white flex items-center justify-center gap-2 disabled:opacity-40"
               >
-                <Zap className="w-3 h-3" /> Credits (Soon)
+                <Zap className="w-3 h-3" /> Credits
               </button>
 
               <button

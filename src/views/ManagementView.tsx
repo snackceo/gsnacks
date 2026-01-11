@@ -7,7 +7,9 @@ import {
   UpcItem,
   AppSettings,
   ApprovalRequest,
-  AuditLog
+  AuditLog,
+  UserStatsSummary,
+  LedgerEntry
 } from '../types';
 import {
   Truck,
@@ -54,6 +56,7 @@ interface ManagementViewProps {
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
   orders: Order[];
   users: User[];
+  userStats: Record<string, UserStatsSummary>;
   settings: AppSettings;
   setSettings: (s: AppSettings) => void;
   approvals: ApprovalRequest[];
@@ -72,11 +75,41 @@ const fmtTime = (iso?: string) => {
   return d.toLocaleString();
 };
 
+const fmtDelta = (value: number) => {
+  const normalized = Number(value || 0);
+  const formatted = Math.abs(normalized).toLocaleString(undefined, {
+    maximumFractionDigits: 2
+  });
+  return `${normalized >= 0 ? '+' : '-'}${formatted}`;
+};
+
+const getTierStyles = (tier: string) => {
+  switch (tier) {
+    case 'SILVER':
+      return 'border-slate-300/40 bg-slate-400/20 text-slate-200';
+    case 'GOLD':
+      return 'border-yellow-400/40 bg-yellow-500/20 text-yellow-200';
+    case 'PLATINUM':
+      return 'border-indigo-400/40 bg-indigo-500/20 text-indigo-200';
+    case 'BRONZE':
+    default:
+      return 'border-amber-500/40 bg-amber-700/30 text-amber-200';
+  }
+};
+
+const isNewSignupWithBonus = (user: User) => {
+  const createdAt = user.createdAt ? new Date(user.createdAt) : null;
+  if (!createdAt || Number.isNaN(createdAt.getTime())) return false;
+  const ageMs = Date.now() - createdAt.getTime();
+  return Number(user.loyaltyPoints || 0) >= 100 && ageMs < 24 * 60 * 60 * 1000;
+};
+
 const ManagementView: React.FC<ManagementViewProps> = ({
   products,
   setProducts,
   orders,
   users,
+  userStats,
   settings,
   setSettings,
   approvals,
@@ -96,8 +129,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [userFilter, setUserFilter] = useState('');
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [userDrafts, setUserDrafts] = useState<Record<string, Partial<User>>>({});
-  const [bannerInput, setBannerInput] = useState('');
-  const [bannerMessages, setBannerMessages] = useState<string[]>([]);
+  const [userLedgers, setUserLedgers] = useState<Record<string, LedgerEntry[]>>({});
+  const [ledgerLoading, setLedgerLoading] = useState<Record<string, boolean>>({});
+  const [ledgerErrors, setLedgerErrors] = useState<Record<string, string | null>>({});
 
   // Inventory create form
   const [isCreating, setIsCreating] = useState(false);
@@ -140,6 +174,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [upcScannerOpen, setUpcScannerOpen] = useState(false);
   const [upcScannerError, setUpcScannerError] = useState<string | null>(null);
   const [isUpcScanning, setIsUpcScanning] = useState(false);
+  const allowPlatinumTier = Boolean(settings.allowPlatinumTier);
 
   const upcVideoRef = useRef<HTMLVideoElement | null>(null);
   const upcStreamRef = useRef<MediaStream | null>(null);
@@ -160,39 +195,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       .reverse();
   }, [orders]);
 
-  const userStats = useMemo(() => {
-    const stats = new Map<
-      string,
-      { orderCount: number; totalSpend: number; lastOrderAt?: string }
-    >();
-
-    for (const order of orders || []) {
-      const userId = order.customerId;
-      if (!userId) continue;
-
-      const existing = stats.get(userId) || {
-        orderCount: 0,
-        totalSpend: 0,
-        lastOrderAt: undefined
-      };
-
-      const nextCount = existing.orderCount + 1;
-      const nextTotal = existing.totalSpend + Number(order.total || 0);
-      const lastOrderAt =
-        !existing.lastOrderAt ||
-        new Date(order.createdAt).getTime() > new Date(existing.lastOrderAt).getTime()
-          ? order.createdAt
-          : existing.lastOrderAt;
-
-      stats.set(userId, {
-        orderCount: nextCount,
-        totalSpend: nextTotal,
-        lastOrderAt
-      });
-    }
-
-    return stats;
-  }, [orders]);
 
   const handleApprove = (approval: ApprovalRequest) => {
     adjustCredits(approval.userId, approval.amount, `AUTH_APPROVED: ${approval.type}`);
@@ -738,38 +740,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     };
   }, [activeModule, fetchUsers, users.length]);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_KEY_BANNER);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setBannerMessages(parsed.map(String).map(s => s.trim()).filter(Boolean));
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_KEY_BANNER, JSON.stringify(bannerMessages));
-    } catch {
-      // ignore
-    }
-  }, [bannerMessages]);
-
-  const addBannerMessage = () => {
-    const next = bannerInput.trim();
-    if (!next) return;
-    setBannerMessages(prev => [next, ...prev]);
-    setBannerInput('');
-  };
-
-  const removeBannerMessage = (idx: number) => {
-    setBannerMessages(prev => prev.filter((_, i) => i !== idx));
-  };
-
   const filteredUsers = useMemo(() => {
     const needle = userFilter.trim().toLowerCase();
     if (!needle) return users;
@@ -787,7 +757,29 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }));
   };
 
+  const fetchUserLedger = async (userId: string) => {
+    setLedgerLoading(prev => ({ ...prev, [userId]: true }));
+    setLedgerErrors(prev => ({ ...prev, [userId]: null }));
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/users/${userId}/ledger`, {
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to load ledger');
+      const entries = Array.isArray(data?.ledger) ? data.ledger : [];
+      setUserLedgers(prev => ({ ...prev, [userId]: entries }));
+    } catch (e: any) {
+      setLedgerErrors(prev => ({
+        ...prev,
+        [userId]: e?.message || 'Failed to load ledger'
+      }));
+    } finally {
+      setLedgerLoading(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
   const toggleUserDetails = (user: User) => {
+    const shouldExpand = expandedUserId !== user.id;
     setExpandedUserId(prev => (prev === user.id ? null : user.id));
     setUserDrafts(prev => {
       if (prev[user.id]) return prev;
@@ -800,13 +792,23 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         }
       };
     });
+    if (shouldExpand && !userLedgers[user.id] && !ledgerLoading[user.id]) {
+      fetchUserLedger(user.id);
+    }
   };
 
   const saveUserDraft = async (userId: string) => {
     const updates = userDrafts[userId];
     if (!updates) return;
+    const clampedUpdates = { ...updates };
+    if (clampedUpdates.creditBalance !== undefined) {
+      clampedUpdates.creditBalance = Math.max(0, Number(clampedUpdates.creditBalance || 0));
+    }
+    if (clampedUpdates.loyaltyPoints !== undefined) {
+      clampedUpdates.loyaltyPoints = Math.max(0, Number(clampedUpdates.loyaltyPoints || 0));
+    }
     try {
-      await updateUserProfile(userId, updates);
+      await updateUserProfile(userId, clampedUpdates);
       setUserDrafts(prev => {
         const next = { ...prev };
         delete next[userId];
@@ -816,9 +818,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       // handled by upstream toast
     }
   };
-
-  const tickerItems =
-    bannerMessages.length > 0 ? [...bannerMessages, ...bannerMessages] : [];
 
   return (
     <div className="flex flex-col xl:flex-row gap-12 animate-in fade-in pb-32">
@@ -1314,9 +1313,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             ) : (
               <div className="grid grid-cols-1 gap-6">
                 {filteredUsers.map(u => {
-                  const stats = userStats.get(u.id);
+                  const stats = userStats[u.id];
                   const draft = userDrafts[u.id] || {};
                   const isExpanded = expandedUserId === u.id;
+                  const ledgerEntries = userLedgers[u.id] || [];
+                  const ledgerBusy = ledgerLoading[u.id];
+                  const ledgerError = ledgerErrors[u.id];
+                  const tierLabel = (u.membershipTier || 'BRONZE').toString().toUpperCase();
+                  const showSignupBonus = isNewSignupWithBonus(u);
 
                   return (
                     <div
@@ -1326,15 +1330,27 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     >
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                            USER: {u.username || u.name || u.id}
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 flex flex-wrap items-center gap-2">
+                            <span>USER: {u.username || u.name || u.id}</span>
+                            <span
+                              className={`px-2.5 py-1 rounded-full border text-[9px] font-black uppercase tracking-[0.3em] ${getTierStyles(
+                                tierLabel
+                              )}`}
+                            >
+                              {tierLabel}
+                            </span>
                           </p>
                           <p className="text-white font-black text-lg uppercase mt-1">
-                            {u.membershipTier || 'BRONZE'} STATUS
+                            {tierLabel} STATUS
                           </p>
                           <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-2">
                             Role: {u.role || 'CUSTOMER'}
                           </p>
+                          {showSignupBonus && (
+                            <p className="text-[10px] text-ninpo-lime font-bold uppercase tracking-widest mt-2">
+                              Signup bonus awarded
+                            </p>
+                          )}
                         </div>
 
                         <div className="flex flex-wrap gap-3">
@@ -1357,7 +1373,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                             : 'max-h-0 opacity-0 group-hover:max-h-[520px] group-hover:opacity-100'
                         }`}
                       >
-                        <div className="border-t border-white/5 pt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="border-t border-white/5 pt-5 grid grid-cols-1 lg:grid-cols-3 gap-6">
                           <div className="space-y-4">
                             <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
                               Summary
@@ -1417,6 +1433,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                                 className="bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
                                 value={(draft.membershipTier ?? u.membershipTier ?? 'BRONZE').toString()}
                                 onClick={e => e.stopPropagation()}
+                                disabled={!allowPlatinumTier && u.membershipTier === 'PLATINUM'}
                                 onChange={e =>
                                   handleUserDraftChange(u.id, {
                                     membershipTier: e.target.value as any
@@ -1426,7 +1443,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                                 <option value="BRONZE">Bronze</option>
                                 <option value="SILVER">Silver</option>
                                 <option value="GOLD">Gold</option>
-                                <option value="PLATINUM">Platinum (secret)</option>
+                                {(allowPlatinumTier || u.membershipTier === 'PLATINUM') && (
+                                  <option value="PLATINUM" disabled={!allowPlatinumTier}>
+                                    Platinum (secret)
+                                  </option>
+                                )}
                               </select>
                             </div>
 
@@ -1450,6 +1471,64 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                                 {isExpanded ? 'Collapse' : 'Pin Details'}
                               </button>
                             </div>
+                          </div>
+
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                                Ledger
+                              </p>
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  fetchUserLedger(u.id);
+                                }}
+                                className="px-3 py-1 rounded-xl bg-white/5 border border-white/10 text-[9px] font-black uppercase tracking-widest text-white/70 hover:text-white"
+                              >
+                                Refresh
+                              </button>
+                            </div>
+
+                            {ledgerError && (
+                              <div className="text-[10px] text-ninpo-red">{ledgerError}</div>
+                            )}
+
+                            {ledgerBusy ? (
+                              <div className="text-[10px] text-slate-500 uppercase tracking-widest">
+                                Loading ledger...
+                              </div>
+                            ) : ledgerEntries.length === 0 ? (
+                              <div className="text-[10px] text-slate-500 uppercase tracking-widest">
+                                No ledger entries yet.
+                              </div>
+                            ) : (
+                              <div className="space-y-2 max-h-44 overflow-auto pr-1">
+                                {ledgerEntries.map(entry => (
+                                  <div
+                                    key={entry.id}
+                                    className="border border-white/5 rounded-2xl px-3 py-2 bg-black/30"
+                                  >
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <span className="text-slate-200 font-bold">
+                                        {entry.reason || 'UPDATE'}
+                                      </span>
+                                      <span
+                                        className={
+                                          Number(entry.delta || 0) >= 0
+                                            ? 'text-ninpo-lime font-bold'
+                                            : 'text-ninpo-red font-bold'
+                                        }
+                                      >
+                                        {fmtDelta(entry.delta)}
+                                      </span>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500">
+                                      {fmtTime(entry.createdAt)}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>

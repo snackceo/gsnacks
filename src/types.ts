@@ -15,7 +15,7 @@ export enum OrderStatus {
   CLOSED = 'CLOSED'
 }
 
-export type PaymentMethod = 'STRIPE_CARD' | 'GOOGLE_PAY';
+export type PaymentMethod = 'STRIPE_CARD' | 'GOOGLE_PAY' | 'CREDITS';
 
 export enum UserTier {
   NONE = 'NONE',
@@ -33,6 +33,21 @@ export interface User {
   creditBalance: number;
   loyaltyPoints?: number;
   membershipTier: UserTier;
+  createdAt?: string;
+}
+
+export interface UserStatsSummary {
+  userId: string;
+  orderCount: number;
+  totalSpend: number;
+  lastOrderAt?: string | null;
+}
+
+export interface LedgerEntry {
+  id: string;
+  userId: string;
+  delta: number;
+  reason: string;
   createdAt?: string;
 }
 
@@ -63,6 +78,7 @@ export interface Order {
   driverId?: string;
   items: { productId: string; quantity: number }[];
   total: number;
+  creditApplied?: number;
   estimatedReturnCredit: number;
   verifiedReturnCredit?: number;
   returnUpcs?: string[];
@@ -89,6 +105,7 @@ export interface AppSettings {
   requirePhotoForRefunds: boolean;
   allowGuestCheckout: boolean;
   showAdvancedInventoryInsights: boolean;
+  allowPlatinumTier: boolean;
 }
 
 export type ApprovalType = 'REFUND' | 'CREDIT_ADJUSTMENT' | 'MEMBERSHIP_UPGRADE';

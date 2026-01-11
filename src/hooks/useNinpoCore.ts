@@ -6,7 +6,8 @@ import {
   OrderStatus,
   AppSettings,
   ApprovalRequest,
-  AuditLog
+  AuditLog,
+  UserStatsSummary
 } from '../types';
 import { MOCK_PRODUCTS } from '../constants';
 
@@ -25,6 +26,7 @@ const runtimeBackendUrl = () => {
 };
 
 const BACKEND_URL = runtimeBackendUrl();
+const allowPlatinumTier = (import.meta as any).env?.VITE_ALLOW_PLATINUM_TIER === 'true';
 
 type Toast = { id: string; message: string; type: 'info' | 'success' | 'warning' };
 
@@ -34,6 +36,7 @@ export const useNinpoCore = () => {
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  const [userStats, setUserStats] = useState<Record<string, UserStatsSummary>>({});
 
   const [settings, setSettings] = useState<AppSettings>({
     deliveryFee: 2.99,
@@ -42,7 +45,8 @@ export const useNinpoCore = () => {
     processingFeePercent: 0.05,
     glassHandlingFeePercent: 0.02,
     dailyReturnLimit: 25.0,
-    maintenanceMode: false
+    maintenanceMode: false,
+    allowPlatinumTier
   });
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -272,6 +276,37 @@ export const useNinpoCore = () => {
 
       const list = Array.isArray(data?.users) ? data.users : [];
       setUsers(list);
+      if (list.length > 0) {
+        const ids = list.map(user => user.id).filter(Boolean);
+        await Promise.all(
+          ids.map(async id => {
+            try {
+              const statsRes = await fetch(`${BACKEND_URL}/api/users/${id}/stats`, {
+                credentials: 'include'
+              });
+              const statsData = await statsRes.json().catch(() => ({}));
+              if (!statsRes.ok) {
+                throw new Error(statsData?.error || 'Failed to load user stats');
+              }
+
+              const stats = statsData?.stats;
+              if (stats?.userId) {
+                setUserStats(prev => ({
+                  ...prev,
+                  [stats.userId]: {
+                    userId: stats.userId,
+                    orderCount: Number(stats.orderCount || 0),
+                    totalSpend: Number(stats.totalSpend || 0),
+                    lastOrderAt: stats.lastOrderAt ?? null
+                  }
+                }));
+              }
+            } catch {
+              // best-effort stats fetch
+            }
+          })
+        );
+      }
       return list as User[];
     } catch (e: any) {
       addToast(e?.message ?? 'Users feed offline', 'warning');
@@ -355,6 +390,7 @@ export const useNinpoCore = () => {
     setCurrentUser,
     users,
     setUsers,
+    userStats,
     settings,
     setSettings,
     products,

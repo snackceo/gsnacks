@@ -61,6 +61,48 @@ function App() {
     }
   };
 
+  const handleCreditsPayment = async () => {
+    if (!core.currentUser || isProcessingOrder) return;
+
+    setIsProcessingOrder(true);
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/payments/credits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          items: core.cart,
+          address
+        })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Credits checkout failed');
+
+      if (data?.creditBalance !== undefined) {
+        core.setCurrentUser(prev =>
+          prev ? { ...prev, creditBalance: Number(data.creditBalance || 0) } : prev
+        );
+      }
+
+      if (data?.sessionUrl) {
+        core.addToast('REDIRECTING TO SECURE VAULT', 'success');
+        window.location.href = data.sessionUrl;
+        return;
+      }
+
+      core.addToast('CREDITS APPLIED', 'success');
+      core.clearCart();
+      setIsCartOpen(false);
+      if (core.fetchOrders) await core.fetchOrders();
+    } catch (err: any) {
+      core.addToast(err?.message ?? 'Credits payment error', 'warning');
+    } finally {
+      setIsProcessingOrder(false);
+    }
+  };
+
   // total quantity across all cart lines (used for badge)
   const cartCount = core.cart.reduce((sum, i) => sum + (i.quantity || 0), 0);
   const hideCustomerUi =
@@ -89,58 +131,54 @@ function App() {
           <Route
             path="/"
             element={
-              core.currentUser?.role === UserRole.OWNER ? (
-                <Navigate to="/management" replace />
-              ) : (
-                <CustomerView
-                  products={core.products}
-                  orders={core.orders.filter(
-                    o => o.customerId === core.currentUser?.id
-                  )}
-                  currentUser={core.currentUser}
-                  openLogin={() => setIsLoginViewOpen(true)}
-                  onRequestRefund={() => {}}
-                  addToCart={(productId) => {
-                    if (!core.currentUser) {
-                      setIsLoginViewOpen(true);
-                      return;
-                    }
+              <CustomerView
+                products={core.products}
+                orders={core.orders.filter(
+                  o => o.customerId === core.currentUser?.id
+                )}
+                currentUser={core.currentUser}
+                openLogin={() => setIsLoginViewOpen(true)}
+                onRequestRefund={() => {}}
+                addToCart={(productId) => {
+                  if (!core.currentUser) {
+                    setIsLoginViewOpen(true);
+                    return;
+                  }
 
-                    const product = core.products.find(p => p.id === productId);
-                    const stock = (product as any)?.stock ?? 0;
-                    const inCart =
-                      core.cart.find(i => i.productId === productId)?.quantity ??
-                      0;
+                  const product = core.products.find(p => p.id === productId);
+                  const stock = (product as any)?.stock ?? 0;
+                  const inCart =
+                    core.cart.find(i => i.productId === productId)?.quantity ??
+                    0;
 
-                    // Enforce stock locally (prevents adding beyond available stock)
-                    if (stock <= 0) {
-                      core.addToast('OUT OF STOCK', 'warning');
-                      return;
-                    }
+                  // Enforce stock locally (prevents adding beyond available stock)
+                  if (stock <= 0) {
+                    core.addToast('OUT OF STOCK', 'warning');
+                    return;
+                  }
 
-                    if (inCart >= stock) {
-                      core.addToast(`MAX STOCK REACHED (${stock})`, 'warning');
-                      return;
-                    }
+                  if (inCart >= stock) {
+                    core.addToast(`MAX STOCK REACHED (${stock})`, 'warning');
+                    return;
+                  }
 
-                    core.setCart(prev => {
-                      const existing = prev.find(i => i.productId === productId);
-                      return existing
-                        ? prev.map(i =>
-                            i.productId === productId
-                              ? { ...i, quantity: i.quantity + 1 }
-                              : i
-                          )
-                        : [...prev, { productId, quantity: 1 }];
-                    });
+                  core.setCart(prev => {
+                    const existing = prev.find(i => i.productId === productId);
+                    return existing
+                      ? prev.map(i =>
+                          i.productId === productId
+                            ? { ...i, quantity: i.quantity + 1 }
+                            : i
+                        )
+                      : [...prev, { productId, quantity: 1 }];
+                  });
 
-                    core.addToast('ADDED TO CARGO', 'success');
-                  }}
-                  updateUserProfile={() => {}}
-                  reorderItems={() => {}}
-                  onRedeemPoints={core.redeemPoints}
-                />
-              )
+                  core.addToast('ADDED TO CARGO', 'success');
+                }}
+                updateUserProfile={() => {}}
+                reorderItems={() => {}}
+                onRedeemPoints={core.redeemPoints}
+              />
             }
           />
 
@@ -162,6 +200,7 @@ function App() {
                   setProducts={core.setProducts}
                   orders={core.orders}
                   users={core.users}
+                  userStats={core.userStats}
                   settings={core.settings}
                   setSettings={core.setSettings}
                   approvals={core.approvals}
@@ -212,27 +251,27 @@ function App() {
                 </span>
               )}
             </span>
-          </button>
+          )}
+        </span>
+      </button>
 
-          {/* CART DRAWER */}
-          <CartDrawer
-            isOpen={isCartOpen}
-            cart={core.cart}
-            products={core.products}
-            address={address}
-            acceptedPolicies={acceptedPolicies}
-            isProcessing={isProcessingOrder}
-            onClose={() => setIsCartOpen(false)}
-            onAddressChange={setAddress}
-            onPolicyChange={setAcceptedPolicies}
-            onRemoveItem={id =>
-              core.setCart(prev => prev.filter(i => i.productId !== id))
-            }
-            onPayCredits={() => {}}
-            onPayExternal={handleExternalPayment}
-          />
-        </>
-      )}
+      {/* CART DRAWER */}
+      <CartDrawer
+        isOpen={isCartOpen}
+        cart={core.cart}
+        products={core.products}
+        address={address}
+        acceptedPolicies={acceptedPolicies}
+        isProcessing={isProcessingOrder}
+        onClose={() => setIsCartOpen(false)}
+        onAddressChange={setAddress}
+        onPolicyChange={setAcceptedPolicies}
+        onRemoveItem={id =>
+          core.setCart(prev => prev.filter(i => i.productId !== id))
+        }
+        onPayCredits={handleCreditsPayment}
+        onPayExternal={handleExternalPayment}
+      />
 
       {/* LOGIN MODAL */}
       {isLoginViewOpen && (
