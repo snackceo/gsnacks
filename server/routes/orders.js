@@ -94,6 +94,7 @@ const createOrdersRouter = ({ stripe }) => {
         'gpsCoords',
         'verificationPhoto',
         'verifiedReturnCredit',
+        'verifiedReturnCreditGross',
         'creditApplied'
       ];
 
@@ -142,6 +143,9 @@ const createOrdersRouter = ({ stripe }) => {
           if (updates.verifiedReturnCredit !== undefined) {
             const v = Number(updates.verifiedReturnCredit);
             order.verifiedReturnCredit = Number.isFinite(v) ? Math.max(0, v) : 0;
+            if (updates.verifiedReturnCreditGross === undefined) {
+              order.verifiedReturnCreditGross = order.verifiedReturnCredit;
+            }
           }
 
           await order.save({ session: sessionDb });
@@ -164,6 +168,15 @@ const createOrdersRouter = ({ stripe }) => {
 
       if (updates.verifiedReturnCredit !== undefined) {
         updates.verifiedReturnCredit = Math.max(0, Number(updates.verifiedReturnCredit || 0));
+        if (updates.verifiedReturnCreditGross === undefined) {
+          updates.verifiedReturnCreditGross = updates.verifiedReturnCredit;
+        }
+      }
+      if (updates.verifiedReturnCreditGross !== undefined) {
+        updates.verifiedReturnCreditGross = Math.max(
+          0,
+          Number(updates.verifiedReturnCreditGross || 0)
+        );
       }
       if (updates.creditApplied !== undefined) {
         updates.creditApplied = Math.max(0, Number(updates.creditApplied || 0));

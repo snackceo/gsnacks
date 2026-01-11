@@ -80,7 +80,9 @@ export interface Order {
   total: number;
   deliveryFee?: number;
   creditApplied?: number;
+  estimatedReturnCreditGross?: number;
   estimatedReturnCredit: number;
+  verifiedReturnCreditGross?: number;
   verifiedReturnCredit?: number;
   returnUpcs?: string[];
   verifiedReturnUpcs?: string[];

@@ -1210,11 +1210,25 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </p>
                 </div>
               ) : (
-                orders.map(o => (
-                  <div
-                    key={o.id}
-                    className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6"
-                  >
+                orders.map(o => {
+                  const estimatedGross = Number(
+                    o.estimatedReturnCreditGross ?? o.estimatedReturnCredit ?? 0
+                  );
+                  const estimatedNet = Number(o.estimatedReturnCredit || 0);
+                  const verifiedGross =
+                    o.verifiedReturnCreditGross !== undefined
+                      ? Number(o.verifiedReturnCreditGross || 0)
+                      : undefined;
+                  const verifiedNet =
+                    o.verifiedReturnCredit !== undefined
+                      ? Number(o.verifiedReturnCredit || 0)
+                      : undefined;
+
+                  return (
+                    <div
+                      key={o.id}
+                      className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6"
+                    >
                     <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
                       <div>
                         <p className="text-[10px] font-black text-slate-600 uppercase">
@@ -1278,7 +1292,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                           <div className="flex items-center justify-between md:justify-end md:gap-3">
                             <span className="md:hidden">Est Credit:</span>
                             <span className="text-slate-300">
-                              Est Credit: ${Number(o.estimatedReturnCredit || 0).toFixed(2)}
+                              Est Credit: ${estimatedNet.toFixed(2)}
+                              {estimatedGross !== estimatedNet
+                                ? ` (gross $${estimatedGross.toFixed(2)})`
+                                : ''}
                             </span>
                           </div>
 
@@ -1286,9 +1303,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                             <span className="md:hidden">Verified:</span>
                             <span className="text-slate-300">
                               Verified:{' '}
-                              {o.verifiedReturnCredit === undefined
+                              {verifiedNet === undefined
                                 ? '—'
-                                : `$${Number(o.verifiedReturnCredit || 0).toFixed(2)}`}
+                                : `$${verifiedNet.toFixed(2)}`}
+                              {verifiedNet !== undefined &&
+                              verifiedGross !== undefined &&
+                              verifiedGross !== verifiedNet
+                                ? ` (gross $${verifiedGross.toFixed(2)})`
+                                : ''}
                             </span>
                           </div>
 
@@ -1381,8 +1403,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         </button>
                       )}
                     </div>
-                  </div>
-                ))
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
