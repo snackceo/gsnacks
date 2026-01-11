@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
 import UpcItem from '../models/UpcItem.js';
+import User from '../models/User.js';
 import {
   authRequired,
   mapOrderForFrontend,
@@ -115,6 +116,7 @@ const createPaymentsRouter = ({ stripe }) => {
               address: address || '',
               items,
               total: totalCents / 100,
+              creditApplied: 0,
 
               returnUpcs: eligibleUpcs,
               estimatedReturnCredit: computedEstimatedCredit,
@@ -162,6 +164,155 @@ const createPaymentsRouter = ({ stripe }) => {
       }
 
       res.status(500).json({ error: 'Stripe session failed' });
+    } finally {
+      sessionDb.endSession();
+    }
+  });
+
+  /**
+   * POST /api/payments/credits
+   * - reserves inventory
+   * - applies user credits (partial or full)
+   * - creates order and Stripe session for remaining amount (if needed)
+   */
+  router.post('/credits', authRequired, async (req, res) => {
+    const sessionDb = await mongoose.startSession();
+
+    try {
+      const rawItems = req.body?.items;
+      const address = String(req.body?.address || '').trim();
+
+      const items = normalizeCart(rawItems);
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'Cart is empty' });
+      }
+
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: 'Not logged in' });
+
+      const user = await User.findById(userId).session(sessionDb);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      const orderId = crypto.randomUUID();
+      let totalCents = 0;
+
+      await sessionDb.withTransaction(async () => {
+        for (const item of items) {
+          const updated = await Product.findOneAndUpdate(
+            { frontendId: item.productId, stock: { $gte: item.quantity } },
+            { $inc: { stock: -item.quantity } },
+            { new: true, session: sessionDb }
+          );
+
+          if (!updated) {
+            const current = await Product.findOne(
+              { frontendId: item.productId },
+              { stock: 1, name: 1 }
+            ).session(sessionDb);
+
+            const available = current?.stock ?? 0;
+            const name = current?.name || item.productId;
+
+            const err = new Error(`Insufficient stock for ${name}. Available: ${available}`);
+            err.code = 'INSUFFICIENT_STOCK';
+            err.meta = { productId: item.productId, available };
+            throw err;
+          }
+
+          const unit = Math.round(Number(updated.price) * 100);
+          totalCents += unit * item.quantity;
+        }
+
+        const availableCreditsCents = Math.max(
+          0,
+          Math.round(Number(user.creditBalance || 0) * 100)
+        );
+        const creditAppliedCents = Math.min(availableCreditsCents, totalCents);
+        const remainingCents = Math.max(0, totalCents - creditAppliedCents);
+
+        const creditApplied = creditAppliedCents / 100;
+        user.creditBalance = Math.max(0, Number(user.creditBalance || 0) - creditApplied);
+        await user.save({ session: sessionDb });
+
+        await Order.create(
+          [
+            {
+              orderId,
+              customerId: userId,
+              address: address || '',
+              items,
+              total: totalCents / 100,
+              creditApplied,
+              paymentMethod: remainingCents > 0 ? 'STRIPE' : 'CREDITS',
+              status: remainingCents > 0 ? 'PENDING' : 'PAID',
+              amountAuthorizedCents: remainingCents,
+              amountCapturedCents: remainingCents > 0 ? 0 : 0,
+              paidAt: remainingCents > 0 ? undefined : new Date(),
+              capturedAt: remainingCents > 0 ? undefined : new Date()
+            }
+          ],
+          { session: sessionDb }
+        );
+      });
+
+      const remainingOrder = await Order.findOne({ orderId }).lean();
+      if (!remainingOrder) return res.status(404).json({ error: 'Order not found' });
+
+      const remainingCents = Number(remainingOrder.amountAuthorizedCents || 0);
+
+      if (remainingCents === 0) {
+        return res.json({
+          ok: true,
+          order: mapOrderForFrontend(remainingOrder),
+          creditBalance: Number(user.creditBalance || 0)
+        });
+      }
+
+      if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+      const stripeSession = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        line_items: [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: 'Ninpo Snacks order (after credits)'
+              },
+              unit_amount: remainingCents
+            },
+            quantity: 1
+          }
+        ],
+        payment_intent_data: {
+          capture_method: 'manual'
+        },
+        metadata: { orderId },
+        success_url: `${frontendUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${frontendUrl}/cancel?session_id={CHECKOUT_SESSION_ID}`
+      });
+
+      await Order.findOneAndUpdate(
+        { orderId },
+        { stripeSessionId: stripeSession.id, amountAuthorizedCents: remainingCents }
+      );
+
+      res.json({
+        sessionUrl: stripeSession.url,
+        orderId,
+        creditsApplied: Number(remainingOrder.creditApplied || 0),
+        creditBalance: Number(user.creditBalance || 0)
+      });
+    } catch (err) {
+      console.error('CREDITS PAYMENT ERROR:', err);
+
+      if (err?.code === 'INSUFFICIENT_STOCK') {
+        return res.status(400).json({ error: err.message, meta: err.meta });
+      }
+
+      res.status(500).json({ error: 'Credits checkout failed' });
     } finally {
       sessionDb.endSession();
     }

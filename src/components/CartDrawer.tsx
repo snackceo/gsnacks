@@ -723,11 +723,10 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={onPayCredits}
-                disabled
-                className="py-4 bg-white/5 rounded-xl text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center justify-center gap-2 disabled:opacity-40"
-                title="Credits checkout will be wired in a later step"
+                disabled={!canCheckout}
+                className="py-4 bg-white/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-white flex items-center justify-center gap-2 disabled:opacity-40"
               >
-                <Zap className="w-3 h-3" /> Credits (Soon)
+                <Zap className="w-3 h-3" /> Credits
               </button>
 
               <button

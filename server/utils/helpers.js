@@ -132,6 +132,7 @@ function mapOrderForFrontend(d) {
     driverId: d.driverId || undefined,
     items: Array.isArray(d.items) ? d.items : [],
     total: Number(d.total || 0),
+    creditApplied: Number(d.creditApplied || 0),
 
     // Bottle returns
     returnUpcs: Array.isArray(d.returnUpcs) ? d.returnUpcs : [],

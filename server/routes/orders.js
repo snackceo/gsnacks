@@ -93,7 +93,8 @@ const createOrdersRouter = ({ stripe }) => {
         'address',
         'gpsCoords',
         'verificationPhoto',
-        'verifiedReturnCredit'
+        'verifiedReturnCredit',
+        'creditApplied'
       ];
 
       const updates = {};
@@ -163,6 +164,9 @@ const createOrdersRouter = ({ stripe }) => {
 
       if (updates.verifiedReturnCredit !== undefined) {
         updates.verifiedReturnCredit = Math.max(0, Number(updates.verifiedReturnCredit || 0));
+      }
+      if (updates.creditApplied !== undefined) {
+        updates.creditApplied = Math.max(0, Number(updates.creditApplied || 0));
       }
 
       const updated = await Order.findOneAndUpdate({ orderId }, updates, {
