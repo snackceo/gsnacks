@@ -91,11 +91,24 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     id: '',
     name: '',
     price: 0,
+    deposit: 0,
     stock: 0,
     category: 'DRINK',
     image: '',
     isGlass: false
   });
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editDraft, setEditDraft] = useState({
+    name: '',
+    price: 0,
+    deposit: 0,
+    stock: 0,
+    category: '',
+    image: '',
+    isGlass: false
+  });
+  const [editError, setEditError] = useState<string | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const chartData = useMemo(() => {
     return (orders || [])
@@ -176,6 +189,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           id: newProduct.id.trim(),
           name: newProduct.name.trim(),
           price: Number(newProduct.price),
+          deposit: Number(newProduct.deposit),
           stock: Number(newProduct.stock),
           category: newProduct.category,
           image: newProduct.image,
@@ -193,6 +207,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         id: '',
         name: '',
         price: 0,
+        deposit: 0,
         stock: 0,
         category: 'DRINK',
         image: '',
@@ -221,6 +236,81 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setProducts(prev => prev.map(p => (p.id === id ? updated : p)));
     } catch {
       // silent in UI for now
+    }
+  };
+
+  const startEditProduct = (product: Product) => {
+    setEditError(null);
+    setEditingProduct(product);
+    setEditDraft({
+      name: product.name,
+      price: product.price,
+      deposit: product.deposit,
+      stock: product.stock,
+      category: product.category,
+      image: product.image,
+      isGlass: product.isGlass
+    });
+  };
+
+  const closeEditProduct = () => {
+    setEditError(null);
+    setEditingProduct(null);
+  };
+
+  const apiUpdateProduct = async () => {
+    if (!editingProduct) return;
+    setEditError(null);
+
+    const name = editDraft.name.trim();
+    const price = Number(editDraft.price);
+    const deposit = Number(editDraft.deposit);
+    const stock = Number(editDraft.stock);
+
+    if (!name) {
+      setEditError('Name is required.');
+      return;
+    }
+
+    if ([price, deposit, stock].some(value => Number.isNaN(value))) {
+      setEditError('Price, deposit, and stock must be valid numbers.');
+      return;
+    }
+
+    const updates: Partial<Product> = {};
+
+    if (name !== editingProduct.name) updates.name = name;
+    if (price !== editingProduct.price) updates.price = price;
+    if (deposit !== editingProduct.deposit) updates.deposit = deposit;
+    if (stock !== editingProduct.stock) updates.stock = stock;
+    if (editDraft.category !== editingProduct.category) updates.category = editDraft.category;
+    if (editDraft.image !== editingProduct.image) updates.image = editDraft.image;
+    if (editDraft.isGlass !== editingProduct.isGlass) updates.isGlass = editDraft.isGlass;
+
+    if (Object.keys(updates).length === 0) {
+      setEditError('No changes to save.');
+      return;
+    }
+
+    setIsSavingEdit(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/products/${editingProduct.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(updates)
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Update failed');
+
+      const updated: Product = data.product;
+      setProducts(prev => prev.map(p => (p.id === updated.id ? updated : p)));
+      setEditingProduct(null);
+    } catch (e: any) {
+      setEditError(e?.message || 'Update failed');
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
@@ -670,6 +760,13 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 />
                 <input
                   className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Deposit"
+                  type="number"
+                  value={newProduct.deposit}
+                  onChange={e => setNewProduct({ ...newProduct, deposit: Number(e.target.value) })}
+                />
+                <input
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                   placeholder="Stock"
                   type="number"
                   value={newProduct.stock}
@@ -712,6 +809,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
                   <div className="flex gap-3">
                     <button
+                      onClick={() => startEditProduct(p)}
+                      className="px-6 py-3 rounded-2xl bg-white/5 text-white/70 text-[10px] font-black uppercase tracking-widest border border-white/10"
+                    >
+                      Edit
+                    </button>
+                    <button
                       onClick={() => apiRestockPlus10(p.id, p.stock)}
                       className="px-6 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
                     >
@@ -730,6 +833,119 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           </div>
         )}
       </div>
+
+      {editingProduct && (
+        <div
+          className="fixed inset-0 z-[14000] flex items-center justify-center p-6 bg-ninpo-black/95 backdrop-blur-xl animate-in fade-in duration-300"
+          onClick={closeEditProduct}
+        >
+          <div
+            className="w-full max-w-2xl bg-ninpo-card border border-white/10 rounded-[2.5rem] p-8 space-y-6"
+            onClick={e => e.stopPropagation()}
+          >
+            <div>
+              <p className="text-white font-black uppercase tracking-widest text-sm">
+                Edit Product
+              </p>
+              <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mt-2">
+                ID: {editingProduct.id}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <input
+                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                placeholder="Name"
+                value={editDraft.name}
+                onChange={e => setEditDraft({ ...editDraft, name: e.target.value })}
+              />
+              <input
+                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                placeholder="Category"
+                value={editDraft.category}
+                onChange={e => setEditDraft({ ...editDraft, category: e.target.value })}
+              />
+              <input
+                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                placeholder="Price"
+                type="number"
+                value={editDraft.price}
+                onChange={e =>
+                  setEditDraft({
+                    ...editDraft,
+                    price: Number(e.target.value)
+                  })
+                }
+              />
+              <input
+                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                placeholder="Deposit"
+                type="number"
+                value={editDraft.deposit}
+                onChange={e =>
+                  setEditDraft({
+                    ...editDraft,
+                    deposit: Number(e.target.value)
+                  })
+                }
+              />
+              <input
+                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                placeholder="Stock"
+                type="number"
+                value={editDraft.stock}
+                onChange={e =>
+                  setEditDraft({
+                    ...editDraft,
+                    stock: Number(e.target.value)
+                  })
+                }
+              />
+              <div className="flex items-center gap-3 bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white">
+                <input
+                  id="edit-is-glass"
+                  type="checkbox"
+                  className="h-4 w-4 accent-ninpo-lime"
+                  checked={editDraft.isGlass}
+                  onChange={e => setEditDraft({ ...editDraft, isGlass: e.target.checked })}
+                />
+                <label htmlFor="edit-is-glass" className="text-[11px] font-bold">
+                  Glass Bottle
+                </label>
+              </div>
+              <input
+                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white md:col-span-2"
+                placeholder="Image URL"
+                value={editDraft.image}
+                onChange={e => setEditDraft({ ...editDraft, image: e.target.value })}
+              />
+            </div>
+
+            {editError && (
+              <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                {editError}
+              </div>
+            )}
+
+            <div className="flex flex-col md:flex-row gap-3">
+              <button
+                onClick={closeEditProduct}
+                className="w-full py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={apiUpdateProduct}
+                disabled={isSavingEdit}
+                className="w-full py-4 rounded-2xl bg-white/20 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+              >
+                {isSavingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {previewPhoto && (
         <div
