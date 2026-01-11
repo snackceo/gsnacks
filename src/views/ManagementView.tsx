@@ -48,6 +48,7 @@ import { getAdvancedInventoryInsights } from '../services/geminiService';
 
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
+const SETTINGS_STORAGE_KEY = 'ninpo:settings';
 
 interface ManagementViewProps {
   user: User;
@@ -138,6 +139,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSaved, setSettingsSaved] = useState(false);
+
+  useEffect(() => {
+    if (!settingsDirty) {
+      setSettingsDraft(settings);
+    }
+  }, [settings, settingsDirty]);
 
   // Inventory create form
   const [isCreating, setIsCreating] = useState(false);
@@ -349,6 +356,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const saveSettings = async () => {
     setIsSavingSettings(true);
     setSettingsError(null);
+    setSettingsSaved(false);
 
     const nextSettings: AppSettings = {
       ...settingsDraft,
@@ -360,12 +368,41 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       allowPlatinumTier: Boolean(settingsDraft.allowPlatinumTier)
     };
 
+    const persistSettings = (payload: AppSettings) => {
+      if (typeof window === 'undefined') return false;
+      try {
+        window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
     try {
-      setSettings(nextSettings);
+      const res = await fetch(`${BACKEND_URL}/api/settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(nextSettings)
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to save settings');
+
+      const savedSettings = (data?.settings as AppSettings) || nextSettings;
+      setSettings(savedSettings);
+      persistSettings(savedSettings);
       setSettingsDirty(false);
       setSettingsSaved(true);
     } catch (e: any) {
-      setSettingsError(e?.message || 'Failed to save settings');
+      const stored = persistSettings(nextSettings);
+      if (stored) {
+        setSettings(nextSettings);
+        setSettingsDirty(false);
+        setSettingsSaved(true);
+      } else {
+        setSettingsError(e?.message || 'Failed to save settings');
+      }
     } finally {
       setIsSavingSettings(false);
     }

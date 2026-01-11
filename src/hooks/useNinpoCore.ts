@@ -27,6 +27,65 @@ const runtimeBackendUrl = () => {
 
 const BACKEND_URL = runtimeBackendUrl();
 const allowPlatinumTier = (import.meta as any).env?.VITE_ALLOW_PLATINUM_TIER === 'true';
+const SETTINGS_STORAGE_KEY = 'ninpo:settings';
+
+const defaultSettings: AppSettings = {
+  deliveryFee: 2.99,
+  referralBonus: 5.0,
+  michiganDepositValue: 0.1,
+  processingFeePercent: 0.05,
+  glassHandlingFeePercent: 0.02,
+  dailyReturnLimit: 25.0,
+  maintenanceMode: false,
+  allowPlatinumTier
+};
+
+const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
+  const data = raw ?? {};
+  return {
+    ...defaultSettings,
+    ...data,
+    deliveryFee: Number(data.deliveryFee ?? defaultSettings.deliveryFee),
+    referralBonus: Number(data.referralBonus ?? defaultSettings.referralBonus),
+    michiganDepositValue: Number(
+      data.michiganDepositValue ?? defaultSettings.michiganDepositValue
+    ),
+    processingFeePercent: Number(
+      data.processingFeePercent ?? defaultSettings.processingFeePercent
+    ),
+    glassHandlingFeePercent: Number(
+      data.glassHandlingFeePercent ?? defaultSettings.glassHandlingFeePercent
+    ),
+    dailyReturnLimit: Number(data.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
+    maintenanceMode: Boolean(
+      data.maintenanceMode ?? defaultSettings.maintenanceMode
+    ),
+    allowPlatinumTier: Boolean(
+      data.allowPlatinumTier ?? defaultSettings.allowPlatinumTier
+    )
+  };
+};
+
+const readStoredSettings = () => {
+  if (typeof window === 'undefined') return null;
+  const stored = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+  if (!stored) return null;
+  try {
+    return normalizeSettings(JSON.parse(stored));
+  } catch {
+    return null;
+  }
+};
+
+const persistSettings = (next: AppSettings) => {
+  if (typeof window === 'undefined') return false;
+  try {
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next));
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 type Toast = { id: string; message: string; type: 'info' | 'success' | 'warning' };
 
@@ -39,16 +98,7 @@ export const useNinpoCore = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [userStats, setUserStats] = useState<Record<string, UserStatsSummary>>({});
 
-  const [settings, setSettings] = useState<AppSettings>({
-    deliveryFee: 2.99,
-    referralBonus: 5.0,
-    michiganDepositValue: 0.1,
-    processingFeePercent: 0.05,
-    glassHandlingFeePercent: 0.02,
-    dailyReturnLimit: 25.0,
-    maintenanceMode: false,
-    allowPlatinumTier
-  });
+  const [settings, setSettings] = useState<AppSettings>(() => normalizeSettings());
 
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -152,6 +202,31 @@ export const useNinpoCore = () => {
     }
   }, [addToast]);
 
+  const fetchSettings = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/settings`, {
+        credentials: 'include'
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to load settings');
+
+      const payload = data?.settings ?? data;
+      const normalized = normalizeSettings(payload as Partial<AppSettings>);
+      setSettings(normalized);
+      persistSettings(normalized);
+      return normalized;
+    } catch (e: any) {
+      const stored = readStoredSettings();
+      if (stored) {
+        setSettings(stored);
+        return stored;
+      }
+      addToast(e?.message ?? 'Using default settings', 'warning');
+      return null;
+    }
+  }, [addToast]);
+
   const createProduct = useCallback(
     async (p: Partial<Product>) => {
       const res = await fetch(`${BACKEND_URL}/api/products`, {
@@ -240,7 +315,7 @@ export const useNinpoCore = () => {
     const bootstrap = async () => {
       try {
         await restoreSession();
-        await fetchProducts();
+        await Promise.all([fetchProducts(), fetchSettings()]);
       } finally {
         setIsBootstrapping(false);
       }
@@ -432,6 +507,7 @@ export const useNinpoCore = () => {
     logout,
 
     fetchProducts,
+    fetchSettings,
     createProduct,
     updateProduct,
     deleteProduct,
