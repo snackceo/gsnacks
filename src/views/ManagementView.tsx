@@ -60,12 +60,12 @@ interface ManagementViewProps {
   settings: AppSettings;
   setSettings: (s: AppSettings) => void;
   approvals: ApprovalRequest[];
-  setApprovals: React.Dispatch<React.SetStateAction<ApprovalRequest[]>>;
   auditLogs: AuditLog[];
   updateOrder: (id: string, status: OrderStatus, metadata?: any) => void;
   adjustCredits: (userId: string, amount: number, reason: string) => void;
   updateUserProfile: (id: string, updates: Partial<User>) => void;
   fetchUsers: () => Promise<User[]>;
+  fetchApprovals: () => Promise<ApprovalRequest[]>;
   fetchAuditLogs: () => Promise<AuditLog[]>;
 }
 
@@ -114,12 +114,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   settings,
   setSettings,
   approvals,
-  setApprovals,
   auditLogs,
   updateOrder,
   adjustCredits,
   updateUserProfile,
   fetchUsers,
+  fetchApprovals,
   fetchAuditLogs
 }) => {
   const [activeModule, setActiveModule] = useState<string>('analytics');
@@ -311,6 +311,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   }, [activeModule, fetchAuditLogs]);
 
   useEffect(() => {
+    if (activeModule !== 'approvals') return;
+    fetchApprovals().catch(() => {});
+  }, [activeModule, fetchApprovals]);
+
+  useEffect(() => {
     if (activeModule !== 'analytics') {
       setIsChartVisible(false);
       return;
@@ -348,30 +353,43 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   }, [settings, settingsDirty]);
 
-  const handleApprove = (approval: ApprovalRequest) => {
-    adjustCredits(approval.userId, approval.amount, `AUTH_APPROVED: ${approval.type}`);
+  const handleApprove = async (approval: ApprovalRequest) => {
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/api/approvals/${approval.id}/approve`,
+        {
+          method: 'POST',
+          credentials: 'include'
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Approval failed');
 
-    setApprovals(prev =>
-      prev.map(a =>
-        a.id === approval.id
-          ? { ...a, status: 'APPROVED', processedAt: new Date().toISOString() }
-          : a
-      )
-    );
+      adjustCredits(approval.userId, approval.amount, `AUTH_APPROVED: ${approval.type}`);
 
-    if (approval.type === 'REFUND' && approval.orderId) {
-      updateOrder(approval.orderId, OrderStatus.REFUNDED);
+      if (approval.type === 'REFUND' && approval.orderId) {
+        updateOrder(approval.orderId, OrderStatus.REFUNDED);
+      }
+
+      await fetchApprovals();
+    } catch {
+      // keep existing state on failure
     }
   };
 
-  const handleReject = (id: string) => {
-    setApprovals(prev =>
-      prev.map(a =>
-        a.id === id
-          ? { ...a, status: 'REJECTED', processedAt: new Date().toISOString() }
-          : a
-      )
-    );
+  const handleReject = async (id: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/approvals/${id}/reject`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Reject failed');
+
+      await fetchApprovals();
+    } catch {
+      // keep existing state on failure
+    }
   };
 
   const handleLogisticsUpdate = (orderId: string, status: OrderStatus, metadata?: any) => {
