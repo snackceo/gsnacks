@@ -1,4 +1,5 @@
 import express from 'express';
+import { GoogleGenAI } from '@google/genai';
 
 const router = express.Router();
 
@@ -30,33 +31,14 @@ router.post('/inventory-audit', async (req, res) => {
     const prompt = `Perform Logistics Audit:
 Inventory: ${JSON.stringify(inventory)}
 Orders: ${JSON.stringify(orders)}`;
-    const modelName = 'gemini-3-flash';
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-        modelName
-      )}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.2 }
-        })
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Gemini inventory audit failed.', errorText);
-      return res.status(500).json({ message: 'Audit transmission interrupted.' });
-    }
-
-    const data = await response.json();
-    const insights =
-      data?.candidates?.[0]?.content?.parts
-        ?.map(part => part?.text ?? '')
-        .join('')
-        .trim() ?? '';
+    const modelName = req.body?.model || 'gemini-2.5-flash';
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents: prompt,
+      generationConfig: { temperature: 0.2 }
+    });
+    const insights = response?.text?.trim?.() ?? '';
     return res.json({ insights });
   } catch (error) {
     console.error('Gemini inventory audit failed.', error);
