@@ -100,7 +100,8 @@ export const analyzeBottleScan = async (base64Data: string): Promise<BottleScanR
 
 export const getAdvancedInventoryInsights = async (
   inventory: any[],
-  orders: any[]
+  orders: any[],
+  model?: string
 ): Promise<string> => {
   const backendUrl = getBackendUrl();
 
@@ -111,7 +112,7 @@ export const getAdvancedInventoryInsights = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ inventory, orders })
+        body: JSON.stringify({ inventory, orders, model })
       },
       20000
     );

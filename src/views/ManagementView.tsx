@@ -143,6 +143,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [isAuditLogsLoading, setIsAuditLogsLoading] = useState(false);
   const [auditLogsError, setAuditLogsError] = useState<string | null>(null);
+  const [auditModel, setAuditModel] = useState('gemini-3-flash');
 
   useEffect(() => {
     if (!settingsDirty) {
@@ -937,7 +938,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const runAudit = async () => {
     setIsAuditing(true);
     try {
-      const report = await getAdvancedInventoryInsights(products as any, orders as any);
+      const report = await getAdvancedInventoryInsights(
+        products as any,
+        orders as any,
+        auditModel
+      );
       setAiInsights(report || 'NO OUTPUT');
     } catch {
       setAiInsights('Audit transmission interrupted.');
@@ -1114,18 +1119,33 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 </p>
               </div>
 
-              <button
-                onClick={runAudit}
-                disabled={isAuditing}
-                className="px-8 py-5 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all flex items-center gap-3"
-              >
-                {isAuditing ? (
-                  <Loader2 className="w-6 h-6 animate-spin" />
-                ) : (
-                  <BrainCircuit className="w-6 h-6" />
-                )}
-                Run Audit
-              </button>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                    Audit Model
+                  </span>
+                  <select
+                    value={auditModel}
+                    onChange={event => setAuditModel(event.target.value)}
+                    className="min-w-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white"
+                  >
+                    <option value="gemini-3-flash">gemini-3-flash</option>
+                    <option value="gemini-3-pro">gemini-3-pro</option>
+                  </select>
+                </div>
+                <button
+                  onClick={runAudit}
+                  disabled={isAuditing}
+                  className="px-8 py-5 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all flex items-center gap-3"
+                >
+                  {isAuditing ? (
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  ) : (
+                    <BrainCircuit className="w-6 h-6" />
+                  )}
+                  Run Audit
+                </button>
+              </div>
             </div>
 
             {aiInsights && (
