@@ -178,6 +178,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [upcScannerOpen, setUpcScannerOpen] = useState(false);
   const [upcScannerError, setUpcScannerError] = useState<string | null>(null);
   const [isUpcScanning, setIsUpcScanning] = useState(false);
+  const [approvalFilter, setApprovalFilter] =
+    useState<ApprovalRequest['status']>('PENDING');
+  const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
   const allowPlatinumTier = Boolean(settings.allowPlatinumTier);
 
   const upcVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -198,6 +201,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       }))
       .reverse();
   }, [orders]);
+
+  const filteredApprovals = useMemo(() => {
+    return approvals.filter(approval => approval.status === approvalFilter);
+  }, [approvals, approvalFilter]);
 
   useEffect(() => {
     if (activeModule !== 'analytics') {
@@ -1206,7 +1213,25 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             </h2>
 
             <div className="space-y-4">
-              {approvals.length === 0 ? (
+              <div className="flex flex-wrap gap-3">
+                {(['PENDING', 'APPROVED', 'REJECTED'] as ApprovalRequest['status'][]).map(
+                  status => (
+                    <button
+                      key={status}
+                      onClick={() => setApprovalFilter(status)}
+                      className={`px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                        approvalFilter === status
+                          ? 'bg-white text-ninpo-black border-white'
+                          : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+                      }`}
+                    >
+                      {status.toLowerCase()}
+                    </button>
+                  )
+                )}
+              </div>
+
+              {filteredApprovals.length === 0 ? (
                 <div className="p-20 bg-ninpo-card rounded-[3rem] border border-dashed border-white/10 flex flex-col items-center justify-center text-center">
                   <ShieldCheck className="w-12 h-12 text-slate-800 mb-4" />
                   <p className="text-[10px] uppercase font-black text-slate-700 tracking-[0.4em]">
@@ -1214,17 +1239,21 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </p>
                 </div>
               ) : (
-                approvals.map(a => (
+                filteredApprovals.map(a => (
                   <div
                     key={a.id}
-                    className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4 transition-all hover:border-white/10"
+                    className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4 transition-all hover:border-white/10 cursor-pointer"
+                    onClick={() => setSelectedApproval(a)}
                   >
                     <div className="flex flex-col md:flex-row justify-between items-center gap-6">
                       <div className="flex items-center gap-6">
                         {a.photoProof && (
                           <div
                             className="relative group cursor-pointer"
-                            onClick={() => setPreviewPhoto(a.photoProof!)}
+                            onClick={event => {
+                              event.stopPropagation();
+                              setPreviewPhoto(a.photoProof!);
+                            }}
                           >
                             <img
                               src={a.photoProof}
@@ -1241,18 +1270,30 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                           <p className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">
                             USER: {a.userId} • AMOUNT: ${a.amount.toFixed(2)}
                           </p>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">
+                            ORDER: {a.orderId || 'N/A'} • REQUESTED: {fmtTime(a.createdAt)}
+                          </p>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">
+                            REASON: {a.reason || '—'}
+                          </p>
                         </div>
                       </div>
 
                       <div className="flex gap-3">
                         <button
-                          onClick={() => handleApprove(a)}
+                          onClick={event => {
+                            event.stopPropagation();
+                            handleApprove(a);
+                          }}
                           className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
                         >
                           Approve
                         </button>
                         <button
-                          onClick={() => handleReject(a.id)}
+                          onClick={event => {
+                            event.stopPropagation();
+                            handleReject(a.id);
+                          }}
                           className="px-6 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
                         >
                           Reject
@@ -2169,6 +2210,79 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             >
               <EyeOff className="w-7 h-7" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {selectedApproval && (
+        <div
+          className="fixed inset-0 z-[14000] flex items-center justify-center p-6 bg-ninpo-black/80 backdrop-blur-xl animate-in fade-in duration-300"
+          onClick={() => setSelectedApproval(null)}
+        >
+          <div
+            className="relative max-w-4xl w-full rounded-[3rem] overflow-hidden border border-white/10 shadow-neon bg-ninpo-card p-8 space-y-6"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <p className="text-white font-black uppercase tracking-widest text-[12px]">
+                  {selectedApproval.type} • {selectedApproval.status}
+                </p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase mt-2 tracking-widest">
+                  USER: {selectedApproval.userId} • AMOUNT: $
+                  {selectedApproval.amount.toFixed(2)}
+                </p>
+              </div>
+              <button
+                className="px-5 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                onClick={() => setSelectedApproval(null)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 text-[11px] text-slate-300 uppercase tracking-widest">
+              <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                <p className="text-slate-500 font-bold">Reason</p>
+                <p className="text-white font-semibold mt-2">{selectedApproval.reason || '—'}</p>
+              </div>
+              <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                <p className="text-slate-500 font-bold">Order ID</p>
+                <p className="text-white font-semibold mt-2">
+                  {selectedApproval.orderId || 'N/A'}
+                </p>
+              </div>
+              <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                <p className="text-slate-500 font-bold">Created</p>
+                <p className="text-white font-semibold mt-2">
+                  {fmtTime(selectedApproval.createdAt)}
+                </p>
+              </div>
+              <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                <p className="text-slate-500 font-bold">Processed</p>
+                <p className="text-white font-semibold mt-2">
+                  {selectedApproval.processedAt ? fmtTime(selectedApproval.processedAt) : '—'}
+                </p>
+              </div>
+            </div>
+
+            {selectedApproval.photoProof && (
+              <div className="space-y-3">
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                  Photo Proof
+                </p>
+                <button
+                  className="w-full rounded-[2rem] overflow-hidden border border-white/10 bg-black"
+                  onClick={() => setPreviewPhoto(selectedApproval.photoProof!)}
+                >
+                  <img
+                    src={selectedApproval.photoProof}
+                    alt="Approval proof"
+                    className="w-full max-h-[320px] object-cover"
+                  />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
