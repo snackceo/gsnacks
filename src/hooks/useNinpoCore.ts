@@ -311,6 +311,24 @@ export const useNinpoCore = () => {
     }
   }, [addToast]);
 
+  const fetchApprovals = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/approvals`, {
+        credentials: 'include'
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to load approvals');
+
+      const list = Array.isArray(data?.approvals) ? data.approvals : [];
+      setApprovals(list);
+      return list as ApprovalRequest[];
+    } catch (e: any) {
+      addToast(e?.message ?? 'Approvals feed offline', 'warning');
+      return [];
+    }
+  }, [addToast]);
+
   const fetchAuditLogs = useCallback(async () => {
     const res = await fetch(`${BACKEND_URL}/api/audit-logs`, {
       credentials: 'include'
@@ -530,6 +548,7 @@ export const useNinpoCore = () => {
     deleteProduct,
 
     fetchOrders,
+    fetchApprovals,
     fetchAuditLogs
   };
 };

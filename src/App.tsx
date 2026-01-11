@@ -217,12 +217,12 @@ function App() {
                   settings={core.settings}
                   setSettings={core.setSettings}
                   approvals={core.approvals}
-                  setApprovals={core.setApprovals}
                   auditLogs={core.auditLogs}
                   updateOrder={core.updateOrder}
                   adjustCredits={core.adjustCredits}
                   updateUserProfile={core.updateUserProfile}
                   fetchUsers={core.fetchUsers}
+                  fetchApprovals={core.fetchApprovals}
                   fetchAuditLogs={core.fetchAuditLogs}
                 />
               ) : (
