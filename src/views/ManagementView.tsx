@@ -777,8 +777,15 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const saveUserDraft = async (userId: string) => {
     const updates = userDrafts[userId];
     if (!updates) return;
+    const clampedUpdates = { ...updates };
+    if (clampedUpdates.creditBalance !== undefined) {
+      clampedUpdates.creditBalance = Math.max(0, Number(clampedUpdates.creditBalance || 0));
+    }
+    if (clampedUpdates.loyaltyPoints !== undefined) {
+      clampedUpdates.loyaltyPoints = Math.max(0, Number(clampedUpdates.loyaltyPoints || 0));
+    }
     try {
-      await updateUserProfile(userId, updates);
+      await updateUserProfile(userId, clampedUpdates);
       setUserDrafts(prev => {
         const next = { ...prev };
         delete next[userId];
