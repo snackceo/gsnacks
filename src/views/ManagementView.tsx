@@ -133,6 +133,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const upcStreamRef = useRef<MediaStream | null>(null);
   const upcScanLoopRef = useRef<number | null>(null);
   const upcLastScannedRef = useRef<string>('');
+  const upcItemsRef = useRef<UpcItem[]>([]);
+  const upcDepositRef = useRef<number>(settings.michiganDepositValue || 0.1);
+  const upcAudioContextRef = useRef<AudioContext | null>(null);
 
   const chartData = useMemo(() => {
     return (orders || [])
@@ -322,10 +325,29 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   }, [activeModule, upcItems.length, isUpcLoading]);
 
   useEffect(() => {
+    upcItemsRef.current = upcItems;
+  }, [upcItems]);
+
+  useEffect(() => {
+    upcDepositRef.current = settings.michiganDepositValue || 0.1;
+  }, [settings.michiganDepositValue]);
+
+  useEffect(() => {
     if (activeModule !== 'upc') {
       closeUpcScanner();
     }
   }, [activeModule]);
+
+  const filteredUpcItems = useMemo(() => {
+    const needle = upcFilter.trim().toLowerCase();
+    if (!needle) return upcItems;
+    return upcItems.filter(item => {
+      return (
+        item.upc.toLowerCase().includes(needle) ||
+        (item.name || '').toLowerCase().includes(needle)
+      );
+    });
+  }, [upcFilter, upcItems]);
 
   const stopUpcScanner = async () => {
     setIsUpcScanning(false);
@@ -363,6 +385,26 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setUpcScannerError(null);
     upcLastScannedRef.current = '';
     setUpcScannerOpen(true);
+  };
+
+  const playUpcBeep = (frequency: number, durationMs: number) => {
+    if (typeof window === 'undefined') return;
+    if (!upcAudioContextRef.current) {
+      upcAudioContextRef.current = new AudioContext();
+    }
+    const context = upcAudioContextRef.current;
+    if (context.state === 'suspended') {
+      context.resume();
+    }
+    const oscillator = context.createOscillator();
+    const gainNode = context.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = frequency;
+    gainNode.gain.value = 0.15;
+    oscillator.connect(gainNode);
+    gainNode.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + durationMs / 1000);
   };
 
   useEffect(() => {
@@ -415,15 +457,16 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 upcLastScannedRef.current = rawValue;
                 setUpcInput(rawValue);
                 setUpcError(null);
+                playUpcBeep(980, 120);
 
-                const existing = upcItems.find(item => item.upc === rawValue);
+                const existing = upcItemsRef.current.find(item => item.upc === rawValue);
                 if (existing) {
                   loadUpcDraft(existing);
                 } else {
                   setUpcDraft({
                     upc: rawValue,
                     name: '',
-                    depositValue: settings.michiganDepositValue || 0.1,
+                    depositValue: upcDepositRef.current,
                     isGlass: false,
                     isEligible: true
                   });
@@ -451,7 +494,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       cancelled = true;
       stopUpcScanner();
     };
-  }, [upcScannerOpen, settings.michiganDepositValue, upcItems]);
+  }, [upcScannerOpen]);
 
   // ---- Inventory API ----
   const apiCreateProduct = async () => {
@@ -1285,22 +1328,17 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 </div>
               </div>
 
-              {upcItems.length === 0 && !isUpcLoading ? (
+              {isUpcLoading ? (
+                <p className="text-xs text-slate-500">Loading UPC entries...</p>
+              ) : filteredUpcItems.length === 0 ? (
                 <p className="text-xs text-slate-500">
-                  No UPC entries yet. Scan a code to begin.
+                  {upcItems.length === 0
+                    ? 'No UPC entries yet. Scan a code to begin.'
+                    : 'No UPC entries match this filter.'}
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {upcItems
-                    .filter(item => {
-                      if (!upcFilter.trim()) return true;
-                      const needle = upcFilter.toLowerCase();
-                      return (
-                        item.upc.toLowerCase().includes(needle) ||
-                        (item.name || '').toLowerCase().includes(needle)
-                      );
-                    })
-                    .map(item => (
+                  {filteredUpcItems.map(item => (
                       <button
                         key={item.upc}
                         onClick={() => {
