@@ -15,7 +15,7 @@ export enum OrderStatus {
   CLOSED = 'CLOSED'
 }
 
-export type PaymentMethod = 'STRIPE_CARD' | 'GOOGLE_PAY';
+export type PaymentMethod = 'STRIPE_CARD' | 'GOOGLE_PAY' | 'CREDITS';
 
 export enum UserTier {
   NONE = 'NONE',
@@ -70,6 +70,7 @@ export interface Order {
   driverId?: string;
   items: { productId: string; quantity: number }[];
   total: number;
+  creditApplied?: number;
   estimatedReturnCredit: number;
   verifiedReturnCredit?: number;
   returnUpcs?: string[];

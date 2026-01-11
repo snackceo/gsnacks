@@ -60,6 +60,48 @@ function App() {
     }
   };
 
+  const handleCreditsPayment = async () => {
+    if (!core.currentUser || isProcessingOrder) return;
+
+    setIsProcessingOrder(true);
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/payments/credits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          items: core.cart,
+          address
+        })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Credits checkout failed');
+
+      if (data?.creditBalance !== undefined) {
+        core.setCurrentUser(prev =>
+          prev ? { ...prev, creditBalance: Number(data.creditBalance || 0) } : prev
+        );
+      }
+
+      if (data?.sessionUrl) {
+        core.addToast('REDIRECTING TO SECURE VAULT', 'success');
+        window.location.href = data.sessionUrl;
+        return;
+      }
+
+      core.addToast('CREDITS APPLIED', 'success');
+      core.clearCart();
+      setIsCartOpen(false);
+      if (core.fetchOrders) await core.fetchOrders();
+    } catch (err: any) {
+      core.addToast(err?.message ?? 'Credits payment error', 'warning');
+    } finally {
+      setIsProcessingOrder(false);
+    }
+  };
+
   // total quantity across all cart lines (used for badge)
   const cartCount = core.cart.reduce((sum, i) => sum + (i.quantity || 0), 0);
 
@@ -219,7 +261,7 @@ function App() {
         onRemoveItem={id =>
           core.setCart(prev => prev.filter(i => i.productId !== id))
         }
-        onPayCredits={() => {}}
+        onPayCredits={handleCreditsPayment}
         onPayExternal={handleExternalPayment}
       />
 

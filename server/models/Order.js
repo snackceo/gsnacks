@@ -27,6 +27,7 @@ const orderSchema = new mongoose.Schema(
     ],
 
     total: { type: Number, required: true }, // dollars, pre-credit
+    creditApplied: { type: Number, default: 0 }, // dollars
 
     paymentMethod: { type: String, default: 'STRIPE' },
 
