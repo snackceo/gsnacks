@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   User,
   Product,
   Order,
   OrderStatus,
+  UpcItem,
   AppSettings,
   ApprovalRequest,
   AuditLog
@@ -27,7 +28,8 @@ import {
   Plus,
   RefreshCw,
   UserCheck,
-  XCircle
+  XCircle,
+  ScanLine
 } from 'lucide-react';
 import {
   LineChart,
@@ -109,6 +111,19 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   });
   const [editError, setEditError] = useState<string | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [upcItems, setUpcItems] = useState<UpcItem[]>([]);
+  const [upcInput, setUpcInput] = useState('');
+  const [upcFilter, setUpcFilter] = useState('');
+  const [upcDraft, setUpcDraft] = useState<UpcItem>({
+    upc: '',
+    name: '',
+    depositValue: settings.michiganDepositValue || 0.1,
+    isGlass: false,
+    isEligible: true
+  });
+  const [isUpcLoading, setIsUpcLoading] = useState(false);
+  const [isUpcSaving, setIsUpcSaving] = useState(false);
+  const [upcError, setUpcError] = useState<string | null>(null);
 
   const chartData = useMemo(() => {
     return (orders || [])
@@ -175,6 +190,127 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setIsRefreshingOrders(false);
     }
   };
+
+  // ---- UPC Whitelist API (OWNER) ----
+  const apiLoadUpcItems = async () => {
+    setUpcError(null);
+    setIsUpcLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/upc`, {
+        method: 'GET',
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to load UPC list');
+      setUpcItems(Array.isArray(data?.upcItems) ? data.upcItems : []);
+    } catch (e: any) {
+      setUpcError(e?.message || 'Failed to load UPC list');
+    } finally {
+      setIsUpcLoading(false);
+    }
+  };
+
+  const loadUpcDraft = (entry: UpcItem) => {
+    setUpcDraft({
+      upc: entry.upc,
+      name: entry.name || '',
+      depositValue: Number(entry.depositValue || 0),
+      isGlass: !!entry.isGlass,
+      isEligible: entry.isEligible !== false
+    });
+  };
+
+  const handleUpcLookup = () => {
+    const upc = upcInput.trim();
+    if (!upc) {
+      setUpcError('UPC is required.');
+      return;
+    }
+
+    setUpcError(null);
+    const existing = upcItems.find(item => item.upc === upc);
+    if (existing) {
+      loadUpcDraft(existing);
+      return;
+    }
+
+    setUpcDraft({
+      upc,
+      name: '',
+      depositValue: settings.michiganDepositValue || 0.1,
+      isGlass: false,
+      isEligible: true
+    });
+  };
+
+  const apiSaveUpc = async () => {
+    if (!upcDraft.upc) {
+      setUpcError('UPC is required.');
+      return;
+    }
+
+    setIsUpcSaving(true);
+    setUpcError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/upc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          upc: upcDraft.upc,
+          name: upcDraft.name,
+          depositValue: Number(upcDraft.depositValue || 0),
+          isGlass: upcDraft.isGlass,
+          isEligible: upcDraft.isEligible
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to save UPC');
+      const saved: UpcItem = data.upcItem;
+      setUpcItems(prev => {
+        const next = prev.filter(item => item.upc !== saved.upc);
+        return [saved, ...next];
+      });
+      loadUpcDraft(saved);
+    } catch (e: any) {
+      setUpcError(e?.message || 'Failed to save UPC');
+    } finally {
+      setIsUpcSaving(false);
+    }
+  };
+
+  const apiDeleteUpc = async () => {
+    if (!upcDraft.upc) return;
+    setIsUpcSaving(true);
+    setUpcError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/upc/${upcDraft.upc}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to delete UPC');
+      setUpcItems(prev => prev.filter(item => item.upc !== upcDraft.upc));
+      setUpcDraft({
+        upc: '',
+        name: '',
+        depositValue: settings.michiganDepositValue || 0.1,
+        isGlass: false,
+        isEligible: true
+      });
+      setUpcInput('');
+    } catch (e: any) {
+      setUpcError(e?.message || 'Failed to delete UPC');
+    } finally {
+      setIsUpcSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeModule === 'upc' && upcItems.length === 0 && !isUpcLoading) {
+      apiLoadUpcItems();
+    }
+  }, [activeModule, upcItems.length, isUpcLoading]);
 
   // ---- Inventory API ----
   const apiCreateProduct = async () => {
@@ -358,6 +494,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           { id: 'orders', label: 'Orders', icon: Truck },
           { id: 'approvals', label: 'Auth Hub', icon: ShieldCheck },
           { id: 'inventory', label: 'Inventory', icon: Package },
+          { id: 'upc', label: 'UPC Whitelist', icon: ScanLine },
           { id: 'users', label: 'Users', icon: Users },
           { id: 'logs', label: 'Audit Logs', icon: Terminal },
           { id: 'settings', label: 'Settings', icon: Sliders }
@@ -829,6 +966,165 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* =========================
+            UPC WHITELIST
+        ========================= */}
+        {activeModule === 'upc' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-black uppercase text-white tracking-widest">
+                UPC Whitelist
+              </h2>
+              <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
+                Scan UPCs, confirm eligibility, and store deposit metadata.
+              </p>
+            </div>
+
+            <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                Scanner Input
+              </p>
+
+              {upcError && (
+                <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                  {upcError}
+                </div>
+              )}
+
+              <div className="flex flex-col md:flex-row gap-4">
+                <input
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white flex-1"
+                  placeholder="Scan or enter UPC"
+                  value={upcInput}
+                  onChange={e => setUpcInput(e.target.value)}
+                />
+                <button
+                  onClick={handleUpcLookup}
+                  className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                >
+                  Load
+                </button>
+                <button
+                  onClick={apiSaveUpc}
+                  disabled={isUpcSaving}
+                  className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
+                >
+                  {isUpcSaving ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  onClick={apiDeleteUpc}
+                  disabled={isUpcSaving || !upcDraft.upc}
+                  className="px-6 py-4 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest border border-ninpo-red/20"
+                >
+                  Delete
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Name / Description"
+                  value={upcDraft.name}
+                  onChange={e => setUpcDraft({ ...upcDraft, name: e.target.value })}
+                />
+                <input
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Deposit Value"
+                  type="number"
+                  value={upcDraft.depositValue}
+                  onChange={e =>
+                    setUpcDraft({ ...upcDraft, depositValue: Number(e.target.value) })
+                  }
+                />
+                <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  <input
+                    type="checkbox"
+                    checked={upcDraft.isGlass}
+                    onChange={e => setUpcDraft({ ...upcDraft, isGlass: e.target.checked })}
+                  />
+                  Glass Container
+                </label>
+                <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  <input
+                    type="checkbox"
+                    checked={upcDraft.isEligible}
+                    onChange={e =>
+                      setUpcDraft({ ...upcDraft, isEligible: e.target.checked })
+                    }
+                  />
+                  Eligible for MI Deposit
+                </label>
+              </div>
+            </div>
+
+            <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Whitelist Entries
+                </p>
+                <div className="flex gap-3">
+                  <input
+                    className="bg-black/40 border border-white/10 rounded-2xl p-3 text-xs text-white"
+                    placeholder="Filter by UPC or name"
+                    value={upcFilter}
+                    onChange={e => setUpcFilter(e.target.value)}
+                  />
+                  <button
+                    onClick={apiLoadUpcItems}
+                    disabled={isUpcLoading}
+                    className="px-5 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                  >
+                    {isUpcLoading ? 'Loading...' : 'Refresh'}
+                  </button>
+                </div>
+              </div>
+
+              {upcItems.length === 0 && !isUpcLoading ? (
+                <p className="text-xs text-slate-500">
+                  No UPC entries yet. Scan a code to begin.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {upcItems
+                    .filter(item => {
+                      if (!upcFilter.trim()) return true;
+                      const needle = upcFilter.toLowerCase();
+                      return (
+                        item.upc.toLowerCase().includes(needle) ||
+                        (item.name || '').toLowerCase().includes(needle)
+                      );
+                    })
+                    .map(item => (
+                      <button
+                        key={item.upc}
+                        onClick={() => {
+                          setUpcInput(item.upc);
+                          loadUpcDraft(item);
+                        }}
+                        className="w-full text-left p-4 rounded-2xl border border-white/5 bg-black/40 hover:bg-white/5 transition-all"
+                      >
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                          <div>
+                            <p className="text-white text-sm font-black">{item.upc}</p>
+                            <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                              {item.name || 'Unnamed'} • $
+                              {Number(item.depositValue || 0).toFixed(2)} •{' '}
+                              {item.isGlass ? 'GLASS' : 'PLASTIC'} •{' '}
+                              {item.isEligible ? 'ELIGIBLE' : 'INELIGIBLE'}
+                            </p>
+                          </div>
+                          <p className="text-[10px] uppercase tracking-widest text-slate-600">
+                            Updated {fmtTime(item.updatedAt)}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                </div>
+              )}
             </div>
           </div>
         )}
