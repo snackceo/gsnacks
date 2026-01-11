@@ -44,7 +44,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
   );
 
   // Safe numeric defaults (prevents toFixed crash when fields are missing)
-  const safeCredits = (currentUser as any)?.credits ?? 0;
+  const safeCredits = (currentUser as any)?.creditBalance ?? 0;
   const safeDailyReturnTotal = (currentUser as any)?.dailyReturnTotal ?? 0;
   const safeLoyaltyPoints = (currentUser as any)?.loyaltyPoints ?? 0;
 
@@ -202,9 +202,11 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                 <div className="w-36 h-36 bg-ninpo-black rounded-full border-4 border-white/5 flex items-center justify-center shadow-2xl relative">
                   <Award
                     className={`w-16 h-16 ${
-                      currentUser?.tier === UserTier.GOLD
+                      currentUser?.membershipTier === UserTier.PLATINUM
+                        ? 'text-slate-200'
+                        : currentUser?.membershipTier === UserTier.GOLD
                         ? 'text-yellow-400'
-                        : currentUser?.tier === UserTier.SILVER
+                        : currentUser?.membershipTier === UserTier.SILVER
                         ? 'text-slate-300'
                         : 'text-orange-500'
                     }`}
@@ -219,7 +221,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                   <div className="inline-flex items-center gap-3 px-6 py-2.5 rounded-full border border-ninpo-lime/20 bg-ninpo-black/50">
                     <Star className="w-4 h-4 text-ninpo-lime fill-current" />
                     <span className="text-[10px] font-black uppercase tracking-[0.2em]">
-                      {(currentUser as any)?.tier ?? 'BRONZE'} CLEARANCE
+                      {(currentUser as any)?.membershipTier ?? 'BRONZE'} CLEARANCE
                     </span>
                   </div>
                 </div>
@@ -234,18 +236,27 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                     </h3>
                   </div>
 
-                  <div className="flex justify-between items-center bg-ninpo-black/80 p-6 rounded-2xl border border-white/5 shadow-xl">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-ninpo-black/80 p-6 rounded-2xl border border-white/5 shadow-xl">
                     <span className="text-white font-black text-3xl tracking-tighter">
                       {safeLoyaltyPoints}
                     </span>
 
-                    <button
-                      disabled={!currentUser || safeLoyaltyPoints < 1000}
-                      onClick={() => onRedeemPoints(1000)}
-                      className="px-6 py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase disabled:opacity-20 transition-all active:scale-95 shadow-neon"
-                    >
-                      Redeem $5
-                    </button>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        disabled={!currentUser || safeLoyaltyPoints < 100}
+                        onClick={() => onRedeemPoints(100)}
+                        className="px-5 py-3 bg-white/10 text-white rounded-xl text-[9px] font-black uppercase disabled:opacity-20 transition-all active:scale-95"
+                      >
+                        Convert 100 pts ($0.10)
+                      </button>
+                      <button
+                        disabled={!currentUser || safeLoyaltyPoints < 1000}
+                        onClick={() => onRedeemPoints(1000)}
+                        className="px-6 py-3 bg-ninpo-lime text-ninpo-black rounded-xl text-[9px] font-black uppercase disabled:opacity-20 transition-all active:scale-95 shadow-neon"
+                      >
+                        Convert 1000 pts ($1.00)
+                      </button>
+                    </div>
                   </div>
                 </div>
 

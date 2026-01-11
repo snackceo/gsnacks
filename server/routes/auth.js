@@ -23,8 +23,15 @@ router.post('/register', async (req, res) => {
       return res.status(409).json({ error: 'Username already exists' });
     }
 
-    const user = await User.create({ username, password });
-    const role = isOwnerUsername(user.username) ? 'OWNER' : 'CUSTOMER';
+    const role = isOwnerUsername(username) ? 'OWNER' : 'CUSTOMER';
+    const user = await User.create({
+      username,
+      password,
+      role,
+      loyaltyPoints: 100,
+      creditBalance: 0,
+      membershipTier: 'BRONZE'
+    });
 
     const token = jwt.sign(
       { userId: user._id.toString(), username: user.username, role },
@@ -35,7 +42,14 @@ router.post('/register', async (req, res) => {
     setAuthCookie(req, res, token);
     res.json({
       ok: true,
-      user: { id: user._id.toString(), username: user.username, role }
+      user: {
+        id: user._id.toString(),
+        username: user.username,
+        role,
+        creditBalance: Number(user.creditBalance || 0),
+        loyaltyPoints: Number(user.loyaltyPoints || 0),
+        membershipTier: user.membershipTier || 'BRONZE'
+      }
     });
   } catch (err) {
     console.error('REGISTER ERROR:', err);
@@ -57,6 +71,10 @@ router.post('/login', async (req, res) => {
     if (!ok) return res.status(400).json({ error: 'Invalid credentials' });
 
     const role = isOwnerUsername(user.username) ? 'OWNER' : 'CUSTOMER';
+    if (!user.role || user.role !== role) {
+      user.role = role;
+      await user.save();
+    }
 
     const token = jwt.sign(
       { userId: user._id.toString(), username: user.username, role },
@@ -67,7 +85,14 @@ router.post('/login', async (req, res) => {
     setAuthCookie(req, res, token);
     res.json({
       ok: true,
-      user: { id: user._id.toString(), username: user.username, role }
+      user: {
+        id: user._id.toString(),
+        username: user.username,
+        role,
+        creditBalance: Number(user.creditBalance || 0),
+        loyaltyPoints: Number(user.loyaltyPoints || 0),
+        membershipTier: user.membershipTier || 'BRONZE'
+      }
     });
   } catch (err) {
     console.error('LOGIN ERROR:', err);
@@ -80,8 +105,27 @@ router.post('/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/me', authRequired, (req, res) => {
-  res.json({ ok: true, user: req.user });
+router.get('/me', authRequired, async (req, res) => {
+  try {
+    const user = await User.findById(req.user?.userId || req.user?.id).lean();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    res.json({
+      ok: true,
+      user: {
+        id: user._id.toString(),
+        username: user.username,
+        role: user.role || 'CUSTOMER',
+        creditBalance: Number(user.creditBalance || 0),
+        loyaltyPoints: Number(user.loyaltyPoints || 0),
+        membershipTier: user.membershipTier || 'BRONZE',
+        createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : undefined
+      }
+    });
+  } catch (err) {
+    console.error('ME ERROR:', err);
+    res.status(500).json({ error: 'Failed to load session' });
+  }
 });
 
 export default router;
