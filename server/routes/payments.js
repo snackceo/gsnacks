@@ -12,6 +12,7 @@ import {
   normalizeCart,
   ownerRequired
 } from '../utils/helpers.js';
+import { recordAuditLog } from '../utils/audit.js';
 
 const deliveryDiscountsByTier = {
   BRONZE: 10,
@@ -232,6 +233,16 @@ const createPaymentsRouter = ({ stripe }) => {
         responsePayload.ineligibleUpcs = uniqueIneligibleUpcs;
       }
 
+      if (deliveryFeeFinalCents > 0) {
+        await recordAuditLog({
+          type: 'ORDER_CREATED',
+          actorId: userId || 'GUEST',
+          details: `Order ${orderId} created with delivery fee $${deliveryFeeFinal.toFixed(
+            2
+          )} (${deliveryFeeDiscountPercent}% discount).`
+        });
+      }
+
       res.json(responsePayload);
     } catch (err) {
       console.error('STRIPE SESSION ERROR:', err);
@@ -357,6 +368,28 @@ const createPaymentsRouter = ({ stripe }) => {
       if (!remainingOrder) return res.status(404).json({ error: 'Order not found' });
 
       const remainingCents = Number(remainingOrder.amountAuthorizedCents || 0);
+
+      if (deliveryFeeFinalCents > 0) {
+        await recordAuditLog({
+          type: 'ORDER_CREATED',
+          actorId: req.user?.username || req.user?.id || userId,
+          details: `Order ${orderId} created with delivery fee $${deliveryFeeFinal.toFixed(
+            2
+          )} (${deliveryFeeDiscountPercent}% discount).`
+        });
+      }
+
+      if (remainingOrder.creditApplied > 0) {
+        await recordAuditLog({
+          type: 'CREDIT_ADJUSTED',
+          actorId: req.user?.username || req.user?.id || userId,
+          details: `Applied $${Number(remainingOrder.creditApplied || 0).toFixed(
+            2
+          )} credits to order ${orderId}. Balance: $${Number(
+            user.creditBalance || 0
+          ).toFixed(2)}.`
+        });
+      }
 
       if (remainingCents === 0) {
         return res.json({
