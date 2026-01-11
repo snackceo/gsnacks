@@ -139,6 +139,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [upcScannerOpen, setUpcScannerOpen] = useState(false);
   const [upcScannerError, setUpcScannerError] = useState<string | null>(null);
   const [isUpcScanning, setIsUpcScanning] = useState(false);
+  const allowPlatinumTier = Boolean(settings.allowPlatinumTier);
 
   const upcVideoRef = useRef<HTMLVideoElement | null>(null);
   const upcStreamRef = useRef<MediaStream | null>(null);
@@ -1285,6 +1286,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                                 className="bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
                                 value={(draft.membershipTier ?? u.membershipTier ?? 'BRONZE').toString()}
                                 onClick={e => e.stopPropagation()}
+                                disabled={!allowPlatinumTier && u.membershipTier === 'PLATINUM'}
                                 onChange={e =>
                                   handleUserDraftChange(u.id, {
                                     membershipTier: e.target.value as any
@@ -1294,7 +1296,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                                 <option value="BRONZE">Bronze</option>
                                 <option value="SILVER">Silver</option>
                                 <option value="GOLD">Gold</option>
-                                <option value="PLATINUM">Platinum (secret)</option>
+                                {(allowPlatinumTier || u.membershipTier === 'PLATINUM') && (
+                                  <option value="PLATINUM" disabled={!allowPlatinumTier}>
+                                    Platinum (secret)
+                                  </option>
+                                )}
                               </select>
                             </div>
 

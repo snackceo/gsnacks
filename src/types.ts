@@ -96,6 +96,7 @@ export interface AppSettings {
   requirePhotoForRefunds: boolean;
   allowGuestCheckout: boolean;
   showAdvancedInventoryInsights: boolean;
+  allowPlatinumTier: boolean;
 }
 
 export type ApprovalType = 'REFUND' | 'CREDIT_ADJUSTMENT' | 'MEMBERSHIP_UPGRADE';
