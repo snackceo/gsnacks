@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
+import UpcItem from '../models/UpcItem.js';
 import {
   authRequired,
   mapOrderForFrontend,
@@ -39,9 +40,27 @@ const createPaymentsRouter = ({ stripe }) => {
       const incomingUpcs = Array.isArray(req.body?.returnUpcs) ? req.body.returnUpcs : [];
       const returnUpcs = incomingUpcs.map(String).map(s => s.trim()).filter(Boolean);
 
-      const depositValue = Number(process.env.MI_DEPOSIT_VALUE || 0.1); // dollars
+      let eligibleUpcs = [];
+      let ineligibleUpcs = [];
+      let estimatedCreditFromUpcs = 0;
+
+      if (returnUpcs.length > 0) {
+        const upcEntries = await UpcItem.find({ upc: { $in: returnUpcs } }).lean();
+        const upcByCode = new Map(upcEntries.map(entry => [entry.upc, entry]));
+
+        for (const upc of returnUpcs) {
+          const entry = upcByCode.get(upc);
+          if (entry?.isEligible) {
+            eligibleUpcs.push(upc);
+            estimatedCreditFromUpcs += Number(entry.depositValue || 0);
+          } else {
+            ineligibleUpcs.push(upc);
+          }
+        }
+      }
+
       const dailyCap = Number(process.env.DAILY_RETURN_CAP || 25); // dollars
-      const computedEstimatedCredit = Math.min(returnUpcs.length * depositValue, dailyCap);
+      const computedEstimatedCredit = Math.min(estimatedCreditFromUpcs, dailyCap);
 
       const items = normalizeCart(rawItems);
       if (!Array.isArray(items) || items.length === 0) {
@@ -97,7 +116,7 @@ const createPaymentsRouter = ({ stripe }) => {
               items,
               total: totalCents / 100,
 
-              returnUpcs,
+              returnUpcs: eligibleUpcs,
               estimatedReturnCredit: computedEstimatedCredit,
               verifiedReturnCredit: 0,
 
@@ -127,7 +146,14 @@ const createPaymentsRouter = ({ stripe }) => {
 
       await Order.findOneAndUpdate({ orderId }, { stripeSessionId: stripeSession.id });
 
-      res.json({ sessionUrl: stripeSession.url });
+      const responsePayload = { sessionUrl: stripeSession.url };
+      const uniqueIneligibleUpcs = [...new Set(ineligibleUpcs)];
+      if (uniqueIneligibleUpcs.length > 0) {
+        responsePayload.warning = 'Some return UPCs are ineligible and were removed.';
+        responsePayload.ineligibleUpcs = uniqueIneligibleUpcs;
+      }
+
+      res.json(responsePayload);
     } catch (err) {
       console.error('STRIPE SESSION ERROR:', err);
 
