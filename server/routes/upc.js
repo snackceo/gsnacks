@@ -5,6 +5,27 @@ import { authRequired, ownerRequired } from '../utils/helpers.js';
 
 const router = express.Router();
 
+router.get('/eligibility/:upc', async (req, res) => {
+  try {
+    const upc = String(req.params.upc || '').trim();
+    if (!upc) return res.status(400).json({ error: 'upc is required' });
+
+    const entry = await UpcItem.findOne({ upc }).lean();
+    if (!entry) {
+      return res.status(404).json({ error: 'UPC not found', isEligible: false });
+    }
+
+    res.json({
+      ok: true,
+      upc: entry.upc,
+      isEligible: entry.isEligible !== false
+    });
+  } catch (err) {
+    console.error('UPC ELIGIBILITY ERROR:', err);
+    res.status(500).json({ error: 'Failed to check UPC eligibility' });
+  }
+});
+
 router.get('/', authRequired, ownerRequired, async (_req, res) => {
   try {
     const entries = await UpcItem.find({}).sort({ updatedAt: -1 }).lean();
