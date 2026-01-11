@@ -536,6 +536,9 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
                       Total (pre-credit): <span className="text-white">{money(o.total)}</span>
                     </p>
                     <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                      Delivery fee: <span className="text-white">{money(o.deliveryFee || 0)}</span>
+                    </p>
+                    <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
                       Est. bottle credit:{' '}
                       <span className="text-ninpo-lime">{money(o.estimatedReturnCredit || 0)}</span>
                     </p>
@@ -607,6 +610,9 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
 
               <p className="uppercase tracking-widest opacity-60 mt-4">Estimated bottle credit (preview)</p>
               <p className="font-black text-ninpo-lime">{money(activeOrder.estimatedReturnCredit || 0)}</p>
+
+              <p className="uppercase tracking-widest opacity-60 mt-4">Delivery fee</p>
+              <p className="font-black">{money(activeOrder.deliveryFee || 0)}</p>
 
               <div>
                 <p className="uppercase tracking-widest opacity-60">Verified return UPCs (driver)</p>
