@@ -66,6 +66,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanLoopRef = useRef<number | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   // Load UPCs from localStorage on mount
   useEffect(() => {
@@ -90,23 +91,49 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     }
   }, [returnUpcs]);
 
+  const playScannerTone = (frequency: number, durationMs: number, gain = 0.2) => {
+    if (typeof window === 'undefined') return;
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+    }
+    const context = audioContextRef.current;
+    if (context.state === 'suspended') {
+      context.resume();
+    }
+    const oscillator = context.createOscillator();
+    const gainNode = context.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = frequency;
+    gainNode.gain.value = gain;
+    oscillator.connect(gainNode);
+    gainNode.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + durationMs / 1000);
+  };
+
   const addUpc = (upcRaw: string) => {
     const upc = String(upcRaw || '').replace(/\s+/g, '').trim();
     if (!upc) return;
 
     // Basic UPC/EAN sanity check (you can loosen if needed)
     if (!/^\d{8,14}$/.test(upc)) {
+      playScannerTone(220, 240, 0.25);
       setScannerError('Invalid UPC format. Enter 8–14 digits.');
       return;
     }
 
+    let didAdd = false;
     setReturnUpcs(prev => {
       if (prev.includes(upc)) return prev;
+      didAdd = true;
       return [upc, ...prev];
     });
 
     setScannerError(null);
     setManualUpc('');
+    if (didAdd) {
+      playScannerTone(980, 120, 0.2);
+    }
   };
 
   const removeUpc = (upc: string) => {
