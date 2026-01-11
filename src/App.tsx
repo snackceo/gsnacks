@@ -154,6 +154,7 @@ function App() {
                   setProducts={core.setProducts}
                   orders={core.orders}
                   users={core.users}
+                  userStats={core.userStats}
                   settings={core.settings}
                   setSettings={core.setSettings}
                   approvals={core.approvals}

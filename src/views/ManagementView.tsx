@@ -7,7 +7,8 @@ import {
   UpcItem,
   AppSettings,
   ApprovalRequest,
-  AuditLog
+  AuditLog,
+  UserStatsSummary
 } from '../types';
 import {
   Truck,
@@ -52,6 +53,7 @@ interface ManagementViewProps {
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
   orders: Order[];
   users: User[];
+  userStats: Record<string, UserStatsSummary>;
   settings: AppSettings;
   setSettings: (s: AppSettings) => void;
   approvals: ApprovalRequest[];
@@ -75,6 +77,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   setProducts,
   orders,
   users,
+  userStats,
   settings,
   setSettings,
   approvals,
@@ -156,39 +159,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       .reverse();
   }, [orders]);
 
-  const userStats = useMemo(() => {
-    const stats = new Map<
-      string,
-      { orderCount: number; totalSpend: number; lastOrderAt?: string }
-    >();
-
-    for (const order of orders || []) {
-      const userId = order.customerId;
-      if (!userId) continue;
-
-      const existing = stats.get(userId) || {
-        orderCount: 0,
-        totalSpend: 0,
-        lastOrderAt: undefined
-      };
-
-      const nextCount = existing.orderCount + 1;
-      const nextTotal = existing.totalSpend + Number(order.total || 0);
-      const lastOrderAt =
-        !existing.lastOrderAt ||
-        new Date(order.createdAt).getTime() > new Date(existing.lastOrderAt).getTime()
-          ? order.createdAt
-          : existing.lastOrderAt;
-
-      stats.set(userId, {
-        orderCount: nextCount,
-        totalSpend: nextTotal,
-        lastOrderAt
-      });
-    }
-
-    return stats;
-  }, [orders]);
 
   const handleApprove = (approval: ApprovalRequest) => {
     adjustCredits(approval.userId, approval.amount, `AUTH_APPROVED: ${approval.type}`);
@@ -1212,7 +1182,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             ) : (
               <div className="grid grid-cols-1 gap-6">
                 {filteredUsers.map(u => {
-                  const stats = userStats.get(u.id);
+                  const stats = userStats[u.id];
                   const draft = userDrafts[u.id] || {};
                   const isExpanded = expandedUserId === u.id;
 

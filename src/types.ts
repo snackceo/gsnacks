@@ -36,6 +36,13 @@ export interface User {
   createdAt?: string;
 }
 
+export interface UserStatsSummary {
+  userId: string;
+  orderCount: number;
+  totalSpend: number;
+  lastOrderAt?: string | null;
+}
+
 export interface Product {
   id: string;
   name: string;
