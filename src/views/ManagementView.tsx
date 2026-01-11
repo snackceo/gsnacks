@@ -48,8 +48,6 @@ import { getAdvancedInventoryInsights } from '../services/geminiService';
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
-const LS_KEY_BANNER = 'ninpo_management_banner_v1';
-
 interface ManagementViewProps {
   user: User;
   products: Product[];
@@ -194,7 +192,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       }))
       .reverse();
   }, [orders]);
-
 
   const handleApprove = (approval: ApprovalRequest) => {
     adjustCredits(approval.userId, approval.amount, `AUTH_APPROVED: ${approval.type}`);
@@ -847,69 +844,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       </aside>
 
       <div className="flex-1 space-y-8">
-        <div className="space-y-4">
-          <div className="bg-ninpo-midnight/80 backdrop-blur-xl rounded-[2.5rem] border border-white/10 p-6 space-y-4">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                  Broadcast Banner
-                </p>
-                <p className="text-white font-black text-lg uppercase mt-1">
-                  Live announcements & promotions
-                </p>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
-                <input
-                  value={bannerInput}
-                  onChange={e => setBannerInput(e.target.value)}
-                  placeholder="Add announcement..."
-                  className="flex-1 lg:w-80 bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
-                />
-                <button
-                  onClick={addBannerMessage}
-                  className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
-                >
-                  Add
-                </button>
-              </div>
-            </div>
-
-            <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/40">
-              {tickerItems.length === 0 ? (
-                <div className="px-6 py-4 text-[10px] uppercase tracking-widest text-slate-600 font-bold">
-                  No broadcasts yet — add one above.
-                </div>
-              ) : (
-                <div className="ticker-track flex items-center gap-8 px-6 py-4 whitespace-nowrap">
-                  {tickerItems.map((message, idx) => (
-                    <span
-                      key={`${message}-${idx}`}
-                      className="text-[11px] font-black uppercase tracking-[0.3em] text-ninpo-lime"
-                    >
-                      {message}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {bannerMessages.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {bannerMessages.map((message, idx) => (
-                  <button
-                    key={`${message}-${idx}`}
-                    onClick={() => removeBannerMessage(idx)}
-                    className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white/80 hover:border-ninpo-red/40 hover:text-ninpo-red transition"
-                    title="Remove message"
-                  >
-                    {message}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
         {activeModule === 'analytics' && (
           <div className="space-y-8">
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -1840,30 +1774,30 @@ const ManagementView: React.FC<ManagementViewProps> = ({
               ) : (
                 <div className="space-y-3">
                   {filteredUpcItems.map(item => (
-                      <button
-                        key={item.upc}
-                        onClick={() => {
-                          setUpcInput(item.upc);
-                          loadUpcDraft(item);
-                        }}
-                        className="w-full text-left p-4 rounded-2xl border border-white/5 bg-black/40 hover:bg-white/5 transition-all"
-                      >
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                          <div>
-                            <p className="text-white text-sm font-black">{item.upc}</p>
-                            <p className="text-[10px] uppercase tracking-widest text-slate-500">
-                              {item.name || 'Unnamed'} • $
-                              {Number(item.depositValue || 0).toFixed(2)} •{' '}
-                              {item.isGlass ? 'GLASS' : 'PLASTIC'} •{' '}
-                              {item.isEligible ? 'ELIGIBLE' : 'INELIGIBLE'}
-                            </p>
-                          </div>
-                          <p className="text-[10px] uppercase tracking-widest text-slate-600">
-                            Updated {fmtTime(item.updatedAt)}
+                    <button
+                      key={item.upc}
+                      onClick={() => {
+                        setUpcInput(item.upc);
+                        loadUpcDraft(item);
+                      }}
+                      className="w-full text-left p-4 rounded-2xl border border-white/5 bg-black/40 hover:bg-white/5 transition-all"
+                    >
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                        <div>
+                          <p className="text-white text-sm font-black">{item.upc}</p>
+                          <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                            {item.name || 'Unnamed'} • $
+                            {Number(item.depositValue || 0).toFixed(2)} •{' '}
+                            {item.isGlass ? 'GLASS' : 'PLASTIC'} •{' '}
+                            {item.isEligible ? 'ELIGIBLE' : 'INELIGIBLE'}
                           </p>
                         </div>
-                      </button>
-                    ))}
+                        <p className="text-[10px] uppercase tracking-widest text-slate-600">
+                          Updated {fmtTime(item.updatedAt)}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
