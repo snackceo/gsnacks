@@ -30,10 +30,20 @@ interface CartDrawerProps {
 }
 
 const LS_KEY_UPCS = 'ninpo_return_upcs_v1';
+const LS_KEY_UPC_ELIGIBILITY = 'ninpo_upc_eligibility_v1';
 
 // Business defaults (we can later move these into settings)
 const MI_DEPOSIT_VALUE = 0.1; // 10¢
 const DEFAULT_DAILY_CAP = 25.0;
+const NOT_ELIGIBLE_MESSAGE = 'Not eligible for Michigan 10¢ deposit returns';
+
+type UpcEligibilityCache = Record<
+  string,
+  {
+    isEligible: boolean;
+    checkedAt: string;
+  }
+>;
 
 function money(n: number) {
   const v = Number.isFinite(n) ? n : 0;
@@ -67,6 +77,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const streamRef = useRef<MediaStream | null>(null);
   const scanLoopRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const eligibilityCacheRef = useRef<UpcEligibilityCache>({});
 
   // Load UPCs from localStorage on mount
   useEffect(() => {
@@ -82,6 +93,19 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     }
   }, []);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LS_KEY_UPC_ELIGIBILITY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        eligibilityCacheRef.current = parsed as UpcEligibilityCache;
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   // Persist UPCs
   useEffect(() => {
     try {
@@ -90,6 +114,22 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       // ignore
     }
   }, [returnUpcs]);
+
+  const updateEligibilityCache = (upc: string, isEligible: boolean) => {
+    const next = {
+      ...eligibilityCacheRef.current,
+      [upc]: {
+        isEligible,
+        checkedAt: new Date().toISOString()
+      }
+    };
+    eligibilityCacheRef.current = next;
+    try {
+      localStorage.setItem(LS_KEY_UPC_ELIGIBILITY, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  };
 
   const playScannerTone = (frequency: number, durationMs: number, gain = 0.2) => {
     if (typeof window === 'undefined') return;
@@ -111,17 +151,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     oscillator.stop(context.currentTime + durationMs / 1000);
   };
 
-  const addUpc = (upcRaw: string) => {
-    const upc = String(upcRaw || '').replace(/\s+/g, '').trim();
-    if (!upc) return;
-
-    // Basic UPC/EAN sanity check (you can loosen if needed)
-    if (!/^\d{8,14}$/.test(upc)) {
-      playScannerTone(220, 240, 0.25);
-      setScannerError('Invalid UPC format. Enter 8–14 digits.');
-      return;
-    }
-
+  const addEligibleUpc = (upc: string) => {
     let didAdd = false;
     setReturnUpcs(prev => {
       if (prev.includes(upc)) return prev;
@@ -133,6 +163,58 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     setManualUpc('');
     if (didAdd) {
       playScannerTone(980, 120, 0.2);
+    }
+  };
+
+  const addUpc = async (upcRaw: string) => {
+    const upc = String(upcRaw || '').replace(/\s+/g, '').trim();
+    if (!upc) return;
+
+    // Basic UPC/EAN sanity check (you can loosen if needed)
+    if (!/^\d{8,14}$/.test(upc)) {
+      playScannerTone(220, 240, 0.25);
+      setScannerError('Invalid UPC format. Enter 8–14 digits.');
+      return;
+    }
+
+    const cached = eligibilityCacheRef.current[upc];
+    if (cached) {
+      if (!cached.isEligible) {
+        playScannerTone(220, 240, 0.25);
+        setScannerError(NOT_ELIGIBLE_MESSAGE);
+        return;
+      }
+
+      addEligibleUpc(upc);
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/upc/eligibility/${encodeURIComponent(upc)}`);
+      if (response.ok) {
+        const data = await response.json();
+        const isEligible = data?.isEligible !== false;
+        updateEligibilityCache(upc, isEligible);
+        if (!isEligible) {
+          playScannerTone(220, 240, 0.25);
+          setScannerError(NOT_ELIGIBLE_MESSAGE);
+          return;
+        }
+        addEligibleUpc(upc);
+        return;
+      }
+
+      if (response.status === 404) {
+        updateEligibilityCache(upc, false);
+        playScannerTone(220, 240, 0.25);
+        setScannerError(NOT_ELIGIBLE_MESSAGE);
+        return;
+      }
+
+      throw new Error(`Eligibility check failed: ${response.status}`);
+    } catch {
+      playScannerTone(220, 240, 0.25);
+      setScannerError('Unable to validate UPC eligibility. Please try again.');
     }
   };
 
