@@ -1,5 +1,6 @@
 import express from 'express';
 
+import Order from '../models/Order.js';
 import User from '../models/User.js';
 import { authRequired, ownerRequired } from '../utils/helpers.js';
 
@@ -28,6 +29,44 @@ router.get('/', authRequired, ownerRequired, async (_req, res) => {
   } catch (err) {
     console.error('USERS LIST ERROR:', err);
     res.status(500).json({ error: 'Failed to load users' });
+  }
+});
+
+router.get('/:id/stats', authRequired, async (req, res) => {
+  try {
+    const userId = String(req.params.id || '').trim();
+    if (!userId) return res.status(400).json({ error: 'User id is required' });
+
+    if (!canManageUser(req, userId)) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    const [summary] = await Order.aggregate([
+      { $match: { customerId: userId } },
+      {
+        $group: {
+          _id: '$customerId',
+          orderCount: { $sum: 1 },
+          totalSpend: { $sum: { $ifNull: ['$total', 0] } },
+          lastOrderAt: { $max: '$createdAt' }
+        }
+      }
+    ]);
+
+    res.json({
+      ok: true,
+      stats: {
+        userId,
+        orderCount: summary?.orderCount || 0,
+        totalSpend: summary?.totalSpend || 0,
+        lastOrderAt: summary?.lastOrderAt
+          ? new Date(summary.lastOrderAt).toISOString()
+          : null
+      }
+    });
+  } catch (err) {
+    console.error('USER STATS ERROR:', err);
+    res.status(500).json({ error: 'Failed to load user stats' });
   }
 });
 
