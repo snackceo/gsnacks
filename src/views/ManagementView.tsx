@@ -66,6 +66,7 @@ interface ManagementViewProps {
   adjustCredits: (userId: string, amount: number, reason: string) => void;
   updateUserProfile: (id: string, updates: Partial<User>) => void;
   fetchUsers: () => Promise<User[]>;
+  fetchAuditLogs: () => Promise<AuditLog[]>;
 }
 
 const fmtTime = (iso?: string) => {
@@ -118,7 +119,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   updateOrder,
   adjustCredits,
   updateUserProfile,
-  fetchUsers
+  fetchUsers,
+  fetchAuditLogs
 }) => {
   const [activeModule, setActiveModule] = useState<string>('analytics');
   const [isAuditing, setIsAuditing] = useState(false);
@@ -139,6 +141,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [isAuditLogsLoading, setIsAuditLogsLoading] = useState(false);
+  const [auditLogsError, setAuditLogsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!settingsDirty) {
@@ -278,6 +282,33 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       }
     };
   }, [activeModule]);
+
+  useEffect(() => {
+    if (activeModule !== 'logs') return;
+
+    let isActive = true;
+    const loadAuditLogs = async () => {
+      setIsAuditLogsLoading(true);
+      setAuditLogsError(null);
+
+      try {
+        await fetchAuditLogs();
+      } catch (e: any) {
+        if (isActive) {
+          setAuditLogsError(e?.message || 'Failed to load audit logs');
+        }
+      } finally {
+        if (isActive) {
+          setIsAuditLogsLoading(false);
+        }
+      }
+    };
+
+    loadAuditLogs();
+    return () => {
+      isActive = false;
+    };
+  }, [activeModule, fetchAuditLogs]);
 
   useEffect(() => {
     if (activeModule !== 'analytics') {
@@ -1813,7 +1844,15 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 <span>Created</span>
               </div>
 
-              {filteredAuditLogs.length === 0 ? (
+              {isAuditLogsLoading ? (
+                <div className="p-16 text-center text-[10px] uppercase tracking-widest text-slate-600">
+                  Loading audit logs...
+                </div>
+              ) : auditLogsError ? (
+                <div className="p-6 text-center text-[10px] uppercase tracking-widest text-ninpo-red">
+                  {auditLogsError}
+                </div>
+              ) : filteredAuditLogs.length === 0 ? (
                 <div className="p-16 text-center text-[10px] uppercase tracking-widest text-slate-600">
                   No audit logs match your filters.
                 </div>
