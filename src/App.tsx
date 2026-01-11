@@ -224,6 +224,7 @@ function App() {
                   adjustCredits={core.adjustCredits}
                   updateUserProfile={core.updateUserProfile}
                   fetchUsers={core.fetchUsers}
+                  fetchUserStats={core.fetchUserStats}
                   fetchApprovals={core.fetchApprovals}
                   fetchAuditLogs={core.fetchAuditLogs}
                 />

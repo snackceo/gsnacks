@@ -65,6 +65,7 @@ interface ManagementViewProps {
   adjustCredits: (userId: string, amount: number, reason: string) => void;
   updateUserProfile: (id: string, updates: Partial<User>) => void;
   fetchUsers: () => Promise<User[]>;
+  fetchUserStats: (userId: string) => Promise<UserStatsSummary | null>;
   fetchApprovals: () => Promise<ApprovalRequest[]>;
   fetchAuditLogs: () => Promise<AuditLog[]>;
 }
@@ -119,6 +120,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   adjustCredits,
   updateUserProfile,
   fetchUsers,
+  fetchUserStats,
   fetchApprovals,
   fetchAuditLogs
 }) => {
@@ -136,6 +138,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [userLedgers, setUserLedgers] = useState<Record<string, LedgerEntry[]>>({});
   const [ledgerLoading, setLedgerLoading] = useState<Record<string, boolean>>({});
   const [ledgerErrors, setLedgerErrors] = useState<Record<string, string | null>>({});
+  const [userStatsLoading, setUserStatsLoading] = useState<Record<string, boolean>>({});
   const [settingsDraft, setSettingsDraft] = useState<AppSettings>(settings);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
