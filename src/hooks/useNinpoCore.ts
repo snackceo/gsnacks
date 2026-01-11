@@ -285,36 +285,37 @@ export const useNinpoCore = () => {
 
       const list = Array.isArray(data?.users) ? data.users : [];
       setUsers(list);
-      if (list.length > 0) {
-        const ids = list.map(user => user.id).filter(Boolean);
-        await Promise.all(
-          ids.map(async id => {
-            try {
-              const statsRes = await fetch(`${BACKEND_URL}/api/users/${id}/stats`, {
-                credentials: 'include'
-              });
-              const statsData = await statsRes.json().catch(() => ({}));
-              if (!statsRes.ok) {
-                throw new Error(statsData?.error || 'Failed to load user stats');
-              }
+      if (list.length === 0) {
+        setUserStats({});
+        return list as User[];
+      }
 
-              const stats = statsData?.stats;
-              if (stats?.userId) {
-                setUserStats(prev => ({
-                  ...prev,
-                  [stats.userId]: {
-                    userId: stats.userId,
-                    orderCount: Number(stats.orderCount || 0),
-                    totalSpend: Number(stats.totalSpend || 0),
-                    lastOrderAt: stats.lastOrderAt ?? null
-                  }
-                }));
-              }
-            } catch {
-              // best-effort stats fetch
-            }
-          })
+      try {
+        const statsRes = await fetch(`${BACKEND_URL}/api/users/stats`, {
+          credentials: 'include'
+        });
+        const statsData = await statsRes.json().catch(() => ({}));
+        if (!statsRes.ok) {
+          throw new Error(statsData?.error || 'Failed to load user stats');
+        }
+
+        const statsList = Array.isArray(statsData?.stats) ? statsData.stats : [];
+        const nextStats = statsList.reduce(
+          (acc: Record<string, UserStatsSummary>, stats: any) => {
+            if (!stats?.userId) return acc;
+            acc[stats.userId] = {
+              userId: stats.userId,
+              orderCount: Number(stats.orderCount || 0),
+              totalSpend: Number(stats.totalSpend || 0),
+              lastOrderAt: stats.lastOrderAt ?? null
+            };
+            return acc;
+          },
+          {}
         );
+        setUserStats(nextStats);
+      } catch {
+        // best-effort stats fetch
       }
       return list as User[];
     } catch (e: any) {
@@ -322,6 +323,30 @@ export const useNinpoCore = () => {
       return [];
     }
   }, [addToast]);
+
+  const fetchUserStats = useCallback(async (userId: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/users/${userId}/stats`, {
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to load user stats');
+      const stats = data?.stats;
+      if (stats?.userId) {
+        const mapped: UserStatsSummary = {
+          userId: stats.userId,
+          orderCount: Number(stats.orderCount || 0),
+          totalSpend: Number(stats.totalSpend || 0),
+          lastOrderAt: stats.lastOrderAt ?? null
+        };
+        setUserStats(prev => ({ ...prev, [stats.userId]: mapped }));
+        return mapped;
+      }
+    } catch {
+      // best-effort stats fetch
+    }
+    return null;
+  }, []);
 
   const updateUserProfile = useCallback(
     async (id: string, updates: Partial<User>) => {
@@ -421,6 +446,7 @@ export const useNinpoCore = () => {
     adjustCredits,
     updateOrder,
     fetchUsers,
+    fetchUserStats,
     updateUserProfile,
     redeemPoints,
 
