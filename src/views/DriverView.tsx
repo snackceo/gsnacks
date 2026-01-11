@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Order, OrderStatus } from '../types';
+import { analyzeBottleScan } from '../services/geminiService';
 import {
   Camera,
   CheckCircle2,
@@ -36,6 +37,12 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
   const [isVerifying, setIsVerifying] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [aiCondition, setAiCondition] = useState<{
+    valid: boolean;
+    material: string;
+    message: string;
+  } | null>(null);
+  const [aiConditionStatus, setAiConditionStatus] = useState<'idle' | 'loading' | 'error'>('idle');
 
   const [verifiedReturnUpcs, setVerifiedReturnUpcs] = useState<string[]>([]);
   const [manualUpc, setManualUpc] = useState('');
@@ -75,9 +82,15 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
     updateOrder(orderId, OrderStatus.CLOSED);
   };
 
+  const resetPhotoState = () => {
+    setCapturedPhoto(null);
+    setAiCondition(null);
+    setAiConditionStatus('idle');
+  };
+
   const startVerification = async (order: Order) => {
     setActiveOrder(order);
-    setCapturedPhoto(null);
+    resetPhotoState();
     setVerifiedReturnUpcs(order.verifiedReturnUpcs?.length ? order.verifiedReturnUpcs : order.returnUpcs || []);
     setManualUpc('');
     setScannerOpen(false);
@@ -95,14 +108,26 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
     }
   };
 
-  const takePhoto = () => {
+  const takePhoto = async () => {
     if (!videoRef.current || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const video = videoRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d')?.drawImage(video, 0, 0);
-    setCapturedPhoto(canvas.toDataURL('image/jpeg'));
+    const dataUrl = canvas.toDataURL('image/jpeg');
+    setCapturedPhoto(dataUrl);
+    setAiCondition(null);
+    setAiConditionStatus('loading');
+
+    try {
+      const base64Data = dataUrl.split(',')[1] || dataUrl;
+      const result = await analyzeBottleScan(base64Data);
+      setAiCondition(result);
+      setAiConditionStatus('idle');
+    } catch {
+      setAiConditionStatus('error');
+    }
   };
 
   const updateEligibilityCache = (upc: string, isEligible: boolean) => {
@@ -268,7 +293,7 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
 
         setIsVerifying(false);
         setActiveOrder(null);
-        setCapturedPhoto(null);
+        resetPhotoState();
         setVerifiedReturnUpcs([]);
         setManualUpc('');
         setScannerOpen(false);
@@ -691,6 +716,33 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
               <canvas ref={canvasRef} className="hidden" />
             </div>
 
+            {capturedPhoto && (
+              <div className="bg-black/30 border border-white/10 rounded-2xl p-5 text-xs space-y-2">
+                <p className="uppercase tracking-widest opacity-60">AI condition check (advisory)</p>
+                {aiConditionStatus === 'loading' && (
+                  <p className="text-[11px] text-slate-400">Analyzing container condition...</p>
+                )}
+                {aiConditionStatus === 'error' && (
+                  <p className="text-[11px] text-ninpo-red">
+                    Condition scan unavailable. Proceed with manual inspection.
+                  </p>
+                )}
+                {aiCondition && (
+                  <div className="space-y-1 text-[11px]">
+                    <p className={aiCondition.valid ? 'text-ninpo-lime' : 'text-ninpo-red'}>
+                      {aiCondition.message || (aiCondition.valid ? 'Condition acceptable.' : 'Condition concern.')}
+                    </p>
+                    <p className="text-slate-500 uppercase tracking-widest">
+                      Material: <span className="text-white">{aiCondition.material || 'unknown'}</span>
+                    </p>
+                  </div>
+                )}
+                <p className="text-[10px] uppercase tracking-widest text-slate-600">
+                  Eligibility is determined by the UPC whitelist, not AI.
+                </p>
+              </div>
+            )}
+
             <div className="flex gap-4">
               <button
                 onClick={takePhoto}
@@ -701,7 +753,7 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
 
               {capturedPhoto && (
                 <button
-                  onClick={() => setCapturedPhoto(null)}
+                  onClick={resetPhotoState}
                   className="px-6 py-4 bg-ninpo-red/10 text-ninpo-red rounded-xl text-[10px] font-black uppercase"
                 >
                   Retake

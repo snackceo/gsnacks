@@ -74,7 +74,7 @@ const LegalFooter: React.FC = () => {
             <>
               <p>Containers must be clean and clearly marked with the MI 10c deposit label to be eligible for credits.</p>
               <p>Refunds are limited to $25.00 per customer per day to ensure processing capacity.</p>
-              <p>Our system uses AI to verify genuine Michigan containers with high accuracy.</p>
+              <p>AI output is advisory for driver condition checks; eligibility is determined by the UPC whitelist and deposit labeling.</p>
             </>
           }
         />
