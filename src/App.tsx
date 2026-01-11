@@ -109,6 +109,19 @@ function App() {
     location.pathname.startsWith('/management') ||
     location.pathname.startsWith('/driver');
 
+  if (core.isBootstrapping) {
+    return (
+      <div className="min-h-screen bg-ninpo-black text-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-16 w-16 rounded-full border-4 border-white/20 border-t-white animate-spin" />
+          <p className="text-xs uppercase tracking-[0.4em] text-white/60">
+            Loading storefront
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-ninpo-black text-white flex flex-col relative overflow-x-hidden font-sans">
       <BackendStatusBanner
