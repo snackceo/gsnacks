@@ -15,6 +15,7 @@ const orderSchema = new mongoose.Schema(
 
     // Bottle returns (client preview + driver verification)
     returnUpcs: { type: [String], default: [] },
+    verifiedReturnUpcs: { type: [String], default: [] },
     estimatedReturnCredit: { type: Number, default: 0 }, // dollars (preview)
     verifiedReturnCredit: { type: Number, default: 0 }, // dollars (driver)
 

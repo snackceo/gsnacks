@@ -61,6 +61,8 @@ export interface Order {
   total: number;
   estimatedReturnCredit: number;
   verifiedReturnCredit?: number;
+  returnUpcs?: string[];
+  verifiedReturnUpcs?: string[];
 
   // Dollars (derived from Stripe cents fields on backend)
   authorizedAmount?: number;

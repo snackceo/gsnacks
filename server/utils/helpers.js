@@ -134,6 +134,8 @@ function mapOrderForFrontend(d) {
     total: Number(d.total || 0),
 
     // Bottle returns
+    returnUpcs: Array.isArray(d.returnUpcs) ? d.returnUpcs : [],
+    verifiedReturnUpcs: Array.isArray(d.verifiedReturnUpcs) ? d.verifiedReturnUpcs : [],
     estimatedReturnCredit: Number(d.estimatedReturnCredit || 0),
     verifiedReturnCredit:
       d.verifiedReturnCredit !== undefined
