@@ -409,7 +409,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
     const nextSettings: AppSettings = {
       ...settingsDraft,
+      deliveryFee: Number(settingsDraft.deliveryFee || 0),
+      referralBonus: Number(settingsDraft.referralBonus || 0),
       michiganDepositValue: Number(settingsDraft.michiganDepositValue || 0),
+      processingFeePercent: Number(settingsDraft.processingFeePercent || 0),
+      glassHandlingFeePercent: Number(settingsDraft.glassHandlingFeePercent || 0),
+      returnProcessingFeePercent: Number(
+        settingsDraft.returnProcessingFeePercent || 0
+      ),
       dailyReturnLimit: Number(settingsDraft.dailyReturnLimit || 0),
       requirePhotoForRefunds: Boolean(settingsDraft.requirePhotoForRefunds),
       allowGuestCheckout: Boolean(settingsDraft.allowGuestCheckout),
@@ -1943,7 +1950,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
               </div>
             )}
 
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
               <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
                   Returns Rules
@@ -1994,6 +2001,78 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     />
                     Require photo for refunds
                   </label>
+                </div>
+              </div>
+
+              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Fees
+                </p>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Delivery Fee
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.deliveryFee}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          deliveryFee: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Processing Fee Percent
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.processingFeePercent}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          processingFeePercent: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Glass Handling Fee Percent
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.glassHandlingFeePercent}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          glassHandlingFeePercent: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Return Processing Fee Percent
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.returnProcessingFeePercent}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          returnProcessingFeePercent: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
                 </div>
               </div>
 
