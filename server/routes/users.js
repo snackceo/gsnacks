@@ -75,6 +75,35 @@ router.get('/', authRequired, ownerRequired, async (_req, res) => {
   }
 });
 
+router.get('/stats', authRequired, ownerRequired, async (_req, res) => {
+  try {
+    const summaries = await Order.aggregate([
+      {
+        $group: {
+          _id: '$customerId',
+          orderCount: { $sum: 1 },
+          totalSpend: { $sum: { $ifNull: ['$total', 0] } },
+          lastOrderAt: { $max: '$createdAt' }
+        }
+      }
+    ]);
+
+    const stats = summaries.map(summary => ({
+      userId: String(summary._id),
+      orderCount: summary?.orderCount || 0,
+      totalSpend: summary?.totalSpend || 0,
+      lastOrderAt: summary?.lastOrderAt
+        ? new Date(summary.lastOrderAt).toISOString()
+        : null
+    }));
+
+    res.json({ ok: true, stats });
+  } catch (err) {
+    console.error('USERS STATS ERROR:', err);
+    res.status(500).json({ error: 'Failed to load user stats' });
+  }
+});
+
 router.get('/:id/stats', authRequired, async (req, res) => {
   try {
     const userId = String(req.params.id || '').trim();

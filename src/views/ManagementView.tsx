@@ -1021,6 +1021,16 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
+  const requestUserStats = async (userId: string) => {
+    if (userStatsLoading[userId]) return;
+    setUserStatsLoading(prev => ({ ...prev, [userId]: true }));
+    try {
+      await fetchUserStats(userId);
+    } finally {
+      setUserStatsLoading(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
   const toggleUserDetails = (user: User) => {
     const shouldExpand = expandedUserId !== user.id;
     setExpandedUserId(prev => (prev === user.id ? null : user.id));
@@ -1037,6 +1047,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     });
     if (shouldExpand && !userLedgers[user.id] && !ledgerLoading[user.id]) {
       fetchUserLedger(user.id);
+    }
+    if (shouldExpand && !userStats[user.id]) {
+      requestUserStats(user.id);
     }
   };
 
@@ -1610,8 +1623,24 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   const ledgerEntries = userLedgers[u.id] || [];
                   const ledgerBusy = ledgerLoading[u.id];
                   const ledgerError = ledgerErrors[u.id];
+                  const statsLoading = userStatsLoading[u.id];
                   const tierLabel = (u.membershipTier || 'BRONZE').toString().toUpperCase();
                   const showSignupBonus = isNewSignupWithBonus(u);
+                  const orderCountLabel = statsLoading
+                    ? '...'
+                    : stats
+                    ? stats.orderCount
+                    : '—';
+                  const totalSpendLabel = statsLoading
+                    ? 'Loading...'
+                    : stats
+                    ? `$${Number(stats.totalSpend || 0).toFixed(2)}`
+                    : '—';
+                  const lastOrderLabel = statsLoading
+                    ? 'Loading...'
+                    : stats?.lastOrderAt
+                    ? fmtTime(stats.lastOrderAt)
+                    : '—';
 
                   return (
                     <div
@@ -1652,7 +1681,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                             Points: {Number(u.loyaltyPoints || 0)}
                           </div>
                           <div className="px-4 py-2 rounded-xl text-[9px] font-black uppercase border tracking-widest text-white/80 border-white/10 bg-white/5">
-                            Orders: {stats?.orderCount ?? 0}
+                            Orders: {orderCountLabel}
                           </div>
                         </div>
                       </div>
@@ -1672,15 +1701,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                             <div className="space-y-2 text-[11px] text-slate-400">
                               <p>
                                 Total Spend:{' '}
-                                <span className="text-slate-200 font-bold">
-                                  ${Number(stats?.totalSpend || 0).toFixed(2)}
-                                </span>
+                                <span className="text-slate-200 font-bold">{totalSpendLabel}</span>
                               </p>
                               <p>
                                 Last Order:{' '}
-                                <span className="text-slate-200 font-bold">
-                                  {stats?.lastOrderAt ? fmtTime(stats.lastOrderAt) : '—'}
-                                </span>
+                                <span className="text-slate-200 font-bold">{lastOrderLabel}</span>
                               </p>
                               <p>
                                 Joined:{' '}
