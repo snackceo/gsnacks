@@ -5,6 +5,11 @@ const router = express.Router();
 const getGeminiApiKey = () =>
   process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
 
+router.get('/health', (req, res) => {
+  const apiKey = getGeminiApiKey();
+  return res.json({ configured: Boolean(apiKey) });
+});
+
 router.post('/inventory-audit', async (req, res) => {
   const { inventory, orders } = req.body ?? {};
 
