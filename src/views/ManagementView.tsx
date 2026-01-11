@@ -8,6 +8,7 @@ import {
   AppSettings,
   ApprovalRequest,
   AuditLog,
+  AuditLogType,
   UserStatsSummary,
   LedgerEntry
 } from '../types';
@@ -181,6 +182,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [approvalFilter, setApprovalFilter] =
     useState<ApprovalRequest['status']>('PENDING');
   const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
+  const [auditTypeFilter, setAuditTypeFilter] = useState<'ALL' | AuditLogType>('ALL');
+  const [auditActorFilter, setAuditActorFilter] = useState('');
+  const [auditRangeFilter, setAuditRangeFilter] = useState<'24h' | '7d' | '30d'>('7d');
   const allowPlatinumTier = Boolean(settings.allowPlatinumTier);
 
   const upcVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -205,6 +209,40 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const filteredApprovals = useMemo(() => {
     return approvals.filter(approval => approval.status === approvalFilter);
   }, [approvals, approvalFilter]);
+
+  const auditTypeOptions = useMemo(() => {
+    const types = Array.from(new Set(auditLogs.map(log => log.type))).sort();
+    return ['ALL', ...types] as const;
+  }, [auditLogs]);
+
+  const filteredAuditLogs = useMemo(() => {
+    const rangeMsMap = {
+      '24h': 24 * 60 * 60 * 1000,
+      '7d': 7 * 24 * 60 * 60 * 1000,
+      '30d': 30 * 24 * 60 * 60 * 1000
+    };
+    const cutoff = Date.now() - rangeMsMap[auditRangeFilter];
+    const actorNeedle = auditActorFilter.trim().toLowerCase();
+
+    return auditLogs
+      .filter(log => {
+        if (auditTypeFilter !== 'ALL' && log.type !== auditTypeFilter) return false;
+        if (actorNeedle && !log.actorId.toLowerCase().includes(actorNeedle)) return false;
+        if (log.createdAt) {
+          const createdAt = new Date(log.createdAt).getTime();
+          if (!Number.isNaN(createdAt) && createdAt < cutoff) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const aTime = new Date(a.createdAt).getTime();
+        const bTime = new Date(b.createdAt).getTime();
+        if (Number.isNaN(aTime) && Number.isNaN(bTime)) return 0;
+        if (Number.isNaN(aTime)) return 1;
+        if (Number.isNaN(bTime)) return -1;
+        return bTime - aTime;
+      });
+  }, [auditLogs, auditActorFilter, auditRangeFilter, auditTypeFilter]);
 
   useEffect(() => {
     if (activeModule !== 'analytics') {
@@ -890,6 +928,23 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     } catch {
       // handled by upstream toast
     }
+  };
+
+  const handleDownloadAuditCsv = () => {
+    const headers = ['type', 'actorId', 'details', 'createdAt'];
+    const escapeValue = (value: string) =>
+      `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = filteredAuditLogs.map(log =>
+      [log.type, log.actorId, log.details, log.createdAt].map(escapeValue).join(',')
+    );
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `audit-logs-${new Date().toISOString()}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -1593,6 +1648,117 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* =========================
+            AUDIT LOGS
+        ========================= */}
+        {activeModule === 'logs' && (
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black uppercase text-white tracking-widest">
+                  Audit Logs
+                </h2>
+                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
+                  type • actorId • details • createdAt
+                </p>
+              </div>
+
+              <button
+                onClick={handleDownloadAuditCsv}
+                disabled={filteredAuditLogs.length === 0}
+                className="px-7 py-4 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Download CSV
+              </button>
+            </div>
+
+            <div className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Type
+                  </label>
+                  <select
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
+                    value={auditTypeFilter}
+                    onChange={e =>
+                      setAuditTypeFilter(e.target.value as 'ALL' | AuditLogType)
+                    }
+                  >
+                    {auditTypeOptions.map(option => (
+                      <option key={option} value={option}>
+                        {option.toLowerCase()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Actor
+                  </label>
+                  <input
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
+                    placeholder="Filter by actorId"
+                    value={auditActorFilter}
+                    onChange={e => setAuditActorFilter(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Time Range
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {(['24h', '7d', '30d'] as const).map(range => (
+                      <button
+                        key={range}
+                        onClick={() => setAuditRangeFilter(range)}
+                        className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                          auditRangeFilter === range
+                            ? 'bg-white text-ninpo-black border-white'
+                            : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+                        }`}
+                      >
+                        {range}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-ninpo-card rounded-[2.5rem] border border-white/5 overflow-hidden">
+              <div className="grid grid-cols-4 gap-4 px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-600 border-b border-white/5">
+                <span>Type</span>
+                <span>Actor</span>
+                <span>Details</span>
+                <span>Created</span>
+              </div>
+
+              {filteredAuditLogs.length === 0 ? (
+                <div className="p-16 text-center text-[10px] uppercase tracking-widest text-slate-600">
+                  No audit logs match your filters.
+                </div>
+              ) : (
+                <div className="divide-y divide-white/5">
+                  {filteredAuditLogs.map(log => (
+                    <div
+                      key={log.id}
+                      className="grid grid-cols-1 md:grid-cols-4 gap-3 px-6 py-4 text-[11px] text-slate-300"
+                    >
+                      <span className="font-bold text-white/80">{log.type}</span>
+                      <span className="text-white/70">{log.actorId}</span>
+                      <span className="text-slate-400">{log.details}</span>
+                      <span className="text-slate-500">{fmtTime(log.createdAt)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
