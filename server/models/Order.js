@@ -28,6 +28,8 @@ const orderSchema = new mongoose.Schema(
 
     total: { type: Number, required: true }, // dollars, pre-credit
     deliveryFee: { type: Number, default: 0 }, // dollars
+    deliveryFeeDiscountPercent: { type: Number, default: 0 }, // percent
+    deliveryFeeFinal: { type: Number, default: 0 }, // dollars
     creditApplied: { type: Number, default: 0 }, // dollars
 
     paymentMethod: { type: String, default: 'STRIPE' },

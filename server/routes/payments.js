@@ -13,6 +13,28 @@ import {
   ownerRequired
 } from '../utils/helpers.js';
 
+const deliveryDiscountsByTier = {
+  BRONZE: 10,
+  SILVER: 20,
+  GOLD: 30,
+  PLATINUM: 30
+};
+
+const getDeliveryFeeDiscountPercent = tier => {
+  const normalizedTier = String(tier || '').trim().toUpperCase();
+  return deliveryDiscountsByTier[normalizedTier] ?? 0;
+};
+
+const applyDeliveryFeeDiscount = (deliveryFee, discountPercent) => {
+  const fee = Math.max(0, Number(deliveryFee || 0));
+  const percent = Math.max(0, Math.min(100, Number(discountPercent || 0)));
+  const discountedCents = Math.round(fee * (1 - percent / 100) * 100);
+  return {
+    deliveryFeeFinal: discountedCents / 100,
+    deliveryFeeFinalCents: discountedCents
+  };
+};
+
 const createPaymentsRouter = ({ stripe }) => {
   const router = express.Router();
 
@@ -38,7 +60,16 @@ const createPaymentsRouter = ({ stripe }) => {
       const address = String(req.body?.address || '').trim();
       const gateway = String(req.body?.gateway || 'STRIPE').toUpperCase();
       const deliveryFee = Math.max(0, Number(req.body?.deliveryFee || 0));
-      const deliveryFeeCents = Math.round(deliveryFee * 100);
+      const tierLookupUser = userId
+        ? await User.findById(userId, { membershipTier: 1 }).session(sessionDb)
+        : null;
+      const deliveryFeeDiscountPercent = getDeliveryFeeDiscountPercent(
+        tierLookupUser?.membershipTier
+      );
+      const { deliveryFeeFinal, deliveryFeeFinalCents } = applyDeliveryFeeDiscount(
+        deliveryFee,
+        deliveryFeeDiscountPercent
+      );
 
       const incomingUpcs = Array.isArray(req.body?.returnUpcs) ? req.body.returnUpcs : [];
       const returnUpcs = incomingUpcs.map(String).map(s => s.trim()).filter(Boolean);
@@ -110,13 +141,13 @@ const createPaymentsRouter = ({ stripe }) => {
           });
         }
 
-        if (deliveryFeeCents > 0) {
-          totalCents += deliveryFeeCents;
+        if (deliveryFeeFinalCents > 0) {
+          totalCents += deliveryFeeFinalCents;
           lineItems.push({
             price_data: {
               currency: 'usd',
               product_data: { name: 'Delivery fee' },
-              unit_amount: deliveryFeeCents
+              unit_amount: deliveryFeeFinalCents
             },
             quantity: 1
           });
@@ -131,6 +162,8 @@ const createPaymentsRouter = ({ stripe }) => {
               items,
               total: totalCents / 100,
               deliveryFee,
+              deliveryFeeDiscountPercent,
+              deliveryFeeFinal,
               creditApplied: 0,
 
               returnUpcs: eligibleUpcs,
@@ -197,7 +230,6 @@ const createPaymentsRouter = ({ stripe }) => {
       const rawItems = req.body?.items;
       const address = String(req.body?.address || '').trim();
       const deliveryFee = Math.max(0, Number(req.body?.deliveryFee || 0));
-      const deliveryFeeCents = Math.round(deliveryFee * 100);
 
       const items = normalizeCart(rawItems);
       if (!Array.isArray(items) || items.length === 0) {
@@ -209,6 +241,12 @@ const createPaymentsRouter = ({ stripe }) => {
 
       const user = await User.findById(userId).session(sessionDb);
       if (!user) return res.status(404).json({ error: 'User not found' });
+
+      const deliveryFeeDiscountPercent = getDeliveryFeeDiscountPercent(user?.membershipTier);
+      const { deliveryFeeFinal, deliveryFeeFinalCents } = applyDeliveryFeeDiscount(
+        deliveryFee,
+        deliveryFeeDiscountPercent
+      );
 
       const orderId = crypto.randomUUID();
       let totalCents = 0;
@@ -240,8 +278,8 @@ const createPaymentsRouter = ({ stripe }) => {
           totalCents += unit * item.quantity;
         }
 
-        if (deliveryFeeCents > 0) {
-          totalCents += deliveryFeeCents;
+        if (deliveryFeeFinalCents > 0) {
+          totalCents += deliveryFeeFinalCents;
         }
 
         const availableCreditsCents = Math.max(
@@ -264,6 +302,8 @@ const createPaymentsRouter = ({ stripe }) => {
               items,
               total: totalCents / 100,
               deliveryFee,
+              deliveryFeeDiscountPercent,
+              deliveryFeeFinal,
               creditApplied,
               paymentMethod: remainingCents > 0 ? 'STRIPE' : 'CREDITS',
               status: remainingCents > 0 ? 'PENDING' : 'PAID',
