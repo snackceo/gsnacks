@@ -223,6 +223,7 @@ function App() {
                   adjustCredits={core.adjustCredits}
                   updateUserProfile={core.updateUserProfile}
                   fetchUsers={core.fetchUsers}
+                  fetchAuditLogs={core.fetchAuditLogs}
                 />
               ) : (
                 <Navigate to="/" replace />

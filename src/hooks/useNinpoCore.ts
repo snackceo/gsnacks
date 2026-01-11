@@ -311,6 +311,23 @@ export const useNinpoCore = () => {
     }
   }, [addToast]);
 
+  const fetchAuditLogs = useCallback(async () => {
+    const res = await fetch(`${BACKEND_URL}/api/audit-logs`, {
+      credentials: 'include'
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || 'Failed to load audit logs');
+
+    const list = Array.isArray(data?.auditLogs)
+      ? data.auditLogs
+      : Array.isArray(data?.logs)
+        ? data.logs
+        : [];
+    setAuditLogs(list);
+    return list as AuditLog[];
+  }, []);
+
   useEffect(() => {
     const bootstrap = async () => {
       try {
@@ -512,6 +529,7 @@ export const useNinpoCore = () => {
     updateProduct,
     deleteProduct,
 
-    fetchOrders
+    fetchOrders,
+    fetchAuditLogs
   };
 };
