@@ -33,6 +33,7 @@ type Toast = { id: string; message: string; type: 'info' | 'success' | 'warning'
 export const useNinpoCore = () => {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isBackendOnline, setIsBackendOnline] = useState(true);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -236,8 +237,16 @@ export const useNinpoCore = () => {
   }, [addToast]);
 
   useEffect(() => {
-    restoreSession();
-    fetchProducts();
+    const bootstrap = async () => {
+      try {
+        await restoreSession();
+        await fetchProducts();
+      } finally {
+        setIsBootstrapping(false);
+      }
+    };
+
+    bootstrap();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -417,6 +426,7 @@ export const useNinpoCore = () => {
 
     isBackendOnline,
     syncWithBackend,
+    isBootstrapping,
 
     restoreSession,
     logout,
