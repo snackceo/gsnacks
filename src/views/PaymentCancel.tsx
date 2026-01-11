@@ -4,20 +4,21 @@ import { useSearchParams } from 'react-router-dom';
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
-function PaymentCancel() {
+export default function PaymentCancel() {
   const [params] = useSearchParams();
-  const [note, setNote] = useState<string>('');
+  const [status, setStatus] = useState<
+    'idle' | 'missing' | 'releasing' | 'released' | 'failed'
+  >('idle');
 
   useEffect(() => {
     const sessionId = String(params.get('session_id') || '').trim();
-
-    // If we don't have a session id, we cannot release inventory immediately.
     if (!sessionId) {
-      setNote('No session id found. Inventory may restore when the session expires.');
+      setStatus('missing');
       return;
     }
 
-    // Best-effort: release reservation immediately (Option A).
+    setStatus('releasing');
+
     (async () => {
       try {
         const res = await fetch(`${BACKEND_URL}/api/orders/release-reservation`, {
@@ -27,14 +28,24 @@ function PaymentCancel() {
           body: JSON.stringify({ sessionId })
         });
 
-        if (!res.ok) throw new Error(`release failed (${res.status})`);
-        setNote('Reservation released. Inventory restored.');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setStatus('released');
       } catch {
-        // Do not hard-fail the cancel page; keep it calm.
-        setNote('Unable to release reservation immediately. Inventory may restore when the session expires.');
+        setStatus('failed');
       }
     })();
   }, [params]);
+
+  const message =
+    status === 'missing'
+      ? 'Missing session id. Inventory will restore when the session expires.'
+      : status === 'releasing'
+      ? 'Releasing reservation…'
+      : status === 'released'
+      ? 'Reservation released. Inventory restored.'
+      : status === 'failed'
+      ? 'Could not release reservation immediately. Inventory will restore when the session expires.'
+      : '';
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-ninpo-black text-white">
@@ -47,15 +58,15 @@ function PaymentCancel() {
           No credits were deducted.
         </p>
 
-        {note && (
+        {message && (
           <p className="text-[10px] uppercase tracking-widest opacity-60">
-            {note}
+            {message}
           </p>
         )}
 
         <a
           href="/"
-          className="inline-block mt-6 px-6 py-3 bg-white/10 text-white rounded-xl font-black text-xs uppercase"
+          className="inline-block mt-6 px-6 py-3 bg-white/10 text-white rounded-xl font-black text-xs uppercase rounded-xl"
         >
           Return to Market
         </a>
@@ -63,5 +74,3 @@ function PaymentCancel() {
     </div>
   );
 }
-
-export default PaymentCancel;
