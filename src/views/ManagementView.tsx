@@ -124,6 +124,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [isUsersLoading, setIsUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
+  const [isChartReady, setIsChartReady] = useState(false);
   const [userFilter, setUserFilter] = useState('');
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [userDrafts, setUserDrafts] = useState<Record<string, Partial<User>>>({});
@@ -192,6 +193,32 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       }))
       .reverse();
   }, [orders]);
+
+  useEffect(() => {
+    if (activeModule !== 'analytics') {
+      setIsChartReady(false);
+      return;
+    }
+
+    let firstFrame = 0;
+    let secondFrame = 0;
+
+    firstFrame = window.requestAnimationFrame(() => {
+      firstFrame = 0;
+      secondFrame = window.requestAnimationFrame(() => {
+        setIsChartReady(true);
+      });
+    });
+
+    return () => {
+      if (firstFrame) {
+        window.cancelAnimationFrame(firstFrame);
+      }
+      if (secondFrame) {
+        window.cancelAnimationFrame(secondFrame);
+      }
+    };
+  }, [activeModule]);
 
   const handleApprove = (approval: ApprovalRequest) => {
     adjustCredits(approval.userId, approval.amount, `AUTH_APPROVED: ${approval.type}`);
@@ -879,23 +906,35 @@ const ManagementView: React.FC<ManagementViewProps> = ({
               </div>
             )}
 
-            <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#222" />
-                  <XAxis dataKey="name" stroke="#555" fontSize={9} />
-                  <YAxis stroke="#555" fontSize={9} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#111',
-                      border: 'none',
-                      borderRadius: '1rem',
-                      fontSize: '10px'
-                    }}
-                  />
-                  <Line type="monotone" dataKey="revenue" stroke="#00ff41" strokeWidth={3} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
+            <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 h-80 min-h-[320px]">
+              {isChartReady ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#222" />
+                    <XAxis dataKey="name" stroke="#555" fontSize={9} />
+                    <YAxis stroke="#555" fontSize={9} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#111',
+                        border: 'none',
+                        borderRadius: '1rem',
+                        fontSize: '10px'
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="revenue"
+                      stroke="#00ff41"
+                      strokeWidth={3}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  Loading chart…
+                </div>
+              )}
             </div>
           </div>
         )}
