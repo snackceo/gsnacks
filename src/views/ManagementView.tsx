@@ -338,6 +338,17 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   }, [activeModule]);
 
+  const filteredUpcItems = useMemo(() => {
+    const needle = upcFilter.trim().toLowerCase();
+    if (!needle) return upcItems;
+    return upcItems.filter(item => {
+      return (
+        item.upc.toLowerCase().includes(needle) ||
+        (item.name || '').toLowerCase().includes(needle)
+      );
+    });
+  }, [upcFilter, upcItems]);
+
   const stopUpcScanner = async () => {
     setIsUpcScanning(false);
 
@@ -1317,22 +1328,17 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 </div>
               </div>
 
-              {upcItems.length === 0 && !isUpcLoading ? (
+              {isUpcLoading ? (
+                <p className="text-xs text-slate-500">Loading UPC entries...</p>
+              ) : filteredUpcItems.length === 0 ? (
                 <p className="text-xs text-slate-500">
-                  No UPC entries yet. Scan a code to begin.
+                  {upcItems.length === 0
+                    ? 'No UPC entries yet. Scan a code to begin.'
+                    : 'No UPC entries match this filter.'}
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {upcItems
-                    .filter(item => {
-                      if (!upcFilter.trim()) return true;
-                      const needle = upcFilter.toLowerCase();
-                      return (
-                        item.upc.toLowerCase().includes(needle) ||
-                        (item.name || '').toLowerCase().includes(needle)
-                      );
-                    })
-                    .map(item => (
+                  {filteredUpcItems.map(item => (
                       <button
                         key={item.upc}
                         onClick={() => {
