@@ -30,13 +30,16 @@ const allowPlatinumTier = (import.meta as any).env?.VITE_ALLOW_PLATINUM_TIER ===
 const SETTINGS_STORAGE_KEY = 'ninpo:settings';
 
 const defaultSettings: AppSettings = {
-  deliveryFee: 2.99,
+  deliveryFee: 4.99,
   referralBonus: 5.0,
   michiganDepositValue: 0.1,
   processingFeePercent: 0.05,
   glassHandlingFeePercent: 0.02,
   dailyReturnLimit: 25.0,
   maintenanceMode: false,
+  requirePhotoForRefunds: false,
+  allowGuestCheckout: false,
+  showAdvancedInventoryInsights: false,
   allowPlatinumTier
 };
 
@@ -59,6 +62,15 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     dailyReturnLimit: Number(data.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
     maintenanceMode: Boolean(
       data.maintenanceMode ?? defaultSettings.maintenanceMode
+    ),
+    requirePhotoForRefunds: Boolean(
+      data.requirePhotoForRefunds ?? defaultSettings.requirePhotoForRefunds
+    ),
+    allowGuestCheckout: Boolean(
+      data.allowGuestCheckout ?? defaultSettings.allowGuestCheckout
+    ),
+    showAdvancedInventoryInsights: Boolean(
+      data.showAdvancedInventoryInsights ?? defaultSettings.showAdvancedInventoryInsights
     ),
     allowPlatinumTier: Boolean(
       data.allowPlatinumTier ?? defaultSettings.allowPlatinumTier

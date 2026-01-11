@@ -46,7 +46,8 @@ function App() {
           items: core.cart,
           userId: core.currentUser.id,
           gateway: type,
-          address: address // NEW: stored on order for owner dashboard
+          address: address, // NEW: stored on order for owner dashboard
+          deliveryFee: Number(core.settings.deliveryFee || 0)
         })
       });
 
@@ -73,7 +74,8 @@ function App() {
         credentials: 'include',
         body: JSON.stringify({
           items: core.cart,
-          address
+          address,
+          deliveryFee: Number(core.settings.deliveryFee || 0)
         })
       });
 
@@ -277,6 +279,7 @@ function App() {
         address={address}
         acceptedPolicies={acceptedPolicies}
         isProcessing={isProcessingOrder}
+        deliveryFee={Number(core.settings.deliveryFee || 0)}
         onClose={() => setIsCartOpen(false)}
         onAddressChange={setAddress}
         onPolicyChange={setAcceptedPolicies}

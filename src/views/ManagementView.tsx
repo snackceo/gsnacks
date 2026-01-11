@@ -1269,6 +1269,13 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
                         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-600 space-y-1">
                           <div className="flex items-center justify-between md:justify-end md:gap-3">
+                            <span className="md:hidden">Delivery Fee:</span>
+                            <span className="text-slate-300">
+                              Delivery Fee: ${Number(o.deliveryFee || 0).toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between md:justify-end md:gap-3">
                             <span className="md:hidden">Est Credit:</span>
                             <span className="text-slate-300">
                               Est Credit: ${Number(o.estimatedReturnCredit || 0).toFixed(2)}

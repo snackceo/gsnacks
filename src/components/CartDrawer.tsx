@@ -15,6 +15,7 @@ interface CartDrawerProps {
   address: string;
   acceptedPolicies: boolean;
   isProcessing: boolean;
+  deliveryFee: number;
 
   onClose: () => void;
   onAddressChange: (v: string) => void;
@@ -60,6 +61,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   address,
   acceptedPolicies,
   isProcessing,
+  deliveryFee,
   onClose,
   onAddressChange,
   onPolicyChange,
@@ -284,11 +286,12 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   }, [cart, products]);
 
   const subtotal = useMemo(() => lineItems.reduce((sum, li) => sum + li.lineTotal, 0), [lineItems]);
+  const sanitizedDeliveryFee = Number.isFinite(deliveryFee) ? deliveryFee : 0;
 
   // Preview total after estimated return credit (cannot go below 0)
   const previewTotalAfterCredit = useMemo(() => {
-    return Math.max(0, subtotal - estimatedReturnCredit);
-  }, [subtotal, estimatedReturnCredit]);
+    return Math.max(0, subtotal + sanitizedDeliveryFee - estimatedReturnCredit);
+  }, [subtotal, sanitizedDeliveryFee, estimatedReturnCredit]);
 
   // ----------------------------
   // Scanner modal behavior
@@ -696,6 +699,13 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                   Subtotal
                 </p>
                 <p className="text-white font-black">{money(subtotal)}</p>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Delivery Fee
+                </p>
+                <p className="text-white font-black">{money(sanitizedDeliveryFee)}</p>
               </div>
 
               <div className="flex items-center justify-between">

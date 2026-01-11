@@ -37,6 +37,8 @@ const createPaymentsRouter = ({ stripe }) => {
       const userId = req.body?.userId;
       const address = String(req.body?.address || '').trim();
       const gateway = String(req.body?.gateway || 'STRIPE').toUpperCase();
+      const deliveryFee = Math.max(0, Number(req.body?.deliveryFee || 0));
+      const deliveryFeeCents = Math.round(deliveryFee * 100);
 
       const incomingUpcs = Array.isArray(req.body?.returnUpcs) ? req.body.returnUpcs : [];
       const returnUpcs = incomingUpcs.map(String).map(s => s.trim()).filter(Boolean);
@@ -108,6 +110,18 @@ const createPaymentsRouter = ({ stripe }) => {
           });
         }
 
+        if (deliveryFeeCents > 0) {
+          totalCents += deliveryFeeCents;
+          lineItems.push({
+            price_data: {
+              currency: 'usd',
+              product_data: { name: 'Delivery fee' },
+              unit_amount: deliveryFeeCents
+            },
+            quantity: 1
+          });
+        }
+
         await Order.create(
           [
             {
@@ -116,6 +130,7 @@ const createPaymentsRouter = ({ stripe }) => {
               address: address || '',
               items,
               total: totalCents / 100,
+              deliveryFee,
               creditApplied: 0,
 
               returnUpcs: eligibleUpcs,
@@ -181,6 +196,8 @@ const createPaymentsRouter = ({ stripe }) => {
     try {
       const rawItems = req.body?.items;
       const address = String(req.body?.address || '').trim();
+      const deliveryFee = Math.max(0, Number(req.body?.deliveryFee || 0));
+      const deliveryFeeCents = Math.round(deliveryFee * 100);
 
       const items = normalizeCart(rawItems);
       if (!Array.isArray(items) || items.length === 0) {
@@ -223,6 +240,10 @@ const createPaymentsRouter = ({ stripe }) => {
           totalCents += unit * item.quantity;
         }
 
+        if (deliveryFeeCents > 0) {
+          totalCents += deliveryFeeCents;
+        }
+
         const availableCreditsCents = Math.max(
           0,
           Math.round(Number(user.creditBalance || 0) * 100)
@@ -242,6 +263,7 @@ const createPaymentsRouter = ({ stripe }) => {
               address: address || '',
               items,
               total: totalCents / 100,
+              deliveryFee,
               creditApplied,
               paymentMethod: remainingCents > 0 ? 'STRIPE' : 'CREDITS',
               status: remainingCents > 0 ? 'PENDING' : 'PAID',
