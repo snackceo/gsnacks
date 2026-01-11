@@ -11,6 +11,7 @@ export default {
           black: "#050505",
           midnight: "#0a0e14",
           lime: "#00ff41",
+          red: "#ff2d2d",
         },
       },
       borderRadius: {
