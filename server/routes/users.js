@@ -3,6 +3,7 @@ import express from 'express';
 import Order from '../models/Order.js';
 import User from '../models/User.js';
 import LedgerEntry from '../models/LedgerEntry.js';
+import { recordAuditLog } from '../utils/audit.js';
 import { authRequired, ownerRequired } from '../utils/helpers.js';
 
 const router = express.Router();
@@ -222,6 +223,14 @@ router.patch('/:id/credits', authRequired, ownerRequired, async (req, res) => {
       userId,
       delta: Number(user.creditBalance || 0) - previousCredits,
       reason: String(req.body?.reason || 'CREDITS_ADJUSTMENT')
+    });
+
+    await recordAuditLog({
+      type: 'CREDIT_ADJUSTED',
+      actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+      details: `Adjusted credits for user ${userId} by ${Number(
+        user.creditBalance || 0
+      ) - previousCredits} (${String(req.body?.reason || 'CREDITS_ADJUSTMENT')}).`
     });
 
     res.json({ ok: true, user: mapUser(user) });
