@@ -131,7 +131,7 @@ function App() {
                 }}
                 updateUserProfile={() => {}}
                 reorderItems={() => {}}
-                onRedeemPoints={() => {}}
+                onRedeemPoints={core.redeemPoints}
               />
             }
           />
@@ -161,7 +161,8 @@ function App() {
                   auditLogs={core.auditLogs}
                   updateOrder={core.updateOrder}
                   adjustCredits={core.adjustCredits}
-                  updateUserProfile={() => {}}
+                  updateUserProfile={core.updateUserProfile}
+                  fetchUsers={core.fetchUsers}
                 />
               ) : (
                 <Navigate to="/" replace />

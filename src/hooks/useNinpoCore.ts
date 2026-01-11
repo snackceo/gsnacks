@@ -98,7 +98,11 @@ export const useNinpoCore = () => {
         name: u?.username || 'USER',
         username: u?.username,
         email: u?.username ? `${u.username}@ninposnacks.com` : undefined,
-        role: u?.role || 'CUSTOMER'
+        role: u?.role || 'CUSTOMER',
+        creditBalance: Number(u?.creditBalance || 0),
+        loyaltyPoints: Number(u?.loyaltyPoints || 0),
+        membershipTier: u?.membershipTier || 'BRONZE',
+        createdAt: u?.createdAt
       };
 
       setCurrentUser(mapped as User);
@@ -237,7 +241,9 @@ export const useNinpoCore = () => {
     async (userId: string, amount: number, reason: string) => {
       setUsers(prev =>
         prev.map(u =>
-          u.id === userId ? { ...u, credits: (u.credits || 0) + amount } : u
+          u.id === userId
+            ? { ...u, creditBalance: (u.creditBalance || 0) + amount }
+            : u
         )
       );
 
@@ -253,6 +259,75 @@ export const useNinpoCore = () => {
       }
     },
     [addToast]
+  );
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/users`, {
+        credentials: 'include'
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to load users');
+
+      const list = Array.isArray(data?.users) ? data.users : [];
+      setUsers(list);
+      return list as User[];
+    } catch (e: any) {
+      addToast(e?.message ?? 'Users feed offline', 'warning');
+      return [];
+    }
+  }, [addToast]);
+
+  const updateUserProfile = useCallback(
+    async (id: string, updates: Partial<User>) => {
+      const res = await fetch(`${BACKEND_URL}/api/users/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(updates)
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Update user failed');
+
+      const updated = data.user as User;
+      setUsers(prev => prev.map(u => (u.id === id ? updated : u)));
+      addToast('USER UPDATED', 'success');
+
+      if (currentUser?.id === id) {
+        setCurrentUser(updated);
+      }
+
+      return updated;
+    },
+    [addToast, currentUser?.id]
+  );
+
+  const redeemPoints = useCallback(
+    async (points: number) => {
+      if (!currentUser?.id) return;
+
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/users/${currentUser.id}/redeem-points`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ points })
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || 'Redeem failed');
+
+        const updated = data.user as User;
+        setCurrentUser(updated);
+        setUsers(prev => prev.map(u => (u.id === updated.id ? updated : u)));
+        addToast('POINTS CONVERTED', 'success');
+      } catch (e: any) {
+        addToast(e?.message || 'Redeem failed', 'warning');
+      }
+    },
+    [addToast, currentUser?.id]
   );
 
   const updateOrder = useCallback(
@@ -300,6 +375,9 @@ export const useNinpoCore = () => {
 
     adjustCredits,
     updateOrder,
+    fetchUsers,
+    updateUserProfile,
+    redeemPoints,
 
     isBackendOnline,
     syncWithBackend,
