@@ -8,6 +8,8 @@ import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
 
 import User from './models/User.js';
+import Product from './models/Product.js';
+import Order from './models/Order.js';
 
 dotenv.config();
 
@@ -30,85 +32,6 @@ mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB Connected'))
   .catch(err => console.error('MongoDB connection error:', err));
-
-/* =========================
-   MODELS (Product/Order inline for now)
-========================= */
-const productSchema = new mongoose.Schema(
-  {
-    frontendId: { type: String, required: true, unique: true }, // used by frontend/cart
-    name: { type: String, required: true },
-    price: { type: Number, required: true },
-    deposit: { type: Number, default: 0 },
-    stock: { type: Number, default: 0 },
-
-    category: { type: String, default: 'DRINK' },
-    image: { type: String, default: '' },
-    isGlass: { type: Boolean, default: false }
-  },
-  { timestamps: true }
-);
-
-const Product = mongoose.model('Product', productSchema);
-
-const orderSchema = new mongoose.Schema(
-  {
-    orderId: { type: String, required: true, unique: true }, // our UUID
-    customerId: { type: String, default: 'GUEST' },
-
-    address: { type: String, default: '' },
-    driverId: { type: String, default: '' },
-    gpsCoords: {
-      lat: { type: Number },
-      lng: { type: Number }
-    },
-    verificationPhoto: { type: String, default: '' },
-
-    // Bottle returns (client preview + driver verification)
-    returnUpcs: { type: [String], default: [] },
-    estimatedReturnCredit: { type: Number, default: 0 }, // dollars (preview)
-    verifiedReturnCredit: { type: Number, default: 0 }, // dollars (driver)
-
-    items: [
-      {
-        productId: { type: String, required: true }, // frontendId
-        quantity: { type: Number, required: true }
-      }
-    ],
-
-    total: { type: Number, required: true }, // dollars, pre-credit
-
-    paymentMethod: { type: String, default: 'STRIPE' },
-
-    /**
-     * PENDING: order created, stock reserved, payment NOT captured yet
-     * PAID: payment captured (after driver verification)
-     * CANCELED: canceled/re-stocked (customer cancel redirect or manual owner cancel)
-     * EXPIRED: session expired or payment failed (webhook)
-     */
-    status: { type: String, default: 'PENDING' },
-
-    // Stripe references + amounts (cents)
-    stripeSessionId: { type: String },
-    stripePaymentIntentId: { type: String },
-    authorizedAt: { type: Date },
-    amountAuthorizedCents: { type: Number, default: 0 },
-    capturedAt: { type: Date },
-    amountCapturedCents: { type: Number, default: 0 },
-
-    // Lifecycle timestamps
-    inventoryReleasedAt: { type: Date }, // set when we restock (idempotency gate)
-    canceledAt: { type: Date },
-    expiredAt: { type: Date },
-    cancelReason: { type: String, default: '' },
-
-    paidAt: { type: Date },
-    deliveredAt: { type: Date }
-  },
-  { timestamps: true }
-);
-
-const Order = mongoose.model('Order', orderSchema);
 
 /* =========================
    STRIPE WEBHOOK (RAW BODY)
