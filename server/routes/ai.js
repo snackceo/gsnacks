@@ -11,7 +11,7 @@ router.get('/health', (req, res) => {
 });
 
 router.post('/inventory-audit', async (req, res) => {
-  const { inventory, orders, model } = req.body ?? {};
+  const { inventory, orders } = req.body ?? {};
 
   if (!inventory || !orders) {
     return res
@@ -30,7 +30,7 @@ router.post('/inventory-audit', async (req, res) => {
     const prompt = `Perform Logistics Audit:
 Inventory: ${JSON.stringify(inventory)}
 Orders: ${JSON.stringify(orders)}`;
-    const modelName = typeof model === 'string' && model.trim() ? model.trim() : 'gemini-3-flash';
+    const modelName = 'gemini-3-flash';
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
         modelName
