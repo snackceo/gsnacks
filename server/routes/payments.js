@@ -35,6 +35,29 @@ const applyDeliveryFeeDiscount = (deliveryFee, discountPercent) => {
   };
 };
 
+const RETURN_PROCESSING_FEE_PERCENT = Math.max(
+  0,
+  Math.min(100, Number(process.env.RETURN_PROCESSING_FEE_PERCENT ?? 20))
+);
+
+const applyReturnProcessingFee = (grossCredit, { waive } = {}) => {
+  const grossCents = Math.max(0, Math.round(Number(grossCredit || 0) * 100));
+  if (waive) {
+    return {
+      gross: grossCents / 100,
+      net: grossCents / 100
+    };
+  }
+  const netCents = Math.max(
+    0,
+    Math.round(grossCents * (1 - RETURN_PROCESSING_FEE_PERCENT / 100))
+  );
+  return {
+    gross: grossCents / 100,
+    net: netCents / 100
+  };
+};
+
 const createPaymentsRouter = ({ stripe }) => {
   const router = express.Router();
 
@@ -95,6 +118,10 @@ const createPaymentsRouter = ({ stripe }) => {
 
       const dailyCap = Number(process.env.DAILY_RETURN_CAP || 25); // dollars
       const computedEstimatedCredit = Math.min(estimatedCreditFromUpcs, dailyCap);
+      const isReturnProcessingFeeWaived = true; // returns applied to current order at checkout
+      const estimatedCredit = applyReturnProcessingFee(computedEstimatedCredit, {
+        waive: isReturnProcessingFeeWaived
+      });
 
       const items = normalizeCart(rawItems);
       if (!Array.isArray(items) || items.length === 0) {
@@ -167,7 +194,9 @@ const createPaymentsRouter = ({ stripe }) => {
               creditApplied: 0,
 
               returnUpcs: eligibleUpcs,
-              estimatedReturnCredit: computedEstimatedCredit,
+              estimatedReturnCreditGross: estimatedCredit.gross,
+              estimatedReturnCredit: estimatedCredit.net,
+              verifiedReturnCreditGross: 0,
               verifiedReturnCredit: 0,
 
               paymentMethod: gateway === 'GPAY' ? 'GOOGLE_PAY' : 'STRIPE',
@@ -408,17 +437,23 @@ const createPaymentsRouter = ({ stripe }) => {
       const uniqueVerifiedReturnUpcs = [...new Set(verifiedReturnUpcs)];
 
       let verifiedReturnCredit = 0;
+      let verifiedReturnCreditGross = 0;
       if (uniqueVerifiedReturnUpcs.length > 0) {
         const upcEntries = await UpcItem.find({
           upc: { $in: uniqueVerifiedReturnUpcs },
           isEligible: true
         }).lean();
 
-        verifiedReturnCredit = upcEntries.reduce(
+        verifiedReturnCreditGross = upcEntries.reduce(
           (sum, entry) => sum + Number(entry?.depositValue || 0),
           0
         );
       }
+      const isReturnProcessingFeeWaived = true; // returns applied to current order at capture
+      const verifiedCredit = applyReturnProcessingFee(verifiedReturnCreditGross, {
+        waive: isReturnProcessingFeeWaived
+      });
+      verifiedReturnCredit = verifiedCredit.net;
 
       let updatedOrderDoc = null;
 
@@ -464,6 +499,7 @@ const createPaymentsRouter = ({ stripe }) => {
           order.capturedAt = new Date();
           order.amountCapturedCents = 0;
           order.verifiedReturnCredit = verifiedReturnCredit;
+          order.verifiedReturnCreditGross = verifiedCredit.gross;
           order.verifiedReturnUpcs = uniqueVerifiedReturnUpcs;
 
           await order.save({ session: sessionDb });
@@ -480,6 +516,7 @@ const createPaymentsRouter = ({ stripe }) => {
         order.capturedAt = new Date();
         order.amountCapturedCents = Number(captured?.amount_received || finalCaptureCents);
         order.verifiedReturnCredit = verifiedReturnCredit;
+        order.verifiedReturnCreditGross = verifiedCredit.gross;
         order.verifiedReturnUpcs = uniqueVerifiedReturnUpcs;
 
         await order.save({ session: sessionDb });
