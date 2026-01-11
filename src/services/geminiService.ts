@@ -140,5 +140,38 @@ export const getAdvancedInventoryInsights = async (
   }
 };
 
+export type AuditModelResponse = {
+  models: string[];
+  defaultModel?: string;
+};
+
+export const getAvailableAuditModels = async (): Promise<AuditModelResponse> => {
+  const backendUrl = getBackendUrl();
+
+  try {
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/ai/models`,
+      {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+      },
+      10000
+    );
+
+    if (!response.ok) {
+      return { models: [] };
+    }
+
+    const data = await response.json();
+    return {
+      models: Array.isArray(data?.models) ? data.models.filter(Boolean) : [],
+      defaultModel: typeof data?.defaultModel === 'string' ? data.defaultModel : undefined
+    };
+  } catch {
+    return { models: [] };
+  }
+};
+
 // Preserve existing import name used elsewhere
 export const getInventoryInsights = getAdvancedInventoryInsights;

@@ -44,7 +44,7 @@ import {
   Tooltip,
   ResponsiveContainer
 } from 'recharts';
-import { getAdvancedInventoryInsights } from '../services/geminiService';
+import { getAdvancedInventoryInsights, getAvailableAuditModels } from '../services/geminiService';
 
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -146,13 +146,42 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [isAuditLogsLoading, setIsAuditLogsLoading] = useState(false);
   const [auditLogsError, setAuditLogsError] = useState<string | null>(null);
-  const [auditModel, setAuditModel] = useState('gemini-3-flash');
+  const [auditModel, setAuditModel] = useState('');
+  const [auditModels, setAuditModels] = useState<string[]>([]);
+  const [isAuditModelsLoading, setIsAuditModelsLoading] = useState(false);
+  const [auditModelsError, setAuditModelsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!settingsDirty) {
       setSettingsDraft(settings);
     }
   }, [settings, settingsDirty]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadModels = async () => {
+      setIsAuditModelsLoading(true);
+      setAuditModelsError(null);
+      const data = await getAvailableAuditModels();
+      if (!isMounted) return;
+      const models = data.models || [];
+      setAuditModels(models);
+      if (models.length) {
+        const preferred = data.defaultModel && models.includes(data.defaultModel)
+          ? data.defaultModel
+          : models[0];
+        setAuditModel(current => (current && models.includes(current) ? current : preferred));
+      } else {
+        setAuditModelsError('No AI models available.');
+      }
+      setIsAuditModelsLoading(false);
+    };
+
+    loadModels();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Inventory create form
   const [isCreating, setIsCreating] = useState(false);
@@ -939,6 +968,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   };
 
   const runAudit = async () => {
+    if (!auditModel) {
+      setAiInsights('No AI model configured for audit.');
+      return;
+    }
     setIsAuditing(true);
     try {
       const report = await getAdvancedInventoryInsights(
@@ -1143,15 +1176,29 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   <select
                     value={auditModel}
                     onChange={event => setAuditModel(event.target.value)}
-                    className="min-w-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white"
+                    disabled={isAuditModelsLoading || auditModels.length === 0}
+                    className="min-w-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-60"
                   >
-                    <option value="gemini-3-flash">gemini-3-flash</option>
-                    <option value="gemini-3-pro">gemini-3-pro</option>
+                    {auditModels.length === 0 && (
+                      <option value="" disabled>
+                        {isAuditModelsLoading ? 'Loading models...' : 'No models'}
+                      </option>
+                    )}
+                    {auditModels.map(model => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
                   </select>
+                  {auditModelsError && (
+                    <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-amber-400">
+                      {auditModelsError}
+                    </span>
+                  )}
                 </div>
                 <button
                   onClick={runAudit}
-                  disabled={isAuditing}
+                  disabled={isAuditing || !auditModel}
                   className="px-8 py-5 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all flex items-center gap-3"
                 >
                   {isAuditing ? (
