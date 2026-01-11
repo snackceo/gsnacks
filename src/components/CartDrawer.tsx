@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ShoppingBag, X, Trash2, Loader2, Zap, Landmark, Camera, Plus, ScanLine } from 'lucide-react';
 import { Product } from '../types';
 
@@ -162,7 +163,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     setIsScanning(false);
 
     if (scanLoopRef.current) {
-      window.clearInterval(scanLoopRef.current);
+      window.clearTimeout(scanLoopRef.current);
       scanLoopRef.current = null;
     }
 
@@ -198,8 +199,11 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   useEffect(() => {
     if (!scannerOpen) return;
 
+    let cancelled = false;
+
     const start = async () => {
       setScannerError(null);
+      await stopScanner();
 
       // BarcodeDetector is the cleanest mobile-first approach
       const hasBarcodeDetector = typeof (window as any).BarcodeDetector !== 'undefined';
@@ -220,30 +224,40 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
           await videoRef.current.play();
         }
 
-        setIsScanning(true);
+        if (cancelled) return;
 
         const detector = new (window as any).BarcodeDetector({
           formats: ['upc_a', 'ean_13', 'ean_8', 'upc_e']
         });
 
-        // Scan loop
-        scanLoopRef.current = window.setInterval(async () => {
+        setIsScanning(true);
+
+        const scanTick = async () => {
+          if (!scannerOpen || cancelled) return;
+          if (!videoRef.current || videoRef.current.readyState < 2) {
+            scanLoopRef.current = window.setTimeout(scanTick, 250);
+            return;
+          }
+
           try {
-            if (!videoRef.current) return;
             const barcodes = await detector.detect(videoRef.current);
-            if (!Array.isArray(barcodes) || barcodes.length === 0) return;
+            if (Array.isArray(barcodes) && barcodes.length > 0) {
+              const rawValue = barcodes[0]?.rawValue;
+              if (rawValue) {
+                addUpc(rawValue);
 
-            const rawValue = barcodes[0]?.rawValue;
-            if (rawValue) {
-              addUpc(rawValue);
-
-              // Soft throttle so it doesn't spam the same UPC
-              await new Promise(r => setTimeout(r, 900));
+                // Soft throttle so it doesn't spam the same UPC
+                await new Promise(r => setTimeout(r, 900));
+              }
             }
           } catch {
             // ignore detection errors; keep scanning
           }
-        }, 250);
+
+          scanLoopRef.current = window.setTimeout(scanTick, 250);
+        };
+
+        scanTick();
       } catch (e: any) {
         setScannerError(e?.message || 'Camera permission denied or unavailable.');
       }
@@ -252,6 +266,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     start();
 
     return () => {
+      cancelled = true;
       stopScanner();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -274,6 +289,72 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   // ----------------------------
   // Render
   // ----------------------------
+  const scannerModal = scannerOpen && typeof document !== 'undefined'
+    ? createPortal(
+      <div className="fixed inset-0 z-[12000] flex items-center justify-center p-6">
+        <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={closeScanner} />
+        <div className="relative w-full max-w-lg bg-ninpo-black border border-white/10 rounded-[2.5rem] p-6 shadow-2xl">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-white font-black uppercase tracking-widest text-sm">
+                Bottle UPC Scanner
+              </p>
+              <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
+                Point camera at barcode. Auto-adds detected UPCs.
+              </p>
+            </div>
+            <button
+              onClick={closeScanner}
+              className="p-3 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="mt-5 rounded-3xl overflow-hidden border border-white/10 bg-black/40 aspect-video flex items-center justify-center relative">
+            {/* Camera feed (if supported) */}
+            <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+            {isScanning && <span className="scanning-line" />}
+            {!isScanning && (
+              <div className="absolute text-center px-8">
+                <Camera className="w-8 h-8 text-slate-600 mx-auto mb-3" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  {scannerError
+                    ? 'Scanner unavailable'
+                    : 'Initializing camera...'}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 flex items-center justify-between">
+            <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+              Scanned: <span className="text-white">{returnUpcs.length}</span>
+            </div>
+
+            <button
+              onClick={closeScanner}
+              className="px-5 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+            >
+              <ScanLine className="w-4 h-4" /> Done
+            </button>
+          </div>
+
+          {scannerError && (
+            <div className="mt-4 text-[11px] text-ninpo-red bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4">
+              {scannerError}
+            </div>
+          )}
+
+          <p className="mt-4 text-[10px] text-slate-600 font-bold uppercase tracking-widest">
+            Tip: If scanning fails, close this and use manual UPC entry in cart.
+          </p>
+        </div>
+      </div>,
+      document.body
+    )
+    : null;
+
   return (
     <div
       className={`fixed inset-0 z-[9999] transition ${
@@ -535,68 +616,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
         </div>
       </div>
 
-      {/* Scanner Modal */}
-      {scannerOpen && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-6">
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={closeScanner} />
-          <div className="relative w-full max-w-lg bg-ninpo-black border border-white/10 rounded-[2.5rem] p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-white font-black uppercase tracking-widest text-sm">
-                  Bottle UPC Scanner
-                </p>
-                <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
-                  Point camera at barcode. Auto-adds detected UPCs.
-                </p>
-              </div>
-              <button
-                onClick={closeScanner}
-                className="p-3 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="mt-5 rounded-3xl overflow-hidden border border-white/10 bg-black/40 aspect-video flex items-center justify-center">
-              {/* Camera feed (if supported) */}
-              <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
-              {!isScanning && (
-                <div className="absolute text-center px-8">
-                  <Camera className="w-8 h-8 text-slate-600 mx-auto mb-3" />
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                    {scannerError
-                      ? 'Scanner unavailable'
-                      : 'Initializing camera...'}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-5 flex items-center justify-between">
-              <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                Scanned: <span className="text-white">{returnUpcs.length}</span>
-              </div>
-
-              <button
-                onClick={closeScanner}
-                className="px-5 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
-              >
-                <ScanLine className="w-4 h-4" /> Done
-              </button>
-            </div>
-
-            {scannerError && (
-              <div className="mt-4 text-[11px] text-ninpo-red bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4">
-                {scannerError}
-              </div>
-            )}
-
-            <p className="mt-4 text-[10px] text-slate-600 font-bold uppercase tracking-widest">
-              Tip: If scanning fails, close this and use manual UPC entry in cart.
-            </p>
-          </div>
-        </div>
-      )}
+      {scannerModal}
     </div>
   );
 };

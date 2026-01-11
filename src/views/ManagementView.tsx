@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
   Product,
@@ -29,7 +29,8 @@ import {
   RefreshCw,
   UserCheck,
   XCircle,
-  ScanLine
+  ScanLine,
+  Camera
 } from 'lucide-react';
 import {
   LineChart,
@@ -124,6 +125,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [isUpcLoading, setIsUpcLoading] = useState(false);
   const [isUpcSaving, setIsUpcSaving] = useState(false);
   const [upcError, setUpcError] = useState<string | null>(null);
+  const [upcScannerOpen, setUpcScannerOpen] = useState(false);
+  const [upcScannerError, setUpcScannerError] = useState<string | null>(null);
+  const [isUpcScanning, setIsUpcScanning] = useState(false);
+
+  const upcVideoRef = useRef<HTMLVideoElement | null>(null);
+  const upcStreamRef = useRef<MediaStream | null>(null);
+  const upcScanLoopRef = useRef<number | null>(null);
+  const upcLastScannedRef = useRef<string>('');
 
   const chartData = useMemo(() => {
     return (orders || [])
@@ -311,6 +320,138 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       apiLoadUpcItems();
     }
   }, [activeModule, upcItems.length, isUpcLoading]);
+
+  useEffect(() => {
+    if (activeModule !== 'upc') {
+      closeUpcScanner();
+    }
+  }, [activeModule]);
+
+  const stopUpcScanner = async () => {
+    setIsUpcScanning(false);
+
+    if (upcScanLoopRef.current) {
+      window.clearTimeout(upcScanLoopRef.current);
+      upcScanLoopRef.current = null;
+    }
+
+    if (upcStreamRef.current) {
+      try {
+        upcStreamRef.current.getTracks().forEach(t => t.stop());
+      } catch {
+        // ignore
+      }
+      upcStreamRef.current = null;
+    }
+
+    if (upcVideoRef.current) {
+      try {
+        (upcVideoRef.current as any).srcObject = null;
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const closeUpcScanner = async () => {
+    await stopUpcScanner();
+    setUpcScannerOpen(false);
+    setUpcScannerError(null);
+  };
+
+  const openUpcScanner = async () => {
+    setUpcScannerError(null);
+    upcLastScannedRef.current = '';
+    setUpcScannerOpen(true);
+  };
+
+  useEffect(() => {
+    if (!upcScannerOpen) return;
+
+    let cancelled = false;
+
+    const start = async () => {
+      setUpcScannerError(null);
+      await stopUpcScanner();
+
+      const hasBarcodeDetector = typeof (window as any).BarcodeDetector !== 'undefined';
+      if (!hasBarcodeDetector) {
+        setUpcScannerError('Scanner not supported on this device/browser.');
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false
+        });
+
+        upcStreamRef.current = stream;
+        if (upcVideoRef.current) {
+          (upcVideoRef.current as any).srcObject = stream;
+          await upcVideoRef.current.play();
+        }
+
+        if (cancelled) return;
+
+        const detector = new (window as any).BarcodeDetector({
+          formats: ['upc_a', 'ean_13', 'ean_8', 'upc_e']
+        });
+
+        setIsUpcScanning(true);
+
+        const scanTick = async () => {
+          if (!upcScannerOpen || cancelled) return;
+          if (!upcVideoRef.current || upcVideoRef.current.readyState < 2) {
+            upcScanLoopRef.current = window.setTimeout(scanTick, 250);
+            return;
+          }
+
+          try {
+            const barcodes = await detector.detect(upcVideoRef.current);
+            if (Array.isArray(barcodes) && barcodes.length > 0) {
+              const rawValue = String(barcodes[0]?.rawValue || '').trim();
+              if (rawValue && rawValue !== upcLastScannedRef.current) {
+                upcLastScannedRef.current = rawValue;
+                setUpcInput(rawValue);
+                setUpcError(null);
+
+                const existing = upcItems.find(item => item.upc === rawValue);
+                if (existing) {
+                  loadUpcDraft(existing);
+                } else {
+                  setUpcDraft({
+                    upc: rawValue,
+                    name: '',
+                    depositValue: settings.michiganDepositValue || 0.1,
+                    isGlass: false,
+                    isEligible: true
+                  });
+                }
+
+                await new Promise(r => setTimeout(r, 900));
+              }
+            }
+          } catch {
+            // ignore detection errors; keep scanning
+          }
+
+          upcScanLoopRef.current = window.setTimeout(scanTick, 250);
+        };
+
+        scanTick();
+      } catch (e: any) {
+        setUpcScannerError(e?.message || 'Camera permission denied or unavailable.');
+      }
+    };
+
+    start();
+
+    return () => {
+      cancelled = true;
+      stopUpcScanner();
+    };
+  }, [upcScannerOpen, settings.michiganDepositValue, upcItems]);
 
   // ---- Inventory API ----
   const apiCreateProduct = async () => {
@@ -1003,6 +1144,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   onChange={e => setUpcInput(e.target.value)}
                 />
                 <button
+                  onClick={openUpcScanner}
+                  className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                >
+                  <ScanLine className="w-4 h-4" /> Scan
+                </button>
+                <button
                   onClick={handleUpcLookup}
                   className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
                 >
@@ -1023,6 +1170,61 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   Delete
                 </button>
               </div>
+
+              {upcScannerOpen && (
+                <div className="fixed inset-0 z-[14000] flex items-center justify-center p-6">
+                  <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={closeUpcScanner} />
+                  <div className="relative w-full max-w-lg bg-ninpo-black border border-white/10 rounded-[2.5rem] p-6 shadow-2xl">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-white font-black uppercase tracking-widest text-sm">
+                          UPC Scanner
+                        </p>
+                        <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
+                          Point the camera at the barcode to populate the whitelist form.
+                        </p>
+                      </div>
+                      <button
+                        onClick={closeUpcScanner}
+                        className="p-3 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"
+                      >
+                        <XCircle className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="mt-5 rounded-3xl overflow-hidden border border-white/10 bg-black/40 aspect-video flex items-center justify-center relative">
+                      <video ref={upcVideoRef} className="w-full h-full object-cover" playsInline muted />
+                      {isUpcScanning && <span className="scanning-line" />}
+                      {!isUpcScanning && (
+                        <div className="absolute text-center px-8">
+                          <Camera className="w-8 h-8 text-slate-600 mx-auto mb-3" />
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                            {upcScannerError ? 'Scanner unavailable' : 'Initializing camera...'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-5 flex items-center justify-between">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                        Latest: <span className="text-white">{upcInput || '—'}</span>
+                      </div>
+                      <button
+                        onClick={closeUpcScanner}
+                        className="px-5 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                      >
+                        <ScanLine className="w-4 h-4" /> Done
+                      </button>
+                    </div>
+
+                    {upcScannerError && (
+                      <div className="mt-4 text-[11px] text-ninpo-red bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4">
+                        {upcScannerError}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input
