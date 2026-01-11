@@ -26,6 +26,7 @@ const runtimeBackendUrl = () => {
 };
 
 const BACKEND_URL = runtimeBackendUrl();
+const allowPlatinumTier = (import.meta as any).env?.VITE_ALLOW_PLATINUM_TIER === 'true';
 
 type Toast = { id: string; message: string; type: 'info' | 'success' | 'warning' };
 
@@ -44,7 +45,8 @@ export const useNinpoCore = () => {
     processingFeePercent: 0.05,
     glassHandlingFeePercent: 0.02,
     dailyReturnLimit: 25.0,
-    maintenanceMode: false
+    maintenanceMode: false,
+    allowPlatinumTier
   });
 
   const [products, setProducts] = useState<Product[]>([]);
