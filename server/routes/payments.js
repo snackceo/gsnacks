@@ -181,9 +181,23 @@ const createPaymentsRouter = ({ stripe }) => {
       const orderId = String(req.body?.orderId || '').trim();
       if (!orderId) return res.status(400).json({ error: 'orderId is required' });
 
-      const verifiedReturnCredit = Math.max(0, Number(req.body?.verifiedReturnCredit || 0));
-      if (!Number.isFinite(verifiedReturnCredit)) {
-        return res.status(400).json({ error: 'verifiedReturnCredit must be a number' });
+      const incomingUpcs = Array.isArray(req.body?.verifiedReturnUpcs)
+        ? req.body.verifiedReturnUpcs
+        : [];
+      const verifiedReturnUpcs = incomingUpcs.map(String).map(s => s.trim()).filter(Boolean);
+      const uniqueVerifiedReturnUpcs = [...new Set(verifiedReturnUpcs)];
+
+      let verifiedReturnCredit = 0;
+      if (uniqueVerifiedReturnUpcs.length > 0) {
+        const upcEntries = await UpcItem.find({
+          upc: { $in: uniqueVerifiedReturnUpcs },
+          isEligible: true
+        }).lean();
+
+        verifiedReturnCredit = upcEntries.reduce(
+          (sum, entry) => sum + Number(entry?.depositValue || 0),
+          0
+        );
       }
 
       let updatedOrderDoc = null;
@@ -230,6 +244,7 @@ const createPaymentsRouter = ({ stripe }) => {
           order.capturedAt = new Date();
           order.amountCapturedCents = 0;
           order.verifiedReturnCredit = verifiedReturnCredit;
+          order.verifiedReturnUpcs = uniqueVerifiedReturnUpcs;
 
           await order.save({ session: sessionDb });
           updatedOrderDoc = order;
@@ -245,6 +260,7 @@ const createPaymentsRouter = ({ stripe }) => {
         order.capturedAt = new Date();
         order.amountCapturedCents = Number(captured?.amount_received || finalCaptureCents);
         order.verifiedReturnCredit = verifiedReturnCredit;
+        order.verifiedReturnUpcs = uniqueVerifiedReturnUpcs;
 
         await order.save({ session: sessionDb });
         updatedOrderDoc = order;

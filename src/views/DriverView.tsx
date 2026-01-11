@@ -1,16 +1,20 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Order, OrderStatus } from '../types';
 import {
   Camera,
   CheckCircle2,
   Clock,
   Loader2,
+  Plus,
+  ScanLine,
+  Trash2,
+  X,
   Zap,
   PackageCheck,
   Navigation2,
   UserCheck,
-  XCircle,
-  DollarSign
+  XCircle
 } from 'lucide-react';
 
 const BACKEND_URL =
@@ -33,12 +37,22 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
   const [isNavigating, setIsNavigating] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
 
-  const [verifiedCreditInput, setVerifiedCreditInput] = useState<string>('0');
+  const [verifiedReturnUpcs, setVerifiedReturnUpcs] = useState<string[]>([]);
+  const [manualUpc, setManualUpc] = useState('');
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+
   const [isCapturing, setIsCapturing] = useState(false);
   const [paymentCaptured, setPaymentCaptured] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scannerVideoRef = useRef<HTMLVideoElement | null>(null);
+  const scannerStreamRef = useRef<MediaStream | null>(null);
+  const scanLoopRef = useRef<number | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const eligibilityCacheRef = useRef<Record<string, boolean>>({});
 
   const handleAccept = (orderId: string) => {
     updateOrder(orderId, OrderStatus.ASSIGNED, { driverId: 'OWNER' });
@@ -64,9 +78,10 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
   const startVerification = async (order: Order) => {
     setActiveOrder(order);
     setCapturedPhoto(null);
-
-    const defaultCredit = Number(order.estimatedReturnCredit || 0);
-    setVerifiedCreditInput(String(defaultCredit.toFixed(2)));
+    setVerifiedReturnUpcs(order.verifiedReturnUpcs?.length ? order.verifiedReturnUpcs : order.returnUpcs || []);
+    setManualUpc('');
+    setScannerOpen(false);
+    setScannerError(null);
 
     setPaymentCaptured(order.status === OrderStatus.PAID);
 
@@ -90,11 +105,107 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
     setCapturedPhoto(canvas.toDataURL('image/jpeg'));
   };
 
+  const updateEligibilityCache = (upc: string, isEligible: boolean) => {
+    eligibilityCacheRef.current = { ...eligibilityCacheRef.current, [upc]: isEligible };
+  };
+
+  const playScannerTone = (frequency: number, durationMs: number, gain = 0.2) => {
+    if (typeof window === 'undefined') return;
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+    }
+    const context = audioContextRef.current;
+    if (context.state === 'suspended') {
+      context.resume();
+    }
+    const oscillator = context.createOscillator();
+    const gainNode = context.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = frequency;
+    gainNode.gain.value = gain;
+    oscillator.connect(gainNode);
+    gainNode.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + durationMs / 1000);
+  };
+
+  const addEligibleUpc = (upc: string) => {
+    let didAdd = false;
+    setVerifiedReturnUpcs(prev => {
+      if (prev.includes(upc)) return prev;
+      didAdd = true;
+      return [upc, ...prev];
+    });
+
+    setScannerError(null);
+    setManualUpc('');
+    if (didAdd) {
+      playScannerTone(980, 120, 0.2);
+    }
+  };
+
+  const addUpc = async (upcRaw: string) => {
+    const upc = String(upcRaw || '').replace(/\s+/g, '').trim();
+    if (!upc) return;
+
+    if (!/^\d{8,14}$/.test(upc)) {
+      playScannerTone(220, 240, 0.25);
+      setScannerError('Invalid UPC format. Enter 8–14 digits.');
+      return;
+    }
+
+    const cached = eligibilityCacheRef.current[upc];
+    if (cached !== undefined) {
+      if (!cached) {
+        playScannerTone(220, 240, 0.25);
+        setScannerError('Not eligible for Michigan 10¢ deposit returns');
+        return;
+      }
+
+      addEligibleUpc(upc);
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/upc/eligibility?upc=${encodeURIComponent(upc)}`);
+      if (response.ok) {
+        const data = await response.json();
+        const isEligible = data?.eligible !== false;
+        updateEligibilityCache(upc, isEligible);
+        if (!isEligible) {
+          playScannerTone(220, 240, 0.25);
+          setScannerError('Not eligible for Michigan 10¢ deposit returns');
+          return;
+        }
+        addEligibleUpc(upc);
+        return;
+      }
+
+      if (response.status === 404) {
+        updateEligibilityCache(upc, false);
+        playScannerTone(220, 240, 0.25);
+        setScannerError('Not eligible for Michigan 10¢ deposit returns');
+        return;
+      }
+
+      throw new Error(`Eligibility check failed: ${response.status}`);
+    } catch {
+      playScannerTone(220, 240, 0.25);
+      setScannerError('Unable to validate UPC eligibility. Please try again.');
+    }
+  };
+
+  const removeUpc = (upc: string) => {
+    setVerifiedReturnUpcs(prev => prev.filter(x => x !== upc));
+  };
+
+  const clearUpcs = () => {
+    setVerifiedReturnUpcs([]);
+    setScannerError(null);
+  };
+
   const capturePayment = async () => {
     if (!activeOrder) return;
-
-    const v = Number(verifiedCreditInput);
-    const verifiedReturnCredit = Number.isFinite(v) ? Math.max(0, v) : 0;
 
     setIsCapturing(true);
     try {
@@ -104,7 +215,7 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
         credentials: 'include',
         body: JSON.stringify({
           orderId: activeOrder.id,
-          verifiedReturnCredit
+          verifiedReturnUpcs
         })
       });
 
@@ -113,8 +224,12 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
 
       setPaymentCaptured(true);
 
+      const capturedOrder = data?.order;
+      const verifiedReturnCredit = Number(capturedOrder?.verifiedReturnCredit || 0);
+
       updateOrder(activeOrder.id, OrderStatus.PAID, {
         verifiedReturnCredit,
+        verifiedReturnUpcs: capturedOrder?.verifiedReturnUpcs || verifiedReturnUpcs,
         paidAt: new Date().toISOString()
       });
 
@@ -154,7 +269,10 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
         setIsVerifying(false);
         setActiveOrder(null);
         setCapturedPhoto(null);
-        setVerifiedCreditInput('0');
+        setVerifiedReturnUpcs([]);
+        setManualUpc('');
+        setScannerOpen(false);
+        setScannerError(null);
         setPaymentCaptured(false);
       },
       () => {
@@ -176,6 +294,187 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
       ].includes(o.status)
     );
   }, [orders]);
+
+  const stopScanner = async () => {
+    setIsScanning(false);
+
+    if (scanLoopRef.current) {
+      window.clearTimeout(scanLoopRef.current);
+      scanLoopRef.current = null;
+    }
+
+    if (scannerStreamRef.current) {
+      try {
+        scannerStreamRef.current.getTracks().forEach(t => t.stop());
+      } catch {
+        // ignore
+      }
+      scannerStreamRef.current = null;
+    }
+
+    if (scannerVideoRef.current) {
+      try {
+        (scannerVideoRef.current as any).srcObject = null;
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const closeScanner = async () => {
+    await stopScanner();
+    setScannerOpen(false);
+    setScannerError(null);
+  };
+
+  const openScanner = async () => {
+    setScannerError(null);
+    setScannerOpen(true);
+  };
+
+  useEffect(() => {
+    if (!scannerOpen) return;
+
+    let cancelled = false;
+
+    const start = async () => {
+      setScannerError(null);
+      await stopScanner();
+
+      const hasBarcodeDetector = typeof (window as any).BarcodeDetector !== 'undefined';
+      if (!hasBarcodeDetector) {
+        setScannerError('Scanner not supported on this device/browser. Use manual UPC entry below.');
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false
+        });
+
+        scannerStreamRef.current = stream;
+        if (scannerVideoRef.current) {
+          (scannerVideoRef.current as any).srcObject = stream;
+          await scannerVideoRef.current.play();
+        }
+
+        if (cancelled) return;
+
+        const detector = new (window as any).BarcodeDetector({
+          formats: ['upc_a', 'ean_13', 'ean_8', 'upc_e']
+        });
+
+        setIsScanning(true);
+
+        const scanTick = async () => {
+          if (!scannerOpen || cancelled) return;
+          if (!scannerVideoRef.current || scannerVideoRef.current.readyState < 2) {
+            scanLoopRef.current = window.setTimeout(scanTick, 250);
+            return;
+          }
+
+          try {
+            const barcodes = await detector.detect(scannerVideoRef.current);
+            if (Array.isArray(barcodes) && barcodes.length > 0) {
+              const rawValue = barcodes[0]?.rawValue;
+              if (rawValue) {
+                addUpc(rawValue);
+                await new Promise(r => setTimeout(r, 900));
+              }
+            }
+          } catch {
+            // ignore detection errors; keep scanning
+          }
+
+          scanLoopRef.current = window.setTimeout(scanTick, 250);
+        };
+
+        scanTick();
+      } catch (e: any) {
+        setScannerError(e?.message || 'Camera permission denied or unavailable.');
+      }
+    };
+
+    start();
+
+    return () => {
+      cancelled = true;
+      stopScanner();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scannerOpen]);
+
+  useEffect(() => {
+    if (!activeOrder) {
+      closeScanner();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrder]);
+
+  const scannerModal =
+    scannerOpen && typeof document !== 'undefined'
+      ? createPortal(
+          <div className="fixed inset-0 z-[12000] flex items-center justify-center p-6">
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={closeScanner} />
+            <div className="relative w-full max-w-lg bg-ninpo-black border border-white/10 rounded-[2.5rem] p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-white font-black uppercase tracking-widest text-sm">
+                    Driver UPC Scanner
+                  </p>
+                  <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
+                    Point camera at barcode. Auto-adds detected UPCs.
+                  </p>
+                </div>
+                <button
+                  onClick={closeScanner}
+                  className="p-3 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="mt-5 rounded-3xl overflow-hidden border border-white/10 bg-black/40 aspect-video flex items-center justify-center relative">
+                <video ref={scannerVideoRef} className="w-full h-full object-cover" playsInline muted />
+                {isScanning && <span className="scanning-line" />}
+                {!isScanning && (
+                  <div className="absolute text-center px-8">
+                    <Camera className="w-8 h-8 text-slate-600 mx-auto mb-3" />
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      {scannerError ? 'Scanner unavailable' : 'Initializing camera...'}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-5 flex items-center justify-between">
+                <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Scanned: <span className="text-white">{verifiedReturnUpcs.length}</span>
+                </div>
+
+                <button
+                  onClick={closeScanner}
+                  className="px-5 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                >
+                  <ScanLine className="w-4 h-4" /> Done
+                </button>
+              </div>
+
+              {scannerError && (
+                <div className="mt-4 text-[11px] text-ninpo-red bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4">
+                  {scannerError}
+                </div>
+              )}
+
+              <p className="mt-4 text-[10px] text-slate-600 font-bold uppercase tracking-widest">
+                Tip: If scanning fails, close this and use manual UPC entry below.
+              </p>
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
 
   return (
     <div className="space-y-10 animate-in fade-in">
@@ -277,46 +576,103 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
               Verification & Delivery
             </h3>
 
-            <div className="bg-black/30 border border-white/10 rounded-2xl p-6 space-y-3 text-xs">
+            <div className="bg-black/30 border border-white/10 rounded-2xl p-6 space-y-5 text-xs">
               <p className="uppercase tracking-widest opacity-60">Order</p>
               <p className="font-black">{activeOrder.id}</p>
 
               <p className="uppercase tracking-widest opacity-60 mt-4">Estimated bottle credit (preview)</p>
               <p className="font-black text-ninpo-lime">{money(activeOrder.estimatedReturnCredit || 0)}</p>
 
-              <p className="uppercase tracking-widest opacity-60 mt-4">Verified bottle credit (driver)</p>
-              <div className="flex items-center gap-3">
-                <div className="flex-1 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
-                  <DollarSign className="w-4 h-4 text-slate-400" />
-                  <input
-                    value={verifiedCreditInput}
-                    onChange={e => setVerifiedCreditInput(e.target.value)}
-                    inputMode="decimal"
-                    className="w-full bg-transparent outline-none text-white font-black text-sm"
-                    placeholder="0.00"
-                  />
-                </div>
+              <div>
+                <p className="uppercase tracking-widest opacity-60">Verified return UPCs (driver)</p>
+                <div className="mt-3 flex flex-col gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                      <input
+                        value={manualUpc}
+                        onChange={e => setManualUpc(e.target.value)}
+                        inputMode="numeric"
+                        className="w-full bg-transparent outline-none text-white font-black text-sm"
+                        placeholder="Enter UPC (8–14 digits)"
+                      />
+                    </div>
+                    <button
+                      onClick={() => addUpc(manualUpc)}
+                      className="px-4 py-3 bg-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" /> Add
+                    </button>
+                    <button
+                      onClick={openScanner}
+                      className="px-4 py-3 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                    >
+                      <ScanLine className="w-4 h-4" /> Scan
+                    </button>
+                  </div>
 
-                <button
-                  onClick={capturePayment}
-                  disabled={isCapturing || paymentCaptured}
-                  className="px-6 py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                  title="Captures (charges) the final amount after verified bottle credit"
-                >
-                  {isCapturing ? (
-                    <span className="flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin" /> Capturing
-                    </span>
-                  ) : paymentCaptured ? (
-                    'Captured'
-                  ) : (
-                    'Capture'
+                  {scannerError && (
+                    <div className="text-[11px] text-ninpo-red bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl px-4 py-3">
+                      {scannerError}
+                    </div>
                   )}
-                </button>
+
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] uppercase tracking-widest text-slate-500">
+                      Verified UPCs: <span className="text-white">{verifiedReturnUpcs.length}</span>
+                    </div>
+                    <button
+                      onClick={clearUpcs}
+                      disabled={verifiedReturnUpcs.length === 0}
+                      className="px-4 py-2 bg-ninpo-red/10 text-ninpo-red rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3 h-3" /> Clear
+                    </button>
+                  </div>
+
+                  {verifiedReturnUpcs.length > 0 ? (
+                    <div className="max-h-40 overflow-y-auto space-y-2 pr-1">
+                      {verifiedReturnUpcs.map(upc => (
+                        <div
+                          key={upc}
+                          className="flex items-center justify-between bg-white/5 border border-white/10 rounded-2xl px-4 py-3"
+                        >
+                          <span className="text-[11px] font-black tracking-widest text-white">{upc}</span>
+                          <button
+                            onClick={() => removeUpc(upc)}
+                            className="text-ninpo-red text-[10px] font-black uppercase tracking-widest"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[10px] uppercase tracking-widest text-slate-500">
+                      No UPCs verified yet.
+                    </div>
+                  )}
+                </div>
               </div>
 
+              <button
+                onClick={capturePayment}
+                disabled={isCapturing || paymentCaptured}
+                className="w-full px-6 py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                title="Captures (charges) the final amount after verified bottle credit"
+              >
+                {isCapturing ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Capturing
+                  </span>
+                ) : paymentCaptured ? (
+                  'Captured'
+                ) : (
+                  'Capture'
+                )}
+              </button>
+
               <p className="mt-2 text-[10px] uppercase tracking-widest opacity-60">
-                Note: final charge = total - verified credit (never increases).
+                Note: final charge = total - verified credit (computed from eligible UPCs).
               </p>
             </div>
 
@@ -375,6 +731,7 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
             )}
           </div>
         )}
+        {scannerModal}
       </div>
     </div>
   );
