@@ -5,6 +5,67 @@ import { authRequired, ownerRequired } from '../utils/helpers.js';
 
 const router = express.Router();
 
+const buildEligibilityPayload = entry => {
+  const payload = {
+    eligible: entry ? entry.isEligible !== false : false,
+    depositValue: entry ? Number(entry.depositValue || 0) : 0
+  };
+
+  if (entry?.name) {
+    payload.name = entry.name;
+  }
+
+  return payload;
+};
+
+const normalizeUpcList = value => {
+  if (!value) return [];
+  const list = Array.isArray(value) ? value : [value];
+  return list
+    .map(item => String(item || '').trim())
+    .filter(Boolean);
+};
+
+router.get('/eligibility', async (req, res) => {
+  try {
+    const upc = String(req.query?.upc || '').trim();
+    if (!upc) return res.status(400).json({ error: 'upc is required' });
+
+    const entry = await UpcItem.findOne({ upc }).lean();
+    res.json(buildEligibilityPayload(entry));
+  } catch (err) {
+    console.error('UPC ELIGIBILITY ERROR:', err);
+    res.status(500).json({ error: 'Failed to check UPC eligibility' });
+  }
+});
+
+router.post('/eligibility', async (req, res) => {
+  try {
+    const body = req.body;
+    const upcs = normalizeUpcList(Array.isArray(body) ? body : body?.upcs);
+
+    if (upcs.length > 0) {
+      const entries = await UpcItem.find({ upc: { $in: upcs } }).lean();
+      const entryMap = new Map(entries.map(entry => [entry.upc, entry]));
+      const results = upcs.map(upc => ({
+        upc,
+        ...buildEligibilityPayload(entryMap.get(upc))
+      }));
+
+      return res.json({ results });
+    }
+
+    const upc = String(body?.upc || '').trim();
+    if (!upc) return res.status(400).json({ error: 'upc is required' });
+
+    const entry = await UpcItem.findOne({ upc }).lean();
+    return res.json(buildEligibilityPayload(entry));
+  } catch (err) {
+    console.error('UPC ELIGIBILITY BULK ERROR:', err);
+    return res.status(500).json({ error: 'Failed to check UPC eligibility' });
+  }
+});
+
 router.get('/eligibility/:upc', async (req, res) => {
   try {
     const upc = String(req.params.upc || '').trim();

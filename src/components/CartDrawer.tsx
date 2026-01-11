@@ -190,10 +190,10 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     }
 
     try {
-      const response = await fetch(`/api/upc/eligibility/${encodeURIComponent(upc)}`);
+      const response = await fetch(`/api/upc/eligibility?upc=${encodeURIComponent(upc)}`);
       if (response.ok) {
         const data = await response.json();
-        const isEligible = data?.isEligible !== false;
+        const isEligible = data?.eligible !== false;
         updateEligibilityCache(upc, isEligible);
         if (!isEligible) {
           playScannerTone(220, 240, 0.25);
