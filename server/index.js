@@ -764,8 +764,8 @@ app.post('/api/payments/create-session', async (req, res) => {
         capture_method: 'manual'
       },
       metadata: { orderId },
-      success_url: `${frontendUrl}/success`,
-      cancel_url: `${frontendUrl}/cancel`
+      success_url: `${frontendUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${frontendUrl}/cancel?session_id={CHECKOUT_SESSION_ID}`
     });
 
     await Order.findOneAndUpdate({ orderId }, { stripeSessionId: stripeSession.id });
