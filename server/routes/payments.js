@@ -250,6 +250,7 @@ const createPaymentsRouter = ({ stripe }) => {
 
       const orderId = crypto.randomUUID();
       let totalCents = 0;
+      let productSubtotalCents = 0;
 
       await sessionDb.withTransaction(async () => {
         for (const item of items) {
@@ -275,18 +276,24 @@ const createPaymentsRouter = ({ stripe }) => {
           }
 
           const unit = Math.round(Number(updated.price) * 100);
-          totalCents += unit * item.quantity;
+          const lineTotal = unit * item.quantity;
+          totalCents += lineTotal;
+          productSubtotalCents += lineTotal;
         }
 
         if (deliveryFeeFinalCents > 0) {
           totalCents += deliveryFeeFinalCents;
         }
 
+        const tier = String(user?.membershipTier || 'BRONZE').toUpperCase();
+        const eligibleCreditCents = ['GOLD', 'PLATINUM'].includes(tier)
+          ? totalCents
+          : productSubtotalCents;
         const availableCreditsCents = Math.max(
           0,
           Math.round(Number(user.creditBalance || 0) * 100)
         );
-        const creditAppliedCents = Math.min(availableCreditsCents, totalCents);
+        const creditAppliedCents = Math.min(availableCreditsCents, eligibleCreditCents);
         const remainingCents = Math.max(0, totalCents - creditAppliedCents);
 
         const creditApplied = creditAppliedCents / 100;
