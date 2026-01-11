@@ -1,7 +1,13 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 
+const isClientGeminiEnabled = () => {
+  const env = (import.meta as any).env || {};
+  return Boolean(env.DEV || env.VITE_ENABLE_CLIENT_GEMINI === "true");
+};
+
 const getApiKey = () => {
+  if (!isClientGeminiEnabled()) return "";
   return (import.meta as any).env?.VITE_API_KEY || "";
 };
 
@@ -74,9 +80,27 @@ export const analyzeBottleScan = async (base64Data: string) => {
 };
 
 export const getAdvancedInventoryInsights = async (inventory: any[], orders: any[]) => {
+  try {
+    const response = await fetchWithTimeout(`${getBackendUrl()}/api/ai/inventory-audit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inventory, orders })
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return data?.insights || "";
+    }
+  } catch (err) {
+    console.warn("Backend AI Proxy unresponsive. Falling back to local key if available.");
+  }
+
+  if (!isClientGeminiEnabled()) {
+    return "Audit transmission interrupted.";
+  }
+
   const apiKey = getApiKey();
   if (!apiKey) return "Strategic engine offline: No Auth Key found.";
-  
+
   const ai = new GoogleGenAI({ apiKey });
 
   try {
