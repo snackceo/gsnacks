@@ -106,7 +106,7 @@ export const getAdvancedInventoryInsights = async (
 
   try {
     const response = await fetchWithTimeout(
-      `${backendUrl}/api/ai/inventory-insights`,
+      `${backendUrl}/api/ai/inventory-audit`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
