@@ -149,6 +149,24 @@ function normalizeUpcCounts(rawUpcs) {
   };
 }
 
+function sumReturnCredits(upcCounts, upcEntries) {
+  const countMap = new Map();
+  if (Array.isArray(upcCounts)) {
+    for (const entry of upcCounts) {
+      const upc = String(entry?.upc || '').trim();
+      const qty = Math.floor(Number(entry?.quantity || 0));
+      if (!upc || !Number.isFinite(qty) || qty <= 0) continue;
+      countMap.set(upc, (countMap.get(upc) || 0) + qty);
+    }
+  }
+
+  return (upcEntries || []).reduce((sum, entry) => {
+    if (!entry?.isEligible) return sum;
+    const count = countMap.get(entry?.upc) || 0;
+    return sum + Number(entry?.depositValue || 0) * count;
+  }, 0);
+}
+
 function buildReturnCountUpdates(order) {
   const updates = {};
   if (
@@ -272,5 +290,6 @@ export {
   ownerRequired,
   restockOrderItems,
   setAuthCookie,
+  sumReturnCredits,
   voidStripeAuthorizationBestEffort
 };

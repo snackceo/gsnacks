@@ -12,6 +12,7 @@ import {
   isOwnerUsername,
   mapOrderForFrontend,
   normalizeUpcCounts,
+  sumReturnCredits,
   ownerRequired,
   restockOrderItems,
   voidStripeAuthorizationBestEffort
@@ -405,9 +406,6 @@ const createOrdersRouter = ({ stripe }) => {
               [];
             const normalized = normalizeUpcCounts(verifiedPayload);
             const uniqueReturnUpcs = normalized.uniqueUpcs;
-            const countMap = new Map(
-              normalized.upcCounts.map(entry => [entry.upc, entry.quantity])
-            );
             let verifiedReturnCreditGross = 0;
             if (uniqueReturnUpcs.length > 0) {
               const upcEntries = await UpcItem.find({
@@ -417,10 +415,7 @@ const createOrdersRouter = ({ stripe }) => {
                 .session(sessionDb)
                 .lean();
 
-              verifiedReturnCreditGross = upcEntries.reduce((sum, entry) => {
-                const count = countMap.get(entry?.upc) || 0;
-                return sum + Number(entry?.depositValue || 0) * count;
-              }, 0);
+              verifiedReturnCreditGross = sumReturnCredits(normalized.upcCounts, upcEntries);
             }
 
             const verifiedCredit = applyReturnProcessingFee(verifiedReturnCreditGross, {
