@@ -83,6 +83,13 @@ export interface ReturnUpcCount {
   quantity: number;
 }
 
+export interface ReturnAiAnalysis {
+  confidence?: number;
+  flags?: string[];
+  summary?: string;
+  assessedAt?: string;
+}
+
 export interface Order {
   id: string;
   customerId: string;
@@ -112,6 +119,8 @@ export interface Order {
   deliveredAt?: string;
   refundRequestedAt?: string;
   verificationPhoto?: string;
+  returnPhoto?: string;
+  returnAiAnalysis?: ReturnAiAnalysis;
   gpsCoords?: { lat: number; lng: number };
 }
 

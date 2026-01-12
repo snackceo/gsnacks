@@ -221,6 +221,7 @@ const createOrdersRouter = ({ stripe }) => {
         'address',
         'gpsCoords',
         'verificationPhoto',
+        'returnPhoto',
         'verifiedReturnCredit',
         'verifiedReturnCreditGross',
         'verifiedReturnUpcs',
@@ -232,6 +233,7 @@ const createOrdersRouter = ({ stripe }) => {
         'driverId',
         'gpsCoords',
         'verificationPhoto',
+        'returnPhoto',
         'verifiedReturnUpcs',
         'verifiedReturnUpcCounts'
       ];
@@ -291,6 +293,8 @@ const createOrdersRouter = ({ stripe }) => {
           if (updates.gpsCoords !== undefined) order.gpsCoords = updates.gpsCoords;
           if (updates.verificationPhoto !== undefined)
             order.verificationPhoto = String(updates.verificationPhoto || '');
+          if (updates.returnPhoto !== undefined)
+            order.returnPhoto = String(updates.returnPhoto || '');
 
           if (updates.verifiedReturnCredit !== undefined) {
             const v = Number(updates.verifiedReturnCredit);
@@ -490,6 +494,9 @@ const createOrdersRouter = ({ stripe }) => {
         if (updates.gpsCoords !== undefined) order.gpsCoords = updates.gpsCoords;
         if (updates.verificationPhoto !== undefined) {
           order.verificationPhoto = String(updates.verificationPhoto || '');
+        }
+        if (updates.returnPhoto !== undefined) {
+          order.returnPhoto = String(updates.returnPhoto || '');
         }
 
         await order.save({ session: sessionDb });
