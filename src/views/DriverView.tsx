@@ -28,6 +28,45 @@ interface DriverViewProps {
   updateOrder: (id: string, status: OrderStatus, metadata?: any) => void;
 }
 
+type ScanEventStatus =
+  | 'detected'
+  | 'cooldown_blocked'
+  | 'invalid_format'
+  | 'ineligible'
+  | 'eligible'
+  | 'duplicate_prompt'
+  | 'added_existing';
+
+type QuantityChangeReason =
+  | 'scan_add'
+  | 'manual_add'
+  | 'scan_confirm'
+  | 'manual_increment'
+  | 'manual_decrement'
+  | 'scan_increment'
+  | 'scan_decrement';
+
+interface ScanEventLogEntry {
+  id: string;
+  upc: string;
+  source: 'scanner' | 'manual';
+  status: ScanEventStatus;
+  recordedAt: string;
+}
+
+interface QuantityChangeLogEntry {
+  id: string;
+  upc: string;
+  delta: number;
+  reason: QuantityChangeReason;
+  recordedAt: string;
+}
+
+interface DuplicateScanPrompt {
+  upc: string;
+  recordedAt: number;
+}
+
 function money(n: any) {
   const v = Number(n);
   if (!Number.isFinite(v)) return '$0.00';
@@ -53,6 +92,11 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [pendingDuplicateScan, setPendingDuplicateScan] = useState<DuplicateScanPrompt | null>(null);
+  const [scanEvents, setScanEvents] = useState<ScanEventLogEntry[]>([]);
+  const [quantityEvents, setQuantityEvents] = useState<QuantityChangeLogEntry[]>([]);
+  const [showScanSummary, setShowScanSummary] = useState(false);
+  const [scanSummaryOpen, setScanSummaryOpen] = useState(false);
 
   const [isCapturing, setIsCapturing] = useState(false);
   const [paymentCaptured, setPaymentCaptured] = useState(false);
@@ -67,7 +111,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const scanLoopRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const eligibilityCacheRef = useRef<Record<string, boolean>>({});
-  const lastScanAtRef = useRef<number>(0);
+  const lastScanRef = useRef<{ upc: string; at: number } | null>(null);
+  const verifiedReturnUpcsRef = useRef<ReturnUpcCount[]>([]);
+  const scanSessionIdRef = useRef<string>('');
+  const scanSessionStartedAtRef = useRef<string>('');
 
   const countUpcs = (entries: ReturnUpcCount[]) =>
     entries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
@@ -137,6 +184,16 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     resetReturnPhotoState();
     const initialEntries = order.verifiedReturnUpcCounts ?? order.returnUpcCounts ?? [];
     setVerifiedReturnUpcs(Array.isArray(initialEntries) ? initialEntries : []);
+    setScanEvents([]);
+    setQuantityEvents([]);
+    setPendingDuplicateScan(null);
+    setShowScanSummary(false);
+    setScanSummaryOpen(false);
+    scanSessionIdRef.current =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `scan-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    scanSessionStartedAtRef.current = new Date().toISOString();
     setManualUpc('');
     setScannerOpen(false);
     setScannerError(null);
@@ -214,7 +271,31 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     oscillator.stop(context.currentTime + durationMs / 1000);
   };
 
-  const addEligibleUpc = (upc: string) => {
+  const logScanEvent = (entry: Omit<ScanEventLogEntry, 'id' | 'recordedAt'>) => {
+    const id =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `scan-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setScanEvents(prev => [
+      ...prev,
+      { id, recordedAt: new Date().toISOString(), ...entry }
+    ]);
+  };
+
+  const logQuantityChange = (
+    entry: Omit<QuantityChangeLogEntry, 'id' | 'recordedAt'>
+  ) => {
+    const id =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `qty-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setQuantityEvents(prev => [
+      ...prev,
+      { id, recordedAt: new Date().toISOString(), ...entry }
+    ]);
+  };
+
+  const addEligibleUpc = (upc: string, reason: QuantityChangeReason = 'scan_add') => {
     let didAdd = false;
     setVerifiedReturnUpcs(prev => {
       if (prev.some(entry => entry.upc === upc)) return prev;
@@ -225,6 +306,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     if (didAdd) {
       setScannerError(null);
       setManualUpc('');
+      logQuantityChange({ upc, delta: 1, reason });
       playScannerTone(980, 120, 0.2);
     } else {
       playScannerTone(220, 240, 0.25);
@@ -232,43 +314,80 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     }
   };
 
-  const incrementUpc = (upc: string) => {
+  const incrementUpc = (upc: string, reason: QuantityChangeReason = 'manual_increment') => {
+    let didIncrement = false;
     setVerifiedReturnUpcs(prev =>
-      prev.map(entry =>
-        entry.upc === upc ? { ...entry, quantity: entry.quantity + 1 } : entry
-      )
+      prev.map(entry => {
+        if (entry.upc !== upc) return entry;
+        didIncrement = true;
+        return { ...entry, quantity: entry.quantity + 1 };
+      })
     );
+    if (didIncrement) {
+      logQuantityChange({ upc, delta: 1, reason });
+    }
   };
 
-  const decrementUpc = (upc: string) => {
+  const decrementUpc = (upc: string, reason: QuantityChangeReason = 'manual_decrement') => {
+    let didDecrement = false;
     setVerifiedReturnUpcs(prev =>
       prev
-        .map(entry =>
-          entry.upc === upc
-            ? { ...entry, quantity: Math.max(0, entry.quantity - 1) }
-            : entry
-        )
+        .map(entry => {
+          if (entry.upc !== upc) return entry;
+          const nextQuantity = Math.max(0, entry.quantity - 1);
+          if (nextQuantity !== entry.quantity) {
+            didDecrement = true;
+          }
+          return { ...entry, quantity: nextQuantity };
+        })
         .filter(entry => entry.quantity > 0)
     );
+    if (didDecrement) {
+      logQuantityChange({ upc, delta: -1, reason });
+    }
   };
 
   const addUpc = async (upcRaw: string, source: 'scanner' | 'manual' = 'manual') => {
     const upc = String(upcRaw || '').replace(/\s+/g, '').trim();
     if (!upc) return;
 
+    if (pendingDuplicateScan && pendingDuplicateScan.upc !== upc) {
+      setPendingDuplicateScan(null);
+    }
+
     if (source === 'scanner') {
       const now = Date.now();
-      if (now - lastScanAtRef.current < 1200) {
-        playScannerTone(220, 240, 0.25);
-        setScannerError('Scan paused. Wait a moment or tap + to increment.');
+      const lastScan = lastScanRef.current;
+      const alreadyVerified = verifiedReturnUpcsRef.current.some(entry => entry.upc === upc);
+      if (
+        alreadyVerified &&
+        lastScan?.upc === upc &&
+        now - lastScan.at < 4000
+      ) {
+        setPendingDuplicateScan({ upc, recordedAt: now });
+        setScannerError(null);
+        playScannerTone(440, 120, 0.2);
+        logScanEvent({ upc, source, status: 'duplicate_prompt' });
+        lastScanRef.current = { upc, at: now };
         return;
       }
-      lastScanAtRef.current = now;
+
+      if (lastScan && now - lastScan.at < 1200) {
+        playScannerTone(220, 240, 0.25);
+        setScannerError('Scan paused. Wait a moment or tap + to increment.');
+        logScanEvent({ upc, source, status: 'cooldown_blocked' });
+        return;
+      }
+      lastScanRef.current = { upc, at: now };
+      logScanEvent({ upc, source, status: 'detected' });
     }
 
     if (!/^\d{8,14}$/.test(upc)) {
       playScannerTone(220, 240, 0.25);
       setScannerError('Invalid UPC format. Enter 8–14 digits.');
+      if (source === 'scanner') {
+        logScanEvent({ upc, source, status: 'invalid_format' });
+      }
       return;
     }
 
@@ -277,10 +396,16 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       if (!cached) {
         playScannerTone(220, 240, 0.25);
         setScannerError('Not eligible for Michigan 10¢ deposit returns');
+        if (source === 'scanner') {
+          logScanEvent({ upc, source, status: 'ineligible' });
+        }
         return;
       }
 
-      addEligibleUpc(upc);
+      addEligibleUpc(upc, source === 'manual' ? 'manual_add' : 'scan_add');
+      if (source === 'scanner') {
+        logScanEvent({ upc, source, status: 'eligible' });
+      }
       return;
     }
 
@@ -295,9 +420,15 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
         if (!isEligible) {
           playScannerTone(220, 240, 0.25);
           setScannerError('Not eligible for Michigan 10¢ deposit returns');
+          if (source === 'scanner') {
+            logScanEvent({ upc, source, status: 'ineligible' });
+          }
           return;
         }
-        addEligibleUpc(upc);
+        addEligibleUpc(upc, source === 'manual' ? 'manual_add' : 'scan_add');
+        if (source === 'scanner') {
+          logScanEvent({ upc, source, status: 'eligible' });
+        }
         return;
       }
 
@@ -305,6 +436,9 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
         updateEligibilityCache(upc, false);
         playScannerTone(220, 240, 0.25);
         setScannerError('Not eligible for Michigan 10¢ deposit returns');
+        if (source === 'scanner') {
+          logScanEvent({ upc, source, status: 'ineligible' });
+        }
         return;
       }
 
@@ -315,6 +449,18 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     }
   };
 
+  const confirmDuplicateScan = () => {
+    if (!pendingDuplicateScan) return;
+    incrementUpc(pendingDuplicateScan.upc, 'scan_confirm');
+    playScannerTone(980, 120, 0.2);
+    logScanEvent({
+      upc: pendingDuplicateScan.upc,
+      source: 'scanner',
+      status: 'added_existing'
+    });
+    setPendingDuplicateScan(null);
+  };
+
   const removeUpc = (upc: string) => {
     setVerifiedReturnUpcs(prev => prev.filter(entry => entry.upc !== upc));
   };
@@ -322,6 +468,35 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const clearUpcs = () => {
     setVerifiedReturnUpcs([]);
     setScannerError(null);
+    setPendingDuplicateScan(null);
+  };
+
+  const sendScanSessionMetadata = async (stage: 'pre_capture' | 'post_capture') => {
+    if (!activeOrder) return;
+    if (scanEvents.length === 0 && quantityEvents.length === 0) return;
+    try {
+      await fetch(`${BACKEND_URL}/api/scan-sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          orderId: activeOrder.id,
+          driverId: currentUser?.username || currentUser?.id || 'DRIVER',
+          sessionId: scanSessionIdRef.current,
+          startedAt: scanSessionStartedAtRef.current,
+          stage,
+          summary: {
+            totalScanEvents: scanEvents.length,
+            totalQuantityChanges: quantityEvents.length,
+            verifiedReturnCount: countUpcs(verifiedReturnUpcs)
+          },
+          scanEvents,
+          quantityEvents
+        })
+      });
+    } catch {
+      // best-effort: ignore if endpoint is unavailable
+    }
   };
 
   const capturePayment = async () => {
@@ -331,6 +506,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setCaptureError(null);
     setIssueExplanation(null);
     setIssueStatus('idle');
+    await sendScanSessionMetadata('pre_capture');
     try {
       const res = await fetch(`${BACKEND_URL}/api/payments/capture`, {
         method: 'POST',
@@ -346,6 +522,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       if (!res.ok) throw new Error(data?.error || 'Capture failed');
 
       setPaymentCaptured(true);
+      await sendScanSessionMetadata('post_capture');
 
       const capturedOrder = data?.order;
       const verifiedReturnCredit = Number(capturedOrder?.verifiedReturnCredit || 0);
@@ -524,6 +701,11 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
           setManualUpc('');
           setScannerOpen(false);
           setScannerError(null);
+          setPendingDuplicateScan(null);
+          setScanEvents([]);
+          setQuantityEvents([]);
+          setShowScanSummary(false);
+          setScanSummaryOpen(false);
           setPaymentCaptured(false);
         } catch (e: any) {
           alert(e?.message || 'Delivery proof upload failed.');
@@ -581,6 +763,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     await stopScanner();
     setScannerOpen(false);
     setScannerError(null);
+    setPendingDuplicateScan(null);
   };
 
   const openScanner = async () => {
@@ -662,6 +845,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   }, [scannerOpen]);
 
   useEffect(() => {
+    verifiedReturnUpcsRef.current = verifiedReturnUpcs;
+  }, [verifiedReturnUpcs]);
+
+  useEffect(() => {
     if (!activeOrder) {
       closeScanner();
     }
@@ -692,6 +879,14 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
         : !capturedPhoto
           ? 'Capture delivery proof first'
           : 'Complete delivery';
+
+  const handleCapturePaymentClick = () => {
+    if (showScanSummary) {
+      setScanSummaryOpen(true);
+      return;
+    }
+    capturePayment();
+  };
 
   const scannerModal =
     scannerOpen && typeof document !== 'undefined'
@@ -745,6 +940,18 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               {scannerError && (
                 <div className="mt-4 text-[11px] text-ninpo-red bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4">
                   {scannerError}
+                </div>
+              )}
+
+              {pendingDuplicateScan && (
+                <div className="mt-4 text-[11px] text-white bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center justify-between gap-4">
+                  <span>Same UPC detected again. Add another?</span>
+                  <button
+                    onClick={confirmDuplicateScan}
+                    className="px-4 py-2 rounded-xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Add another?
+                  </button>
                 </div>
               )}
 
@@ -906,6 +1113,18 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                     </div>
                   )}
 
+                  {pendingDuplicateScan && (
+                    <div className="text-[11px] text-white bg-white/5 border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between gap-4">
+                      <span>Same UPC detected again. Add another?</span>
+                      <button
+                        onClick={confirmDuplicateScan}
+                        className="px-4 py-2 rounded-xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
+                      >
+                        Add another?
+                      </button>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between">
                     <div className="text-[10px] uppercase tracking-widest text-slate-500">
                       Verified UPCs: <span className="text-white">{verifiedReturnCount}</span>
@@ -941,13 +1160,13 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                           </div>
                           <div className="flex items-center gap-2">
                             <button
-                              onClick={() => decrementUpc(entry.upc)}
+                              onClick={() => decrementUpc(entry.upc, 'manual_decrement')}
                               className="text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg bg-white/5 border border-white/10"
                             >
                               -
                             </button>
                             <button
-                              onClick={() => incrementUpc(entry.upc)}
+                              onClick={() => incrementUpc(entry.upc, 'manual_increment')}
                               className="text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg bg-white/5 border border-white/10"
                             >
                               +
@@ -973,7 +1192,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               {!isReturnOnly && (
                 <>
                   <button
-                    onClick={capturePayment}
+                    onClick={handleCapturePaymentClick}
                     disabled={isCapturing || paymentCaptured}
                     className="w-full px-6 py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                     title="Captures (charges) the final amount after verified bottle credit"
@@ -988,6 +1207,16 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                       'Capture'
                     )}
                   </button>
+
+                  <label className="mt-3 flex items-center gap-3 text-[10px] uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      checked={showScanSummary}
+                      onChange={event => setShowScanSummary(event.target.checked)}
+                      className="accent-ninpo-lime"
+                    />
+                    Review scan session before capture
+                  </label>
 
                   <p className="mt-2 text-[10px] uppercase tracking-widest opacity-60">
                     Note: final charge = total - verified credit (computed from eligible UPCs).
@@ -1021,6 +1250,132 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                       )}
                     </div>
                   )}
+
+                  {scanSummaryOpen && typeof document !== 'undefined' &&
+                    createPortal(
+                      <div className="fixed inset-0 z-[12000] flex items-center justify-center p-6">
+                        <div
+                          className="absolute inset-0 bg-black/80 backdrop-blur-md"
+                          onClick={() => setScanSummaryOpen(false)}
+                        />
+                        <div className="relative w-full max-w-2xl bg-ninpo-black border border-white/10 rounded-[2.5rem] p-6 shadow-2xl max-h-[80vh] overflow-hidden flex flex-col">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="text-white font-black uppercase tracking-widest text-sm">
+                                Scan Session Summary
+                              </p>
+                              <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
+                                Review scanned UPCs and quantity adjustments before capture.
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => setScanSummaryOpen(false)}
+                              className="p-3 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <div className="mt-5 grid gap-4 text-[10px] uppercase tracking-widest text-slate-500">
+                            <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-2xl px-4 py-3">
+                              <span>Total scan events</span>
+                              <span className="text-white">{scanEvents.length}</span>
+                            </div>
+                            <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-2xl px-4 py-3">
+                              <span>Quantity adjustments</span>
+                              <span className="text-white">{quantityEvents.length}</span>
+                            </div>
+                            <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-2xl px-4 py-3">
+                              <span>Verified UPC total</span>
+                              <span className="text-white">{verifiedReturnCount}</span>
+                            </div>
+                          </div>
+
+                          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto pr-1">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                Scan events
+                              </p>
+                              <div className="mt-3 space-y-2 max-h-64 overflow-y-auto pr-1">
+                                {scanEvents.length > 0 ? (
+                                  scanEvents.map(event => (
+                                    <div
+                                      key={event.id}
+                                      className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[11px] text-white"
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-black">{event.upc}</span>
+                                        <span className="text-[9px] text-slate-400 uppercase tracking-widest">
+                                          {event.status.replace('_', ' ')}
+                                        </span>
+                                      </div>
+                                      <p className="text-[9px] text-slate-500 uppercase tracking-widest mt-1">
+                                        {event.source} • {new Date(event.recordedAt).toLocaleTimeString()}
+                                      </p>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                                    No scan events recorded.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                Quantity adjustments
+                              </p>
+                              <div className="mt-3 space-y-2 max-h-64 overflow-y-auto pr-1">
+                                {quantityEvents.length > 0 ? (
+                                  quantityEvents.map(event => (
+                                    <div
+                                      key={event.id}
+                                      className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[11px] text-white"
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-black">{event.upc}</span>
+                                        <span className="text-[9px] text-slate-400 uppercase tracking-widest">
+                                          {event.delta > 0 ? '+' : ''}
+                                          {event.delta}
+                                        </span>
+                                      </div>
+                                      <p className="text-[9px] text-slate-500 uppercase tracking-widest mt-1">
+                                        {event.reason.replace('_', ' ')} •{' '}
+                                        {new Date(event.recordedAt).toLocaleTimeString()}
+                                      </p>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                                    No quantity adjustments recorded.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-6 flex items-center justify-between gap-3">
+                            <button
+                              onClick={() => setScanSummaryOpen(false)}
+                              className="px-5 py-3 rounded-2xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                            >
+                              Keep scanning
+                            </button>
+                            <button
+                              onClick={() => {
+                                setScanSummaryOpen(false);
+                                capturePayment();
+                              }}
+                              className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
+                            >
+                              Proceed to capture
+                            </button>
+                          </div>
+                        </div>
+                      </div>,
+                      document.body
+                    )}
                 </>
               )}
               {isReturnOnly && (
