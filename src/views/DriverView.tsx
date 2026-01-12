@@ -68,7 +68,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const lastScanAtRef = useRef<number>(0);
 
   const normalizeUpcCounts = (entries: ReturnUpcCount[] | undefined, fallback: string[]) => {
-    if (Array.isArray(entries) && entries.length > 0) return entries;
+    if (Array.isArray(entries)) return entries;
     const counts = new Map<string, number>();
     fallback.forEach(upc => {
       const clean = String(upc || '').trim();
@@ -77,6 +77,9 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     });
     return Array.from(counts.entries()).map(([upc, quantity]) => ({ upc, quantity }));
   };
+
+  const countUpcs = (entries: ReturnUpcCount[]) =>
+    entries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
 
   const handleAccept = (orderId: string) => {
     const driverId = currentUser?.username || currentUser?.id || 'DRIVER';
@@ -108,21 +111,17 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
   const isReturnOnlyOrder = (order?: Order | null) => {
     if (!order) return false;
-    const countFromEntries =
-      order.returnUpcCounts?.reduce((sum, entry) => sum + entry.quantity, 0) ?? 0;
-    const count = countFromEntries || (order.returnUpcs?.length ?? 0);
+    const count =
+      order.returnUpcCounts !== undefined
+        ? countUpcs(order.returnUpcCounts)
+        : order.returnUpcs?.length ?? 0;
     return (order.items?.length ?? 0) === 0 && count > 0;
   };
 
   const startVerification = async (order: Order) => {
     setActiveOrder(order);
     resetPhotoState();
-    const initialEntries =
-      order.verifiedReturnUpcCounts && order.verifiedReturnUpcCounts.length > 0
-        ? order.verifiedReturnUpcCounts
-        : order.returnUpcCounts && order.returnUpcCounts.length > 0
-          ? order.returnUpcCounts
-          : [];
+    const initialEntries = order.verifiedReturnUpcCounts ?? order.returnUpcCounts;
     const fallbackUpcs = order.verifiedReturnUpcs?.length
       ? order.verifiedReturnUpcs
       : order.returnUpcs || [];

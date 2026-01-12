@@ -105,7 +105,7 @@ const getTierStyles = (tier: string) => {
 };
 
 const normalizeUpcCounts = (entries?: ReturnUpcCount[], fallback?: string[]) => {
-  if (Array.isArray(entries) && entries.length > 0) return entries;
+  if (Array.isArray(entries)) return entries;
   if (!Array.isArray(fallback) || fallback.length === 0) return [];
   const counts = new Map<string, number>();
   fallback.forEach(upc => {
