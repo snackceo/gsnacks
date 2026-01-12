@@ -78,7 +78,10 @@ const CustomerView: React.FC<CustomerViewProps> = ({
       {!showSettings ? (
         <div className="space-y-12">
           {orders.filter(
-            o => o.status !== OrderStatus.DELIVERED && o.status !== OrderStatus.REFUNDED
+            o =>
+              o.status !== OrderStatus.DELIVERED &&
+              o.status !== OrderStatus.REFUNDED &&
+              o.status !== OrderStatus.CLOSED
           ).length > 0 && (
             <div className="space-y-6">
               <h3 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.4em] flex items-center gap-3">
@@ -90,7 +93,8 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                   .filter(
                     o =>
                       o.status !== OrderStatus.DELIVERED &&
-                      o.status !== OrderStatus.REFUNDED
+                      o.status !== OrderStatus.REFUNDED &&
+                      o.status !== OrderStatus.CLOSED
                   )
                   .map(o => (
                     <div
