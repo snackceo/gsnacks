@@ -340,7 +340,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
           const metadata = {
             deliveredAt: new Date().toISOString(),
             gpsCoords: { lat: pos.coords.latitude, lng: pos.coords.longitude },
-            verificationPhoto: proofUrl || undefined
+            verificationPhoto: proofUrl || undefined,
+            ...(isReturnOnlyOrder(activeOrder)
+              ? { verifiedReturnUpcs: verifiedReturnUpcs }
+              : {})
           };
 
           updateOrder(activeOrder.id, OrderStatus.DELIVERED, metadata);

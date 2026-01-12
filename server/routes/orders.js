@@ -2,6 +2,9 @@ import express from 'express';
 import mongoose from 'mongoose';
 
 import Order from '../models/Order.js';
+import UpcItem from '../models/UpcItem.js';
+import User from '../models/User.js';
+import LedgerEntry from '../models/LedgerEntry.js';
 import {
   authRequired,
   isDriverUsername,
@@ -11,6 +14,29 @@ import {
   voidStripeAuthorizationBestEffort
 } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
+
+const RETURN_PROCESSING_FEE_PERCENT = Math.max(
+  0,
+  Math.min(100, Number(process.env.RETURN_PROCESSING_FEE_PERCENT ?? 20))
+);
+
+const applyReturnProcessingFee = (grossCredit, { waive } = {}) => {
+  const grossCents = Math.max(0, Math.round(Number(grossCredit || 0) * 100));
+  if (waive) {
+    return {
+      gross: grossCents / 100,
+      net: grossCents / 100
+    };
+  }
+  const netCents = Math.max(
+    0,
+    Math.round(grossCents * (1 - RETURN_PROCESSING_FEE_PERCENT / 100))
+  );
+  return {
+    gross: grossCents / 100,
+    net: netCents / 100
+  };
+};
 
 const createOrdersRouter = ({ stripe }) => {
   const router = express.Router();
@@ -108,14 +134,26 @@ const createOrdersRouter = ({ stripe }) => {
         'verificationPhoto',
         'verifiedReturnCredit',
         'verifiedReturnCreditGross',
+        'verifiedReturnUpcs',
         'creditApplied'
       ];
-      const driverAllowed = ['status', 'driverId', 'gpsCoords', 'verificationPhoto'];
+      const driverAllowed = [
+        'status',
+        'driverId',
+        'gpsCoords',
+        'verificationPhoto',
+        'verifiedReturnUpcs'
+      ];
 
       const updates = {};
       const allowed = isOwner ? ownerAllowed : driverAllowed;
       for (const k of allowed) {
         if (req.body?.[k] !== undefined) updates[k] = req.body[k];
+      }
+      if (updates.verifiedReturnUpcs !== undefined) {
+        updates.verifiedReturnUpcs = Array.isArray(updates.verifiedReturnUpcs)
+          ? updates.verifiedReturnUpcs.map(String).map(s => s.trim()).filter(Boolean)
+          : [];
       }
 
       const requestedStatus = updates.status ? String(updates.status).trim() : null;
@@ -226,10 +264,15 @@ const createOrdersRouter = ({ stripe }) => {
 
       let updatedOrderDoc = null;
       const driverId = req.user?.username || req.user?.id;
+      let creditedUserId = null;
+      let creditedAmount = 0;
 
       await sessionDb.withTransaction(async () => {
         const order = await Order.findOne({ orderId }).session(sessionDb);
         if (!order) return;
+
+        const isReturnOnly =
+          (order.items?.length ?? 0) === 0 && (order.returnUpcs?.length ?? 0) > 0;
 
         const isAssignedDriver =
           order.driverId &&
@@ -285,6 +328,61 @@ const createOrdersRouter = ({ stripe }) => {
           }
           order.status = 'DELIVERED';
           order.deliveredAt = new Date();
+
+          if (isReturnOnly && !order.returnCreditsAppliedAt) {
+            const incomingReturnUpcs = Array.isArray(updates.verifiedReturnUpcs)
+              ? updates.verifiedReturnUpcs
+              : [];
+            const uniqueReturnUpcs = [...new Set(incomingReturnUpcs)];
+            let verifiedReturnCreditGross = 0;
+            if (uniqueReturnUpcs.length > 0) {
+              const upcEntries = await UpcItem.find({
+                upc: { $in: uniqueReturnUpcs },
+                isEligible: true
+              })
+                .session(sessionDb)
+                .lean();
+
+              verifiedReturnCreditGross = upcEntries.reduce(
+                (sum, entry) => sum + Number(entry?.depositValue || 0),
+                0
+              );
+            }
+
+            const verifiedCredit = applyReturnProcessingFee(verifiedReturnCreditGross, {
+              waive: true
+            });
+
+            order.verifiedReturnUpcs = uniqueReturnUpcs;
+            order.verifiedReturnCreditGross = verifiedCredit.gross;
+            order.verifiedReturnCredit = verifiedCredit.net;
+            order.returnCreditsAppliedAt = new Date();
+
+            if (order.customerId && order.customerId !== 'GUEST' && verifiedCredit.net > 0) {
+              const user = await User.findById(order.customerId).session(sessionDb);
+              if (user) {
+                const previousCredits = Number(user.creditBalance || 0);
+                user.creditBalance = Math.max(0, previousCredits + verifiedCredit.net);
+                await user.save({ session: sessionDb });
+
+                const delta = Number(user.creditBalance || 0) - previousCredits;
+                if (delta) {
+                  await LedgerEntry.create(
+                    [
+                      {
+                        userId: order.customerId,
+                        delta,
+                        reason: `RETURN_ONLY_CREDIT:${order.orderId}`
+                      }
+                    ],
+                    { session: sessionDb }
+                  );
+                  creditedUserId = order.customerId;
+                  creditedAmount = delta;
+                }
+              }
+            }
+          }
         }
 
         if (updates.gpsCoords !== undefined) order.gpsCoords = updates.gpsCoords;
@@ -303,6 +401,13 @@ const createOrdersRouter = ({ stripe }) => {
           type: 'ORDER_UPDATED',
           actorId: req.user?.username || req.user?.id || 'UNKNOWN',
           details: `Order ${orderId} updated to status ${requestedStatus} by driver.`
+        });
+      }
+      if (creditedUserId && creditedAmount) {
+        await recordAuditLog({
+          type: 'CREDIT_ADJUSTED',
+          actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+          details: `Applied $${creditedAmount.toFixed(2)} return credits for order ${orderId}.`
         });
       }
 
