@@ -809,11 +809,16 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                           className="flex items-center justify-between bg-white/5 border border-white/10 rounded-2xl px-4 py-3"
                         >
                           <div className="flex items-center gap-3">
-                            <span className="text-[11px] font-black tracking-widest text-white">
-                              {entry.upc}
-                            </span>
+                            <div className="flex flex-col">
+                              <span className="text-[11px] font-black tracking-widest text-white">
+                                {entry.upc}
+                              </span>
+                              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
+                                Verified return UPC
+                              </span>
+                            </div>
                             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                              × {entry.quantity}
+                              Qty × {entry.quantity}
                             </span>
                           </div>
                           <div className="flex items-center gap-2">

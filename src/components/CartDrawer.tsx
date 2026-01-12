@@ -785,11 +785,16 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                       className="flex items-center justify-between bg-black/30 border border-white/10 rounded-2xl px-4 py-3"
                     >
                       <div className="flex items-center gap-3">
-                        <span className="text-[11px] text-white font-bold tracking-wider">
-                          {eligibilityCache[entry.upc]?.name || entry.upc}
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-[11px] text-white font-bold tracking-wider">
+                            {eligibilityCache[entry.upc]?.name || entry.upc}
+                          </span>
+                          <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
+                            Return UPC
+                          </span>
+                        </div>
                         <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                          × {entry.quantity}
+                          Qty × {entry.quantity}
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
