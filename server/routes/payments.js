@@ -513,7 +513,11 @@ const createPaymentsRouter = ({ stripe }) => {
         ? req.body.verifiedReturnUpcs
         : [];
       const verifiedReturnUpcs = incomingUpcs.map(String).map(s => s.trim()).filter(Boolean);
-      const uniqueVerifiedReturnUpcs = [...new Set(verifiedReturnUpcs)];
+      const upcCounts = verifiedReturnUpcs.reduce((acc, upc) => {
+        acc.set(upc, (acc.get(upc) || 0) + 1);
+        return acc;
+      }, new Map());
+      const uniqueVerifiedReturnUpcs = Array.from(upcCounts.keys());
 
       let verifiedReturnCredit = 0;
       let verifiedReturnCreditGross = 0;
@@ -523,10 +527,10 @@ const createPaymentsRouter = ({ stripe }) => {
           isEligible: true
         }).lean();
 
-        verifiedReturnCreditGross = upcEntries.reduce(
-          (sum, entry) => sum + Number(entry?.depositValue || 0),
-          0
-        );
+        verifiedReturnCreditGross = upcEntries.reduce((sum, entry) => {
+          const count = upcCounts.get(entry?.upc) || 0;
+          return sum + Number(entry?.depositValue || 0) * count;
+        }, 0);
       }
       const isReturnProcessingFeeWaived = true; // returns applied to current order at capture
       const verifiedCredit = applyReturnProcessingFee(verifiedReturnCreditGross, {
@@ -600,7 +604,7 @@ const createPaymentsRouter = ({ stripe }) => {
           order.amountCapturedCents = 0;
           order.verifiedReturnCredit = verifiedReturnCredit;
           order.verifiedReturnCreditGross = verifiedCredit.gross;
-          order.verifiedReturnUpcs = uniqueVerifiedReturnUpcs;
+          order.verifiedReturnUpcs = verifiedReturnUpcs;
 
           await order.save({ session: sessionDb });
           updatedOrderDoc = order;
@@ -617,7 +621,7 @@ const createPaymentsRouter = ({ stripe }) => {
         order.amountCapturedCents = Number(captured?.amount_received || finalCaptureCents);
         order.verifiedReturnCredit = verifiedReturnCredit;
         order.verifiedReturnCreditGross = verifiedCredit.gross;
-        order.verifiedReturnUpcs = uniqueVerifiedReturnUpcs;
+        order.verifiedReturnUpcs = verifiedReturnUpcs;
 
         await order.save({ session: sessionDb });
         updatedOrderDoc = order;
