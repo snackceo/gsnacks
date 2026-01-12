@@ -64,11 +64,15 @@ export interface Product {
   isGlass: boolean;
 }
 
+export type UpcContainerType = 'aluminum' | 'glass' | 'plastic';
+
 export interface UpcItem {
   upc: string;
   name: string;
   depositValue: number;
-  isGlass: boolean;
+  price: number;
+  containerType: UpcContainerType;
+  sizeOz: number;
   isEligible: boolean;
   createdAt?: string;
   updatedAt?: string;
