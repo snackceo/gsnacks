@@ -47,6 +47,9 @@ const CustomerView: React.FC<CustomerViewProps> = ({
   const safeCredits = (currentUser as any)?.creditBalance ?? 0;
   const safeDailyReturnTotal = (currentUser as any)?.dailyReturnTotal ?? 0;
   const safeLoyaltyPoints = (currentUser as any)?.loyaltyPoints ?? 0;
+  const normalizedTier = (currentUser?.membershipTier ?? UserTier.NONE).toString().toUpperCase();
+  const tierLabel =
+    normalizedTier === 'NONE' ? 'COMMON' : normalizedTier === 'PLATINUM' ? 'SECRET PLATINUM' : normalizedTier;
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20">
@@ -212,7 +215,9 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                         ? 'text-yellow-400'
                         : currentUser?.membershipTier === UserTier.SILVER
                         ? 'text-slate-300'
-                        : 'text-orange-500'
+                        : currentUser?.membershipTier === UserTier.BRONZE
+                        ? 'text-orange-500'
+                        : 'text-slate-500'
                     }`}
                   />
                 </div>
@@ -225,7 +230,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                   <div className="inline-flex items-center gap-3 px-6 py-2.5 rounded-full border border-ninpo-lime/20 bg-ninpo-black/50">
                     <Star className="w-4 h-4 text-ninpo-lime fill-current" />
                     <span className="text-[10px] font-black uppercase tracking-[0.2em]">
-                      {(currentUser as any)?.membershipTier ?? 'BRONZE'} CLEARANCE
+                      {tierLabel} CLEARANCE
                     </span>
                   </div>
                 </div>
@@ -300,7 +305,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                   ${(safeCredits as number).toFixed(2)}
                 </p>
                 <p className="mt-4 text-[10px] text-slate-600 font-bold uppercase tracking-widest">
-                  Credits are not cash and are subject to account rules.
+                  Credits are not cash; Gold+ can request cash payouts at delivery.
                 </p>
               </div>
 

@@ -31,6 +31,10 @@ interface CartDrawerProps {
   baseDeliveryFee: number;
   membershipTier?: UserTier;
   platinumFreeDeliveryEnabled: boolean;
+  michiganDepositValue: number;
+  returnHandlingFeePerContainer: number;
+  glassHandlingFeePerContainer: number;
+  dailyReturnLimit: number;
 
   onClose: () => void;
   onAddressChange: (v: string) => void;
@@ -53,7 +57,9 @@ const UPC_ELIGIBILITY_TTL_MS = 24 * 60 * 60 * 1000;
 
 // Business defaults (we can later move these into settings)
 const MI_DEPOSIT_VALUE = 0.1; // 10¢
-const DEFAULT_DAILY_CAP = 25.0;
+const DEFAULT_DAILY_LIMIT = 250;
+const DEFAULT_HANDLING_FEE = 0.02;
+const DEFAULT_GLASS_HANDLING_FEE = 0.02;
 const NOT_ELIGIBLE_MESSAGE = "This container isn't eligible for return value.";
 const DELIVERY_DISCOUNT_PERCENTS: Record<UserTier, number> = {
   [UserTier.NONE]: 0,
@@ -92,6 +98,10 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   baseDeliveryFee,
   membershipTier,
   platinumFreeDeliveryEnabled,
+  michiganDepositValue,
+  returnHandlingFeePerContainer,
+  glassHandlingFeePerContainer,
+  dailyReturnLimit,
   onClose,
   onAddressChange,
   onPolicyChange,
@@ -363,11 +373,40 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     [returnUpcs]
   );
 
+  const depositValue = Number.isFinite(michiganDepositValue)
+    ? michiganDepositValue
+    : MI_DEPOSIT_VALUE;
+  const handlingFee = Number.isFinite(returnHandlingFeePerContainer)
+    ? returnHandlingFeePerContainer
+    : DEFAULT_HANDLING_FEE;
+  const glassHandlingFee = Number.isFinite(glassHandlingFeePerContainer)
+    ? glassHandlingFeePerContainer
+    : DEFAULT_GLASS_HANDLING_FEE;
+  const dailyContainerLimit = Number.isFinite(dailyReturnLimit)
+    ? dailyReturnLimit
+    : DEFAULT_DAILY_LIMIT;
+  const cappedReturnCount = Math.min(totalReturnCount, dailyContainerLimit);
+  const netStandardCredit = Math.max(0, depositValue - handlingFee);
+  const netGlassCredit = Math.max(0, depositValue - handlingFee - glassHandlingFee);
+
   // Estimated deposit credit (preview only)
   const estimatedReturnCredit = useMemo(() => {
-    const raw = totalReturnCount * MI_DEPOSIT_VALUE;
-    return Math.min(raw, DEFAULT_DAILY_CAP);
-  }, [totalReturnCount]);
+    if (cappedReturnCount === 0) return 0;
+    let remaining = cappedReturnCount;
+    let total = 0;
+
+    for (const entry of returnUpcs) {
+      if (remaining <= 0) break;
+      const eligibleCount = Math.min(entry.quantity, remaining);
+      const containerType = eligibilityCache[entry.upc]?.containerType;
+      const netValue =
+        containerType === 'glass' ? netGlassCredit : netStandardCredit;
+      total += netValue * eligibleCount;
+      remaining -= eligibleCount;
+    }
+
+    return total;
+  }, [cappedReturnCount, eligibilityCache, netGlassCredit, netStandardCredit, returnUpcs]);
 
   // ----------------------------
   // Cart totals
@@ -405,7 +444,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     [sanitizedBaseDeliveryFee]
   );
 
-  const activeTier = membershipTier ?? UserTier.BRONZE;
+  const activeTier = membershipTier ?? UserTier.NONE;
 
   const deliveryDiscountPercentForTier = (tier: UserTier) => {
     if (tier === UserTier.PLATINUM && platinumFreeDeliveryEnabled) return 100;
@@ -414,10 +453,11 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const tierDiscounts = useMemo(() => {
     const tiers = [
+      { tier: UserTier.NONE, label: 'Common' },
       { tier: UserTier.BRONZE, label: 'Bronze' },
       { tier: UserTier.SILVER, label: 'Silver' },
       { tier: UserTier.GOLD, label: 'Gold' },
-      { tier: UserTier.PLATINUM, label: 'Platinum' }
+      { tier: UserTier.PLATINUM, label: 'Secret Platinum' }
     ];
 
     return tiers.map(entry => {
@@ -434,7 +474,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     return (
       tierDiscounts.find(discount => discount.tier === activeTier) ?? {
         tier: activeTier,
-        label: 'Bronze',
+        label: 'Common',
         deliveryDiscount: 0
       }
     );
@@ -452,7 +492,11 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     () => Math.round(estimatedReturnCredit * 100),
     [estimatedReturnCredit]
   );
-  const creditsCoverDelivery = [UserTier.GOLD, UserTier.PLATINUM].includes(activeTier);
+  const creditsCoverDelivery = [
+    UserTier.SILVER,
+    UserTier.GOLD,
+    UserTier.PLATINUM
+  ].includes(activeTier);
   const creditEligibleCents = creditsCoverDelivery
     ? subtotalCents + activeDeliveryFeeCents
     : subtotalCents;
@@ -778,8 +822,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                   </div>
                   {showBottleReturnAdvisory && (
                     <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
-                      Enter eligible Michigan 10¢ deposit UPCs to see an estimated return value.
-                      Final value is confirmed after driver verification.
+                      Enter eligible Michigan 10¢ deposit UPCs to see an estimated net return value
+                      after handling fees. Final value is confirmed after driver verification.
                     </p>
                   )}
                 </div>
@@ -842,7 +886,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest">
-                    Estimated Return Value
+                    Estimated Return Value (net)
                   </p>
                   <p className="text-ninpo-lime font-black text-lg">{money(estimatedReturnCredit)}</p>
                   <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
@@ -853,10 +897,16 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               <div className="flex items-start gap-2 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
                 <Info className="w-3 h-3 text-slate-500 mt-0.5" />
                 <p>
-                  Bottle return value is confirmed at pickup or delivery after verification. Estimates
-                  do not affect your payment authorization.
+                  Net values reflect {money(handlingFee)} handling fees per container and{' '}
+                  {money(handlingFee + glassHandlingFee)} for glass. Daily limits apply. Estimates do
+                  not affect your payment authorization.
                 </p>
               </div>
+              {totalReturnCount > dailyContainerLimit && (
+                <div className="text-[10px] text-ninpo-red font-bold uppercase tracking-widest">
+                  Daily limit reached: only {dailyContainerLimit} containers can be credited today.
+                </div>
+              )}
 
               {/* UPC list */}
               {returnUpcs.length > 0 && (
@@ -944,7 +994,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               {showPolicyAdvisories && (
                 <div className="space-y-2">
                   <p>Containers must be clean and clearly marked with the MI 10¢ deposit label.</p>
-                  <p>Refunds are limited to $25.00 per customer per day.</p>
+                  <p>Daily limit: {dailyContainerLimit} containers per customer.</p>
+                  <p>Cash payouts are capped at $25 per day for Gold+ members.</p>
+                  <p>No splitting returns across multiple addresses to bypass the limit.</p>
                   <p>
                     AI output is advisory; eligibility is determined by the UPC whitelist and
                     deposit labeling.
@@ -985,7 +1037,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Estimated Return Value (preview)
+                  Estimated Return Value (net preview)
                 </p>
                 <p className="text-ninpo-lime font-black">- {money(estimatedReturnCredit)}</p>
               </div>
@@ -1005,11 +1057,11 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-2">
                   {deliveryCoveredByCredits
                     ? 'Delivery covered by credits.'
-                    : 'Gold/Platinum credits can cover delivery fees.'}
+                    : 'Silver+ credits can cover delivery fees.'}
                 </p>
               ) : (
                 <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-2">
-                  Delivery fees are excluded from credits for Bronze/Silver tiers.
+                  Delivery fees are excluded from credits for Common/Bronze tiers.
                 </p>
               )}
 
