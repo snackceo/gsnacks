@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UserRole } from '../types';
+import logo from '../assets/ninpo-logo.svg';
 
 interface Props {
   currentUserRole?: UserRole;
@@ -32,8 +33,12 @@ const Header = ({
           onClick={() => navigate('/')}
         >
           <div className="flex items-center gap-3 sm:gap-4">
-            <div className="w-10 h-10 bg-ninpo-lime rounded-xl flex items-center justify-center">
-              <span className="text-ninpo-black font-black text-xl">N</span>
+            <div className="w-12 h-12 rounded-2xl border border-white/10 bg-ninpo-black/80 flex items-center justify-center shadow-neon">
+              <img
+                src={logo}
+                alt="Ninpo Snacks logo"
+                className="w-10 h-10 object-contain"
+              />
             </div>
             <span className="block text-sm sm:text-lg font-black uppercase">
               Ninpo <span className="text-ninpo-red">Snacks</span>
