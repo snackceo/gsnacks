@@ -72,9 +72,11 @@ const LegalFooter: React.FC = () => {
           onClose={() => setModalType(null)}
           content={
             <>
-              <p>Containers must be clean and clearly marked with the MI 10c deposit label to be eligible for credits.</p>
-              <p>Refunds are limited to $25.00 per customer per day to ensure processing capacity.</p>
-              <p>AI output is advisory for driver condition checks; eligibility is determined by the UPC whitelist and deposit labeling.</p>
+              <p>
+                Bottle returns must be empty, clean, and labeled for Michigan’s 10¢ deposit.
+              </p>
+              <p>Return value is verified at delivery.</p>
+              <p>AI tools may assist verification but do not make final decisions.</p>
             </>
           }
         />

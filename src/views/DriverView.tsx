@@ -97,6 +97,8 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const [quantityEvents, setQuantityEvents] = useState<QuantityChangeLogEntry[]>([]);
   const [showScanSummary, setShowScanSummary] = useState(false);
   const [scanSummaryOpen, setScanSummaryOpen] = useState(false);
+  const [returnConditionConfirmed, setReturnConditionConfirmed] = useState(false);
+  const [showPayoutChoice, setShowPayoutChoice] = useState(false);
 
   const [isCapturing, setIsCapturing] = useState(false);
   const [paymentCaptured, setPaymentCaptured] = useState(false);
@@ -193,6 +195,8 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setPendingDuplicateScan(null);
     setShowScanSummary(false);
     setScanSummaryOpen(false);
+    setReturnConditionConfirmed(false);
+    setShowPayoutChoice(false);
     scanSessionIdRef.current =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
@@ -318,7 +322,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       playScannerTone(980, 120, 0.2);
     } else {
       playScannerTone(220, 240, 0.25);
-      setScannerError('UPC already scanned. Use + to add another of the same item.');
+      setScannerError('This container may already be counted.');
     }
   };
 
@@ -403,7 +407,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     if (cached !== undefined) {
       if (!cached) {
         playScannerTone(220, 240, 0.25);
-        setScannerError('Not eligible for Michigan 10¢ deposit returns');
+        setScannerError("This container isn't eligible for return value.");
         if (source === 'scanner') {
           logScanEvent({ upc, source, status: 'ineligible' });
         }
@@ -427,7 +431,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
         updateEligibilityCache(upc, isEligible);
         if (!isEligible) {
           playScannerTone(220, 240, 0.25);
-          setScannerError('Not eligible for Michigan 10¢ deposit returns');
+          setScannerError("This container isn't eligible for return value.");
           if (source === 'scanner') {
             logScanEvent({ upc, source, status: 'ineligible' });
           }
@@ -443,7 +447,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       if (response.status === 404) {
         updateEligibilityCache(upc, false);
         playScannerTone(220, 240, 0.25);
-        setScannerError('Not eligible for Michigan 10¢ deposit returns');
+        setScannerError("This container isn't eligible for return value.");
         if (source === 'scanner') {
           logScanEvent({ upc, source, status: 'ineligible' });
         }
@@ -913,6 +917,64 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     capturePayment();
   };
 
+  const cashAvailable = Boolean((activeOrder as any)?.cashAvailable);
+
+  const payoutChoiceModal =
+    showPayoutChoice && typeof document !== 'undefined'
+      ? createPortal(
+          <div className="fixed inset-0 z-[12000] flex items-center justify-center p-6">
+            <div
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              onClick={() => setShowPayoutChoice(false)}
+            />
+            <div className="relative w-full max-w-xl bg-ninpo-black border border-white/10 rounded-[2.5rem] p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-white font-black uppercase tracking-widest text-sm">
+                    Choose How to Use Your Return Value
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowPayoutChoice(false)}
+                  className="p-3 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="mt-5 space-y-3 text-[11px] uppercase tracking-widest text-slate-300">
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
+                  <p className="text-white font-black">Apply to This Order</p>
+                  <p>Use your verified return value to reduce today’s total.</p>
+                  <p>Pickup and delivery fees may be waived.</p>
+                </div>
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
+                  <p className="text-white font-black">Save as Credits</p>
+                  <p>Store your return value for future orders.</p>
+                  <p>Credits may qualify for reduced service fees.</p>
+                </div>
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
+                  <p className="text-white font-black">Cash</p>
+                  <p>Receive cash for your verified returns.</p>
+                  <p>Subject to limits and availability.</p>
+                  {!cashAvailable && (
+                    <p className="text-ninpo-red">
+                      Cash payout isn’t available for this return. You can apply value to your
+                      order or save it as credits.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <p className="mt-4 text-[10px] uppercase tracking-widest text-slate-500">
+                All options require verified eligible containers.
+              </p>
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
   const scannerModal =
     scannerOpen && typeof document !== 'undefined'
       ? createPortal(
@@ -1132,7 +1194,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               )}
 
               <div>
-                <p className="uppercase tracking-widest opacity-60">Verified return UPCs (driver)</p>
+                <p className="uppercase tracking-widest opacity-60">Verify Bottle Returns</p>
+                <p className="text-[10px] uppercase tracking-widest text-slate-600 mt-2">
+                  Scan eligible Michigan 10¢ deposit containers. Containers must be empty and clean.
+                </p>
                 <div className="mt-3 flex flex-col gap-3">
                   <div className="flex items-center gap-3">
                     <div className="flex-1 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
@@ -1166,7 +1231,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
                   {pendingDuplicateScan && (
                     <div className="text-[11px] text-white bg-white/5 border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between gap-4">
-                      <span>Same UPC detected again. Add another?</span>
+                      <span>This container may already be counted. Add another?</span>
                       <button
                         onClick={confirmDuplicateScan}
                         className="px-4 py-2 rounded-xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
@@ -1177,18 +1242,20 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                   )}
 
                   <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-[10px] uppercase tracking-widest text-slate-400 space-y-2">
-                    <p className="text-slate-300">Proof requirements</p>
-                    <ul className="space-y-1">
-                      <li>Capture return photo if any returns are collected.</li>
-                      <li>Capture delivery proof photo before completing delivery.</li>
-                      <li>Confirm contamination review if flagged.</li>
-                    </ul>
-                    <p className="text-slate-300">Valid return containers</p>
-                    <ul className="space-y-1">
-                      <li>Clean containers with MI 10¢ deposit label.</li>
-                      <li>Eligible UPCs only; $25/day cap applies.</li>
-                    </ul>
+                    <p className="text-slate-300">Quantity helper</p>
+                    <p>Multiple of the same container are allowed.</p>
+                    <p>Do not scan the same bottle more than once.</p>
                   </div>
+
+                  <label className="flex items-start gap-3 text-[10px] uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      checked={returnConditionConfirmed}
+                      onChange={event => setReturnConditionConfirmed(event.target.checked)}
+                      className="mt-1 accent-ninpo-lime"
+                    />
+                    I confirm these containers are empty and clean.
+                  </label>
 
                   <div className="flex items-center justify-between">
                     <div className="text-[10px] uppercase tracking-widest text-slate-500">
@@ -1250,6 +1317,15 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                     <div className="text-[10px] uppercase tracking-widest text-slate-500">
                       No UPCs verified yet.
                     </div>
+                  )}
+
+                  {verifiedReturnCount > 0 && (
+                    <button
+                      onClick={() => setShowPayoutChoice(true)}
+                      className="mt-2 w-full px-4 py-3 rounded-xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Choose return value payout
+                    </button>
                   )}
                 </div>
               </div>
@@ -1450,6 +1526,17 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               )}
             </div>
 
+            <div className="bg-black/30 border border-white/10 rounded-2xl p-5 text-xs space-y-2">
+              <p className="uppercase tracking-widest opacity-60">Delivery & Return Proof Required</p>
+              <p className="text-[10px] uppercase tracking-widest text-slate-600">
+                Take a clear photo showing the completed delivery. This helps confirm returns and
+                complete payment.
+              </p>
+              <p className="text-[10px] uppercase tracking-widest text-slate-600">
+                Location verification is required to complete delivery.
+              </p>
+            </div>
+
             {requiresReturnPhoto && (
               <div className="space-y-4">
                 <div className="bg-black/30 border border-white/10 rounded-2xl p-5 text-xs space-y-2">
@@ -1626,6 +1713,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
             )}
           </div>
         )}
+        {payoutChoiceModal}
         {scannerModal}
       </div>
     </div>
