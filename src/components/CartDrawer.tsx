@@ -880,6 +880,12 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               />
               Accept Hub Protocol
             </label>
+            <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-[10px] uppercase tracking-widest text-slate-500 space-y-2">
+              <p className="text-slate-300">Return policy</p>
+              <p>Containers must be clean and clearly marked with the MI 10¢ deposit label.</p>
+              <p>Refunds are limited to $25.00 per customer per day.</p>
+              <p>AI output is advisory; eligibility is determined by the UPC whitelist and deposit labeling.</p>
+            </div>
 
             {/* Totals */}
             <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-3">
@@ -983,6 +989,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 Stripe
               </button>
             </div>
+            <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
+              Authorize now, capture after verification.
+            </p>
 
             {cartIsEmpty && hasReturnUpcs && (
               <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
