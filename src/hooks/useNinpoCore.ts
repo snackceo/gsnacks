@@ -36,7 +36,7 @@ const defaultSettings: AppSettings = {
   processingFeePercent: 0.05,
   returnHandlingFeePerContainer: 0.02,
   glassHandlingFeePerContainer: 0.02,
-  dailyReturnLimit: 25.0,
+  dailyReturnLimit: 250,
   maintenanceMode: false,
   requirePhotoForRefunds: false,
   allowGuestCheckout: false,
@@ -176,7 +176,7 @@ export const useNinpoCore = () => {
         role: u?.role || 'CUSTOMER',
         creditBalance: Number(u?.creditBalance || 0),
         loyaltyPoints: Number(u?.loyaltyPoints || 0),
-        membershipTier: u?.membershipTier || 'BRONZE',
+        membershipTier: u?.membershipTier || 'NONE',
         createdAt: u?.createdAt
       };
 

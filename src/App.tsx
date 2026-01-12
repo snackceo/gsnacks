@@ -318,6 +318,10 @@ function App() {
         baseDeliveryFee={baseDeliveryFee}
         membershipTier={core.currentUser?.membershipTier}
         platinumFreeDeliveryEnabled={core.settings.platinumFreeDelivery}
+        michiganDepositValue={core.settings.michiganDepositValue}
+        returnHandlingFeePerContainer={core.settings.returnHandlingFeePerContainer}
+        glassHandlingFeePerContainer={core.settings.glassHandlingFeePerContainer}
+        dailyReturnLimit={core.settings.dailyReturnLimit}
         onClose={() => setIsCartOpen(false)}
         onAddressChange={setAddress}
         onPolicyChange={setAcceptedPolicies}

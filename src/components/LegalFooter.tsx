@@ -98,128 +98,105 @@ const LegalFooter: React.FC = () => {
             <div className="space-y-8">
               <section className="space-y-4">
                 <h3 className="text-white text-sm font-black uppercase tracking-widest">
-                  What NinpoSnacks Is
+                  Overview
                 </h3>
                 <p>
-                  NinpoSnacks is a mobile-first local snack delivery business that combines
-                  on-demand sales, local driver delivery, and bottle/can return collection.
-                  Verified returns create value that can reduce today&apos;s total, become credits,
-                  or be paid in cash.
+                  NinpoSnacks is a mobile-first snack delivery service in Detroit that pairs
+                  on-demand delivery with a container return program. Customers order snacks,
+                  hand off eligible empties at delivery, and receive credits or (for eligible tiers)
+                  cash based on Michigan&apos;s 10¢ deposit system.
                 </p>
                 <p>
-                  It operates like a human-assisted reverse vending system built into the
-                  shopping and delivery experience instead of a standalone machine.
+                  The result is a single trip that delivers snacks and picks up returns, creating
+                  a repeat loop of buy → return → save.
                 </p>
               </section>
 
               <section className="space-y-4">
                 <h3 className="text-white text-sm font-black uppercase tracking-widest">
-                  What Customers Are Actually Buying
-                </h3>
-                <ul className="list-disc list-inside space-y-2">
-                  <li>Convenience through delivery.</li>
-                  <li>Flexibility with cash, credits, or purchase offsets.</li>
-                  <li>Lower net cost over time through return incentives.</li>
-                  <li>A repeat loop: buy → return → save → buy again.</li>
-                </ul>
-              </section>
-
-              <section className="space-y-4">
-                <h3 className="text-white text-sm font-black uppercase tracking-widest">
-                  Core Business Loop
+                  Ordering & Delivery Flow
                 </h3>
                 <ol className="list-decimal list-inside space-y-2">
-                  <li>Customer orders and sees delivery fees plus estimated return value.</li>
-                  <li>Payment is authorized (not finalized) to allow later adjustments.</li>
-                  <li>Driver delivers snacks and collects eligible empty containers.</li>
-                  <li>Verified containers create value (e.g., 10¢ each).</li>
-                  <li>Customer chooses payout: apply to purchase, store as credits, or cash.</li>
-                  <li>Incentives reduce or waive service fees when credits are used.</li>
-                  <li>Final amount is captured and the order is closed.</li>
+                  <li>Customers place an order and indicate if they have returnables.</li>
+                  <li>Payment is processed online; tips can be added at checkout.</li>
+                  <li>Drivers deliver snacks and collect return-eligible containers.</li>
+                  <li>
+                    Drivers scan UPCs, verify condition, capture photo/GPS proof, and prevent
+                    duplicate counts.
+                  </li>
+                  <li>
+                    Credits are posted after verification; eligible customers may receive cash
+                    at drop-off (subject to limits).
+                  </li>
                 </ol>
               </section>
 
               <section className="space-y-4">
                 <h3 className="text-white text-sm font-black uppercase tracking-widest">
-                  Roles
+                  Return Credits & Fees
                 </h3>
                 <ul className="list-disc list-inside space-y-2">
+                  <li>Eligible containers earn $0.10 each under Michigan deposit rules.</li>
+                  <li>Service fee: $0.02 per container; glass adds an extra $0.02.</li>
+                  <li>Net credit: $0.08 (plastic/aluminum) or $0.06 (glass).</li>
+                  <li>Credits never expire and are shown transparently on receipts.</li>
                   <li>
-                    <span className="text-white">Customers:</span> order snacks, return containers,
-                    and choose payout method.
-                  </li>
-                  <li>
-                    <span className="text-white">Drivers:</span> verify returns, capture proof,
-                    and complete delivery workflows.
-                  </li>
-                  <li>
-                    <span className="text-white">Owner/Admin:</span> manage inventory, pricing,
-                    disputes, and policy enforcement.
+                    Cash payouts are available for Gold+ tiers only, capped at $25/day
+                    (250 containers).
                   </li>
                 </ul>
               </section>
 
               <section className="space-y-4">
                 <h3 className="text-white text-sm font-black uppercase tracking-widest">
-                  Return System Rules
+                  Customer Tier System
                 </h3>
                 <ul className="list-disc list-inside space-y-2">
-                  <li>Eligible containers must have Michigan 10¢ deposit labeling.</li>
-                  <li>Containers must be empty, clean, and verified by drivers.</li>
-                  <li>Duplicate counting is blocked with scan throttling and audit logs.</li>
-                  <li>The same bottle cannot be counted twice, but multiples are allowed.</li>
+                  <li>
+                    <span className="text-white">Common:</span> credits apply to products only; no
+                    delivery discount.
+                  </li>
+                  <li>
+                    <span className="text-white">Bronze:</span> 10% delivery fee discount; credits
+                    apply to products only.
+                  </li>
+                  <li>
+                    <span className="text-white">Silver:</span> 20% delivery fee discount; credits
+                    can cover products and delivery fees.
+                  </li>
+                  <li>
+                    <span className="text-white">Gold:</span> 30% delivery fee discount; credits
+                    apply to all charges; cash payouts available with ID verification.
+                  </li>
+                  <li>
+                    <span className="text-white">Secret Platinum:</span> invitation-only VIP tier
+                    with Gold benefits plus exclusive perks.
+                  </li>
                 </ul>
               </section>
 
               <section className="space-y-4">
                 <h3 className="text-white text-sm font-black uppercase tracking-widest">
-                  Cash, Credits, or Purchase Offsets
-                </h3>
-                <p>
-                  Cash payouts are allowed but verified and logged. Credits and purchase offsets
-                  are incentivized to reduce cash handling, limit fraud, and encourage repeat
-                  purchases. Cash is available, not the default.
-                </p>
-              </section>
-
-              <section className="space-y-4">
-                <h3 className="text-white text-sm font-black uppercase tracking-widest">
-                  Payments & Incentives
+                  Return Limits & Fraud Prevention
                 </h3>
                 <ul className="list-disc list-inside space-y-2">
-                  <li>Authorize first, capture after delivery and verification.</li>
-                  <li>Service fees may be reduced or waived when credits are used.</li>
+                  <li>Daily cap: 250 containers per customer (per Michigan law).</li>
+                  <li>No splitting returns across multiple addresses to bypass the limit.</li>
+                  <li>Tier verification (phone/ID) reduces fake or duplicate accounts.</li>
+                  <li>Monitoring flags unusual return activity for review.</li>
                 </ul>
               </section>
 
               <section className="space-y-4">
                 <h3 className="text-white text-sm font-black uppercase tracking-widest">
-                  AI Support (Not Authority)
+                  Delivery Verification & Service
                 </h3>
-                <p>
-                  AI can analyze images and flag issues, but it does not decide eligibility or
-                  trigger payments. Drivers and admins make final calls.
-                </p>
-              </section>
-
-              <section className="space-y-4">
-                <h3 className="text-white text-sm font-black uppercase tracking-widest">
-                  Security & Auditability
-                </h3>
-                <p>
-                  Every critical action is logged: orders, returns, credits, cash payouts, and
-                  admin overrides. This supports disputes, compliance, and fraud review.
-                </p>
-              </section>
-
-              <section className="space-y-4">
-                <h3 className="text-white text-sm font-black uppercase tracking-widest">
-                  The Mental Model
-                </h3>
-                <p>
-                  NinpoSnacks is a snack delivery business that turns bottle returns into
-                  purchasing power.
-                </p>
+                <ul className="list-disc list-inside space-y-2">
+                  <li>Drivers scan barcodes, confirm condition, and log counts at drop-off.</li>
+                  <li>Photo proof and GPS verification support transparency and dispute review.</li>
+                  <li>Non-eligible or damaged containers are declined on the spot.</li>
+                  <li>Post-delivery tipping is available via driver QR code.</li>
+                </ul>
               </section>
             </div>
           }

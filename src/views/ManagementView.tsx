@@ -98,6 +98,8 @@ const fmtDelta = (value: number) => {
 
 const getTierStyles = (tier: string) => {
   switch (tier) {
+    case 'COMMON':
+      return 'border-slate-500/40 bg-slate-800/30 text-slate-300';
     case 'SILVER':
       return 'border-slate-300/40 bg-slate-400/20 text-slate-200';
     case 'GOLD':
@@ -1803,7 +1805,13 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   const ledgerBusy = ledgerLoading[u.id];
                   const ledgerError = ledgerErrors[u.id];
                   const statsLoading = userStatsLoading[u.id];
-                  const tierLabel = (u.membershipTier || 'BRONZE').toString().toUpperCase();
+                  const tierKey = (u.membershipTier || 'NONE').toString().toUpperCase();
+                  const tierLabel =
+                    tierKey === 'NONE'
+                      ? 'COMMON'
+                      : tierKey === 'PLATINUM'
+                      ? 'SECRET PLATINUM'
+                      : tierKey;
                   const showSignupBonus = isNewSignupWithBonus(u);
                   const orderCountLabel = statsLoading
                     ? '...'
@@ -1833,7 +1841,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                             <span>USER: {u.username || u.name || u.id}</span>
                             <span
                               className={`px-2.5 py-1 rounded-full border text-[9px] font-black uppercase tracking-[0.3em] ${getTierStyles(
-                                tierLabel
+                                tierKey === 'NONE' ? 'COMMON' : tierKey
                               )}`}
                             >
                               {tierLabel}
@@ -1926,7 +1934,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                               />
                               <select
                                 className="bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
-                                value={(draft.membershipTier ?? u.membershipTier ?? 'BRONZE').toString()}
+                                value={(draft.membershipTier ?? u.membershipTier ?? 'NONE').toString()}
                                 onClick={e => e.stopPropagation()}
                                 disabled={!allowPlatinumTier && u.membershipTier === 'PLATINUM'}
                                 onChange={e =>
@@ -1935,12 +1943,13 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                                   })
                                 }
                               >
+                                <option value="NONE">Common</option>
                                 <option value="BRONZE">Bronze</option>
                                 <option value="SILVER">Silver</option>
                                 <option value="GOLD">Gold</option>
                                 {(allowPlatinumTier || u.membershipTier === 'PLATINUM') && (
                                   <option value="PLATINUM" disabled={!allowPlatinumTier}>
-                                    Platinum (secret)
+                                    Secret Platinum
                                   </option>
                                 )}
                               </select>
@@ -2198,12 +2207,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Daily Return Limit
+                      Daily Return Limit (containers)
                     </label>
                     <input
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
-                      step="0.01"
+                      step="1"
                       value={settingsDraft.dailyReturnLimit}
                       onChange={e =>
                         updateSettingsDraft({
