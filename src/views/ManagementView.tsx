@@ -44,7 +44,11 @@ import {
   Tooltip,
   ResponsiveContainer
 } from 'recharts';
-import { getAdvancedInventoryInsights, getAvailableAuditModels } from '../services/geminiService';
+import {
+  getAdvancedInventoryInsights,
+  getAvailableAuditModels,
+  getOperationsSummary
+} from '../services/geminiService';
 
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -150,6 +154,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [auditModels, setAuditModels] = useState<string[]>([]);
   const [isAuditModelsLoading, setIsAuditModelsLoading] = useState(false);
   const [auditModelsError, setAuditModelsError] = useState<string | null>(null);
+  const [opsSummary, setOpsSummary] = useState('');
+  const [isOpsSummaryLoading, setIsOpsSummaryLoading] = useState(false);
 
   useEffect(() => {
     if (!settingsDirty) {
@@ -987,6 +993,18 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
+  const runOpsSummary = async () => {
+    setIsOpsSummaryLoading(true);
+    try {
+      const summary = await getOperationsSummary(orders as any, 'latest snapshot', auditModel);
+      setOpsSummary(summary || 'No summary generated.');
+    } catch {
+      setOpsSummary('Ops summary unavailable.');
+    } finally {
+      setIsOpsSummaryLoading(false);
+    }
+  };
+
   const canCancel = (o: Order) => {
     // Cancel is allowed for anything not delivered/refunded/closed.
     // Backend will block cancel if already PAID (it returns an error). We keep the UI conservative.
@@ -1196,18 +1214,32 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     </span>
                   )}
                 </div>
-                <button
-                  onClick={runAudit}
-                  disabled={isAuditing || !auditModel}
-                  className="px-8 py-5 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all flex items-center gap-3"
-                >
-                  {isAuditing ? (
-                    <Loader2 className="w-6 h-6 animate-spin" />
-                  ) : (
-                    <BrainCircuit className="w-6 h-6" />
-                  )}
-                  Run Audit
-                </button>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    onClick={runAudit}
+                    disabled={isAuditing || !auditModel}
+                    className="px-8 py-5 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all flex items-center gap-3"
+                  >
+                    {isAuditing ? (
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                    ) : (
+                      <BrainCircuit className="w-6 h-6" />
+                    )}
+                    Run Audit
+                  </button>
+                  <button
+                    onClick={runOpsSummary}
+                    disabled={isOpsSummaryLoading || orders.length === 0}
+                    className="px-8 py-5 rounded-2xl bg-ninpo-lime/10 border border-ninpo-lime/20 text-[10px] font-black uppercase tracking-widest text-ninpo-lime hover:bg-ninpo-lime/20 transition-all flex items-center gap-3 disabled:opacity-60"
+                  >
+                    {isOpsSummaryLoading ? (
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                    ) : (
+                      <BarChart3 className="w-6 h-6" />
+                    )}
+                    Ops Summary
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1217,6 +1249,15 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   <ShieldAlert className="w-4 h-4" /> Audit Report
                 </p>
                 {aiInsights}
+              </div>
+            )}
+
+            {opsSummary && (
+              <div className="bg-ninpo-midnight/60 p-8 rounded-[2rem] border border-white/10 text-xs text-slate-300 leading-relaxed shadow-xl whitespace-pre-wrap">
+                <p className="font-black text-white uppercase mb-4 tracking-widest flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4" /> Ops Summary
+                </p>
+                {opsSummary}
               </div>
             )}
 

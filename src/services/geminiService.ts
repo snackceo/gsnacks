@@ -140,6 +140,89 @@ export const getAdvancedInventoryInsights = async (
   }
 };
 
+export const getOperationsSummary = async (
+  orders: any[],
+  rangeLabel?: string,
+  model?: string
+): Promise<string> => {
+  const backendUrl = getBackendUrl();
+
+  try {
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/ai/ops-summary`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ orders, rangeLabel, model })
+      },
+      20000
+    );
+
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const data = await response.json();
+        detail = data?.error || data?.message || '';
+      } catch {
+        // ignore
+      }
+      return detail || 'Operations summary unavailable.';
+    }
+
+    const data = await response.json();
+    if (typeof data?.summary === 'string' && data.summary.trim()) return data.summary;
+    if (typeof data?.text === 'string' && data.text.trim()) return data.text;
+
+    return 'Operations summary unavailable.';
+  } catch {
+    return 'Operations summary unavailable.';
+  }
+};
+
+export const explainDriverIssue = async (
+  order: any,
+  errorMessage: string,
+  auditLogs?: any[],
+  model?: string
+): Promise<string> => {
+  const backendUrl = getBackendUrl();
+
+  try {
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/ai/issue-explain`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ order, errorMessage, auditLogs, model })
+      },
+      20000
+    );
+
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const data = await response.json();
+        detail = data?.error || data?.message || '';
+      } catch {
+        // ignore
+      }
+      return detail || 'Issue explanation unavailable.';
+    }
+
+    const data = await response.json();
+    if (typeof data?.explanation === 'string' && data.explanation.trim()) {
+      return data.explanation;
+    }
+    if (typeof data?.text === 'string' && data.text.trim()) return data.text;
+
+    return 'Issue explanation unavailable.';
+  } catch {
+    return 'Issue explanation unavailable.';
+  }
+};
+
 export type AuditModelResponse = {
   models: string[];
   defaultModel?: string;
