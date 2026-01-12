@@ -94,6 +94,11 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setAiConditionStatus('idle');
   };
 
+  const isReturnOnlyOrder = (order?: Order | null) =>
+    !!order &&
+    (order.items?.length ?? 0) === 0 &&
+    (order.returnUpcs?.length ?? 0) > 0;
+
   const startVerification = async (order: Order) => {
     setActiveOrder(order);
     resetPhotoState();
@@ -105,7 +110,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setIssueExplanation(null);
     setIssueStatus('idle');
 
-    setPaymentCaptured(order.status === OrderStatus.PAID);
+    setPaymentCaptured(order.status === OrderStatus.PAID || isReturnOnlyOrder(order));
 
     try {
       const s = await navigator.mediaDevices.getUserMedia({
@@ -298,7 +303,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const completeDelivery = () => {
     if (!activeOrder) return;
 
-    if (!paymentCaptured) {
+    if (!paymentCaptured && !isReturnOnlyOrder(activeOrder)) {
       alert('Capture payment first (verify returns), then complete delivery.');
       return;
     }
@@ -490,6 +495,8 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrder]);
+
+  const isReturnOnly = isReturnOnlyOrder(activeOrder);
 
   const scannerModal =
     scannerOpen && typeof document !== 'undefined'
@@ -742,54 +749,63 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                 </div>
               </div>
 
-              <button
-                onClick={capturePayment}
-                disabled={isCapturing || paymentCaptured}
-                className="w-full px-6 py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                title="Captures (charges) the final amount after verified bottle credit"
-              >
-                {isCapturing ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" /> Capturing
-                  </span>
-                ) : paymentCaptured ? (
-                  'Captured'
-                ) : (
-                  'Capture'
-                )}
-              </button>
-
-              <p className="mt-2 text-[10px] uppercase tracking-widest opacity-60">
-                Note: final charge = total - verified credit (computed from eligible UPCs).
-              </p>
-
-              {captureError && (
-                <div className="mt-4 bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4 space-y-3">
-                  <p className="text-[11px] text-ninpo-red font-bold uppercase tracking-widest">
-                    Capture blocked
-                  </p>
-                  <p className="text-[11px] text-slate-300">{captureError}</p>
+              {!isReturnOnly && (
+                <>
                   <button
-                    onClick={explainCaptureIssue}
-                    disabled={issueStatus === 'loading'}
-                    className="px-4 py-3 rounded-xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-60"
+                    onClick={capturePayment}
+                    disabled={isCapturing || paymentCaptured}
+                    className="w-full px-6 py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                    title="Captures (charges) the final amount after verified bottle credit"
                   >
-                    {issueStatus === 'loading' ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" /> Explaining
-                      </>
+                    {isCapturing ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Capturing
+                      </span>
+                    ) : paymentCaptured ? (
+                      'Captured'
                     ) : (
-                      <>
-                        <BrainCircuit className="w-4 h-4" /> Explain Issue
-                      </>
+                      'Capture'
                     )}
                   </button>
-                  {issueExplanation && (
-                    <div className="text-[11px] text-slate-200 whitespace-pre-wrap">
-                      {issueExplanation}
+
+                  <p className="mt-2 text-[10px] uppercase tracking-widest opacity-60">
+                    Note: final charge = total - verified credit (computed from eligible UPCs).
+                  </p>
+
+                  {captureError && (
+                    <div className="mt-4 bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4 space-y-3">
+                      <p className="text-[11px] text-ninpo-red font-bold uppercase tracking-widest">
+                        Capture blocked
+                      </p>
+                      <p className="text-[11px] text-slate-300">{captureError}</p>
+                      <button
+                        onClick={explainCaptureIssue}
+                        disabled={issueStatus === 'loading'}
+                        className="px-4 py-3 rounded-xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-60"
+                      >
+                        {issueStatus === 'loading' ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" /> Explaining
+                          </>
+                        ) : (
+                          <>
+                            <BrainCircuit className="w-4 h-4" /> Explain Issue
+                          </>
+                        )}
+                      </button>
+                      {issueExplanation && (
+                        <div className="text-[11px] text-slate-200 whitespace-pre-wrap">
+                          {issueExplanation}
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
+                </>
+              )}
+              {isReturnOnly && (
+                <p className="mt-2 text-[10px] uppercase tracking-widest opacity-60">
+                  Return-only pickup: no payment capture required.
+                </p>
               )}
             </div>
 
@@ -857,7 +873,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               disabled={!capturedPhoto || isVerifying}
               onClick={completeDelivery}
               className="w-full py-6 bg-ninpo-lime text-ninpo-black rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-neon flex items-center justify-center gap-4 transition-all disabled:opacity-50"
-              title={!paymentCaptured ? 'Capture payment first' : 'Complete delivery'}
+              title={!paymentCaptured && !isReturnOnly ? 'Capture payment first' : 'Complete delivery'}
             >
               {isVerifying ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -868,9 +884,14 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               )}
             </button>
 
-            {!paymentCaptured && (
+            {!paymentCaptured && !isReturnOnly && (
               <p className="text-[10px] uppercase tracking-widest text-slate-500">
                 Capture payment after verifying bottle returns, then complete delivery.
+              </p>
+            )}
+            {isReturnOnly && (
+              <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                Return-only pickup: verify UPCs, capture proof, then complete delivery.
               </p>
             )}
           </div>

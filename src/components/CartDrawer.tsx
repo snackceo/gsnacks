@@ -24,10 +24,10 @@ interface CartDrawerProps {
   onRemoveItem: (productId: string) => void;
 
   // Not implemented in your current flow (kept for compatibility)
-  onPayCredits: () => void;
+  onPayCredits: (returnUpcs: string[]) => Promise<boolean>;
 
   // Your existing Stripe flow handler from App.tsx
-  onPayExternal: (gateway: 'STRIPE' | 'GPAY') => void;
+  onPayExternal: (gateway: 'STRIPE' | 'GPAY', returnUpcs: string[]) => void;
 }
 
 const LS_KEY_UPCS = 'ninpo_return_upcs_v1';
@@ -421,7 +421,19 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   // Checkout gating
   // ----------------------------
   const cartIsEmpty = cart.length === 0;
-  const canCheckout = !cartIsEmpty && !!address.trim() && acceptedPolicies && !isProcessing;
+  const hasReturnUpcs = returnUpcs.length > 0;
+  const canCheckoutCredits =
+    (!!address.trim() && acceptedPolicies && !isProcessing && (!cartIsEmpty || hasReturnUpcs));
+  const canCheckoutStripe =
+    (!!address.trim() && acceptedPolicies && !isProcessing && !cartIsEmpty);
+
+  const handleCreditsClick = async () => {
+    if (!canCheckoutCredits) return;
+    const didComplete = await onPayCredits(returnUpcs);
+    if (didComplete) {
+      clearUpcs();
+    }
+  };
 
   // ----------------------------
   // Render
@@ -732,16 +744,16 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
           <div className="p-6 border-t border-white/5 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <button
-                onClick={onPayCredits}
-                disabled={!canCheckout}
+                onClick={handleCreditsClick}
+                disabled={!canCheckoutCredits}
                 className="py-4 bg-white/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-white flex items-center justify-center gap-2 disabled:opacity-40"
               >
                 <Zap className="w-3 h-3" /> Credits
               </button>
 
               <button
-                onClick={() => onPayExternal('STRIPE')}
-                disabled={!canCheckout}
+                onClick={() => onPayExternal('STRIPE', returnUpcs)}
+                disabled={!canCheckoutStripe}
                 className="py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40"
               >
                 {isProcessing ? (
@@ -752,6 +764,12 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 Stripe
               </button>
             </div>
+
+            {cartIsEmpty && hasReturnUpcs && (
+              <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
+                Return-only pickup will issue credits after driver verification.
+              </p>
+            )}
 
             {!acceptedPolicies && (
               <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
