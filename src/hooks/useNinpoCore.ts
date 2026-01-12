@@ -41,7 +41,8 @@ const defaultSettings: AppSettings = {
   requirePhotoForRefunds: false,
   allowGuestCheckout: false,
   showAdvancedInventoryInsights: false,
-  allowPlatinumTier
+  allowPlatinumTier,
+  platinumFreeDelivery: false
 };
 
 const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
@@ -78,6 +79,9 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     ),
     allowPlatinumTier: Boolean(
       data.allowPlatinumTier ?? defaultSettings.allowPlatinumTier
+    ),
+    platinumFreeDelivery: Boolean(
+      data.platinumFreeDelivery ?? defaultSettings.platinumFreeDelivery
     )
   };
 };

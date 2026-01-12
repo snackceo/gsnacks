@@ -465,7 +465,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       requirePhotoForRefunds: Boolean(settingsDraft.requirePhotoForRefunds),
       allowGuestCheckout: Boolean(settingsDraft.allowGuestCheckout),
       showAdvancedInventoryInsights: Boolean(settingsDraft.showAdvancedInventoryInsights),
-      allowPlatinumTier: Boolean(settingsDraft.allowPlatinumTier)
+      allowPlatinumTier: Boolean(settingsDraft.allowPlatinumTier),
+      platinumFreeDelivery: Boolean(settingsDraft.platinumFreeDelivery)
     };
 
     const persistSettings = (payload: AppSettings) => {
@@ -2330,6 +2331,19 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       }
                     />
                     Allow Platinum tier
+                  </label>
+                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-ninpo-lime"
+                      checked={settingsDraft.platinumFreeDelivery}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          platinumFreeDelivery: e.target.checked
+                        })
+                      }
+                    />
+                    Free delivery for Platinum tier
                   </label>
                 </div>
               </div>
