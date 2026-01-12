@@ -101,14 +101,14 @@ const LegalFooter: React.FC = () => {
                   What NinpoSnacks Is
                 </h3>
                 <p>
-                  NinpoSnacks is a mobile-first local snack delivery business that blends
-                  on-demand snack sales, local driver delivery, and bottle/can return
-                  collection. Verified returns create value that can reduce today&apos;s
-                  cost, become credits, or be paid in cash.
+                  NinpoSnacks is a mobile-first local snack delivery business that combines
+                  on-demand sales, local driver delivery, and bottle/can return collection.
+                  Verified returns create value that can reduce today&apos;s total, become credits,
+                  or be paid in cash.
                 </p>
                 <p>
-                  It operates like a human-assisted reverse vending system integrated directly
-                  into the shopping and delivery experience.
+                  It operates like a human-assisted reverse vending system built into the
+                  shopping and delivery experience instead of a standalone machine.
                 </p>
               </section>
 
@@ -118,7 +118,7 @@ const LegalFooter: React.FC = () => {
                 </h3>
                 <ul className="list-disc list-inside space-y-2">
                   <li>Convenience through delivery.</li>
-                  <li>Flexibility with cash or credits for returns.</li>
+                  <li>Flexibility with cash, credits, or purchase offsets.</li>
                   <li>Lower net cost over time through return incentives.</li>
                   <li>A repeat loop: buy → return → save → buy again.</li>
                 </ul>
@@ -129,13 +129,13 @@ const LegalFooter: React.FC = () => {
                   Core Business Loop
                 </h3>
                 <ol className="list-decimal list-inside space-y-2">
-                  <li>Customer orders and sees delivery fee and estimated return value.</li>
-                  <li>Payment is authorized (not finalized) for later adjustments.</li>
+                  <li>Customer orders and sees delivery fees plus estimated return value.</li>
+                  <li>Payment is authorized (not finalized) to allow later adjustments.</li>
                   <li>Driver delivers snacks and collects eligible empty containers.</li>
                   <li>Verified containers create value (e.g., 10¢ each).</li>
                   <li>Customer chooses payout: apply to purchase, store as credits, or cash.</li>
                   <li>Incentives reduce or waive service fees when credits are used.</li>
-                  <li>Final amount is captured and order is closed.</li>
+                  <li>Final amount is captured and the order is closed.</li>
                 </ol>
               </section>
 
@@ -167,6 +167,7 @@ const LegalFooter: React.FC = () => {
                   <li>Eligible containers must have Michigan 10¢ deposit labeling.</li>
                   <li>Containers must be empty, clean, and verified by drivers.</li>
                   <li>Duplicate counting is blocked with scan throttling and audit logs.</li>
+                  <li>The same bottle cannot be counted twice, but multiples are allowed.</li>
                 </ul>
               </section>
 
@@ -177,7 +178,7 @@ const LegalFooter: React.FC = () => {
                 <p>
                   Cash payouts are allowed but verified and logged. Credits and purchase offsets
                   are incentivized to reduce cash handling, limit fraud, and encourage repeat
-                  purchases.
+                  purchases. Cash is available, not the default.
                 </p>
               </section>
 
