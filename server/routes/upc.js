@@ -24,7 +24,7 @@ const buildEligibilityPayload = entry => {
     (entry?.isGlass ? 'glass' : 'plastic');
   const payload = {
     eligible: entry ? entry.isEligible !== false : false,
-    depositValue: entry ? Number(entry.depositValue || 0) : 0,
+    depositValue: entry ? Number(entry.depositValue || 0.1) : 0.1,
     containerType,
     sizeOz: entry ? coerceNumber(entry.sizeOz) : 0,
     price: entry ? coerceNumber(entry.price) : 0
@@ -44,6 +44,8 @@ const normalizeUpcList = value => {
     .map(item => String(item || '').trim())
     .filter(Boolean);
 };
+
+const normalizeDepositValue = () => 0.1;
 
 router.get('/eligibility', async (req, res) => {
   try {
@@ -112,7 +114,7 @@ router.get('/', authRequired, ownerRequired, async (_req, res) => {
     const upcItems = entries.map(entry => ({
       upc: entry.upc,
       name: entry.name || '',
-      depositValue: Number(entry.depositValue || 0),
+      depositValue: normalizeDepositValue(),
       price: coerceNumber(entry.price),
       containerType:
         normalizeContainerType(entry.containerType) ||
@@ -138,7 +140,7 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
     const updates = {
       upc,
       name: req.body?.name ?? '',
-      depositValue: Number(req.body?.depositValue ?? 0.1),
+      depositValue: normalizeDepositValue(),
       price: coerceNumber(req.body?.price),
       containerType: normalizeContainerType(req.body?.containerType),
       sizeOz: coerceNumber(req.body?.sizeOz),
@@ -146,9 +148,6 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       isEligible: req.body?.isEligible !== false
     };
 
-    if (!Number.isFinite(updates.depositValue)) {
-      return res.status(400).json({ error: 'depositValue must be a number' });
-    }
     if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
     if (!updates.containerType) {
       updates.containerType = updates.isGlass ? 'glass' : 'plastic';
@@ -166,7 +165,7 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       upcItem: {
         upc: entry.upc,
         name: entry.name || '',
-        depositValue: Number(entry.depositValue || 0),
+        depositValue: normalizeDepositValue(),
         price: coerceNumber(entry.price),
         containerType:
           normalizeContainerType(entry.containerType) ||
@@ -191,7 +190,6 @@ router.patch('/:upc', authRequired, ownerRequired, async (req, res) => {
     const updates = {};
     const allowed = [
       'name',
-      'depositValue',
       'price',
       'containerType',
       'sizeOz',
@@ -200,13 +198,6 @@ router.patch('/:upc', authRequired, ownerRequired, async (req, res) => {
     ];
     for (const key of allowed) {
       if (req.body?.[key] !== undefined) updates[key] = req.body[key];
-    }
-
-    if (updates.depositValue !== undefined) {
-      updates.depositValue = Number(updates.depositValue);
-      if (!Number.isFinite(updates.depositValue)) {
-        return res.status(400).json({ error: 'depositValue must be a number' });
-      }
     }
 
     if (updates.price !== undefined) updates.price = coerceNumber(updates.price);
@@ -237,7 +228,7 @@ router.patch('/:upc', authRequired, ownerRequired, async (req, res) => {
       upcItem: {
         upc: entry.upc,
         name: entry.name || '',
-        depositValue: Number(entry.depositValue || 0),
+        depositValue: normalizeDepositValue(),
         price: coerceNumber(entry.price),
         containerType:
           normalizeContainerType(entry.containerType) ||

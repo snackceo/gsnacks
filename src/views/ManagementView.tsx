@@ -230,7 +230,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [upcDraft, setUpcDraft] = useState<UpcItem>({
     upc: '',
     name: '',
-    depositValue: settings.michiganDepositValue || 0.1,
+    depositValue: 0.1,
     price: 0,
     containerType: 'plastic',
     sizeOz: 0,
@@ -255,7 +255,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const upcScanLoopRef = useRef<number | null>(null);
   const upcLastScannedRef = useRef<string>('');
   const upcItemsRef = useRef<UpcItem[]>([]);
-  const upcDepositRef = useRef<number>(settings.michiganDepositValue || 0.1);
+  const upcDepositRef = useRef<number>(0.1);
   const upcAudioContextRef = useRef<AudioContext | null>(null);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -565,7 +565,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setUpcDraft({
       upc: entry.upc,
       name: entry.name || '',
-      depositValue: Number(entry.depositValue || 0),
+      depositValue: 0.1,
       price: Number(entry.price || 0),
       containerType: entry.containerType || 'plastic',
       sizeOz: Number(entry.sizeOz || 0),
@@ -590,7 +590,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setUpcDraft({
       upc,
       name: '',
-      depositValue: settings.michiganDepositValue || 0.1,
+      depositValue: 0.1,
       price: 0,
       containerType: 'plastic',
       sizeOz: 0,
@@ -651,7 +651,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setUpcDraft({
         upc: '',
         name: '',
-        depositValue: settings.michiganDepositValue || 0.1,
+        depositValue: 0.1,
         price: 0,
         containerType: 'plastic',
         sizeOz: 0,
@@ -676,7 +676,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   }, [upcItems]);
 
   useEffect(() => {
-    upcDepositRef.current = settings.michiganDepositValue || 0.1;
+    upcDepositRef.current = 0.1;
   }, [settings.michiganDepositValue]);
 
   useEffect(() => {
@@ -2652,15 +2652,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   type="number"
                   value={upcDraft.price}
                   onChange={e => setUpcDraft({ ...upcDraft, price: Number(e.target.value) })}
-                />
-                <input
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  placeholder="Deposit Value"
-                  type="number"
-                  value={upcDraft.depositValue}
-                  onChange={e =>
-                    setUpcDraft({ ...upcDraft, depositValue: Number(e.target.value) })
-                  }
                 />
                 <input
                   className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
