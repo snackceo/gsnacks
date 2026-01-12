@@ -149,6 +149,26 @@ function normalizeUpcCounts(rawUpcs) {
   };
 }
 
+function buildReturnCountUpdates(order) {
+  const updates = {};
+  if (
+    (!Array.isArray(order.returnUpcCounts) || order.returnUpcCounts.length === 0) &&
+    Array.isArray(order.returnUpcs) &&
+    order.returnUpcs.length > 0
+  ) {
+    updates.returnUpcCounts = normalizeUpcCounts(order.returnUpcs).upcCounts;
+  }
+  if (
+    (!Array.isArray(order.verifiedReturnUpcCounts) ||
+      order.verifiedReturnUpcCounts.length === 0) &&
+    Array.isArray(order.verifiedReturnUpcs) &&
+    order.verifiedReturnUpcs.length > 0
+  ) {
+    updates.verifiedReturnUpcCounts = normalizeUpcCounts(order.verifiedReturnUpcs).upcCounts;
+  }
+  return updates;
+}
+
 function mapOrderForFrontend(d) {
   // Frontend enum does not include CANCELED/EXPIRED, so map them to CLOSED.
   const mappedStatus =
@@ -241,6 +261,7 @@ async function voidStripeAuthorizationBestEffort(stripe, order) {
 
 export {
   authRequired,
+  buildReturnCountUpdates,
   clearAuthCookie,
   getCookieOptions,
   isDriverUsername,

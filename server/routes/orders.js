@@ -7,6 +7,7 @@ import User from '../models/User.js';
 import LedgerEntry from '../models/LedgerEntry.js';
 import {
   authRequired,
+  buildReturnCountUpdates,
   isDriverUsername,
   isOwnerUsername,
   mapOrderForFrontend,
@@ -58,6 +59,23 @@ const createOrdersRouter = ({ stripe }) => {
           : { customerId: req.user?.id };
 
       const docs = await Order.find(q).sort({ createdAt: -1 }).lean();
+      const backfillOps = [];
+      for (const doc of docs) {
+        const updates = buildReturnCountUpdates(doc);
+        if (Object.keys(updates).length > 0) {
+          backfillOps.push({
+            updateOne: {
+              filter: { _id: doc._id },
+              update: { $set: updates }
+            }
+          });
+          Object.assign(doc, updates);
+        }
+      }
+      if (backfillOps.length > 0) {
+        await Order.bulkWrite(backfillOps);
+      }
+
       const orders = docs.map(mapOrderForFrontend);
 
       res.json({ ok: true, orders });
@@ -340,7 +358,15 @@ const createOrdersRouter = ({ stripe }) => {
           order.deliveredAt = new Date();
 
           if (isReturnOnly && !order.returnCreditsAppliedAt) {
-            const normalized = normalizeUpcCounts(updates.verifiedReturnUpcCounts);
+            const verifiedPayload =
+              updates.verifiedReturnUpcCounts ??
+              updates.verifiedReturnUpcs ??
+              order.verifiedReturnUpcCounts ??
+              order.verifiedReturnUpcs ??
+              order.returnUpcCounts ??
+              order.returnUpcs ??
+              [];
+            const normalized = normalizeUpcCounts(verifiedPayload);
             const uniqueReturnUpcs = normalized.uniqueUpcs;
             const countMap = new Map(
               normalized.upcCounts.map(entry => [entry.upc, entry.quantity])
