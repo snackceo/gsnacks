@@ -248,6 +248,21 @@ function mapOrderForFrontend(d) {
     deliveredAt: d.deliveredAt ? new Date(d.deliveredAt).toISOString() : undefined,
 
     verificationPhoto: d.verificationPhoto || undefined,
+    returnPhoto: d.returnPhoto || undefined,
+    returnAiAnalysis:
+      d.returnAiAnalysis &&
+      (d.returnAiAnalysis.summary ||
+        d.returnAiAnalysis.confidence !== undefined ||
+        (Array.isArray(d.returnAiAnalysis.flags) && d.returnAiAnalysis.flags.length > 0))
+        ? {
+            confidence: Number(d.returnAiAnalysis.confidence ?? 0),
+            flags: Array.isArray(d.returnAiAnalysis.flags) ? d.returnAiAnalysis.flags : [],
+            summary: d.returnAiAnalysis.summary || undefined,
+            assessedAt: d.returnAiAnalysis.assessedAt
+              ? new Date(d.returnAiAnalysis.assessedAt).toISOString()
+              : undefined
+          }
+        : undefined,
     gpsCoords: d.gpsCoords?.lat && d.gpsCoords?.lng ? d.gpsCoords : undefined
   };
 }

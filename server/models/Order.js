@@ -12,6 +12,13 @@ const orderSchema = new mongoose.Schema(
       lng: { type: Number }
     },
     verificationPhoto: { type: String, default: '' },
+    returnPhoto: { type: String, default: '' },
+    returnAiAnalysis: {
+      confidence: { type: Number },
+      flags: { type: [String], default: [] },
+      summary: { type: String, default: '' },
+      assessedAt: { type: Date }
+    },
 
     // Bottle returns (client preview + driver verification)
     returnUpcs: { type: [String], default: [] },

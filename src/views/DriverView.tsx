@@ -39,6 +39,8 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const [isVerifying, setIsVerifying] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [returnCapturedPhoto, setReturnCapturedPhoto] = useState<string | null>(null);
+  const [contaminationConfirmed, setContaminationConfirmed] = useState(false);
   const [aiCondition, setAiCondition] = useState<{
     valid: boolean;
     material: string;
@@ -102,15 +104,37 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setAiConditionStatus('idle');
   };
 
+  const resetReturnPhotoState = () => {
+    setReturnCapturedPhoto(null);
+    setContaminationConfirmed(false);
+  };
+
   const isReturnOnlyOrder = (order?: Order | null) => {
     if (!order) return false;
     const count = countUpcs(order.returnUpcCounts ?? []);
     return (order.items?.length ?? 0) === 0 && count > 0;
   };
 
+  const getExpectedReturnCount = (order?: Order | null) => {
+    if (!order) return 0;
+    const counted = countUpcs(order.returnUpcCounts ?? []);
+    if (counted > 0) return counted;
+    if (Array.isArray(order.returnUpcs)) return order.returnUpcs.length;
+    return 0;
+  };
+
+  const formatConfidence = (value?: number) => {
+    if (value === undefined || value === null) return null;
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return null;
+    const percent = numeric <= 1 ? Math.round(numeric * 100) : Math.round(numeric);
+    return `${percent}%`;
+  };
+
   const startVerification = async (order: Order) => {
     setActiveOrder(order);
     resetPhotoState();
+    resetReturnPhotoState();
     const initialEntries = order.verifiedReturnUpcCounts ?? order.returnUpcCounts ?? [];
     setVerifiedReturnUpcs(Array.isArray(initialEntries) ? initialEntries : []);
     setManualUpc('');
@@ -128,18 +152,23 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       });
       if (videoRef.current) videoRef.current.srcObject = s;
     } catch {
-      alert('Camera access is required for delivery proof.');
+      alert('Camera access is required for delivery and return photos.');
     }
   };
 
-  const takePhoto = async () => {
+  const captureFromVideo = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const video = videoRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d')?.drawImage(video, 0, 0);
-    const dataUrl = canvas.toDataURL('image/jpeg');
+    return canvas.toDataURL('image/jpeg');
+  };
+
+  const takeDeliveryPhoto = async () => {
+    const dataUrl = captureFromVideo();
+    if (!dataUrl) return;
     setCapturedPhoto(dataUrl);
     setAiCondition(null);
     setAiConditionStatus('loading');
@@ -152,6 +181,13 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     } catch {
       setAiConditionStatus('error');
     }
+  };
+
+  const takeReturnPhoto = () => {
+    const dataUrl = captureFromVideo();
+    if (!dataUrl) return;
+    setReturnCapturedPhoto(dataUrl);
+    setContaminationConfirmed(false);
   };
 
   const updateEligibilityCache = (upc: string, isEligible: boolean) => {
@@ -352,6 +388,22 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       return;
     }
 
+    const expectedReturnCount = getExpectedReturnCount(activeOrder);
+    const requiresReturnPhoto = expectedReturnCount > 0 || verifiedReturnCount > 0;
+    const returnAiAnalysis = activeOrder?.returnAiAnalysis;
+    const contaminationFlagged =
+      returnAiAnalysis?.flags?.some(flag => flag.toLowerCase().includes('contamin')) ?? false;
+
+    if (requiresReturnPhoto && !returnCapturedPhoto) {
+      alert('Capture a return photo before completing delivery.');
+      return;
+    }
+
+    if (contaminationFlagged && !contaminationConfirmed) {
+      alert('Confirm contamination review before completing delivery.');
+      return;
+    }
+
     if (!capturedPhoto) {
       alert('Capture a delivery proof photo before completing delivery.');
       return;
@@ -403,14 +455,60 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       return data?.url || null;
     };
 
+    const uploadReturnPhoto = async () => {
+      if (!returnCapturedPhoto) return null;
+
+      const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string | undefined;
+      const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string | undefined;
+
+      if (cloudName && uploadPreset) {
+        const imageBlob = await fetch(returnCapturedPhoto).then(res => res.blob());
+        const formData = new FormData();
+        formData.append('file', imageBlob, `return-${activeOrder.id}.jpg`);
+        formData.append('upload_preset', uploadPreset);
+        formData.append('folder', 'return-photos');
+        formData.append('context', `orderId=${activeOrder.id}`);
+
+        const uploadRes = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+          {
+            method: 'POST',
+            body: formData
+          }
+        );
+        const uploadData = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          throw new Error(uploadData?.error?.message || 'Return photo upload failed.');
+        }
+        return uploadData?.secure_url || uploadData?.url || null;
+      }
+
+      const res = await fetch(`${BACKEND_URL}/api/uploads/return-photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          orderId: activeOrder.id,
+          imageData: returnCapturedPhoto
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || 'Return photo upload failed.');
+      }
+      return data?.url || null;
+    };
+
     navigator.geolocation.getCurrentPosition(
       async pos => {
         try {
           const proofUrl = await uploadProof();
+          const returnPhotoUrl = await uploadReturnPhoto();
           const metadata = {
             deliveredAt: new Date().toISOString(),
             gpsCoords: { lat: pos.coords.latitude, lng: pos.coords.longitude },
             verificationPhoto: proofUrl || undefined,
+            returnPhoto: returnPhotoUrl || undefined,
             ...(isReturnOnlyOrder(activeOrder)
               ? { verifiedReturnUpcCounts: verifiedReturnUpcs }
               : {})
@@ -421,6 +519,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
           setIsVerifying(false);
           setActiveOrder(null);
           resetPhotoState();
+          resetReturnPhotoState();
           setVerifiedReturnUpcs([]);
           setManualUpc('');
           setScannerOpen(false);
@@ -574,6 +673,25 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     () => verifiedReturnUpcs.reduce((sum, entry) => sum + entry.quantity, 0),
     [verifiedReturnUpcs]
   );
+  const expectedReturnCount = getExpectedReturnCount(activeOrder);
+  const requiresReturnPhoto = expectedReturnCount > 0 || verifiedReturnCount > 0;
+  const returnAiAnalysis = activeOrder?.returnAiAnalysis;
+  const contaminationFlagged =
+    returnAiAnalysis?.flags?.some(flag => flag.toLowerCase().includes('contamin')) ?? false;
+  const isCompletionBlocked =
+    !capturedPhoto ||
+    isVerifying ||
+    (requiresReturnPhoto && !returnCapturedPhoto) ||
+    (contaminationFlagged && !contaminationConfirmed);
+  const completionTitle = !paymentCaptured && !isReturnOnly
+    ? 'Capture payment first'
+    : contaminationFlagged && !contaminationConfirmed
+      ? 'Confirm contamination review'
+      : requiresReturnPhoto && !returnCapturedPhoto
+        ? 'Capture return photo first'
+        : !capturedPhoto
+          ? 'Capture delivery proof first'
+          : 'Complete delivery';
 
   const scannerModal =
     scannerOpen && typeof document !== 'undefined'
@@ -912,6 +1030,95 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               )}
             </div>
 
+            {requiresReturnPhoto && (
+              <div className="space-y-4">
+                <div className="bg-black/30 border border-white/10 rounded-2xl p-5 text-xs space-y-2">
+                  <p className="uppercase tracking-widest opacity-60">Return photo (required)</p>
+                  <p className="text-[10px] uppercase tracking-widest text-slate-600">
+                    Use the live camera preview below to capture the return photo.
+                  </p>
+                  {returnAiAnalysis && (
+                    <div className="mt-3 space-y-2 text-[11px] text-slate-200">
+                      <p className="uppercase tracking-widest text-slate-400">
+                        Return AI advisory (server)
+                      </p>
+                      {returnAiAnalysis.summary && (
+                        <p className="text-slate-200">{returnAiAnalysis.summary}</p>
+                      )}
+                      {formatConfidence(returnAiAnalysis.confidence) && (
+                        <p className="text-slate-400 uppercase tracking-widest">
+                          Confidence:{' '}
+                          <span className="text-white">
+                            {formatConfidence(returnAiAnalysis.confidence)}
+                          </span>
+                        </p>
+                      )}
+                      {returnAiAnalysis.flags && returnAiAnalysis.flags.length > 0 && (
+                        <div className="text-[11px] text-slate-300">
+                          <p className="uppercase tracking-widest text-slate-400">Flags</p>
+                          <ul className="list-disc list-inside">
+                            {returnAiAnalysis.flags.map(flag => (
+                              <li key={flag}>{flag}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {contaminationFlagged && (
+                    <div className="mt-3 bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4 space-y-2">
+                      <p className="text-[11px] text-ninpo-red font-bold uppercase tracking-widest">
+                        Contamination flagged
+                      </p>
+                      <label className="flex items-start gap-3 text-[11px] text-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={contaminationConfirmed}
+                          onChange={e => setContaminationConfirmed(e.target.checked)}
+                          className="mt-1"
+                        />
+                        <span>
+                          I inspected the returns and confirm they are safe to process.
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative aspect-video rounded-3xl overflow-hidden bg-ninpo-black">
+                  {returnCapturedPhoto ? (
+                    <img
+                      src={returnCapturedPhoto}
+                      className="w-full h-full object-cover"
+                      alt="Return photo"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-[10px] uppercase tracking-widest text-slate-600">
+                      No return photo captured yet.
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-4">
+                  <button
+                    onClick={takeReturnPhoto}
+                    className="flex-1 py-4 bg-white/5 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                  >
+                    <Camera className="w-4 h-4" /> Capture Return Photo
+                  </button>
+
+                  {returnCapturedPhoto && (
+                    <button
+                      onClick={resetReturnPhotoState}
+                      className="px-6 py-4 bg-ninpo-red/10 text-ninpo-red rounded-xl text-[10px] font-black uppercase"
+                    >
+                      Retake
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="relative aspect-video rounded-3xl overflow-hidden bg-ninpo-black">
               {capturedPhoto ? (
                 <img src={capturedPhoto} className="w-full h-full object-cover" alt="Delivery proof" />
@@ -956,10 +1163,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
             <div className="flex gap-4">
               <button
-                onClick={takePhoto}
+                onClick={takeDeliveryPhoto}
                 className="flex-1 py-4 bg-white/5 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
               >
-                <Camera className="w-4 h-4" /> Capture Photo
+                <Camera className="w-4 h-4" /> Capture Delivery Proof
               </button>
 
               {capturedPhoto && (
@@ -973,10 +1180,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
             </div>
 
             <button
-              disabled={!capturedPhoto || isVerifying}
+              disabled={isCompletionBlocked}
               onClick={completeDelivery}
               className="w-full py-6 bg-ninpo-lime text-ninpo-black rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-neon flex items-center justify-center gap-4 transition-all disabled:opacity-50"
-              title={!paymentCaptured && !isReturnOnly ? 'Capture payment first' : 'Complete delivery'}
+              title={completionTitle}
             >
               {isVerifying ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
