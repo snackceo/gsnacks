@@ -74,6 +74,11 @@ export interface UpcItem {
   updatedAt?: string;
 }
 
+export interface ReturnUpcCount {
+  upc: string;
+  quantity: number;
+}
+
 export interface Order {
   id: string;
   customerId: string;
@@ -88,6 +93,8 @@ export interface Order {
   verifiedReturnCredit?: number;
   returnUpcs?: string[];
   verifiedReturnUpcs?: string[];
+  returnUpcCounts?: ReturnUpcCount[];
+  verifiedReturnUpcCounts?: ReturnUpcCount[];
 
   // Dollars (derived from Stripe cents fields on backend)
   authorizedAmount?: number;

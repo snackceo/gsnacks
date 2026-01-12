@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ShoppingBag, X, Trash2, Loader2, Zap, Landmark, Camera, Plus, ScanLine } from 'lucide-react';
-import { Product } from '../types';
+import { Product, ReturnUpcCount } from '../types';
 
 interface CartItem {
   productId: string;
@@ -24,10 +24,10 @@ interface CartDrawerProps {
   onRemoveItem: (productId: string) => void;
 
   // Not implemented in your current flow (kept for compatibility)
-  onPayCredits: (returnUpcs: string[]) => Promise<boolean>;
+  onPayCredits: (returnUpcs: ReturnUpcCount[]) => Promise<boolean>;
 
   // Your existing Stripe flow handler from App.tsx
-  onPayExternal: (gateway: 'STRIPE' | 'GPAY', returnUpcs: string[]) => void;
+  onPayExternal: (gateway: 'STRIPE' | 'GPAY', returnUpcs: ReturnUpcCount[]) => void;
 }
 
 const LS_KEY_UPCS = 'ninpo_return_upcs_v1';
@@ -49,10 +49,7 @@ type UpcEligibilityCache = Record<
   }
 >;
 
-type ReturnUpcEntry = {
-  upc: string;
-  quantity: number;
-};
+type ReturnUpcEntry = ReturnUpcCount;
 
 function money(n: number) {
   const v = Number.isFinite(n) ? n : 0;
@@ -89,6 +86,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const scanLoopRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const eligibilityCacheRef = useRef<UpcEligibilityCache>({});
+  const lastScanAtRef = useRef<number>(0);
 
   const normalizeReturnUpcs = (raw: unknown): ReturnUpcEntry[] => {
     if (!Array.isArray(raw)) return [];
@@ -109,9 +107,6 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       }))
       .filter(entry => entry.upc);
   };
-
-  const flattenReturnUpcs = (entries: ReturnUpcEntry[]) =>
-    entries.flatMap(entry => Array.from({ length: entry.quantity }, () => entry.upc));
 
   // Load UPCs from localStorage on mount
   useEffect(() => {
@@ -240,9 +235,19 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     );
   };
 
-  const addUpc = async (upcRaw: string) => {
+  const addUpc = async (upcRaw: string, source: 'scanner' | 'manual' = 'manual') => {
     const upc = String(upcRaw || '').replace(/\s+/g, '').trim();
     if (!upc) return;
+
+    if (source === 'scanner') {
+      const now = Date.now();
+      if (now - lastScanAtRef.current < 1200) {
+        playScannerTone(220, 240, 0.25);
+        setScannerError('Scan paused. Wait a moment or tap + to increment.');
+        return;
+      }
+      lastScanAtRef.current = now;
+    }
 
     // Basic UPC/EAN sanity check (you can loosen if needed)
     if (!/^\d{8,14}$/.test(upc)) {
@@ -435,7 +440,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
             if (Array.isArray(barcodes) && barcodes.length > 0) {
               const rawValue = barcodes[0]?.rawValue;
               if (rawValue) {
-                addUpc(rawValue);
+                addUpc(rawValue, 'scanner');
 
                 // Soft throttle so it doesn't spam the same UPC
                 await new Promise(r => setTimeout(r, 900));
@@ -483,7 +488,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const handleCreditsClick = async () => {
     if (!canCheckoutCredits) return;
-    const didComplete = await onPayCredits(flattenReturnUpcs(returnUpcs));
+    const didComplete = await onPayCredits(returnUpcs);
     if (didComplete) {
       clearUpcs();
     }
@@ -684,7 +689,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                   className="flex-1 bg-black/40 border border-white/10 rounded-2xl p-4 text-white text-xs outline-none focus:border-ninpo-lime"
                 />
                 <button
-                  onClick={() => addUpc(manualUpc)}
+                  onClick={() => addUpc(manualUpc, 'manual')}
                   className="px-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
                 >
                   <Plus className="w-4 h-4" /> Add
@@ -827,7 +832,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               </button>
 
               <button
-                onClick={() => onPayExternal('STRIPE', flattenReturnUpcs(returnUpcs))}
+                onClick={() => onPayExternal('STRIPE', returnUpcs)}
                 disabled={!canCheckoutStripe}
                 className="py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40"
               >
