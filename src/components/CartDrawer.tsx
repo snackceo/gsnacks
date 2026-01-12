@@ -760,14 +760,27 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
             {/* Bottle Returns */}
             <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4">
               <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-white font-black uppercase tracking-widest text-xs">
-                    Bottle Returns (Optional)
-                  </p>
-                  <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
-                    Enter eligible Michigan 10¢ deposit UPCs to see an estimated return value. Final
-                    value is confirmed after driver verification.
-                  </p>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-white font-black uppercase tracking-widest text-xs">
+                      Bottle Returns (Optional)
+                    </p>
+                    <button
+                      type="button"
+                      aria-label="Toggle bottle return advisory"
+                      aria-expanded={showBottleReturnAdvisory}
+                      onClick={() => setShowBottleReturnAdvisory(prev => !prev)}
+                      className="flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-black/40 text-slate-300 hover:text-white hover:border-white/20 transition"
+                    >
+                      <AlertCircle className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  {showBottleReturnAdvisory && (
+                    <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
+                      Enter eligible Michigan 10¢ deposit UPCs to see an estimated return value.
+                      Final value is confirmed after driver verification.
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
