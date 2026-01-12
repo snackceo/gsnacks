@@ -317,6 +317,32 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
     const uploadProof = async () => {
       if (!capturedPhoto) return null;
+
+      const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string | undefined;
+      const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string | undefined;
+
+      if (cloudName && uploadPreset) {
+        const imageBlob = await fetch(capturedPhoto).then(res => res.blob());
+        const formData = new FormData();
+        formData.append('file', imageBlob, `proof-${activeOrder.id}.jpg`);
+        formData.append('upload_preset', uploadPreset);
+        formData.append('folder', 'delivery-proofs');
+        formData.append('context', `orderId=${activeOrder.id}`);
+
+        const uploadRes = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+          {
+            method: 'POST',
+            body: formData
+          }
+        );
+        const uploadData = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          throw new Error(uploadData?.error?.message || 'Proof upload failed.');
+        }
+        return uploadData?.secure_url || uploadData?.url || null;
+      }
+
       const res = await fetch(`${BACKEND_URL}/api/uploads/proof`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
