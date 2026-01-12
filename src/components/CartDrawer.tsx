@@ -109,6 +109,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const [isScanning, setIsScanning] = useState(false);
   const [hasEligibilityCache, setHasEligibilityCache] = useState(false);
   const [eligibilityCache, setEligibilityCache] = useState<UpcEligibilityCache>({});
+  const [showBottleReturnAdvisory, setShowBottleReturnAdvisory] = useState(false);
   const [showPolicyAdvisories, setShowPolicyAdvisories] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
