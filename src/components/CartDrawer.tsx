@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ShoppingBag, X, Trash2, Loader2, Zap, Landmark, Camera, Plus, ScanLine } from 'lucide-react';
-import { Product, ReturnUpcCount } from '../types';
+import { Product, ReturnUpcCount, UserTier } from '../types';
 
 interface CartItem {
   productId: string;
@@ -16,6 +16,9 @@ interface CartDrawerProps {
   acceptedPolicies: boolean;
   isProcessing: boolean;
   deliveryFee: number;
+  baseDeliveryFee: number;
+  membershipTier?: UserTier;
+  platinumFreeDeliveryEnabled: boolean;
 
   onClose: () => void;
   onAddressChange: (v: string) => void;
@@ -64,6 +67,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   acceptedPolicies,
   isProcessing,
   deliveryFee,
+  baseDeliveryFee,
+  membershipTier,
+  platinumFreeDeliveryEnabled,
   onClose,
   onAddressChange,
   onPolicyChange,
@@ -346,6 +352,35 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const subtotal = useMemo(() => lineItems.reduce((sum, li) => sum + li.lineTotal, 0), [lineItems]);
   const sanitizedDeliveryFee = Number.isFinite(deliveryFee) ? deliveryFee : 0;
+  const sanitizedBaseDeliveryFee = Number.isFinite(baseDeliveryFee)
+    ? baseDeliveryFee
+    : sanitizedDeliveryFee;
+
+  const tierDiscounts = useMemo(
+    () => [
+      {
+        tier: UserTier.BRONZE,
+        label: 'Bronze',
+        deliveryDiscount: 0
+      },
+      {
+        tier: UserTier.SILVER,
+        label: 'Silver',
+        deliveryDiscount: 0
+      },
+      {
+        tier: UserTier.GOLD,
+        label: 'Gold',
+        deliveryDiscount: 0
+      },
+      {
+        tier: UserTier.PLATINUM,
+        label: 'Platinum',
+        deliveryDiscount: platinumFreeDeliveryEnabled ? sanitizedBaseDeliveryFee : 0
+      }
+    ],
+    [platinumFreeDeliveryEnabled, sanitizedBaseDeliveryFee]
+  );
 
   // Preview total after estimated return credit (cannot go below 0)
   const previewTotalAfterCredit = useMemo(() => {
@@ -798,6 +833,36 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                   Delivery Fee
                 </p>
                 <p className="text-white font-black">{money(sanitizedDeliveryFee)}</p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Tier Delivery Discounts
+                </p>
+                <div className="space-y-2">
+                  {tierDiscounts.map(discount => {
+                    const isActiveTier = membershipTier
+                      ? discount.tier === membershipTier
+                      : discount.tier === UserTier.BRONZE;
+                    return (
+                      <div
+                        key={discount.tier}
+                        className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest ${
+                          isActiveTier
+                            ? 'border-ninpo-lime/40 bg-ninpo-lime/10 text-ninpo-lime'
+                            : 'border-white/10 bg-black/20 text-slate-500'
+                        }`}
+                      >
+                        <span>{discount.label}</span>
+                        <span>
+                          {discount.deliveryDiscount > 0
+                            ? `- ${money(discount.deliveryDiscount)}`
+                            : money(0)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="flex items-center justify-between">
