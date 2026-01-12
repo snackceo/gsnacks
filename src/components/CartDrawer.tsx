@@ -49,6 +49,9 @@ type UpcEligibilityCache = Record<
   {
     isEligible: boolean;
     checkedAt: string;
+    name?: string;
+    containerType?: string;
+    sizeOz?: number;
   }
 >;
 
@@ -86,6 +89,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [hasEligibilityCache, setHasEligibilityCache] = useState(false);
+  const [eligibilityCache, setEligibilityCache] = useState<UpcEligibilityCache>({});
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -133,6 +137,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
         eligibilityCacheRef.current = parsed as UpcEligibilityCache;
+        setEligibilityCache(parsed as UpcEligibilityCache);
         setHasEligibilityCache(Object.keys(parsed).length > 0);
       }
     } catch {
@@ -149,15 +154,27 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     }
   }, [returnUpcs]);
 
-  const updateEligibilityCache = (upc: string, isEligible: boolean) => {
+  const updateEligibilityCache = (
+    upc: string,
+    payload: {
+      isEligible: boolean;
+      name?: string;
+      containerType?: string;
+      sizeOz?: number;
+    }
+  ) => {
     const next = {
       ...eligibilityCacheRef.current,
       [upc]: {
-        isEligible,
+        isEligible: payload.isEligible,
+        name: payload.name,
+        containerType: payload.containerType,
+        sizeOz: payload.sizeOz,
         checkedAt: new Date().toISOString()
       }
     };
     eligibilityCacheRef.current = next;
+    setEligibilityCache(next);
     setHasEligibilityCache(true);
     try {
       localStorage.setItem(LS_KEY_UPC_ELIGIBILITY, JSON.stringify(next));
@@ -168,6 +185,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const clearEligibilityCache = () => {
     eligibilityCacheRef.current = {};
+    setEligibilityCache({});
     setHasEligibilityCache(false);
     try {
       localStorage.removeItem(LS_KEY_UPC_ELIGIBILITY);
@@ -281,7 +299,12 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       if (response.ok) {
         const data = await response.json();
         const isEligible = data?.eligible !== false;
-        updateEligibilityCache(upc, isEligible);
+        updateEligibilityCache(upc, {
+          isEligible,
+          name: data?.name,
+          containerType: data?.containerType,
+          sizeOz: data?.sizeOz
+        });
         if (!isEligible) {
           playScannerTone(220, 240, 0.25);
           setScannerError(NOT_ELIGIBLE_MESSAGE);
@@ -292,7 +315,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       }
 
       if (response.status === 404) {
-        updateEligibilityCache(upc, false);
+        updateEligibilityCache(upc, { isEligible: false });
         playScannerTone(220, 240, 0.25);
         setScannerError(NOT_ELIGIBLE_MESSAGE);
         return;
@@ -763,7 +786,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                     >
                       <div className="flex items-center gap-3">
                         <span className="text-[11px] text-white font-bold tracking-wider">
-                          {entry.upc}
+                          {eligibilityCache[entry.upc]?.name || entry.upc}
                         </span>
                         <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
                           × {entry.quantity}

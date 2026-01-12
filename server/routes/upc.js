@@ -5,10 +5,29 @@ import { authRequired, ownerRequired } from '../utils/helpers.js';
 
 const router = express.Router();
 
+const normalizeContainerType = value => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'glass') return 'glass';
+  if (raw === 'plastic') return 'plastic';
+  if (raw === 'aluminum' || raw === 'can' || raw === 'cans') return 'aluminum';
+  return undefined;
+};
+
+const coerceNumber = value => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
 const buildEligibilityPayload = entry => {
+  const containerType =
+    normalizeContainerType(entry?.containerType) ||
+    (entry?.isGlass ? 'glass' : 'plastic');
   const payload = {
     eligible: entry ? entry.isEligible !== false : false,
-    depositValue: entry ? Number(entry.depositValue || 0) : 0
+    depositValue: entry ? Number(entry.depositValue || 0) : 0,
+    containerType,
+    sizeOz: entry ? coerceNumber(entry.sizeOz) : 0,
+    price: entry ? coerceNumber(entry.price) : 0
   };
 
   if (entry?.name) {
@@ -94,7 +113,11 @@ router.get('/', authRequired, ownerRequired, async (_req, res) => {
       upc: entry.upc,
       name: entry.name || '',
       depositValue: Number(entry.depositValue || 0),
-      isGlass: !!entry.isGlass,
+      price: coerceNumber(entry.price),
+      containerType:
+        normalizeContainerType(entry.containerType) ||
+        (entry.isGlass ? 'glass' : 'plastic'),
+      sizeOz: coerceNumber(entry.sizeOz),
       isEligible: entry.isEligible !== false,
       createdAt: entry.createdAt ? new Date(entry.createdAt).toISOString() : undefined,
       updatedAt: entry.updatedAt ? new Date(entry.updatedAt).toISOString() : undefined
@@ -116,13 +139,21 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       upc,
       name: req.body?.name ?? '',
       depositValue: Number(req.body?.depositValue ?? 0.1),
-      isGlass: !!req.body?.isGlass,
+      price: coerceNumber(req.body?.price),
+      containerType: normalizeContainerType(req.body?.containerType),
+      sizeOz: coerceNumber(req.body?.sizeOz),
+      isGlass: req.body?.isGlass,
       isEligible: req.body?.isEligible !== false
     };
 
     if (!Number.isFinite(updates.depositValue)) {
       return res.status(400).json({ error: 'depositValue must be a number' });
     }
+    if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
+    if (!updates.containerType) {
+      updates.containerType = updates.isGlass ? 'glass' : 'plastic';
+    }
+    updates.isGlass = updates.containerType === 'glass';
 
     const entry = await UpcItem.findOneAndUpdate({ upc }, updates, {
       new: true,
@@ -136,7 +167,11 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
         upc: entry.upc,
         name: entry.name || '',
         depositValue: Number(entry.depositValue || 0),
-        isGlass: !!entry.isGlass,
+        price: coerceNumber(entry.price),
+        containerType:
+          normalizeContainerType(entry.containerType) ||
+          (entry.isGlass ? 'glass' : 'plastic'),
+        sizeOz: coerceNumber(entry.sizeOz),
         isEligible: entry.isEligible !== false,
         createdAt: entry.createdAt ? new Date(entry.createdAt).toISOString() : undefined,
         updatedAt: entry.updatedAt ? new Date(entry.updatedAt).toISOString() : undefined
@@ -154,7 +189,15 @@ router.patch('/:upc', authRequired, ownerRequired, async (req, res) => {
     if (!upc) return res.status(400).json({ error: 'upc is required' });
 
     const updates = {};
-    const allowed = ['name', 'depositValue', 'isGlass', 'isEligible'];
+    const allowed = [
+      'name',
+      'depositValue',
+      'price',
+      'containerType',
+      'sizeOz',
+      'isGlass',
+      'isEligible'
+    ];
     for (const key of allowed) {
       if (req.body?.[key] !== undefined) updates[key] = req.body[key];
     }
@@ -166,7 +209,21 @@ router.patch('/:upc', authRequired, ownerRequired, async (req, res) => {
       }
     }
 
+    if (updates.price !== undefined) updates.price = coerceNumber(updates.price);
+    if (updates.sizeOz !== undefined) updates.sizeOz = coerceNumber(updates.sizeOz);
+    if (updates.containerType !== undefined) {
+      updates.containerType = normalizeContainerType(updates.containerType);
+      if (!updates.containerType) {
+        return res.status(400).json({ error: 'containerType is invalid' });
+      }
+    }
     if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
+    if (updates.containerType && updates.isGlass === undefined) {
+      updates.isGlass = updates.containerType === 'glass';
+    }
+    if (updates.isGlass !== undefined && !updates.containerType) {
+      updates.containerType = updates.isGlass ? 'glass' : 'plastic';
+    }
     if (updates.isEligible !== undefined) updates.isEligible = !!updates.isEligible;
 
     const entry = await UpcItem.findOneAndUpdate({ upc }, updates, {
@@ -181,7 +238,11 @@ router.patch('/:upc', authRequired, ownerRequired, async (req, res) => {
         upc: entry.upc,
         name: entry.name || '',
         depositValue: Number(entry.depositValue || 0),
-        isGlass: !!entry.isGlass,
+        price: coerceNumber(entry.price),
+        containerType:
+          normalizeContainerType(entry.containerType) ||
+          (entry.isGlass ? 'glass' : 'plastic'),
+        sizeOz: coerceNumber(entry.sizeOz),
         isEligible: entry.isEligible !== false,
         createdAt: entry.createdAt ? new Date(entry.createdAt).toISOString() : undefined,
         updatedAt: entry.updatedAt ? new Date(entry.updatedAt).toISOString() : undefined

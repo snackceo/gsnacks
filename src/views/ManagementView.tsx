@@ -4,6 +4,7 @@ import {
   Product,
   Order,
   OrderStatus,
+  UpcContainerType,
   UpcItem,
   AppSettings,
   ApprovalRequest,
@@ -54,6 +55,11 @@ import {
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 const SETTINGS_STORAGE_KEY = 'ninpo:settings';
+const UPC_CONTAINER_LABELS: Record<UpcContainerType, string> = {
+  aluminum: 'CAN / ALUMINUM',
+  glass: 'GLASS / BOTTLE',
+  plastic: 'PLASTIC / BOTTLE'
+};
 
 interface ManagementViewProps {
   user: User;
@@ -225,7 +231,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     upc: '',
     name: '',
     depositValue: settings.michiganDepositValue || 0.1,
-    isGlass: false,
+    price: 0,
+    containerType: 'plastic',
+    sizeOz: 0,
     isEligible: true
   });
   const [isUpcLoading, setIsUpcLoading] = useState(false);
@@ -558,7 +566,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       upc: entry.upc,
       name: entry.name || '',
       depositValue: Number(entry.depositValue || 0),
-      isGlass: !!entry.isGlass,
+      price: Number(entry.price || 0),
+      containerType: entry.containerType || 'plastic',
+      sizeOz: Number(entry.sizeOz || 0),
       isEligible: entry.isEligible !== false
     });
   };
@@ -581,7 +591,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       upc,
       name: '',
       depositValue: settings.michiganDepositValue || 0.1,
-      isGlass: false,
+      price: 0,
+      containerType: 'plastic',
+      sizeOz: 0,
       isEligible: true
     });
   };
@@ -603,7 +615,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           upc: upcDraft.upc,
           name: upcDraft.name,
           depositValue: Number(upcDraft.depositValue || 0),
-          isGlass: upcDraft.isGlass,
+          price: Number(upcDraft.price || 0),
+          containerType: upcDraft.containerType,
+          sizeOz: Number(upcDraft.sizeOz || 0),
           isEligible: upcDraft.isEligible
         })
       });
@@ -638,7 +652,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         upc: '',
         name: '',
         depositValue: settings.michiganDepositValue || 0.1,
-        isGlass: false,
+        price: 0,
+        containerType: 'plastic',
+        sizeOz: 0,
         isEligible: true
       });
       setUpcInput('');
@@ -798,7 +814,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     upc: rawValue,
                     name: '',
                     depositValue: upcDepositRef.current,
-                    isGlass: false,
+                    price: 0,
+                    containerType: 'plastic',
+                    sizeOz: 0,
                     isEligible: true
                   });
                 }
@@ -2458,7 +2476,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   <div>
                     <p className="text-white font-black">{p.name}</p>
                     <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest mt-1">
-                      ID: {p.id} • Stock: {p.stock}
+                      ID: {p.id} • Stock: {p.stock} • ${Number(p.price || 0).toFixed(2)}
                     </p>
                   </div>
 
@@ -2612,6 +2630,13 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 />
                 <input
                   className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Price"
+                  type="number"
+                  value={upcDraft.price}
+                  onChange={e => setUpcDraft({ ...upcDraft, price: Number(e.target.value) })}
+                />
+                <input
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                   placeholder="Deposit Value"
                   type="number"
                   value={upcDraft.depositValue}
@@ -2619,14 +2644,29 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     setUpcDraft({ ...upcDraft, depositValue: Number(e.target.value) })
                   }
                 />
-                <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                  <input
-                    type="checkbox"
-                    checked={upcDraft.isGlass}
-                    onChange={e => setUpcDraft({ ...upcDraft, isGlass: e.target.checked })}
-                  />
-                  Glass Container
-                </label>
+                <input
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Ounces / Weight"
+                  type="number"
+                  value={upcDraft.sizeOz}
+                  onChange={e => setUpcDraft({ ...upcDraft, sizeOz: Number(e.target.value) })}
+                />
+                <select
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  value={upcDraft.containerType}
+                  onChange={e =>
+                    setUpcDraft({
+                      ...upcDraft,
+                      containerType: e.target.value as UpcContainerType
+                    })
+                  }
+                >
+                  {Object.entries(UPC_CONTAINER_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
                 <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
                   <input
                     type="checkbox"
@@ -2685,9 +2725,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         <div>
                           <p className="text-white text-sm font-black">{item.upc}</p>
                           <p className="text-[10px] uppercase tracking-widest text-slate-500">
-                            {item.name || 'Unnamed'} • $
-                            {Number(item.depositValue || 0).toFixed(2)} •{' '}
-                            {item.isGlass ? 'GLASS' : 'PLASTIC'} •{' '}
+                            {item.name || 'Unnamed'} • Deposit $
+                            {Number(item.depositValue || 0).toFixed(2)} • Price $
+                            {Number(item.price || 0).toFixed(2)} •{' '}
+                            {item.sizeOz ? `${Number(item.sizeOz).toFixed(1)} oz` : 'No size'} •{' '}
+                            {UPC_CONTAINER_LABELS[item.containerType || 'plastic']} •{' '}
                             {item.isEligible ? 'ELIGIBLE' : 'INELIGIBLE'}
                           </p>
                         </div>
