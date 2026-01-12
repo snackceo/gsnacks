@@ -465,9 +465,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       referralBonus: Number(settingsDraft.referralBonus || 0),
       michiganDepositValue: Number(settingsDraft.michiganDepositValue || 0),
       processingFeePercent: Number(settingsDraft.processingFeePercent || 0),
-      glassHandlingFeePercent: Number(settingsDraft.glassHandlingFeePercent || 0),
-      returnProcessingFeePercent: Number(
-        settingsDraft.returnProcessingFeePercent || 0
+      returnHandlingFeePerContainer: Number(
+        settingsDraft.returnHandlingFeePerContainer || 0
+      ),
+      glassHandlingFeePerContainer: Number(
+        settingsDraft.glassHandlingFeePerContainer || 0
       ),
       dailyReturnLimit: Number(settingsDraft.dailyReturnLimit || 0),
       requirePhotoForRefunds: Boolean(settingsDraft.requirePhotoForRefunds),
@@ -2265,32 +2267,32 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Glass Handling Fee Percent
+                      Return Handling Fee (per container)
                     </label>
                     <input
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       step="0.01"
-                      value={settingsDraft.glassHandlingFeePercent}
+                      value={settingsDraft.returnHandlingFeePerContainer}
                       onChange={e =>
                         updateSettingsDraft({
-                          glassHandlingFeePercent: Number(e.target.value)
+                          returnHandlingFeePerContainer: Number(e.target.value)
                         })
                       }
                     />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Return Processing Fee Percent
+                      Glass Handling Fee (per container)
                     </label>
                     <input
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       step="0.01"
-                      value={settingsDraft.returnProcessingFeePercent}
+                      value={settingsDraft.glassHandlingFeePerContainer}
                       onChange={e =>
                         updateSettingsDraft({
-                          returnProcessingFeePercent: Number(e.target.value)
+                          glassHandlingFeePerContainer: Number(e.target.value)
                         })
                       }
                     />

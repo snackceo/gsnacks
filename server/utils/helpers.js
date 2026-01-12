@@ -167,6 +167,45 @@ function sumReturnCredits(upcCounts, upcEntries) {
   }, 0);
 }
 
+function calculateReturnFeeSummary(
+  upcCounts,
+  upcEntries,
+  { returnHandlingFeePerContainer = 0, glassHandlingFeePerContainer = 0 } = {}
+) {
+  const countMap = new Map();
+  if (Array.isArray(upcCounts)) {
+    for (const entry of upcCounts) {
+      const upc = String(entry?.upc || '').trim();
+      const qty = Math.floor(Number(entry?.quantity || 0));
+      if (!upc || !Number.isFinite(qty) || qty <= 0) continue;
+      countMap.set(upc, (countMap.get(upc) || 0) + qty);
+    }
+  }
+
+  const entryByUpc = new Map((upcEntries || []).map(entry => [entry?.upc, entry]));
+  let totalCount = 0;
+  let glassCount = 0;
+  for (const [upc, quantity] of countMap.entries()) {
+    totalCount += quantity;
+    const entry = entryByUpc.get(upc);
+    if (entry?.isGlass || entry?.containerType === 'glass') {
+      glassCount += quantity;
+    }
+  }
+
+  const baseFee = Math.max(0, Number(returnHandlingFeePerContainer || 0)) * totalCount;
+  const glassFee = Math.max(0, Number(glassHandlingFeePerContainer || 0)) * glassCount;
+  const totalFee = baseFee + glassFee;
+
+  return {
+    totalCount,
+    glassCount,
+    baseFee,
+    glassFee,
+    totalFee
+  };
+}
+
 function buildReturnCountUpdates(order) {
   const updates = {};
   if (
@@ -299,6 +338,7 @@ export {
   getCookieOptions,
   isDriverUsername,
   isOwnerUsername,
+  calculateReturnFeeSummary,
   mapOrderForFrontend,
   normalizeCart,
   normalizeUpcCounts,

@@ -34,8 +34,8 @@ const defaultSettings: AppSettings = {
   referralBonus: 5.0,
   michiganDepositValue: 0.1,
   processingFeePercent: 0.05,
-  glassHandlingFeePercent: 0.02,
-  returnProcessingFeePercent: 0,
+  returnHandlingFeePerContainer: 0.02,
+  glassHandlingFeePerContainer: 0.02,
   dailyReturnLimit: 25.0,
   maintenanceMode: false,
   requirePhotoForRefunds: false,
@@ -58,11 +58,11 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     processingFeePercent: Number(
       data.processingFeePercent ?? defaultSettings.processingFeePercent
     ),
-    glassHandlingFeePercent: Number(
-      data.glassHandlingFeePercent ?? defaultSettings.glassHandlingFeePercent
+    returnHandlingFeePerContainer: Number(
+      data.returnHandlingFeePerContainer ?? defaultSettings.returnHandlingFeePerContainer
     ),
-    returnProcessingFeePercent: Number(
-      data.returnProcessingFeePercent ?? defaultSettings.returnProcessingFeePercent
+    glassHandlingFeePerContainer: Number(
+      data.glassHandlingFeePerContainer ?? defaultSettings.glassHandlingFeePerContainer
     ),
     dailyReturnLimit: Number(data.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
     maintenanceMode: Boolean(
