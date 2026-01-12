@@ -12,6 +12,7 @@ import {
   isOwnerUsername,
   mapOrderForFrontend,
   normalizeUpcCounts,
+  ownerRequired,
   restockOrderItems,
   voidStripeAuthorizationBestEffort
 } from '../utils/helpers.js';
@@ -59,22 +60,6 @@ const createOrdersRouter = ({ stripe }) => {
           : { customerId: req.user?.id };
 
       const docs = await Order.find(q).sort({ createdAt: -1 }).lean();
-      const backfillOps = [];
-      for (const doc of docs) {
-        const updates = buildReturnCountUpdates(doc);
-        if (Object.keys(updates).length > 0) {
-          backfillOps.push({
-            updateOne: {
-              filter: { _id: doc._id },
-              update: { $set: updates }
-            }
-          });
-          Object.assign(doc, updates);
-        }
-      }
-      if (backfillOps.length > 0) {
-        await Order.bulkWrite(backfillOps);
-      }
 
       const orders = docs.map(mapOrderForFrontend);
 
@@ -82,6 +67,58 @@ const createOrdersRouter = ({ stripe }) => {
     } catch (err) {
       console.error('GET ORDERS ERROR:', err);
       res.status(500).json({ error: 'Failed to load orders' });
+    }
+  });
+
+  /**
+   * POST /api/orders/backfill-return-counts (owner-only)
+   * Backfill returnUpcCounts/verifiedReturnUpcCounts for legacy records.
+   */
+  router.post('/backfill-return-counts', authRequired, ownerRequired, async (req, res) => {
+    try {
+      const query = {
+        $or: [
+          { returnUpcs: { $exists: true, $ne: [] } },
+          { verifiedReturnUpcs: { $exists: true, $ne: [] } }
+        ]
+      };
+
+      const cursor = Order.find(query)
+        .select('_id returnUpcs returnUpcCounts verifiedReturnUpcs verifiedReturnUpcCounts')
+        .lean()
+        .cursor();
+
+      let scanned = 0;
+      let updated = 0;
+      let bulkOps = [];
+
+      for await (const doc of cursor) {
+        scanned += 1;
+        const updates = buildReturnCountUpdates(doc);
+        if (Object.keys(updates).length === 0) continue;
+
+        updated += 1;
+        bulkOps.push({
+          updateOne: {
+            filter: { _id: doc._id },
+            update: { $set: updates }
+          }
+        });
+
+        if (bulkOps.length >= 500) {
+          await Order.bulkWrite(bulkOps);
+          bulkOps = [];
+        }
+      }
+
+      if (bulkOps.length > 0) {
+        await Order.bulkWrite(bulkOps);
+      }
+
+      res.json({ ok: true, scanned, updated });
+    } catch (err) {
+      console.error('BACKFILL RETURN COUNTS ERROR:', err);
+      res.status(500).json({ error: 'Failed to backfill return counts' });
     }
   });
 
