@@ -60,11 +60,37 @@ const createOrdersRouter = ({ stripe }) => {
           ? { driverId: req.user?.username || req.user?.id }
           : { customerId: req.user?.id };
 
-      const docs = await Order.find(q).sort({ createdAt: -1 }).lean();
+      const limitRaw = Number.parseInt(String(req.query?.limit ?? ''), 10);
+      const skipRaw = Number.parseInt(String(req.query?.skip ?? ''), 10);
+      const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 200;
+      const skip = Number.isFinite(skipRaw) && skipRaw > 0 ? skipRaw : 0;
+
+      const startDateRaw = String(req.query?.startDate ?? '');
+      const endDateRaw = String(req.query?.endDate ?? '');
+      const startDate = startDateRaw ? new Date(startDateRaw) : null;
+      const endDate = endDateRaw ? new Date(endDateRaw) : null;
+
+      if (
+        (startDate && !Number.isNaN(startDate.getTime())) ||
+        (endDate && !Number.isNaN(endDate.getTime()))
+      ) {
+        q.createdAt = {};
+        if (startDate && !Number.isNaN(startDate.getTime())) {
+          q.createdAt.$gte = startDate;
+        }
+        if (endDate && !Number.isNaN(endDate.getTime())) {
+          q.createdAt.$lte = endDate;
+        }
+      }
+
+      const [docs, total] = await Promise.all([
+        Order.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        Order.countDocuments(q)
+      ]);
 
       const orders = docs.map(mapOrderForFrontend);
 
-      res.json({ ok: true, orders });
+      res.json({ ok: true, orders, pagination: { limit, skip, total } });
     } catch (err) {
       console.error('GET ORDERS ERROR:', err);
       res.status(500).json({ error: 'Failed to load orders' });
@@ -115,6 +141,12 @@ const createOrdersRouter = ({ stripe }) => {
       if (bulkOps.length > 0) {
         await Order.bulkWrite(bulkOps);
       }
+
+      await recordAuditLog({
+        type: 'ORDER_RETURN_BACKFILL',
+        actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+        details: `Backfilled return counts for ${updated} orders (${scanned} scanned).`
+      });
 
       res.json({ ok: true, scanned, updated });
     } catch (err) {

@@ -104,18 +104,6 @@ const getTierStyles = (tier: string) => {
   }
 };
 
-const normalizeUpcCounts = (entries?: ReturnUpcCount[], fallback?: string[]) => {
-  if (Array.isArray(entries)) return entries;
-  if (!Array.isArray(fallback) || fallback.length === 0) return [];
-  const counts = new Map<string, number>();
-  fallback.forEach(upc => {
-    const clean = String(upc || '').trim();
-    if (!clean) return;
-    counts.set(clean, (counts.get(clean) || 0) + 1);
-  });
-  return Array.from(counts.entries()).map(([upc, quantity]) => ({ upc, quantity }));
-};
-
 const countTotalUpcs = (entries: ReturnUpcCount[]) =>
   entries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
 
@@ -1370,11 +1358,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     o.verifiedReturnCredit !== undefined
                       ? Number(o.verifiedReturnCredit || 0)
                       : undefined;
-                  const returnCounts = normalizeUpcCounts(o.returnUpcCounts, o.returnUpcs);
-                  const verifiedCounts = normalizeUpcCounts(
-                    o.verifiedReturnUpcCounts,
-                    o.verifiedReturnUpcs
-                  );
+                  const returnCounts = Array.isArray(o.returnUpcCounts) ? o.returnUpcCounts : [];
+                  const verifiedCounts = Array.isArray(o.verifiedReturnUpcCounts)
+                    ? o.verifiedReturnUpcCounts
+                    : [];
                   const returnCountTotal = countTotalUpcs(returnCounts);
                   const verifiedCountTotal = countTotalUpcs(verifiedCounts);
 
