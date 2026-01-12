@@ -305,7 +305,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                   ${(safeCredits as number).toFixed(2)}
                 </p>
                 <p className="mt-4 text-[10px] text-slate-600 font-bold uppercase tracking-widest">
-                  Credits are not cash; Gold+ can request cash payouts at delivery.
+                  Credits never expire; Gold+ can request cash payouts up to $25/day at delivery.
                 </p>
               </div>
 
