@@ -307,6 +307,9 @@ function App() {
         acceptedPolicies={acceptedPolicies}
         isProcessing={isProcessingOrder}
         deliveryFee={effectiveDeliveryFee}
+        baseDeliveryFee={baseDeliveryFee}
+        membershipTier={core.currentUser?.membershipTier}
+        platinumFreeDeliveryEnabled={core.settings.platinumFreeDelivery}
         onClose={() => setIsCartOpen(false)}
         onAddressChange={setAddress}
         onPolicyChange={setAcceptedPolicies}
