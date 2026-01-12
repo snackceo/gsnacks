@@ -43,6 +43,13 @@ const UPC_ELIGIBILITY_TTL_MS = 24 * 60 * 60 * 1000;
 const MI_DEPOSIT_VALUE = 0.1; // 10¢
 const DEFAULT_DAILY_CAP = 25.0;
 const NOT_ELIGIBLE_MESSAGE = 'Not eligible for Michigan 10¢ deposit returns';
+const DELIVERY_DISCOUNT_PERCENTS: Record<UserTier, number> = {
+  [UserTier.NONE]: 0,
+  [UserTier.BRONZE]: 10,
+  [UserTier.SILVER]: 20,
+  [UserTier.GOLD]: 30,
+  [UserTier.PLATINUM]: 30
+};
 
 type UpcEligibilityCache = Record<
   string,
@@ -379,36 +386,63 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     ? baseDeliveryFee
     : sanitizedDeliveryFee;
 
-  const tierDiscounts = useMemo(
-    () => [
-      {
-        tier: UserTier.BRONZE,
-        label: 'Bronze',
-        deliveryDiscount: 0
-      },
-      {
-        tier: UserTier.SILVER,
-        label: 'Silver',
-        deliveryDiscount: 0
-      },
-      {
-        tier: UserTier.GOLD,
-        label: 'Gold',
-        deliveryDiscount: 0
-      },
-      {
-        tier: UserTier.PLATINUM,
-        label: 'Platinum',
-        deliveryDiscount: platinumFreeDeliveryEnabled ? sanitizedBaseDeliveryFee : 0
-      }
-    ],
-    [platinumFreeDeliveryEnabled, sanitizedBaseDeliveryFee]
+  const baseDeliveryFeeCents = useMemo(
+    () => Math.round(sanitizedBaseDeliveryFee * 100),
+    [sanitizedBaseDeliveryFee]
   );
+
+  const activeTier = membershipTier ?? UserTier.BRONZE;
+
+  const deliveryDiscountPercentForTier = (tier: UserTier) => {
+    if (tier === UserTier.PLATINUM && platinumFreeDeliveryEnabled) return 100;
+    return DELIVERY_DISCOUNT_PERCENTS[tier] ?? 0;
+  };
+
+  const tierDiscounts = useMemo(() => {
+    const tiers = [
+      { tier: UserTier.BRONZE, label: 'Bronze' },
+      { tier: UserTier.SILVER, label: 'Silver' },
+      { tier: UserTier.GOLD, label: 'Gold' },
+      { tier: UserTier.PLATINUM, label: 'Platinum' }
+    ];
+
+    return tiers.map(entry => {
+      const discountPercent = deliveryDiscountPercentForTier(entry.tier);
+      const discountCents = Math.round(baseDeliveryFeeCents * (discountPercent / 100));
+      return {
+        ...entry,
+        deliveryDiscount: discountCents / 100
+      };
+    });
+  }, [baseDeliveryFeeCents, platinumFreeDeliveryEnabled]);
+
+  const activeDeliveryDiscountPercent = deliveryDiscountPercentForTier(activeTier);
+  const activeDeliveryDiscountCents = Math.round(
+    baseDeliveryFeeCents * (activeDeliveryDiscountPercent / 100)
+  );
+  const activeDeliveryFeeCents = Math.max(0, baseDeliveryFeeCents - activeDeliveryDiscountCents);
+  const activeDeliveryFee = activeDeliveryFeeCents / 100;
+
+  const subtotalCents = useMemo(() => Math.round(subtotal * 100), [subtotal]);
+  const estimatedReturnCreditCents = useMemo(
+    () => Math.round(estimatedReturnCredit * 100),
+    [estimatedReturnCredit]
+  );
+  const creditsCoverDelivery = [UserTier.GOLD, UserTier.PLATINUM].includes(activeTier);
+  const creditEligibleCents = creditsCoverDelivery
+    ? subtotalCents + activeDeliveryFeeCents
+    : subtotalCents;
+  const creditAppliedCents = Math.min(estimatedReturnCreditCents, creditEligibleCents);
+  const deliveryCoveredByCredits =
+    creditsCoverDelivery &&
+    activeDeliveryFeeCents > 0 &&
+    estimatedReturnCreditCents > subtotalCents;
 
   // Preview total after estimated return credit (cannot go below 0)
   const previewTotalAfterCredit = useMemo(() => {
-    return Math.max(0, subtotal + sanitizedDeliveryFee - estimatedReturnCredit);
-  }, [subtotal, sanitizedDeliveryFee, estimatedReturnCredit]);
+    const totalCents = subtotalCents + activeDeliveryFeeCents - creditAppliedCents;
+    return Math.max(0, totalCents) / 100;
+  }, [subtotalCents, activeDeliveryFeeCents, creditAppliedCents]);
 
   // ----------------------------
   // Scanner modal behavior
@@ -858,9 +892,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Delivery Fee
+                  Delivery Fee (after tier discount)
                 </p>
-                <p className="text-white font-black">{money(sanitizedDeliveryFee)}</p>
+                <p className="text-white font-black">{money(activeDeliveryFee)}</p>
               </div>
 
               <div className="space-y-2">
@@ -906,6 +940,18 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 </p>
                 <p className="text-white font-black text-lg">{money(previewTotalAfterCredit)}</p>
               </div>
+
+              {creditsCoverDelivery ? (
+                <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-2">
+                  {deliveryCoveredByCredits
+                    ? 'Delivery covered by credits.'
+                    : 'Gold/Platinum credits can cover delivery fees.'}
+                </p>
+              ) : (
+                <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-2">
+                  Delivery fees are excluded from credits for Bronze/Silver tiers.
+                </p>
+              )}
 
               <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-2">
                 Note: Bottle credit is estimated. Final amount is verified at pickup.

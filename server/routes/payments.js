@@ -23,6 +23,7 @@ const deliveryDiscountsByTier = {
   GOLD: 30,
   PLATINUM: 30
 };
+const CREDIT_DELIVERY_ELIGIBLE_TIERS = new Set(['GOLD', 'PLATINUM']);
 
 const getDeliveryFeeDiscountPercent = tier => {
   const normalizedTier = String(tier || '').trim().toUpperCase();
@@ -359,7 +360,7 @@ const createPaymentsRouter = ({ stripe }) => {
         }
 
         const tier = String(user?.membershipTier || 'BRONZE').toUpperCase();
-        const eligibleCreditCents = ['GOLD', 'PLATINUM'].includes(tier)
+        const eligibleCreditCents = CREDIT_DELIVERY_ELIGIBLE_TIERS.has(tier)
           ? totalCents
           : productSubtotalCents;
         const availableCreditsCents = Math.max(
