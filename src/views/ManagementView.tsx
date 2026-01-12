@@ -2412,45 +2412,63 @@ const ManagementView: React.FC<ManagementViewProps> = ({
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  placeholder="ID (e.g. coke-12oz)"
-                  value={newProduct.id}
-                  onChange={e => setNewProduct({ ...newProduct, id: e.target.value })}
-                />
-                <input
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  placeholder="Name"
-                  value={newProduct.name}
-                  onChange={e => setNewProduct({ ...newProduct, name: e.target.value })}
-                />
-                <input
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  placeholder="Price"
-                  type="number"
-                  value={newProduct.price}
-                  onChange={e => setNewProduct({ ...newProduct, price: Number(e.target.value) })}
-                />
-                <input
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  placeholder="Deposit"
-                  type="number"
-                  value={newProduct.deposit}
-                  onChange={e => setNewProduct({ ...newProduct, deposit: Number(e.target.value) })}
-                />
-                <input
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  placeholder="Stock"
-                  type="number"
-                  value={newProduct.stock}
-                  onChange={e => setNewProduct({ ...newProduct, stock: Number(e.target.value) })}
-                />
-                <input
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white md:col-span-2"
-                  placeholder="Image URL"
-                  value={newProduct.image}
-                  onChange={e => setNewProduct({ ...newProduct, image: e.target.value })}
-                />
+                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  <span>Product ID</span>
+                  <input
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    placeholder="e.g. coke-12oz"
+                    value={newProduct.id}
+                    onChange={e => setNewProduct({ ...newProduct, id: e.target.value })}
+                  />
+                </label>
+                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  <span>Name</span>
+                  <input
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    placeholder="Product name"
+                    value={newProduct.name}
+                    onChange={e => setNewProduct({ ...newProduct, name: e.target.value })}
+                  />
+                </label>
+                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  <span>Price</span>
+                  <input
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    placeholder="0.00"
+                    type="number"
+                    value={newProduct.price}
+                    onChange={e => setNewProduct({ ...newProduct, price: Number(e.target.value) })}
+                  />
+                </label>
+                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  <span>Deposit</span>
+                  <input
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    placeholder="0.00"
+                    type="number"
+                    value={newProduct.deposit}
+                    onChange={e => setNewProduct({ ...newProduct, deposit: Number(e.target.value) })}
+                  />
+                </label>
+                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  <span>Stock</span>
+                  <input
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    placeholder="0"
+                    type="number"
+                    value={newProduct.stock}
+                    onChange={e => setNewProduct({ ...newProduct, stock: Number(e.target.value) })}
+                  />
+                </label>
+                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
+                  <span>Image URL</span>
+                  <input
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    placeholder="https://"
+                    value={newProduct.image}
+                    onChange={e => setNewProduct({ ...newProduct, image: e.target.value })}
+                  />
+                </label>
               </div>
 
               <button
