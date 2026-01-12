@@ -124,6 +124,7 @@ export interface AppSettings {
   allowGuestCheckout: boolean;
   showAdvancedInventoryInsights: boolean;
   allowPlatinumTier: boolean;
+  platinumFreeDelivery: boolean;
 }
 
 export type ApprovalType = 'REFUND' | 'CREDIT_ADJUSTMENT' | 'MEMBERSHIP_UPGRADE';
