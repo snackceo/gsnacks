@@ -129,8 +129,8 @@ export interface AppSettings {
   referralBonus: number;
   michiganDepositValue: number;
   processingFeePercent: number;
-  glassHandlingFeePercent: number;
-  returnProcessingFeePercent: number;
+  returnHandlingFeePerContainer: number;
+  glassHandlingFeePerContainer: number;
   dailyReturnLimit: number;
   maintenanceMode: boolean;
   requirePhotoForRefunds: boolean;

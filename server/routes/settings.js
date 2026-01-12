@@ -13,8 +13,8 @@ const defaultSettings = {
   referralBonus: 5.0,
   michiganDepositValue: 0.1,
   processingFeePercent: 0.05,
-  glassHandlingFeePercent: 0.02,
-  returnProcessingFeePercent: 0,
+  returnHandlingFeePerContainer: 0.02,
+  glassHandlingFeePerContainer: 0.02,
   dailyReturnLimit: 25,
   maintenanceMode: false,
   requirePhotoForRefunds: false,
@@ -29,8 +29,8 @@ const numericFields = [
   'referralBonus',
   'michiganDepositValue',
   'processingFeePercent',
-  'glassHandlingFeePercent',
-  'returnProcessingFeePercent',
+  'returnHandlingFeePerContainer',
+  'glassHandlingFeePerContainer',
   'dailyReturnLimit'
 ];
 
@@ -77,11 +77,11 @@ const mapSettings = (doc) => ({
   processingFeePercent: Number(
     doc?.processingFeePercent ?? defaultSettings.processingFeePercent
   ),
-  glassHandlingFeePercent: Number(
-    doc?.glassHandlingFeePercent ?? defaultSettings.glassHandlingFeePercent
+  returnHandlingFeePerContainer: Number(
+    doc?.returnHandlingFeePerContainer ?? defaultSettings.returnHandlingFeePerContainer
   ),
-  returnProcessingFeePercent: Number(
-    doc?.returnProcessingFeePercent ?? defaultSettings.returnProcessingFeePercent
+  glassHandlingFeePerContainer: Number(
+    doc?.glassHandlingFeePerContainer ?? defaultSettings.glassHandlingFeePerContainer
   ),
   dailyReturnLimit: Number(doc?.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
   maintenanceMode: Boolean(doc?.maintenanceMode ?? defaultSettings.maintenanceMode),

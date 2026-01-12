@@ -5,6 +5,7 @@ import Order from '../models/Order.js';
 import UpcItem from '../models/UpcItem.js';
 import User from '../models/User.js';
 import LedgerEntry from '../models/LedgerEntry.js';
+import AppSettings from '../models/AppSettings.js';
 import {
   authRequired,
   buildReturnCountUpdates,
@@ -12,6 +13,7 @@ import {
   isOwnerUsername,
   mapOrderForFrontend,
   normalizeUpcCounts,
+  calculateReturnFeeSummary,
   sumReturnCredits,
   ownerRequired,
   restockOrderItems,
@@ -19,26 +21,20 @@ import {
 } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 
-const RETURN_PROCESSING_FEE_PERCENT = Math.max(
-  0,
-  Math.min(100, Number(process.env.RETURN_PROCESSING_FEE_PERCENT ?? 20))
-);
+const DEFAULT_RETURN_FEES = {
+  returnHandlingFeePerContainer: 0.02,
+  glassHandlingFeePerContainer: 0.02
+};
 
-const applyReturnProcessingFee = (grossCredit, { waive } = {}) => {
-  const grossCents = Math.max(0, Math.round(Number(grossCredit || 0) * 100));
-  if (waive) {
-    return {
-      gross: grossCents / 100,
-      net: grossCents / 100
-    };
-  }
-  const netCents = Math.max(
-    0,
-    Math.round(grossCents * (1 - RETURN_PROCESSING_FEE_PERCENT / 100))
-  );
+const getReturnFeeConfig = async () => {
+  const doc = await AppSettings.findOne({ key: 'default' }).lean();
   return {
-    gross: grossCents / 100,
-    net: netCents / 100
+    returnHandlingFeePerContainer: Number(
+      doc?.returnHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.returnHandlingFeePerContainer
+    ),
+    glassHandlingFeePerContainer: Number(
+      doc?.glassHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.glassHandlingFeePerContainer
+    )
   };
 };
 
@@ -452,23 +448,33 @@ const createOrdersRouter = ({ stripe }) => {
                 .lean();
 
               verifiedReturnCreditGross = sumReturnCredits(normalized.upcCounts, upcEntries);
+              const feeConfig = await getReturnFeeConfig();
+              const feeSummary = calculateReturnFeeSummary(
+                normalized.upcCounts,
+                upcEntries,
+                feeConfig
+              );
+              const netCredit = Math.max(0, verifiedReturnCreditGross - feeSummary.totalFee);
+              order.verifiedReturnCreditGross = verifiedReturnCreditGross;
+              order.verifiedReturnCredit = netCredit;
+            } else {
+              order.verifiedReturnCreditGross = 0;
+              order.verifiedReturnCredit = 0;
             }
-
-            const verifiedCredit = applyReturnProcessingFee(verifiedReturnCreditGross, {
-              waive: true
-            });
 
             order.verifiedReturnUpcs = normalized.flattened;
             order.verifiedReturnUpcCounts = normalized.upcCounts;
-            order.verifiedReturnCreditGross = verifiedCredit.gross;
-            order.verifiedReturnCredit = verifiedCredit.net;
             order.returnCreditsAppliedAt = new Date();
 
-            if (order.customerId && order.customerId !== 'GUEST' && verifiedCredit.net > 0) {
+            if (
+              order.customerId &&
+              order.customerId !== 'GUEST' &&
+              order.verifiedReturnCredit > 0
+            ) {
               const user = await User.findById(order.customerId).session(sessionDb);
               if (user) {
                 const previousCredits = Number(user.creditBalance || 0);
-                user.creditBalance = Math.max(0, previousCredits + verifiedCredit.net);
+                user.creditBalance = Math.max(0, previousCredits + order.verifiedReturnCredit);
                 await user.save({ session: sessionDb });
 
                 const delta = Number(user.creditBalance || 0) - previousCredits;

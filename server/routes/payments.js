@@ -5,11 +5,13 @@ import mongoose from 'mongoose';
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
 import UpcItem from '../models/UpcItem.js';
+import AppSettings from '../models/AppSettings.js';
 import User from '../models/User.js';
 import {
   authRequired,
   isDriverUsername,
   isOwnerUsername,
+  calculateReturnFeeSummary,
   mapOrderForFrontend,
   normalizeCart,
   normalizeUpcCounts,
@@ -24,6 +26,10 @@ const deliveryDiscountsByTier = {
   PLATINUM: 30
 };
 const CREDIT_DELIVERY_ELIGIBLE_TIERS = new Set(['GOLD', 'PLATINUM']);
+const DEFAULT_RETURN_FEES = {
+  returnHandlingFeePerContainer: 0.02,
+  glassHandlingFeePerContainer: 0.02
+};
 
 const getDeliveryFeeDiscountPercent = tier => {
   const normalizedTier = String(tier || '').trim().toUpperCase();
@@ -40,26 +46,15 @@ const applyDeliveryFeeDiscount = (deliveryFee, discountPercent) => {
   };
 };
 
-const RETURN_PROCESSING_FEE_PERCENT = Math.max(
-  0,
-  Math.min(100, Number(process.env.RETURN_PROCESSING_FEE_PERCENT ?? 20))
-);
-
-const applyReturnProcessingFee = (grossCredit, { waive } = {}) => {
-  const grossCents = Math.max(0, Math.round(Number(grossCredit || 0) * 100));
-  if (waive) {
-    return {
-      gross: grossCents / 100,
-      net: grossCents / 100
-    };
-  }
-  const netCents = Math.max(
-    0,
-    Math.round(grossCents * (1 - RETURN_PROCESSING_FEE_PERCENT / 100))
-  );
+const getReturnFeeConfig = async () => {
+  const doc = await AppSettings.findOne({ key: 'default' }).lean();
   return {
-    gross: grossCents / 100,
-    net: netCents / 100
+    returnHandlingFeePerContainer: Number(
+      doc?.returnHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.returnHandlingFeePerContainer
+    ),
+    glassHandlingFeePerContainer: Number(
+      doc?.glassHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.glassHandlingFeePerContainer
+    )
   };
 };
 
@@ -73,6 +68,7 @@ const buildReturnPreview = async (rawUpcs) => {
   let ineligibleUpcs = [];
   let estimatedCreditFromUpcs = 0;
 
+  let feeSummary = { totalFee: 0 };
   if (uniqueUpcs.length > 0) {
     const upcEntries = await UpcItem.find({ upc: { $in: uniqueUpcs } }).lean();
     const upcByCode = new Map(upcEntries.map(entry => [entry.upc, entry]));
@@ -87,14 +83,18 @@ const buildReturnPreview = async (rawUpcs) => {
         ineligibleUpcs.push(upc);
       }
     }
+
+    const feeConfig = await getReturnFeeConfig();
+    feeSummary = calculateReturnFeeSummary(eligibleUpcCounts, upcEntries, feeConfig);
   }
 
   const dailyCap = Number(process.env.DAILY_RETURN_CAP || 25); // dollars
   const computedEstimatedCredit = Math.min(estimatedCreditFromUpcs, dailyCap);
-  const isReturnProcessingFeeWaived = true; // returns applied to current order at checkout
-  const estimatedCredit = applyReturnProcessingFee(computedEstimatedCredit, {
-    waive: isReturnProcessingFeeWaived
-  });
+  const estimatedNetCredit = Math.max(0, computedEstimatedCredit - feeSummary.totalFee);
+  const estimatedCredit = {
+    gross: computedEstimatedCredit,
+    net: estimatedNetCredit
+  };
 
   returnUpcs.push(...eligibleUpcs);
   returnUpcCounts.push(...eligibleUpcCounts);
@@ -576,11 +576,18 @@ const createPaymentsRouter = ({ stripe }) => {
             .lean();
 
           verifiedReturnCreditGross = sumReturnCredits(normalized.upcCounts, upcEntries);
+          const feeConfig = await getReturnFeeConfig();
+          const feeSummary = calculateReturnFeeSummary(
+            normalized.upcCounts,
+            upcEntries,
+            feeConfig
+          );
+          const netCredit = Math.max(0, verifiedReturnCreditGross - feeSummary.totalFee);
+          verifiedCredit = {
+            gross: verifiedReturnCreditGross,
+            net: netCredit
+          };
         }
-        const isReturnProcessingFeeWaived = true; // returns applied to current order at capture
-        verifiedCredit = applyReturnProcessingFee(verifiedReturnCreditGross, {
-          waive: isReturnProcessingFeeWaived
-        });
         verifiedReturnCredit = verifiedCredit.net;
 
         if (order.status === 'PAID') {
