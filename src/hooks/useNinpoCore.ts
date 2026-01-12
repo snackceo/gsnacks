@@ -365,8 +365,11 @@ export const useNinpoCore = () => {
   useEffect(() => {
     const bootstrap = async () => {
       try {
-        await restoreSession();
+        const hasSession = await restoreSession();
         await Promise.all([fetchProducts(), fetchSettings()]);
+        if (hasSession) {
+          await fetchOrders();
+        }
       } finally {
         setIsBootstrapping(false);
       }

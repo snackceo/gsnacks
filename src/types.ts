@@ -1,10 +1,12 @@
 export enum UserRole {
   CUSTOMER = 'CUSTOMER',
-  OWNER = 'OWNER'
+  OWNER = 'OWNER',
+  DRIVER = 'DRIVER'
 }
 
 export enum OrderStatus {
   PENDING = 'PENDING',
+  AUTHORIZED = 'AUTHORIZED',
   PAID = 'PAID',
   ASSIGNED = 'ASSIGNED',
   PICKED_UP = 'PICKED_UP',

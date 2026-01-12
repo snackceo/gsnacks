@@ -17,6 +17,7 @@ import aiRouter from './routes/ai.js';
 import approvalsRouter from './routes/approvals.js';
 import settingsRouter from './routes/settings.js';
 import auditLogsRouter from './routes/audit-logs.js';
+import uploadsRouter from './routes/uploads.js';
 
 dotenv.config();
 
@@ -48,12 +49,21 @@ app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
 /* =========================
    CORS
 ========================= */
-const allowedOrigins = [
+const defaultOrigins = [
   'https://ninposnacks.com',
   'https://www.ninposnacks.com',
   'https://gsnacks.onrender.com',
   'http://localhost:5173'
 ];
+const envOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
+    : []
+].flat();
+const allowedOrigins = Array.from(
+  new Set([...defaultOrigins, ...envOrigins].filter(Boolean))
+);
 
 app.use(
   cors({
@@ -72,6 +82,8 @@ app.use(
    MIDDLEWARE
 ========================= */
 app.use(cookieParser());
+
+app.use('/uploads', express.static('uploads'));
 
 // IMPORTANT: Do NOT run JSON parser on webhook route
 app.use((req, res, next) => {
@@ -94,6 +106,7 @@ app.use('/api/ai', aiRouter);
 app.use('/api/approvals', approvalsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/audit-logs', auditLogsRouter);
+app.use('/api/uploads', uploadsRouter);
 
 /* =========================
    START SERVER

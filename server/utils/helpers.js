@@ -84,6 +84,15 @@ function isOwnerUsername(username) {
   return list.includes((username || '').toLowerCase());
 }
 
+function isDriverUsername(username) {
+  const list = (process.env.DRIVER_USERNAMES || '')
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean);
+
+  return list.includes((username || '').toLowerCase());
+}
+
 function ownerRequired(req, res, next) {
   const u = req.user;
   if (!u?.username || !isOwnerUsername(u.username)) {
@@ -195,6 +204,7 @@ export {
   authRequired,
   clearAuthCookie,
   getCookieOptions,
+  isDriverUsername,
   isOwnerUsername,
   mapOrderForFrontend,
   normalizeCart,

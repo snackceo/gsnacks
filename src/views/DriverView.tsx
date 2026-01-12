@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Order, OrderStatus } from '../types';
+import { Order, OrderStatus, User, UserRole } from '../types';
 import { analyzeBottleScan, explainDriverIssue } from '../services/geminiService';
 import {
   Camera,
@@ -23,6 +23,7 @@ const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
 interface DriverViewProps {
+  currentUser: User | null;
   orders: Order[];
   updateOrder: (id: string, status: OrderStatus, metadata?: any) => void;
 }
@@ -33,7 +34,7 @@ function money(n: any) {
   return `$${v.toFixed(2)}`;
 }
 
-const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
+const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrder }) => {
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -66,7 +67,8 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
   const eligibilityCacheRef = useRef<Record<string, boolean>>({});
 
   const handleAccept = (orderId: string) => {
-    updateOrder(orderId, OrderStatus.ASSIGNED, { driverId: 'OWNER' });
+    const driverId = currentUser?.username || currentUser?.id || 'DRIVER';
+    updateOrder(orderId, OrderStatus.ASSIGNED, { driverId });
   };
 
   const handlePickUp = (orderId: string) => {
@@ -308,24 +310,48 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
 
     setIsVerifying(true);
 
+    const uploadProof = async () => {
+      if (!capturedPhoto) return null;
+      const res = await fetch(`${BACKEND_URL}/api/uploads/proof`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          orderId: activeOrder.id,
+          imageData: capturedPhoto
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || 'Proof upload failed.');
+      }
+      return data?.url || null;
+    };
+
     navigator.geolocation.getCurrentPosition(
-      pos => {
-        const metadata = {
-          deliveredAt: new Date().toISOString(),
-          gpsCoords: { lat: pos.coords.latitude, lng: pos.coords.longitude },
-          verificationPhoto: capturedPhoto
-        };
+      async pos => {
+        try {
+          const proofUrl = await uploadProof();
+          const metadata = {
+            deliveredAt: new Date().toISOString(),
+            gpsCoords: { lat: pos.coords.latitude, lng: pos.coords.longitude },
+            verificationPhoto: proofUrl || undefined
+          };
 
-        updateOrder(activeOrder.id, OrderStatus.DELIVERED, metadata);
+          updateOrder(activeOrder.id, OrderStatus.DELIVERED, metadata);
 
-        setIsVerifying(false);
-        setActiveOrder(null);
-        resetPhotoState();
-        setVerifiedReturnUpcs([]);
-        setManualUpc('');
-        setScannerOpen(false);
-        setScannerError(null);
-        setPaymentCaptured(false);
+          setIsVerifying(false);
+          setActiveOrder(null);
+          resetPhotoState();
+          setVerifiedReturnUpcs([]);
+          setManualUpc('');
+          setScannerOpen(false);
+          setScannerError(null);
+          setPaymentCaptured(false);
+        } catch (e: any) {
+          alert(e?.message || 'Delivery proof upload failed.');
+          setIsVerifying(false);
+        }
       },
       () => {
         alert('GPS is required to complete delivery.');
@@ -340,6 +366,7 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
       [
         OrderStatus.PENDING,
         OrderStatus.PAID,
+        OrderStatus.AUTHORIZED,
         OrderStatus.ASSIGNED,
         OrderStatus.PICKED_UP,
         OrderStatus.ARRIVING
@@ -572,7 +599,8 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
                   </div>
                 </div>
 
-                {(o.status === OrderStatus.PENDING || o.status === OrderStatus.ASSIGNED) && (
+              {(o.status === OrderStatus.PENDING || o.status === OrderStatus.ASSIGNED) &&
+                currentUser?.role === UserRole.OWNER && (
                   <button
                     onClick={() => handleCancel(o.id)}
                     className="px-4 py-3 rounded-xl bg-ninpo-red/10 text-ninpo-red border border-ninpo-red/20 text-[9px] font-black uppercase tracking-widest flex items-center gap-2"
@@ -584,7 +612,9 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
               </div>
 
               <div className="flex flex-col md:flex-row gap-3">
-                {(o.status === OrderStatus.PENDING || o.status === OrderStatus.PAID) && (
+                {(o.status === OrderStatus.PENDING ||
+                  o.status === OrderStatus.AUTHORIZED ||
+                  o.status === OrderStatus.PAID) && (
                   <button
                     onClick={() => handleAccept(o.id)}
                     className="flex-1 py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-white transition-all"

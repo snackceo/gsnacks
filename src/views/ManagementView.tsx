@@ -1375,6 +1375,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                             className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase border tracking-widest ${
                               o.status === OrderStatus.PAID
                                 ? 'text-blue-400 border-blue-400/20 bg-blue-400/5'
+                                : o.status === OrderStatus.AUTHORIZED
+                                ? 'text-cyan-300 border-cyan-300/20 bg-cyan-300/5'
                                 : o.status === OrderStatus.CLOSED
                                 ? 'text-slate-400 border-slate-400/20 bg-slate-400/5'
                                 : 'text-ninpo-lime border-ninpo-lime/20 bg-ninpo-lime/5'
@@ -1485,10 +1487,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     {/* ACTIONS */}
                     <div className="flex flex-col md:flex-row gap-4 border-t border-white/5 pt-6">
                       {/* Assign to Me (owner-as-driver) */}
-                      {(o.status === OrderStatus.PENDING || o.status === OrderStatus.PAID) && (
+                      {(o.status === OrderStatus.PENDING ||
+                        o.status === OrderStatus.AUTHORIZED ||
+                        o.status === OrderStatus.PAID) && (
                         <button
                           onClick={() =>
-                            handleLogisticsUpdate(o.id, OrderStatus.ASSIGNED, { driverId: 'OWNER' })
+                            handleLogisticsUpdate(o.id, OrderStatus.ASSIGNED, {
+                              driverId: user?.username || user?.id || 'OWNER'
+                            })
                           }
                           className="flex-1 py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] transition-all shadow-neon"
                         >
@@ -1497,7 +1503,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       )}
 
                       {/* Progress buttons */}
-                      {o.status === OrderStatus.PAID && (
+                      {o.status === OrderStatus.ASSIGNED && (
                         <button
                           onClick={() => handleLogisticsUpdate(o.id, OrderStatus.PICKED_UP)}
                           className="flex-1 py-5 bg-white/10 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] transition-all"
