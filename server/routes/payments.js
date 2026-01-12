@@ -12,7 +12,8 @@ import {
   isOwnerUsername,
   mapOrderForFrontend,
   normalizeCart,
-  normalizeUpcCounts
+  normalizeUpcCounts,
+  sumReturnCredits
 } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 
@@ -518,40 +519,18 @@ const createPaymentsRouter = ({ stripe }) => {
       const orderId = String(req.body?.orderId || '').trim();
       if (!orderId) return res.status(400).json({ error: 'orderId is required' });
 
-      const verifiedPayload =
-        req.body?.verifiedReturnUpcCounts ?? req.body?.verifiedReturnUpcs ?? [];
-      const {
-        upcCounts: verifiedReturnUpcCounts,
-        uniqueUpcs: uniqueVerifiedReturnUpcs,
-        flattened: verifiedReturnUpcs
-      } = normalizeUpcCounts(verifiedPayload);
-      const verifiedCountMap = new Map(
-        verifiedReturnUpcCounts.map(entry => [entry.upc, entry.quantity])
-      );
-
-      let verifiedReturnCredit = 0;
-      let verifiedReturnCreditGross = 0;
-      if (uniqueVerifiedReturnUpcs.length > 0) {
-        const upcEntries = await UpcItem.find({
-          upc: { $in: uniqueVerifiedReturnUpcs },
-          isEligible: true
-        }).lean();
-
-        verifiedReturnCreditGross = upcEntries.reduce((sum, entry) => {
-          const count = verifiedCountMap.get(entry?.upc) || 0;
-          return sum + Number(entry?.depositValue || 0) * count;
-        }, 0);
-      }
-      const isReturnProcessingFeeWaived = true; // returns applied to current order at capture
-      const verifiedCredit = applyReturnProcessingFee(verifiedReturnCreditGross, {
-        waive: isReturnProcessingFeeWaived
-      });
-      verifiedReturnCredit = verifiedCredit.net;
-
       let updatedOrderDoc = null;
 
       const isOwner = isOwnerUsername(req.user?.username);
       const isDriver = isDriverUsername(req.user?.username);
+      const requestedReturnUpcCounts = req.body?.verifiedReturnUpcCounts;
+      const requestedReturnUpcs = req.body?.verifiedReturnUpcs;
+
+      let verifiedReturnCredit = 0;
+      let verifiedReturnCreditGross = 0;
+      let verifiedReturnUpcCounts = [];
+      let verifiedReturnUpcs = [];
+      let verifiedCredit = { gross: 0, net: 0 };
 
       await sessionDb.withTransaction(async () => {
         const order = await Order.findOne({ orderId }).session(sessionDb);
@@ -574,6 +553,34 @@ const createPaymentsRouter = ({ stripe }) => {
             throw e;
           }
         }
+
+        const verifiedPayload =
+          requestedReturnUpcCounts ??
+          requestedReturnUpcs ??
+          order.verifiedReturnUpcCounts ??
+          order.verifiedReturnUpcs ??
+          order.returnUpcCounts ??
+          order.returnUpcs ??
+          [];
+        const normalized = normalizeUpcCounts(verifiedPayload);
+        verifiedReturnUpcCounts = normalized.upcCounts;
+        verifiedReturnUpcs = normalized.flattened;
+
+        if (normalized.uniqueUpcs.length > 0) {
+          const upcEntries = await UpcItem.find({
+            upc: { $in: normalized.uniqueUpcs },
+            isEligible: true
+          })
+            .session(sessionDb)
+            .lean();
+
+          verifiedReturnCreditGross = sumReturnCredits(normalized.upcCounts, upcEntries);
+        }
+        const isReturnProcessingFeeWaived = true; // returns applied to current order at capture
+        verifiedCredit = applyReturnProcessingFee(verifiedReturnCreditGross, {
+          waive: isReturnProcessingFeeWaived
+        });
+        verifiedReturnCredit = verifiedCredit.net;
 
         if (order.status === 'PAID') {
           updatedOrderDoc = order;
