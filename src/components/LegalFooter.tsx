@@ -81,9 +81,9 @@ const LegalFooter: React.FC = () => {
           content={
             <>
               <p>
-                Bottle returns must be empty, clean, and labeled for Michigan’s 10¢ deposit.
+                Bottle returns must be empty, clean, intact, and labeled for Michigan’s 10¢ deposit.
               </p>
-              <p>Return value is verified at delivery.</p>
+              <p>Return value is verified at delivery; damaged or non-eligible containers are declined.</p>
               <p>AI tools may assist verification but do not make final decisions.</p>
             </>
           }
@@ -128,6 +128,7 @@ const LegalFooter: React.FC = () => {
                     Credits are posted after verification; eligible customers may receive cash
                     at drop-off (subject to limits).
                   </li>
+                  <li>Post-delivery tipping is available via driver QR code.</li>
                 </ol>
               </section>
 
@@ -139,7 +140,8 @@ const LegalFooter: React.FC = () => {
                   <li>Eligible containers earn $0.10 each under Michigan deposit rules.</li>
                   <li>Service fee: $0.02 per container; glass adds an extra $0.02.</li>
                   <li>Net credit: $0.08 (plastic/aluminum) or $0.06 (glass).</li>
-                  <li>Credits never expire and are shown transparently on receipts.</li>
+                  <li>Credits are added as store credit by default and never expire.</li>
+                  <li>Receipts show counts, fees, and net credits transparently.</li>
                   <li>
                     Cash payouts are available for Gold+ tiers only, capped at $25/day
                     (250 containers).
@@ -153,20 +155,20 @@ const LegalFooter: React.FC = () => {
                 </h3>
                 <ul className="list-disc list-inside space-y-2">
                   <li>
-                    <span className="text-white">Common:</span> credits apply to products only; no
-                    delivery discount.
+                    <span className="text-white">Common:</span> sign-up tier; credits apply to
+                    products only; no delivery discount.
                   </li>
                   <li>
                     <span className="text-white">Bronze:</span> 10% delivery fee discount; credits
                     apply to products only.
                   </li>
                   <li>
-                    <span className="text-white">Silver:</span> 20% delivery fee discount; credits
-                    can cover products and delivery fees.
+                    <span className="text-white">Silver:</span> 20% delivery fee discount; phone
+                    verification + 10 orders; credits can cover products and delivery fees.
                   </li>
                   <li>
-                    <span className="text-white">Gold:</span> 30% delivery fee discount; credits
-                    apply to all charges; cash payouts available with ID verification.
+                    <span className="text-white">Gold:</span> 30% delivery fee discount; verified
+                    photo ID + 15 orders; credits apply to all charges; cash payouts available.
                   </li>
                   <li>
                     <span className="text-white">Secret Platinum:</span> invitation-only VIP tier
@@ -181,6 +183,7 @@ const LegalFooter: React.FC = () => {
                 </h3>
                 <ul className="list-disc list-inside space-y-2">
                   <li>Daily cap: 250 containers per customer (per Michigan law).</li>
+                  <li>Limit is enforced per person (not per address).</li>
                   <li>No splitting returns across multiple addresses to bypass the limit.</li>
                   <li>Tier verification (phone/ID) reduces fake or duplicate accounts.</li>
                   <li>Monitoring flags unusual return activity for review.</li>

@@ -994,6 +994,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               {showPolicyAdvisories && (
                 <div className="space-y-2">
                   <p>Containers must be clean and clearly marked with the MI 10¢ deposit label.</p>
+                  <p>Return value posts after verification and credits never expire.</p>
                   <p>Daily limit: {dailyContainerLimit} containers per customer.</p>
                   <p>Cash payouts are capped at $25 per day for Gold+ members.</p>
                   <p>No splitting returns across multiple addresses to bypass the limit.</p>

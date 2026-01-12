@@ -956,7 +956,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
                   <p className="text-white font-black">Cash</p>
                   <p>Receive cash for your verified returns.</p>
-                  <p>Subject to limits and availability.</p>
+                  <p>Gold+ only; capped at $25/day (250 containers).</p>
                   {!cashAvailable && (
                     <p className="text-ninpo-red">
                       Cash payout isn’t available for this return. You can apply value to your
