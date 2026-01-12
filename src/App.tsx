@@ -102,8 +102,7 @@ function App() {
       }
 
       if (data?.sessionUrl) {
-        core.addToast('REDIRECTING TO SECURE VAULT', 'success');
-        window.location.href = data.sessionUrl;
+        core.addToast('Credits checkout should not redirect to Stripe.', 'warning');
         return false;
       }
 
