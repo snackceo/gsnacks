@@ -8,9 +8,10 @@ import UpcItem from '../models/UpcItem.js';
 import User from '../models/User.js';
 import {
   authRequired,
+  isDriverUsername,
+  isOwnerUsername,
   mapOrderForFrontend,
-  normalizeCart,
-  ownerRequired
+  normalizeCart
 } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 
@@ -454,7 +455,7 @@ const createPaymentsRouter = ({ stripe }) => {
    * - Driver submits verifiedReturnCredit
    * - Server captures final amount = authorized - verified credit (never increases)
    */
-  router.post('/capture', authRequired, ownerRequired, async (req, res) => {
+  router.post('/capture', authRequired, async (req, res) => {
     const sessionDb = await mongoose.startSession();
 
     try {
@@ -490,9 +491,30 @@ const createPaymentsRouter = ({ stripe }) => {
 
       let updatedOrderDoc = null;
 
+      const isOwner = isOwnerUsername(req.user?.username);
+      const isDriver = isDriverUsername(req.user?.username);
+
       await sessionDb.withTransaction(async () => {
         const order = await Order.findOne({ orderId }).session(sessionDb);
         if (!order) return;
+
+        if (!isOwner) {
+          if (!isDriver) {
+            const e = new Error('Owner or driver access required.');
+            e.code = 'STAFF_REQUIRED';
+            throw e;
+          }
+
+          const matchesDriver =
+            order.driverId &&
+            [order.driverId, req.user?.username, req.user?.id].includes(order.driverId);
+
+          if (!matchesDriver) {
+            const e = new Error('Order is not assigned to this driver.');
+            e.code = 'DRIVER_MISMATCH';
+            throw e;
+          }
+        }
 
         if (order.status === 'PAID') {
           updatedOrderDoc = order;
@@ -558,10 +580,18 @@ const createPaymentsRouter = ({ stripe }) => {
 
       if (!updatedOrderDoc) return res.status(404).json({ error: 'Order not found' });
 
+      await recordAuditLog({
+        type: 'ORDER_UPDATED',
+        actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+        details: `Order ${orderId} payment captured.`
+      });
+
       res.json({ ok: true, order: mapOrderForFrontend(updatedOrderDoc) });
     } catch (err) {
       if (err?.code === 'ORDER_CANCELED') return res.status(400).json({ error: err.message });
       if (err?.code === 'NO_PAYMENT_INTENT') return res.status(400).json({ error: err.message });
+      if (err?.code === 'STAFF_REQUIRED') return res.status(403).json({ error: err.message });
+      if (err?.code === 'DRIVER_MISMATCH') return res.status(403).json({ error: err.message });
 
       console.error('CAPTURE ERROR:', err);
       res.status(500).json({ error: 'Failed to capture payment' });

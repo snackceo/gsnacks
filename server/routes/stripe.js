@@ -55,6 +55,9 @@ const createStripeRouter = ({ stripe, webhookSecret }) => {
               order.stripePaymentIntentId = order.stripePaymentIntentId || paymentIntentId;
             }
             order.authorizedAt = order.authorizedAt || new Date();
+            if (order.status === 'PENDING') {
+              order.status = 'AUTHORIZED';
+            }
 
             await order.save({ session: sessionDb });
           });

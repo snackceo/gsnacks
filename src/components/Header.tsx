@@ -51,6 +51,14 @@ const Header = ({
               </button>
             </>
           )}
+          {currentUserRole === UserRole.DRIVER && (
+            <button
+              onClick={() => navigate('/driver')}
+              className="px-5 py-2 rounded-full bg-white/10 text-white text-xs font-black uppercase tracking-widest border border-white/10 hover:bg-white/20 transition"
+            >
+              Logistics
+            </button>
+          )}
 
           <button
             onClick={isLoggedIn ? onLogout : onLogin}

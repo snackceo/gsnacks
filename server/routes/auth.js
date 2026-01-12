@@ -5,6 +5,7 @@ import User from '../models/User.js';
 import {
   authRequired,
   clearAuthCookie,
+  isDriverUsername,
   isOwnerUsername,
   setAuthCookie
 } from '../utils/helpers.js';
@@ -23,7 +24,11 @@ router.post('/register', async (req, res) => {
       return res.status(409).json({ error: 'Username already exists' });
     }
 
-    const role = isOwnerUsername(username) ? 'OWNER' : 'CUSTOMER';
+    const role = isOwnerUsername(username)
+      ? 'OWNER'
+      : isDriverUsername(username)
+        ? 'DRIVER'
+        : 'CUSTOMER';
     const user = await User.create({
       username,
       password,
@@ -70,7 +75,11 @@ router.post('/login', async (req, res) => {
     const ok = await user.comparePassword(password);
     if (!ok) return res.status(400).json({ error: 'Invalid credentials' });
 
-    const role = isOwnerUsername(user.username) ? 'OWNER' : 'CUSTOMER';
+    const role = isOwnerUsername(user.username)
+      ? 'OWNER'
+      : isDriverUsername(user.username)
+        ? 'DRIVER'
+        : 'CUSTOMER';
     if (!user.role || user.role !== role) {
       user.role = role;
       await user.save();

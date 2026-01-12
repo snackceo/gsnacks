@@ -33,7 +33,12 @@ function App() {
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
 
   const handleExternalPayment = async (type: 'STRIPE' | 'GPAY') => {
-    if (!core.currentUser || isProcessingOrder) return;
+    if (isProcessingOrder) return;
+
+    if (!core.currentUser && !core.settings.allowGuestCheckout) {
+      setIsLoginViewOpen(true);
+      return;
+    }
 
     setIsProcessingOrder(true);
 
@@ -44,7 +49,7 @@ function App() {
         credentials: 'include',
         body: JSON.stringify({
           items: core.cart,
-          userId: core.currentUser.id,
+          userId: core.currentUser?.id,
           gateway: type,
           address: address, // NEW: stored on order for owner dashboard
           deliveryFee: Number(core.settings.deliveryFee || 0)
@@ -63,7 +68,13 @@ function App() {
   };
 
   const handleCreditsPayment = async () => {
-    if (!core.currentUser || isProcessingOrder) return;
+    if (isProcessingOrder) return;
+
+    if (!core.currentUser) {
+      core.addToast('LOGIN REQUIRED FOR CREDITS', 'warning');
+      setIsLoginViewOpen(true);
+      return;
+    }
 
     setIsProcessingOrder(true);
 
@@ -156,8 +167,10 @@ function App() {
                 onRequestRefund={() => {}}
                 addToCart={(productId) => {
                   if (!core.currentUser) {
-                    setIsLoginViewOpen(true);
-                    return;
+                    if (!core.settings.allowGuestCheckout) {
+                      setIsLoginViewOpen(true);
+                      return;
+                    }
                   }
 
                   const product = core.products.find(p => p.id === productId);
@@ -238,8 +251,10 @@ function App() {
           <Route
             path="/driver"
             element={
-              core.currentUser?.role === UserRole.OWNER ? (
+              core.currentUser?.role === UserRole.OWNER ||
+              core.currentUser?.role === UserRole.DRIVER ? (
                 <DriverView
+                  currentUser={core.currentUser}
                   orders={core.orders}
                   updateOrder={core.updateOrder}
                 />
@@ -298,6 +313,7 @@ function App() {
             onSuccess={async () => {
               // After backend sets cookie, restore current user from /api/auth/me
               if (core.restoreSession) await core.restoreSession();
+              if (core.fetchOrders) await core.fetchOrders();
               setIsLoginViewOpen(false);
             }}
             onCancel={() => setIsLoginViewOpen(false)}
