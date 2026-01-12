@@ -10,7 +10,8 @@ import {
   Camera,
   Plus,
   ScanLine,
-  Info
+  Info,
+  AlertCircle
 } from 'lucide-react';
 import { Product, ReturnUpcCount, UserTier } from '../types';
 
@@ -108,6 +109,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const [isScanning, setIsScanning] = useState(false);
   const [hasEligibilityCache, setHasEligibilityCache] = useState(false);
   const [eligibilityCache, setEligibilityCache] = useState<UpcEligibilityCache>({});
+  const [showPolicyAdvisories, setShowPolicyAdvisories] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -426,6 +428,16 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       };
     });
   }, [baseDeliveryFeeCents, platinumFreeDeliveryEnabled]);
+
+  const activeTierDiscount = useMemo(() => {
+    return (
+      tierDiscounts.find(discount => discount.tier === activeTier) ?? {
+        tier: activeTier,
+        label: 'Bronze',
+        deliveryDiscount: 0
+      }
+    );
+  }, [activeTier, tierDiscounts]);
 
   const activeDeliveryDiscountPercent = deliveryDiscountPercentForTier(activeTier);
   const activeDeliveryDiscountCents = Math.round(
@@ -903,10 +915,28 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               Accept Hub Protocol
             </label>
             <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-[10px] uppercase tracking-widest text-slate-500 space-y-2">
-              <p className="text-slate-300">Return policy</p>
-              <p>Containers must be clean and clearly marked with the MI 10¢ deposit label.</p>
-              <p>Refunds are limited to $25.00 per customer per day.</p>
-              <p>AI output is advisory; eligibility is determined by the UPC whitelist and deposit labeling.</p>
+              <div className="flex items-center justify-between">
+                <p className="text-slate-300">Return policy</p>
+                <button
+                  type="button"
+                  aria-label="Toggle return policy advisories"
+                  aria-expanded={showPolicyAdvisories}
+                  onClick={() => setShowPolicyAdvisories(prev => !prev)}
+                  className="flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-black/40 text-slate-300 hover:text-white hover:border-white/20 transition"
+                >
+                  <AlertCircle className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              {showPolicyAdvisories && (
+                <div className="space-y-2">
+                  <p>Containers must be clean and clearly marked with the MI 10¢ deposit label.</p>
+                  <p>Refunds are limited to $25.00 per customer per day.</p>
+                  <p>
+                    AI output is advisory; eligibility is determined by the UPC whitelist and
+                    deposit labeling.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Totals */}
@@ -927,31 +957,15 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
               <div className="space-y-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Tier Delivery Discounts
+                  Tier Delivery Discount
                 </p>
-                <div className="space-y-2">
-                  {tierDiscounts.map(discount => {
-                    const isActiveTier = membershipTier
-                      ? discount.tier === membershipTier
-                      : discount.tier === UserTier.BRONZE;
-                    return (
-                      <div
-                        key={discount.tier}
-                        className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest ${
-                          isActiveTier
-                            ? 'border-ninpo-lime/40 bg-ninpo-lime/10 text-ninpo-lime'
-                            : 'border-white/10 bg-black/20 text-slate-500'
-                        }`}
-                      >
-                        <span>{discount.label}</span>
-                        <span>
-                          {discount.deliveryDiscount > 0
-                            ? `- ${money(discount.deliveryDiscount)}`
-                            : money(0)}
-                        </span>
-                      </div>
-                    );
-                  })}
+                <div className="flex items-center justify-between rounded-2xl border border-ninpo-lime/40 bg-ninpo-lime/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-ninpo-lime">
+                  <span>{activeTierDiscount.label}</span>
+                  <span>
+                    {activeTierDiscount.deliveryDiscount > 0
+                      ? `- ${money(activeTierDiscount.deliveryDiscount)}`
+                      : money(0)}
+                  </span>
                 </div>
               </div>
 
