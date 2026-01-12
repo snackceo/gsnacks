@@ -11,7 +11,8 @@ import {
   isDriverUsername,
   isOwnerUsername,
   mapOrderForFrontend,
-  normalizeCart
+  normalizeCart,
+  normalizeUpcCounts
 } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 
@@ -61,22 +62,25 @@ const applyReturnProcessingFee = (grossCredit, { waive } = {}) => {
 };
 
 const buildReturnPreview = async (rawUpcs) => {
-  const incomingUpcs = Array.isArray(rawUpcs) ? rawUpcs : [];
-  const returnUpcs = incomingUpcs.map(String).map(s => s.trim()).filter(Boolean);
+  const { upcCounts, uniqueUpcs } = normalizeUpcCounts(rawUpcs);
+  const returnUpcs = [];
+  const returnUpcCounts = [];
 
   let eligibleUpcs = [];
+  let eligibleUpcCounts = [];
   let ineligibleUpcs = [];
   let estimatedCreditFromUpcs = 0;
 
-  if (returnUpcs.length > 0) {
-    const upcEntries = await UpcItem.find({ upc: { $in: returnUpcs } }).lean();
+  if (uniqueUpcs.length > 0) {
+    const upcEntries = await UpcItem.find({ upc: { $in: uniqueUpcs } }).lean();
     const upcByCode = new Map(upcEntries.map(entry => [entry.upc, entry]));
 
-    for (const upc of returnUpcs) {
+    for (const { upc, quantity } of upcCounts) {
       const entry = upcByCode.get(upc);
       if (entry?.isEligible) {
-        eligibleUpcs.push(upc);
-        estimatedCreditFromUpcs += Number(entry.depositValue || 0);
+        eligibleUpcs.push(...Array.from({ length: quantity }, () => upc));
+        eligibleUpcCounts.push({ upc, quantity });
+        estimatedCreditFromUpcs += Number(entry.depositValue || 0) * quantity;
       } else {
         ineligibleUpcs.push(upc);
       }
@@ -90,9 +94,14 @@ const buildReturnPreview = async (rawUpcs) => {
     waive: isReturnProcessingFeeWaived
   });
 
+  returnUpcs.push(...eligibleUpcs);
+  returnUpcCounts.push(...eligibleUpcCounts);
+
   return {
     returnUpcs,
+    returnUpcCounts,
     eligibleUpcs,
+    eligibleUpcCounts,
     ineligibleUpcs,
     estimatedCredit
   };
@@ -134,9 +143,8 @@ const createPaymentsRouter = ({ stripe }) => {
         deliveryFeeDiscountPercent
       );
 
-      const { eligibleUpcs, ineligibleUpcs, estimatedCredit } = await buildReturnPreview(
-        req.body?.returnUpcs
-      );
+      const { eligibleUpcs, eligibleUpcCounts, ineligibleUpcs, estimatedCredit } =
+        await buildReturnPreview(req.body?.returnUpcCounts ?? req.body?.returnUpcs);
 
       const items = normalizeCart(rawItems);
       if (!Array.isArray(items) || items.length === 0) {
@@ -209,6 +217,7 @@ const createPaymentsRouter = ({ stripe }) => {
               creditApplied: 0,
 
               returnUpcs: eligibleUpcs,
+              returnUpcCounts: eligibleUpcCounts,
               estimatedReturnCreditGross: estimatedCredit.gross,
               estimatedReturnCredit: estimatedCredit.net,
               verifiedReturnCreditGross: 0,
@@ -286,9 +295,8 @@ const createPaymentsRouter = ({ stripe }) => {
       const deliveryFee = Math.max(0, Number(req.body?.deliveryFee || 0));
 
       const items = normalizeCart(rawItems);
-      const { eligibleUpcs, ineligibleUpcs, estimatedCredit } = await buildReturnPreview(
-        req.body?.returnUpcs
-      );
+      const { eligibleUpcs, eligibleUpcCounts, ineligibleUpcs, estimatedCredit } =
+        await buildReturnPreview(req.body?.returnUpcCounts ?? req.body?.returnUpcs);
       const isReturnOnly = Array.isArray(items) && items.length === 0 && eligibleUpcs.length > 0;
       if ((!Array.isArray(items) || items.length === 0) && !isReturnOnly) {
         return res.status(400).json({ error: 'Cart is empty' });
@@ -388,6 +396,7 @@ const createPaymentsRouter = ({ stripe }) => {
               capturedAt: isReturnOnly || remainingCents > 0 ? undefined : new Date(),
 
               returnUpcs: eligibleUpcs,
+              returnUpcCounts: eligibleUpcCounts,
               estimatedReturnCreditGross: estimatedCredit.gross,
               estimatedReturnCredit: estimatedCredit.net,
               verifiedReturnCreditGross: 0,
@@ -509,15 +518,16 @@ const createPaymentsRouter = ({ stripe }) => {
       const orderId = String(req.body?.orderId || '').trim();
       if (!orderId) return res.status(400).json({ error: 'orderId is required' });
 
-      const incomingUpcs = Array.isArray(req.body?.verifiedReturnUpcs)
-        ? req.body.verifiedReturnUpcs
-        : [];
-      const verifiedReturnUpcs = incomingUpcs.map(String).map(s => s.trim()).filter(Boolean);
-      const upcCounts = verifiedReturnUpcs.reduce((acc, upc) => {
-        acc.set(upc, (acc.get(upc) || 0) + 1);
-        return acc;
-      }, new Map());
-      const uniqueVerifiedReturnUpcs = Array.from(upcCounts.keys());
+      const verifiedPayload =
+        req.body?.verifiedReturnUpcCounts ?? req.body?.verifiedReturnUpcs ?? [];
+      const {
+        upcCounts: verifiedReturnUpcCounts,
+        uniqueUpcs: uniqueVerifiedReturnUpcs,
+        flattened: verifiedReturnUpcs
+      } = normalizeUpcCounts(verifiedPayload);
+      const verifiedCountMap = new Map(
+        verifiedReturnUpcCounts.map(entry => [entry.upc, entry.quantity])
+      );
 
       let verifiedReturnCredit = 0;
       let verifiedReturnCreditGross = 0;
@@ -528,7 +538,7 @@ const createPaymentsRouter = ({ stripe }) => {
         }).lean();
 
         verifiedReturnCreditGross = upcEntries.reduce((sum, entry) => {
-          const count = upcCounts.get(entry?.upc) || 0;
+          const count = verifiedCountMap.get(entry?.upc) || 0;
           return sum + Number(entry?.depositValue || 0) * count;
         }, 0);
       }
@@ -605,6 +615,7 @@ const createPaymentsRouter = ({ stripe }) => {
           order.verifiedReturnCredit = verifiedReturnCredit;
           order.verifiedReturnCreditGross = verifiedCredit.gross;
           order.verifiedReturnUpcs = verifiedReturnUpcs;
+          order.verifiedReturnUpcCounts = verifiedReturnUpcCounts;
 
           await order.save({ session: sessionDb });
           updatedOrderDoc = order;
@@ -622,6 +633,7 @@ const createPaymentsRouter = ({ stripe }) => {
         order.verifiedReturnCredit = verifiedReturnCredit;
         order.verifiedReturnCreditGross = verifiedCredit.gross;
         order.verifiedReturnUpcs = verifiedReturnUpcs;
+        order.verifiedReturnUpcCounts = verifiedReturnUpcCounts;
 
         await order.save({ session: sessionDb });
         updatedOrderDoc = order;

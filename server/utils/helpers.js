@@ -118,6 +118,37 @@ function normalizeCart(items) {
   }));
 }
 
+function normalizeUpcCounts(rawUpcs) {
+  const counts = new Map();
+  if (Array.isArray(rawUpcs)) {
+    for (const entry of rawUpcs) {
+      if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+        const upc = String(entry.upc || '').trim();
+        const qty = Math.floor(Number(entry.quantity || 0));
+        if (!upc || !Number.isFinite(qty) || qty <= 0) continue;
+        counts.set(upc, (counts.get(upc) || 0) + qty);
+        continue;
+      }
+      const upc = String(entry || '').trim();
+      if (!upc) continue;
+      counts.set(upc, (counts.get(upc) || 0) + 1);
+    }
+  }
+
+  const upcCounts = Array.from(counts.entries()).map(([upc, quantity]) => ({
+    upc,
+    quantity
+  }));
+  const flattened = upcCounts.flatMap(entry =>
+    Array.from({ length: entry.quantity }, () => entry.upc)
+  );
+  return {
+    upcCounts,
+    uniqueUpcs: Array.from(counts.keys()),
+    flattened
+  };
+}
+
 function mapOrderForFrontend(d) {
   // Frontend enum does not include CANCELED/EXPIRED, so map them to CLOSED.
   const mappedStatus =
@@ -147,6 +178,14 @@ function mapOrderForFrontend(d) {
     // Bottle returns
     returnUpcs: Array.isArray(d.returnUpcs) ? d.returnUpcs : [],
     verifiedReturnUpcs: Array.isArray(d.verifiedReturnUpcs) ? d.verifiedReturnUpcs : [],
+    returnUpcCounts:
+      Array.isArray(d.returnUpcCounts) && d.returnUpcCounts.length > 0
+        ? d.returnUpcCounts
+        : normalizeUpcCounts(d.returnUpcs).upcCounts,
+    verifiedReturnUpcCounts:
+      Array.isArray(d.verifiedReturnUpcCounts) && d.verifiedReturnUpcCounts.length > 0
+        ? d.verifiedReturnUpcCounts
+        : normalizeUpcCounts(d.verifiedReturnUpcs).upcCounts,
     estimatedReturnCreditGross: Number(d.estimatedReturnCreditGross || 0),
     estimatedReturnCredit: Number(d.estimatedReturnCredit || 0),
     verifiedReturnCreditGross: Number(d.verifiedReturnCreditGross || 0),
@@ -208,6 +247,7 @@ export {
   isOwnerUsername,
   mapOrderForFrontend,
   normalizeCart,
+  normalizeUpcCounts,
   ownerRequired,
   restockOrderItems,
   setAuthCookie,

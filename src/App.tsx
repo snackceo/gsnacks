@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
 import { useNinpoCore } from './hooks/useNinpoCore';
-import { UserRole } from './types';
+import { ReturnUpcCount, UserRole } from './types';
 
 import CustomerView from './views/CustomerView';
 import ManagementView from './views/ManagementView';
@@ -32,7 +32,10 @@ function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
 
-  const handleExternalPayment = async (type: 'STRIPE' | 'GPAY', returnUpcs: string[]) => {
+  const handleExternalPayment = async (
+    type: 'STRIPE' | 'GPAY',
+    returnUpcs: ReturnUpcCount[]
+  ) => {
     if (isProcessingOrder) return;
 
     if (!core.currentUser && !core.settings.allowGuestCheckout) {
@@ -53,7 +56,7 @@ function App() {
           gateway: type,
           address: address, // NEW: stored on order for owner dashboard
           deliveryFee: Number(core.settings.deliveryFee || 0),
-          returnUpcs
+          returnUpcCounts: returnUpcs
         })
       });
 
@@ -68,7 +71,7 @@ function App() {
     }
   };
 
-  const handleCreditsPayment = async (returnUpcs: string[]) => {
+  const handleCreditsPayment = async (returnUpcs: ReturnUpcCount[]) => {
     if (isProcessingOrder) return false;
 
     if (!core.currentUser) {
@@ -88,7 +91,7 @@ function App() {
           items: core.cart,
           address,
           deliveryFee: Number(core.settings.deliveryFee || 0),
-          returnUpcs
+          returnUpcCounts: returnUpcs
         })
       });
 

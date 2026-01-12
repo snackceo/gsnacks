@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Order, OrderStatus, User, UserRole } from '../types';
+import { Order, OrderStatus, ReturnUpcCount, User, UserRole } from '../types';
 import { analyzeBottleScan, explainDriverIssue } from '../services/geminiService';
 import {
   Camera,
@@ -46,9 +46,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   } | null>(null);
   const [aiConditionStatus, setAiConditionStatus] = useState<'idle' | 'loading' | 'error'>('idle');
 
-  const [verifiedReturnUpcs, setVerifiedReturnUpcs] = useState<
-    { upc: string; quantity: number }[]
-  >([]);
+  const [verifiedReturnUpcs, setVerifiedReturnUpcs] = useState<ReturnUpcCount[]>([]);
   const [manualUpc, setManualUpc] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
@@ -67,9 +65,18 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const scanLoopRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const eligibilityCacheRef = useRef<Record<string, boolean>>({});
+  const lastScanAtRef = useRef<number>(0);
 
-  const flattenVerifiedUpcs = (entries: { upc: string; quantity: number }[]) =>
-    entries.flatMap(entry => Array.from({ length: entry.quantity }, () => entry.upc));
+  const normalizeUpcCounts = (entries: ReturnUpcCount[] | undefined, fallback: string[]) => {
+    if (Array.isArray(entries) && entries.length > 0) return entries;
+    const counts = new Map<string, number>();
+    fallback.forEach(upc => {
+      const clean = String(upc || '').trim();
+      if (!clean) return;
+      counts.set(clean, (counts.get(clean) || 0) + 1);
+    });
+    return Array.from(counts.entries()).map(([upc, quantity]) => ({ upc, quantity }));
+  };
 
   const handleAccept = (orderId: string) => {
     const driverId = currentUser?.username || currentUser?.id || 'DRIVER';
@@ -99,26 +106,27 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setAiConditionStatus('idle');
   };
 
-  const isReturnOnlyOrder = (order?: Order | null) =>
-    !!order &&
-    (order.items?.length ?? 0) === 0 &&
-    (order.returnUpcs?.length ?? 0) > 0;
+  const isReturnOnlyOrder = (order?: Order | null) => {
+    if (!order) return false;
+    const countFromEntries =
+      order.returnUpcCounts?.reduce((sum, entry) => sum + entry.quantity, 0) ?? 0;
+    const count = countFromEntries || (order.returnUpcs?.length ?? 0);
+    return (order.items?.length ?? 0) === 0 && count > 0;
+  };
 
   const startVerification = async (order: Order) => {
     setActiveOrder(order);
     resetPhotoState();
-    const initialUpcs = order.verifiedReturnUpcs?.length
+    const initialEntries =
+      order.verifiedReturnUpcCounts && order.verifiedReturnUpcCounts.length > 0
+        ? order.verifiedReturnUpcCounts
+        : order.returnUpcCounts && order.returnUpcCounts.length > 0
+          ? order.returnUpcCounts
+          : [];
+    const fallbackUpcs = order.verifiedReturnUpcs?.length
       ? order.verifiedReturnUpcs
       : order.returnUpcs || [];
-    const counts = new Map<string, number>();
-    initialUpcs.forEach(upc => {
-      const clean = String(upc || '').trim();
-      if (!clean) return;
-      counts.set(clean, (counts.get(clean) || 0) + 1);
-    });
-    setVerifiedReturnUpcs(
-      Array.from(counts.entries()).map(([upc, quantity]) => ({ upc, quantity }))
-    );
+    setVerifiedReturnUpcs(normalizeUpcCounts(initialEntries, fallbackUpcs));
     setManualUpc('');
     setScannerOpen(false);
     setScannerError(null);
@@ -222,9 +230,19 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     );
   };
 
-  const addUpc = async (upcRaw: string) => {
+  const addUpc = async (upcRaw: string, source: 'scanner' | 'manual' = 'manual') => {
     const upc = String(upcRaw || '').replace(/\s+/g, '').trim();
     if (!upc) return;
+
+    if (source === 'scanner') {
+      const now = Date.now();
+      if (now - lastScanAtRef.current < 1200) {
+        playScannerTone(220, 240, 0.25);
+        setScannerError('Scan paused. Wait a moment or tap + to increment.');
+        return;
+      }
+      lastScanAtRef.current = now;
+    }
 
     if (!/^\d{8,14}$/.test(upc)) {
       playScannerTone(220, 240, 0.25);
@@ -292,14 +310,13 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setIssueExplanation(null);
     setIssueStatus('idle');
     try {
-      const verifiedUpcsPayload = flattenVerifiedUpcs(verifiedReturnUpcs);
       const res = await fetch(`${BACKEND_URL}/api/payments/capture`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           orderId: activeOrder.id,
-          verifiedReturnUpcs: verifiedUpcsPayload
+          verifiedReturnUpcCounts: verifiedReturnUpcs
         })
       });
 
@@ -313,7 +330,8 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
       updateOrder(activeOrder.id, OrderStatus.PAID, {
         verifiedReturnCredit,
-        verifiedReturnUpcs: capturedOrder?.verifiedReturnUpcs || verifiedUpcsPayload,
+        verifiedReturnUpcs: capturedOrder?.verifiedReturnUpcs || [],
+        verifiedReturnUpcCounts: capturedOrder?.verifiedReturnUpcCounts || verifiedReturnUpcs,
         paidAt: new Date().toISOString()
       });
 
@@ -408,7 +426,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
             gpsCoords: { lat: pos.coords.latitude, lng: pos.coords.longitude },
             verificationPhoto: proofUrl || undefined,
             ...(isReturnOnlyOrder(activeOrder)
-              ? { verifiedReturnUpcs: flattenVerifiedUpcs(verifiedReturnUpcs) }
+              ? { verifiedReturnUpcCounts: verifiedReturnUpcs }
               : {})
           };
 
@@ -532,7 +550,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
             if (Array.isArray(barcodes) && barcodes.length > 0) {
               const rawValue = barcodes[0]?.rawValue;
               if (rawValue) {
-                addUpc(rawValue);
+                addUpc(rawValue, 'scanner');
                 await new Promise(r => setTimeout(r, 900));
               }
             }
@@ -765,7 +783,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                       />
                     </div>
                     <button
-                      onClick={() => addUpc(manualUpc)}
+                      onClick={() => addUpc(manualUpc, 'manual')}
                       className="px-4 py-3 bg-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
                     >
                       <Plus className="w-4 h-4" /> Add

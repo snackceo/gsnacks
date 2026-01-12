@@ -10,6 +10,7 @@ import {
   isDriverUsername,
   isOwnerUsername,
   mapOrderForFrontend,
+  normalizeUpcCounts,
   restockOrderItems,
   voidStripeAuthorizationBestEffort
 } from '../utils/helpers.js';
@@ -135,6 +136,7 @@ const createOrdersRouter = ({ stripe }) => {
         'verifiedReturnCredit',
         'verifiedReturnCreditGross',
         'verifiedReturnUpcs',
+        'verifiedReturnUpcCounts',
         'creditApplied'
       ];
       const driverAllowed = [
@@ -142,7 +144,8 @@ const createOrdersRouter = ({ stripe }) => {
         'driverId',
         'gpsCoords',
         'verificationPhoto',
-        'verifiedReturnUpcs'
+        'verifiedReturnUpcs',
+        'verifiedReturnUpcCounts'
       ];
 
       const updates = {};
@@ -150,10 +153,14 @@ const createOrdersRouter = ({ stripe }) => {
       for (const k of allowed) {
         if (req.body?.[k] !== undefined) updates[k] = req.body[k];
       }
-      if (updates.verifiedReturnUpcs !== undefined) {
-        updates.verifiedReturnUpcs = Array.isArray(updates.verifiedReturnUpcs)
-          ? updates.verifiedReturnUpcs.map(String).map(s => s.trim()).filter(Boolean)
-          : [];
+      if (updates.verifiedReturnUpcCounts !== undefined || updates.verifiedReturnUpcs !== undefined) {
+        const payload =
+          updates.verifiedReturnUpcCounts !== undefined
+            ? updates.verifiedReturnUpcCounts
+            : updates.verifiedReturnUpcs;
+        const normalized = normalizeUpcCounts(payload);
+        updates.verifiedReturnUpcCounts = normalized.upcCounts;
+        updates.verifiedReturnUpcs = normalized.flattened;
       }
 
       const requestedStatus = updates.status ? String(updates.status).trim() : null;
@@ -271,8 +278,11 @@ const createOrdersRouter = ({ stripe }) => {
         const order = await Order.findOne({ orderId }).session(sessionDb);
         if (!order) return;
 
-        const isReturnOnly =
-          (order.items?.length ?? 0) === 0 && (order.returnUpcs?.length ?? 0) > 0;
+        const returnCount =
+          Array.isArray(order.returnUpcCounts) && order.returnUpcCounts.length > 0
+            ? order.returnUpcCounts.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0)
+            : order.returnUpcs?.length ?? 0;
+        const isReturnOnly = (order.items?.length ?? 0) === 0 && returnCount > 0;
 
         const isAssignedDriver =
           order.driverId &&
@@ -330,10 +340,11 @@ const createOrdersRouter = ({ stripe }) => {
           order.deliveredAt = new Date();
 
           if (isReturnOnly && !order.returnCreditsAppliedAt) {
-            const incomingReturnUpcs = Array.isArray(updates.verifiedReturnUpcs)
-              ? updates.verifiedReturnUpcs
-              : [];
-            const uniqueReturnUpcs = [...new Set(incomingReturnUpcs)];
+            const normalized = normalizeUpcCounts(updates.verifiedReturnUpcCounts);
+            const uniqueReturnUpcs = normalized.uniqueUpcs;
+            const countMap = new Map(
+              normalized.upcCounts.map(entry => [entry.upc, entry.quantity])
+            );
             let verifiedReturnCreditGross = 0;
             if (uniqueReturnUpcs.length > 0) {
               const upcEntries = await UpcItem.find({
@@ -343,17 +354,18 @@ const createOrdersRouter = ({ stripe }) => {
                 .session(sessionDb)
                 .lean();
 
-              verifiedReturnCreditGross = upcEntries.reduce(
-                (sum, entry) => sum + Number(entry?.depositValue || 0),
-                0
-              );
+              verifiedReturnCreditGross = upcEntries.reduce((sum, entry) => {
+                const count = countMap.get(entry?.upc) || 0;
+                return sum + Number(entry?.depositValue || 0) * count;
+              }, 0);
             }
 
             const verifiedCredit = applyReturnProcessingFee(verifiedReturnCreditGross, {
               waive: true
             });
 
-            order.verifiedReturnUpcs = uniqueReturnUpcs;
+            order.verifiedReturnUpcs = normalized.flattened;
+            order.verifiedReturnUpcCounts = normalized.upcCounts;
             order.verifiedReturnCreditGross = verifiedCredit.gross;
             order.verifiedReturnCredit = verifiedCredit.net;
             order.returnCreditsAppliedAt = new Date();
