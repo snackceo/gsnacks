@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Order, OrderStatus } from '../types';
-import { analyzeBottleScan } from '../services/geminiService';
+import { analyzeBottleScan, explainDriverIssue } from '../services/geminiService';
 import {
   Camera,
+  BrainCircuit,
   CheckCircle2,
   Clock,
   Loader2,
@@ -52,6 +53,9 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
 
   const [isCapturing, setIsCapturing] = useState(false);
   const [paymentCaptured, setPaymentCaptured] = useState(false);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  const [issueExplanation, setIssueExplanation] = useState<string | null>(null);
+  const [issueStatus, setIssueStatus] = useState<'idle' | 'loading' | 'error'>('idle');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -95,6 +99,9 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
     setManualUpc('');
     setScannerOpen(false);
     setScannerError(null);
+    setCaptureError(null);
+    setIssueExplanation(null);
+    setIssueStatus('idle');
 
     setPaymentCaptured(order.status === OrderStatus.PAID);
 
@@ -192,7 +199,9 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
     }
 
     try {
-      const response = await fetch(`/api/upc/eligibility?upc=${encodeURIComponent(upc)}`);
+      const response = await fetch(
+        `${BACKEND_URL}/api/upc/eligibility?upc=${encodeURIComponent(upc)}`
+      );
       if (response.ok) {
         const data = await response.json();
         const isEligible = data?.eligible !== false;
@@ -233,6 +242,9 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
     if (!activeOrder) return;
 
     setIsCapturing(true);
+    setCaptureError(null);
+    setIssueExplanation(null);
+    setIssueStatus('idle');
     try {
       const res = await fetch(`${BACKEND_URL}/api/payments/capture`, {
         method: 'POST',
@@ -260,9 +272,24 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
 
       alert('Payment captured successfully.');
     } catch (e: any) {
-      alert(e?.message || 'Payment capture failed.');
+      const message = e?.message || 'Payment capture failed.';
+      setCaptureError(message);
+      alert(message);
     } finally {
       setIsCapturing(false);
+    }
+  };
+
+  const explainCaptureIssue = async () => {
+    if (!activeOrder || !captureError) return;
+    setIssueStatus('loading');
+    try {
+      const explanation = await explainDriverIssue(activeOrder, captureError);
+      setIssueExplanation(explanation || 'No explanation returned.');
+      setIssueStatus('idle');
+    } catch {
+      setIssueExplanation('Issue explanation unavailable.');
+      setIssueStatus('error');
     }
   };
 
@@ -705,6 +732,35 @@ const DriverView: React.FC<DriverViewProps> = ({ orders, updateOrder }) => {
               <p className="mt-2 text-[10px] uppercase tracking-widest opacity-60">
                 Note: final charge = total - verified credit (computed from eligible UPCs).
               </p>
+
+              {captureError && (
+                <div className="mt-4 bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4 space-y-3">
+                  <p className="text-[11px] text-ninpo-red font-bold uppercase tracking-widest">
+                    Capture blocked
+                  </p>
+                  <p className="text-[11px] text-slate-300">{captureError}</p>
+                  <button
+                    onClick={explainCaptureIssue}
+                    disabled={issueStatus === 'loading'}
+                    className="px-4 py-3 rounded-xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-60"
+                  >
+                    {issueStatus === 'loading' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" /> Explaining
+                      </>
+                    ) : (
+                      <>
+                        <BrainCircuit className="w-4 h-4" /> Explain Issue
+                      </>
+                    )}
+                  </button>
+                  {issueExplanation && (
+                    <div className="text-[11px] text-slate-200 whitespace-pre-wrap">
+                      {issueExplanation}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="relative aspect-video rounded-3xl overflow-hidden bg-ninpo-black">
