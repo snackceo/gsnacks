@@ -423,7 +423,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const cartIsEmpty = cart.length === 0;
   const hasReturnUpcs = returnUpcs.length > 0;
   const canCheckoutCredits =
-    (!!address.trim() && acceptedPolicies && !isProcessing && (!cartIsEmpty || hasReturnUpcs));
+    (!!address.trim() && acceptedPolicies && !isProcessing && cartIsEmpty && hasReturnUpcs);
   const canCheckoutStripe =
     (!!address.trim() && acceptedPolicies && !isProcessing && !cartIsEmpty);
 
