@@ -20,7 +20,8 @@ const defaultSettings = {
   requirePhotoForRefunds: false,
   allowGuestCheckout: false,
   showAdvancedInventoryInsights: false,
-  allowPlatinumTier: false
+  allowPlatinumTier: false,
+  platinumFreeDelivery: false
 };
 
 const numericFields = [
@@ -38,7 +39,8 @@ const booleanFields = [
   'requirePhotoForRefunds',
   'allowGuestCheckout',
   'showAdvancedInventoryInsights',
-  'allowPlatinumTier'
+  'allowPlatinumTier',
+  'platinumFreeDelivery'
 ];
 
 const parseSettingsInput = (payload, { partial }) => {
@@ -94,6 +96,9 @@ const mapSettings = (doc) => ({
   ),
   allowPlatinumTier: Boolean(
     doc?.allowPlatinumTier ?? defaultSettings.allowPlatinumTier
+  ),
+  platinumFreeDelivery: Boolean(
+    doc?.platinumFreeDelivery ?? defaultSettings.platinumFreeDelivery
   )
 });
 

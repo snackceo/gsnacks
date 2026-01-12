@@ -18,6 +18,7 @@ import approvalsRouter from './routes/approvals.js';
 import settingsRouter from './routes/settings.js';
 import auditLogsRouter from './routes/audit-logs.js';
 import uploadsRouter from './routes/uploads.js';
+import scanSessionsRouter from './routes/scan-sessions.js';
 
 dotenv.config();
 
@@ -107,6 +108,7 @@ app.use('/api/approvals', approvalsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/audit-logs', auditLogsRouter);
 app.use('/api/uploads', uploadsRouter);
+app.use('/api/scan-sessions', scanSessionsRouter);
 
 /* =========================
    START SERVER

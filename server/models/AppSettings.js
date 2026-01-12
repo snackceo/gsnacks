@@ -14,7 +14,8 @@ const appSettingsSchema = new mongoose.Schema(
     requirePhotoForRefunds: { type: Boolean, default: false },
     allowGuestCheckout: { type: Boolean, default: false },
     showAdvancedInventoryInsights: { type: Boolean, default: false },
-    allowPlatinumTier: { type: Boolean, default: false }
+    allowPlatinumTier: { type: Boolean, default: false },
+    platinumFreeDelivery: { type: Boolean, default: false }
   },
   { timestamps: true }
 );
