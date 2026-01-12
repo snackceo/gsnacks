@@ -1,6 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ShoppingBag, X, Trash2, Loader2, Zap, Landmark, Camera, Plus, ScanLine } from 'lucide-react';
+import {
+  ShoppingBag,
+  X,
+  Trash2,
+  Loader2,
+  Zap,
+  Landmark,
+  Camera,
+  Plus,
+  ScanLine,
+  Info
+} from 'lucide-react';
 import { Product, ReturnUpcCount, UserTier } from '../types';
 
 interface CartItem {
@@ -42,7 +53,7 @@ const UPC_ELIGIBILITY_TTL_MS = 24 * 60 * 60 * 1000;
 // Business defaults (we can later move these into settings)
 const MI_DEPOSIT_VALUE = 0.1; // 10¢
 const DEFAULT_DAILY_CAP = 25.0;
-const NOT_ELIGIBLE_MESSAGE = 'Not eligible for Michigan 10¢ deposit returns';
+const NOT_ELIGIBLE_MESSAGE = "This container isn't eligible for return value.";
 const DELIVERY_DISCOUNT_PERCENTS: Record<UserTier, number> = {
   [UserTier.NONE]: 0,
   [UserTier.BRONZE]: 10,
@@ -242,7 +253,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       playScannerTone(980, 120, 0.2);
     } else {
       playScannerTone(220, 240, 0.25);
-      setScannerError('UPC already scanned. Use + to add another of the same item.');
+      setScannerError('This container may already be counted.');
     }
   };
 
@@ -739,10 +750,11 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-white font-black uppercase tracking-widest text-xs">
-                    Bottle Returns (Preview)
+                    Bottle Returns (Optional)
                   </p>
                   <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
-                    Scan UPCs now. Driver verifies at pickup.
+                    Enter eligible Michigan 10¢ deposit UPCs to see an estimated return value. Final
+                    value is confirmed after driver verification.
                   </p>
                 </div>
 
@@ -804,10 +816,20 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest">
-                    Estimated Credit
+                    Estimated Return Value
                   </p>
                   <p className="text-ninpo-lime font-black text-lg">{money(estimatedReturnCredit)}</p>
+                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
+                    Estimate only — verified at delivery
+                  </p>
                 </div>
+              </div>
+              <div className="flex items-start gap-2 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                <Info className="w-3 h-3 text-slate-500 mt-0.5" />
+                <p>
+                  Bottle return value is confirmed at pickup or delivery after verification. Estimates
+                  do not affect your payment authorization.
+                </p>
               </div>
 
               {/* UPC list */}
@@ -935,7 +957,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Estimated Bottle Credit (preview)
+                  Estimated Return Value (preview)
                 </p>
                 <p className="text-ninpo-lime font-black">- {money(estimatedReturnCredit)}</p>
               </div>
@@ -946,6 +968,10 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 </p>
                 <p className="text-white font-black text-lg">{money(previewTotalAfterCredit)}</p>
               </div>
+
+              <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-2">
+                Return value will be applied after delivery and verification.
+              </p>
 
               {creditsCoverDelivery ? (
                 <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-2">
@@ -960,7 +986,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               )}
 
               <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-2">
-                Note: Bottle credit is estimated. Final amount is verified at pickup.
+                Estimate only — verified at delivery.
               </p>
             </div>
           </div>
@@ -992,10 +1018,13 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
             <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
               Authorize now, capture after verification.
             </p>
+            <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
+              Applying return value as credits may reduce or waive pickup and delivery fees.
+            </p>
 
             {cartIsEmpty && hasReturnUpcs && (
               <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
-                Return-only pickup will issue credits after driver verification.
+                Verification required. Final return value will be confirmed at delivery.
               </p>
             )}
 

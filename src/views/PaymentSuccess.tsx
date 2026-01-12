@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Order } from '../types';
+import { Order, OrderStatus } from '../types';
 
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -13,6 +13,7 @@ function money(n: any) {
 function PaymentSuccess({ clearCart }: { clearCart: () => void }) {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
+  const isDelivered = order?.status === OrderStatus.DELIVERED;
 
   useEffect(() => {
     clearCart();
@@ -45,10 +46,23 @@ function PaymentSuccess({ clearCart }: { clearCart: () => void }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-ninpo-black text-white px-6">
       <div className="text-center space-y-6 max-w-md">
-        <h1 className="text-3xl font-black uppercase text-ninpo-lime">Order Authorized</h1>
+        <h1 className="text-3xl font-black uppercase text-ninpo-lime">
+          {isDelivered ? 'Delivery Complete' : 'Order Authorized'}
+        </h1>
 
-        <p className="text-xs uppercase tracking-widest opacity-70">
-          Your payment is authorized. The driver will verify bottle returns at pickup, then the final amount is captured.        </p>
+        {isDelivered ? (
+          <div className="text-xs uppercase tracking-widest opacity-70 space-y-2">
+            <p>Your return value has been verified and applied.</p>
+            <p>Return value was applied to your purchase.</p>
+            <p>Return value was added to your account credits.</p>
+            <p>Cash payout processed by your driver.</p>
+          </div>
+        ) : (
+          <p className="text-xs uppercase tracking-widest opacity-70">
+            Your payment is authorized. The driver will verify bottle returns at pickup, then the
+            final amount is captured.
+          </p>
+        )}
 
         {loading && (
           <p className="text-xs uppercase tracking-widest opacity-50">Retrieving order details…</p>

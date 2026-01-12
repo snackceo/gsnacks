@@ -291,10 +291,16 @@ const CustomerView: React.FC<CustomerViewProps> = ({
 
               <div>
                 <h3 className="text-slate-600 font-black uppercase text-[10px] tracking-[0.4em] mb-3">
-                  System Credits
+                  Your Credits
                 </h3>
+                <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mb-3">
+                  Credits are earned from verified bottle returns and promotions.
+                </p>
                 <p className="text-6xl font-black text-white tracking-tighter leading-none">
                   ${(safeCredits as number).toFixed(2)}
+                </p>
+                <p className="mt-4 text-[10px] text-slate-600 font-bold uppercase tracking-widest">
+                  Credits are not cash and are subject to account rules.
                 </p>
               </div>
 
