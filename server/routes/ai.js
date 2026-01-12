@@ -109,9 +109,81 @@ router.post('/ops-summary', async (req, res) => {
     return res.status(400).json({ message: 'Orders array is required.' });
   }
 
+  const summarizeOps = rawOrders => {
+    const totalOrders = rawOrders.length;
+    const asNumber = value => (Number.isFinite(Number(value)) ? Number(value) : 0);
+    const authorizedCount = rawOrders.filter(
+      order => asNumber(order?.authorizedAmount) > 0
+    ).length;
+    const capturedCount = rawOrders.filter(order => asNumber(order?.capturedAmount) > 0)
+      .length;
+    const pendingCount = rawOrders.filter(order => order?.status === 'PENDING').length;
+    const closedCount = rawOrders.filter(order => order?.status === 'CLOSED').length;
+    const deliveredCount = rawOrders.filter(
+      order => order?.status === 'DELIVERED' || Boolean(order?.deliveredAt)
+    ).length;
+    const verifiedReturnsCount = rawOrders.filter(
+      order => Array.isArray(order?.verifiedReturnUpcs) && order.verifiedReturnUpcs.length > 0
+    ).length;
+    const pendingAuthorizedCount = rawOrders.filter(
+      order => order?.status === 'PENDING' && asNumber(order?.authorizedAmount) > 0
+    ).length;
+    const pendingUnauthorizedCount = rawOrders.filter(
+      order => order?.status === 'PENDING' && asNumber(order?.authorizedAmount) <= 0
+    ).length;
+
+    const anomalies = [];
+    if (pendingUnauthorizedCount > 0) {
+      anomalies.push(
+        `${pendingUnauthorizedCount} pending order${
+          pendingUnauthorizedCount === 1 ? '' : 's'
+        } without authorization.`
+      );
+    }
+    if (authorizedCount > 0 && capturedCount === 0) {
+      anomalies.push('No captured payments yet, despite active authorizations.');
+    }
+    if (closedCount > 0 && deliveredCount === 0) {
+      anomalies.push('Closed orders detected without delivery timestamps.');
+    }
+
+    const summaryLines = [
+      `Total Orders: ${totalOrders}`,
+      `Authorized vs Captured Counts: ${authorizedCount} authorized, ${capturedCount} captured`,
+      `Deliveries Completed: ${deliveredCount}`,
+      `Returns Verified: ${verifiedReturnsCount}`,
+      `Pending Orders: ${pendingCount} (${pendingAuthorizedCount} authorized, ${pendingUnauthorizedCount} unauthorized)`,
+      `Anomalies or Blockers: ${
+        anomalies.length ? anomalies.join(' ') : 'None detected.'
+      }`
+    ];
+
+    return {
+      summaryText: summaryLines.join('\n'),
+      stats: {
+        totalOrders,
+        authorizedCount,
+        capturedCount,
+        deliveredCount,
+        closedCount,
+        pendingCount,
+        pendingAuthorizedCount,
+        pendingUnauthorizedCount,
+        verifiedReturnsCount,
+        anomalies
+      }
+    };
+  };
+
+  const { summaryText, stats } = summarizeOps(orders);
+
   const apiReady = ensureGeminiReady();
   if (!apiReady.ok) {
-    return res.status(503).json({ message: apiReady.error });
+    return res.json({
+      summary: summaryText,
+      stats,
+      notice: apiReady.error
+    });
   }
 
   const modelSelection = resolveModelName(req.body?.model);
@@ -126,12 +198,8 @@ router.post('/ops-summary', async (req, res) => {
   try {
     const label = String(rangeLabel || 'latest period');
     const prompt = `Summarize logistics operations for ${label}.
-Provide:
-- total orders
-- authorized vs captured counts if available
-- deliveries completed
-- returns verified
-- any notable anomalies or blockers
+Use the provided baseline summary for accurate counts, then add brief narrative context.
+Baseline summary (deterministic): ${summaryText}
 Orders: ${JSON.stringify(orders)}`;
 
     const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
@@ -141,11 +209,17 @@ Orders: ${JSON.stringify(orders)}`;
       generationConfig: { temperature: 0.2 }
     });
     const summary = response?.text?.trim?.() ?? '';
-    return res.json({ summary });
+    return res.json({
+      summary: summary || summaryText,
+      stats,
+      baselineSummary: summaryText
+    });
   } catch (error) {
     console.error('Gemini ops summary failed.', error);
-    return res.status(502).json({
-      message: 'Ops summary interrupted.',
+    return res.json({
+      summary: summaryText,
+      stats,
+      warning: 'Ops summary interrupted.',
       error: error?.message || 'Unknown error',
       model: modelSelection.modelName
     });
