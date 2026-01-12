@@ -1493,7 +1493,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         <button
                           onClick={() =>
                             handleLogisticsUpdate(o.id, OrderStatus.ASSIGNED, {
-                              driverId: user?.username || user?.id || 'OWNER'
+                              driverId: users?.username || users?.id || 'OWNER'
                             })
                           }
                           className="flex-1 py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] transition-all shadow-neon"
