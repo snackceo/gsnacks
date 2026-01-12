@@ -60,6 +60,44 @@ const applyReturnProcessingFee = (grossCredit, { waive } = {}) => {
   };
 };
 
+const buildReturnPreview = async (rawUpcs) => {
+  const incomingUpcs = Array.isArray(rawUpcs) ? rawUpcs : [];
+  const returnUpcs = incomingUpcs.map(String).map(s => s.trim()).filter(Boolean);
+
+  let eligibleUpcs = [];
+  let ineligibleUpcs = [];
+  let estimatedCreditFromUpcs = 0;
+
+  if (returnUpcs.length > 0) {
+    const upcEntries = await UpcItem.find({ upc: { $in: returnUpcs } }).lean();
+    const upcByCode = new Map(upcEntries.map(entry => [entry.upc, entry]));
+
+    for (const upc of returnUpcs) {
+      const entry = upcByCode.get(upc);
+      if (entry?.isEligible) {
+        eligibleUpcs.push(upc);
+        estimatedCreditFromUpcs += Number(entry.depositValue || 0);
+      } else {
+        ineligibleUpcs.push(upc);
+      }
+    }
+  }
+
+  const dailyCap = Number(process.env.DAILY_RETURN_CAP || 25); // dollars
+  const computedEstimatedCredit = Math.min(estimatedCreditFromUpcs, dailyCap);
+  const isReturnProcessingFeeWaived = true; // returns applied to current order at checkout
+  const estimatedCredit = applyReturnProcessingFee(computedEstimatedCredit, {
+    waive: isReturnProcessingFeeWaived
+  });
+
+  return {
+    returnUpcs,
+    eligibleUpcs,
+    ineligibleUpcs,
+    estimatedCredit
+  };
+};
+
 const createPaymentsRouter = ({ stripe }) => {
   const router = express.Router();
 
@@ -96,34 +134,9 @@ const createPaymentsRouter = ({ stripe }) => {
         deliveryFeeDiscountPercent
       );
 
-      const incomingUpcs = Array.isArray(req.body?.returnUpcs) ? req.body.returnUpcs : [];
-      const returnUpcs = incomingUpcs.map(String).map(s => s.trim()).filter(Boolean);
-
-      let eligibleUpcs = [];
-      let ineligibleUpcs = [];
-      let estimatedCreditFromUpcs = 0;
-
-      if (returnUpcs.length > 0) {
-        const upcEntries = await UpcItem.find({ upc: { $in: returnUpcs } }).lean();
-        const upcByCode = new Map(upcEntries.map(entry => [entry.upc, entry]));
-
-        for (const upc of returnUpcs) {
-          const entry = upcByCode.get(upc);
-          if (entry?.isEligible) {
-            eligibleUpcs.push(upc);
-            estimatedCreditFromUpcs += Number(entry.depositValue || 0);
-          } else {
-            ineligibleUpcs.push(upc);
-          }
-        }
-      }
-
-      const dailyCap = Number(process.env.DAILY_RETURN_CAP || 25); // dollars
-      const computedEstimatedCredit = Math.min(estimatedCreditFromUpcs, dailyCap);
-      const isReturnProcessingFeeWaived = true; // returns applied to current order at checkout
-      const estimatedCredit = applyReturnProcessingFee(computedEstimatedCredit, {
-        waive: isReturnProcessingFeeWaived
-      });
+      const { eligibleUpcs, ineligibleUpcs, estimatedCredit } = await buildReturnPreview(
+        req.body?.returnUpcs
+      );
 
       const items = normalizeCart(rawItems);
       if (!Array.isArray(items) || items.length === 0) {
@@ -273,7 +286,11 @@ const createPaymentsRouter = ({ stripe }) => {
       const deliveryFee = Math.max(0, Number(req.body?.deliveryFee || 0));
 
       const items = normalizeCart(rawItems);
-      if (!Array.isArray(items) || items.length === 0) {
+      const { eligibleUpcs, ineligibleUpcs, estimatedCredit } = await buildReturnPreview(
+        req.body?.returnUpcs
+      );
+      const isReturnOnly = Array.isArray(items) && items.length === 0 && eligibleUpcs.length > 0;
+      if ((!Array.isArray(items) || items.length === 0) && !isReturnOnly) {
         return res.status(400).json({ error: 'Cart is empty' });
       }
 
@@ -284,42 +301,48 @@ const createPaymentsRouter = ({ stripe }) => {
       if (!user) return res.status(404).json({ error: 'User not found' });
 
       const deliveryFeeDiscountPercent = getDeliveryFeeDiscountPercent(user?.membershipTier);
-      const { deliveryFeeFinal, deliveryFeeFinalCents } = applyDeliveryFeeDiscount(
+      let { deliveryFeeFinal, deliveryFeeFinalCents } = applyDeliveryFeeDiscount(
         deliveryFee,
         deliveryFeeDiscountPercent
       );
+      if (isReturnOnly) {
+        deliveryFeeFinal = 0;
+        deliveryFeeFinalCents = 0;
+      }
 
       const orderId = crypto.randomUUID();
       let totalCents = 0;
       let productSubtotalCents = 0;
 
       await sessionDb.withTransaction(async () => {
-        for (const item of items) {
-          const updated = await Product.findOneAndUpdate(
-            { frontendId: item.productId, stock: { $gte: item.quantity } },
-            { $inc: { stock: -item.quantity } },
-            { new: true, session: sessionDb }
-          );
+        if (!isReturnOnly) {
+          for (const item of items) {
+            const updated = await Product.findOneAndUpdate(
+              { frontendId: item.productId, stock: { $gte: item.quantity } },
+              { $inc: { stock: -item.quantity } },
+              { new: true, session: sessionDb }
+            );
 
-          if (!updated) {
-            const current = await Product.findOne(
-              { frontendId: item.productId },
-              { stock: 1, name: 1 }
-            ).session(sessionDb);
+            if (!updated) {
+              const current = await Product.findOne(
+                { frontendId: item.productId },
+                { stock: 1, name: 1 }
+              ).session(sessionDb);
 
-            const available = current?.stock ?? 0;
-            const name = current?.name || item.productId;
+              const available = current?.stock ?? 0;
+              const name = current?.name || item.productId;
 
-            const err = new Error(`Insufficient stock for ${name}. Available: ${available}`);
-            err.code = 'INSUFFICIENT_STOCK';
-            err.meta = { productId: item.productId, available };
-            throw err;
+              const err = new Error(`Insufficient stock for ${name}. Available: ${available}`);
+              err.code = 'INSUFFICIENT_STOCK';
+              err.meta = { productId: item.productId, available };
+              throw err;
+            }
+
+            const unit = Math.round(Number(updated.price) * 100);
+            const lineTotal = unit * item.quantity;
+            totalCents += lineTotal;
+            productSubtotalCents += lineTotal;
           }
-
-          const unit = Math.round(Number(updated.price) * 100);
-          const lineTotal = unit * item.quantity;
-          totalCents += lineTotal;
-          productSubtotalCents += lineTotal;
         }
 
         if (deliveryFeeFinalCents > 0) {
@@ -334,12 +357,16 @@ const createPaymentsRouter = ({ stripe }) => {
           0,
           Math.round(Number(user.creditBalance || 0) * 100)
         );
-        const creditAppliedCents = Math.min(availableCreditsCents, eligibleCreditCents);
+        const creditAppliedCents = isReturnOnly
+          ? 0
+          : Math.min(availableCreditsCents, eligibleCreditCents);
         const remainingCents = Math.max(0, totalCents - creditAppliedCents);
 
         const creditApplied = creditAppliedCents / 100;
-        user.creditBalance = Math.max(0, Number(user.creditBalance || 0) - creditApplied);
-        await user.save({ session: sessionDb });
+        if (creditAppliedCents > 0) {
+          user.creditBalance = Math.max(0, Number(user.creditBalance || 0) - creditApplied);
+          await user.save({ session: sessionDb });
+        }
 
         await Order.create(
           [
@@ -353,12 +380,18 @@ const createPaymentsRouter = ({ stripe }) => {
               deliveryFeeDiscountPercent,
               deliveryFeeFinal,
               creditApplied,
-              paymentMethod: remainingCents > 0 ? 'STRIPE' : 'CREDITS',
-              status: remainingCents > 0 ? 'PENDING' : 'PAID',
+              paymentMethod: isReturnOnly ? 'CREDITS' : remainingCents > 0 ? 'STRIPE' : 'CREDITS',
+              status: isReturnOnly ? 'PENDING' : remainingCents > 0 ? 'PENDING' : 'PAID',
               amountAuthorizedCents: remainingCents,
               amountCapturedCents: remainingCents > 0 ? 0 : 0,
-              paidAt: remainingCents > 0 ? undefined : new Date(),
-              capturedAt: remainingCents > 0 ? undefined : new Date()
+              paidAt: isReturnOnly || remainingCents > 0 ? undefined : new Date(),
+              capturedAt: isReturnOnly || remainingCents > 0 ? undefined : new Date(),
+
+              returnUpcs: eligibleUpcs,
+              estimatedReturnCreditGross: estimatedCredit.gross,
+              estimatedReturnCredit: estimatedCredit.net,
+              verifiedReturnCreditGross: 0,
+              verifiedReturnCredit: 0
             }
           ],
           { session: sessionDb }
@@ -392,12 +425,19 @@ const createPaymentsRouter = ({ stripe }) => {
         });
       }
 
+      const uniqueIneligibleUpcs = [...new Set(ineligibleUpcs)];
+
       if (remainingCents === 0) {
-        return res.json({
+        const responsePayload = {
           ok: true,
           order: mapOrderForFrontend(remainingOrder),
           creditBalance: Number(user.creditBalance || 0)
-        });
+        };
+        if (uniqueIneligibleUpcs.length > 0) {
+          responsePayload.warning = 'Some return UPCs are ineligible and were removed.';
+          responsePayload.ineligibleUpcs = uniqueIneligibleUpcs;
+        }
+        return res.json(responsePayload);
       }
 
       if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
@@ -431,12 +471,17 @@ const createPaymentsRouter = ({ stripe }) => {
         { stripeSessionId: stripeSession.id, amountAuthorizedCents: remainingCents }
       );
 
-      res.json({
+      const responsePayload = {
         sessionUrl: stripeSession.url,
         orderId,
         creditsApplied: Number(remainingOrder.creditApplied || 0),
         creditBalance: Number(user.creditBalance || 0)
-      });
+      };
+      if (uniqueIneligibleUpcs.length > 0) {
+        responsePayload.warning = 'Some return UPCs are ineligible and were removed.';
+        responsePayload.ineligibleUpcs = uniqueIneligibleUpcs;
+      }
+      res.json(responsePayload);
     } catch (err) {
       console.error('CREDITS PAYMENT ERROR:', err);
 

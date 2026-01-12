@@ -32,7 +32,7 @@ function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
 
-  const handleExternalPayment = async (type: 'STRIPE' | 'GPAY') => {
+  const handleExternalPayment = async (type: 'STRIPE' | 'GPAY', returnUpcs: string[]) => {
     if (isProcessingOrder) return;
 
     if (!core.currentUser && !core.settings.allowGuestCheckout) {
@@ -52,7 +52,8 @@ function App() {
           userId: core.currentUser?.id,
           gateway: type,
           address: address, // NEW: stored on order for owner dashboard
-          deliveryFee: Number(core.settings.deliveryFee || 0)
+          deliveryFee: Number(core.settings.deliveryFee || 0),
+          returnUpcs
         })
       });
 
@@ -67,13 +68,13 @@ function App() {
     }
   };
 
-  const handleCreditsPayment = async () => {
-    if (isProcessingOrder) return;
+  const handleCreditsPayment = async (returnUpcs: string[]) => {
+    if (isProcessingOrder) return false;
 
     if (!core.currentUser) {
       core.addToast('LOGIN REQUIRED FOR CREDITS', 'warning');
       setIsLoginViewOpen(true);
-      return;
+      return false;
     }
 
     setIsProcessingOrder(true);
@@ -86,7 +87,8 @@ function App() {
         body: JSON.stringify({
           items: core.cart,
           address,
-          deliveryFee: Number(core.settings.deliveryFee || 0)
+          deliveryFee: Number(core.settings.deliveryFee || 0),
+          returnUpcs
         })
       });
 
@@ -102,15 +104,17 @@ function App() {
       if (data?.sessionUrl) {
         core.addToast('REDIRECTING TO SECURE VAULT', 'success');
         window.location.href = data.sessionUrl;
-        return;
+        return false;
       }
 
       core.addToast('CREDITS APPLIED', 'success');
       core.clearCart();
       setIsCartOpen(false);
       if (core.fetchOrders) await core.fetchOrders();
+      return true;
     } catch (err: any) {
       core.addToast(err?.message ?? 'Credits payment error', 'warning');
+      return false;
     } finally {
       setIsProcessingOrder(false);
     }
