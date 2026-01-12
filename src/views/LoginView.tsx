@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Cpu, Fingerprint, Binary, UserPlus, LogIn } from 'lucide-react';
 
 interface LoginViewProps {
@@ -23,6 +24,7 @@ const runtimeBackendUrl = () => {
 const BACKEND_URL = runtimeBackendUrl();
 
 const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onCancel }) => {
+  const navigate = useNavigate();
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -135,7 +137,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onCancel }) => {
                 <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </button>
 
-              <div className="pt-2 flex justify-between items-center">
+              <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
                 <button
                   type="button"
                   onClick={() => setIsRegisterMode(!isRegisterMode)}
@@ -151,6 +153,19 @@ const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onCancel }) => {
                     </>
                   )}
                 </button>
+
+                {!isRegisterMode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onCancel?.();
+                      navigate('/reset-password');
+                    }}
+                    className="text-[10px] font-black text-slate-500 hover:text-ninpo-lime uppercase tracking-widest transition-colors"
+                  >
+                    Forgot password?
+                  </button>
+                )}
 
                 {onCancel && (
                   <button
