@@ -102,6 +102,92 @@ Orders: ${JSON.stringify(orders)}`;
   }
 });
 
+router.post('/analyze-bottle', async (req, res) => {
+  const { image, mimeType, model } = req.body ?? {};
+
+  if (!image || typeof image !== 'string') {
+    return res.status(400).json({ message: 'Bottle image is required.' });
+  }
+
+  const apiReady = ensureGeminiReady();
+  if (!apiReady.ok) {
+    return res.status(503).json({ message: apiReady.error });
+  }
+
+  const modelSelection = resolveModelName(model);
+  if (!modelSelection.ok) {
+    return res.status(400).json({
+      message: modelSelection.error,
+      allowedModels: modelSelection.allowedModels,
+      defaultModel: modelSelection.defaultModel
+    });
+  }
+
+  const prompt = `Analyze the bottle image and determine Michigan 10¢ deposit eligibility.
+Reply with JSON only: {"valid": true|false, "material": "PLASTIC|GLASS|ALUMINUM|OTHER|UNKNOWN", "message": "short reason"}.`;
+
+  try {
+    const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
+    const response = await ai.models.generateContent({
+      model: modelSelection.modelName,
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                data: image,
+                mimeType: mimeType || 'image/jpeg'
+              }
+            }
+          ]
+        }
+      ],
+      generationConfig: { temperature: 0.2 }
+    });
+
+    const rawText = response?.text?.trim?.() ?? '';
+    if (!rawText) {
+      return res.status(502).json({
+        valid: false,
+        material: 'UNKNOWN',
+        message: 'No analysis response returned.'
+      });
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      parsed = null;
+    }
+
+    if (parsed && typeof parsed === 'object') {
+      return res.json({
+        valid: Boolean(parsed.valid),
+        material: String(parsed.material || 'UNKNOWN').toUpperCase(),
+        message: String(parsed.message || 'Analysis complete.')
+      });
+    }
+
+    return res.json({
+      valid: false,
+      material: 'UNKNOWN',
+      message: rawText
+    });
+  } catch (error) {
+    console.error('Gemini bottle analysis failed.', error);
+    return res.status(502).json({
+      valid: false,
+      material: 'UNKNOWN',
+      message: 'Bottle analysis failed.',
+      error: error?.message || 'Unknown error',
+      model: modelSelection.modelName
+    });
+  }
+});
+
 router.post('/ops-summary', async (req, res) => {
   const { orders, rangeLabel } = req.body ?? {};
 
