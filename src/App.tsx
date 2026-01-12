@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
 import { useNinpoCore } from './hooks/useNinpoCore';
-import { ReturnUpcCount, UserRole } from './types';
+import { ReturnUpcCount, UserRole, UserTier } from './types';
 
 import CustomerView from './views/CustomerView';
 import ManagementView from './views/ManagementView';
@@ -32,6 +32,11 @@ function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
 
+  const baseDeliveryFee = Number(core.settings.deliveryFee || 0);
+  const isPlatinumMember = core.currentUser?.membershipTier === UserTier.PLATINUM;
+  const effectiveDeliveryFee =
+    isPlatinumMember && core.settings.platinumFreeDelivery ? 0 : baseDeliveryFee;
+
   const handleExternalPayment = async (
     type: 'STRIPE' | 'GPAY',
     returnUpcs: ReturnUpcCount[]
@@ -55,7 +60,7 @@ function App() {
           userId: core.currentUser?.id,
           gateway: type,
           address: address, // NEW: stored on order for owner dashboard
-          deliveryFee: Number(core.settings.deliveryFee || 0),
+          deliveryFee: effectiveDeliveryFee,
           returnUpcCounts: returnUpcs
         })
       });
@@ -90,7 +95,7 @@ function App() {
         body: JSON.stringify({
           items: core.cart,
           address,
-          deliveryFee: Number(core.settings.deliveryFee || 0),
+          deliveryFee: effectiveDeliveryFee,
           returnUpcCounts: returnUpcs
         })
       });
@@ -301,7 +306,7 @@ function App() {
         address={address}
         acceptedPolicies={acceptedPolicies}
         isProcessing={isProcessingOrder}
-        deliveryFee={Number(core.settings.deliveryFee || 0)}
+        deliveryFee={effectiveDeliveryFee}
         onClose={() => setIsCartOpen(false)}
         onAddressChange={setAddress}
         onPolicyChange={setAcceptedPolicies}
