@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
 import { useNinpoCore } from './hooks/useNinpoCore';
@@ -10,6 +10,7 @@ import DriverView from './views/DriverView';
 import LoginView from './views/LoginView';
 import PaymentSuccess from './views/PaymentSuccess';
 import PaymentCancel from './views/PaymentCancel';
+import ResetPasswordView from './views/ResetPasswordView';
 
 import Header from './components/Header';
 import CartDrawer from './components/CartDrawer';
@@ -133,6 +134,12 @@ function App() {
     location.pathname.startsWith('/management') ||
     location.pathname.startsWith('/driver');
 
+  useEffect(() => {
+    if (location.pathname.startsWith('/reset-password')) {
+      setIsLoginViewOpen(false);
+    }
+  }, [location.pathname]);
+
   if (core.isBootstrapping) {
     return (
       <div className="min-h-screen bg-ninpo-black text-white flex items-center justify-center">
@@ -227,6 +234,7 @@ function App() {
             element={<PaymentSuccess clearCart={core.clearCart} />}
           />
           <Route path="/cancel" element={<PaymentCancel />} />
+          <Route path="/reset-password" element={<ResetPasswordView />} />
 
           {/* OWNER MANAGEMENT */}
           <Route

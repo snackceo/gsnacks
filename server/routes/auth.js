@@ -1,5 +1,6 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
 import User from '../models/User.js';
 import {
@@ -11,6 +12,10 @@ import {
 } from '../utils/helpers.js';
 
 const router = express.Router();
+const RESET_TOKEN_TTL_MS = 1000 * 60 * 30;
+
+const hashResetToken = (token) =>
+  crypto.createHash('sha256').update(token).digest('hex');
 
 router.post('/register', async (req, res) => {
   try {
@@ -112,6 +117,61 @@ router.post('/login', async (req, res) => {
 router.post('/logout', (req, res) => {
   clearAuthCookie(req, res);
   res.json({ ok: true });
+});
+
+router.post('/reset-request', async (req, res) => {
+  try {
+    const { username } = req.body || {};
+    if (!username) {
+      return res.status(400).json({ error: 'Username required' });
+    }
+
+    const user = await User.findOne({ username });
+    if (user) {
+      const token = crypto.randomBytes(32).toString('hex');
+      user.resetTokenHash = hashResetToken(token);
+      user.resetTokenExpiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+      await user.save();
+    }
+
+    res.json({
+      ok: true,
+      message:
+        'If an account exists for that username, a reset link will be sent.'
+    });
+  } catch (err) {
+    console.error('RESET REQUEST ERROR:', err);
+    res.status(500).json({ error: 'Failed to request password reset' });
+  }
+});
+
+router.post('/reset-confirm', async (req, res) => {
+  try {
+    const { token, password } = req.body || {};
+    if (!token || !password) {
+      return res.status(400).json({ error: 'Token and password required' });
+    }
+
+    const tokenHash = hashResetToken(token);
+    const user = await User.findOne({
+      resetTokenHash: tokenHash,
+      resetTokenExpiresAt: { $gt: new Date() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+
+    user.password = password;
+    user.resetTokenHash = undefined;
+    user.resetTokenExpiresAt = undefined;
+    await user.save();
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('RESET CONFIRM ERROR:', err);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
 });
 
 router.get('/me', authRequired, async (req, res) => {

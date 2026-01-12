@@ -8,7 +8,9 @@ const userSchema = new mongoose.Schema(
     role: { type: String, default: 'CUSTOMER' },
     creditBalance: { type: Number, default: 0 },
     loyaltyPoints: { type: Number, default: 0 },
-    membershipTier: { type: String, default: 'BRONZE' }
+    membershipTier: { type: String, default: 'BRONZE' },
+    resetTokenHash: { type: String },
+    resetTokenExpiresAt: { type: Date }
   },
   { timestamps: true }
 );
