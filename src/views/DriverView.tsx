@@ -103,6 +103,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [issueExplanation, setIssueExplanation] = useState<string | null>(null);
   const [issueStatus, setIssueStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [driverNotice, setDriverNotice] = useState<{
+    tone: 'success' | 'error' | 'info';
+    message: string;
+  } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -200,6 +204,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setCaptureError(null);
     setIssueExplanation(null);
     setIssueStatus('idle');
+    setDriverNotice(null);
 
     setPaymentCaptured(order.status === OrderStatus.PAID || isReturnOnlyOrder(order));
 
@@ -209,7 +214,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       });
       if (videoRef.current) videoRef.current.srcObject = s;
     } catch {
-      alert('Camera access is required for delivery and return photos.');
+      setDriverNotice({
+        tone: 'error',
+        message: 'Camera access is required for delivery and return photos.'
+      });
     }
   };
 
@@ -506,6 +514,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setCaptureError(null);
     setIssueExplanation(null);
     setIssueStatus('idle');
+    setDriverNotice(null);
     await sendScanSessionMetadata('pre_capture');
     try {
       const res = await fetch(`${BACKEND_URL}/api/payments/capture`, {
@@ -534,11 +543,11 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
         paidAt: new Date().toISOString()
       });
 
-      alert('Payment captured successfully.');
+      setDriverNotice({ tone: 'success', message: 'Payment captured successfully.' });
     } catch (e: any) {
       const message = e?.message || 'Payment capture failed.';
       setCaptureError(message);
-      alert(message);
+      setDriverNotice({ tone: 'error', message });
     } finally {
       setIsCapturing(false);
     }
@@ -561,7 +570,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     if (!activeOrder) return;
 
     if (!paymentCaptured && !isReturnOnlyOrder(activeOrder)) {
-      alert('Capture payment first (verify returns), then complete delivery.');
+      setDriverNotice({
+        tone: 'error',
+        message: 'Capture payment first (verify returns), then complete delivery.'
+      });
       return;
     }
 
@@ -572,17 +584,26 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       returnAiAnalysis?.flags?.some(flag => flag.toLowerCase().includes('contamin')) ?? false;
 
     if (requiresReturnPhoto && !returnCapturedPhoto) {
-      alert('Capture a return photo before completing delivery.');
+      setDriverNotice({
+        tone: 'error',
+        message: 'Capture a return photo before completing delivery.'
+      });
       return;
     }
 
     if (contaminationFlagged && !contaminationConfirmed) {
-      alert('Confirm contamination review before completing delivery.');
+      setDriverNotice({
+        tone: 'error',
+        message: 'Confirm contamination review before completing delivery.'
+      });
       return;
     }
 
     if (!capturedPhoto) {
-      alert('Capture a delivery proof photo before completing delivery.');
+      setDriverNotice({
+        tone: 'error',
+        message: 'Capture a delivery proof photo before completing delivery.'
+      });
       return;
     }
 
@@ -707,13 +728,17 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
           setShowScanSummary(false);
           setScanSummaryOpen(false);
           setPaymentCaptured(false);
+          setDriverNotice({ tone: 'success', message: 'Delivery completed and proof uploaded.' });
         } catch (e: any) {
-          alert(e?.message || 'Delivery proof upload failed.');
+          setDriverNotice({
+            tone: 'error',
+            message: e?.message || 'Delivery proof upload failed.'
+          });
           setIsVerifying(false);
         }
       },
       () => {
-        alert('GPS is required to complete delivery.');
+        setDriverNotice({ tone: 'error', message: 'GPS is required to complete delivery.' });
         setIsVerifying(false);
       },
       { enableHighAccuracy: true }
@@ -958,6 +983,12 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               <p className="mt-4 text-[10px] text-slate-600 font-bold uppercase tracking-widest">
                 Tip: If scanning fails, close this and use manual UPC entry below.
               </p>
+              <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-[10px] uppercase tracking-widest text-slate-400 space-y-2">
+                <p className="text-slate-300">Valid returns</p>
+                <p>Clean containers with MI 10¢ deposit label and eligible UPCs.</p>
+                <p className="text-slate-300">Proof requirements</p>
+                <p>Return photo + delivery proof photo required before completion.</p>
+              </div>
             </div>
           </div>,
           document.body
@@ -1080,6 +1111,26 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               <p className="uppercase tracking-widest opacity-60 mt-4">Delivery fee</p>
               <p className="font-black">{money(activeOrder.deliveryFee || 0)}</p>
 
+              {driverNotice && (
+                <div
+                  className={`mt-4 rounded-2xl border px-4 py-3 text-[11px] uppercase tracking-widest flex items-start justify-between gap-3 ${
+                    driverNotice.tone === 'success'
+                      ? 'border-ninpo-lime/40 bg-ninpo-lime/10 text-ninpo-lime'
+                      : driverNotice.tone === 'info'
+                        ? 'border-white/10 bg-white/5 text-slate-200'
+                        : 'border-ninpo-red/30 bg-ninpo-red/10 text-ninpo-red'
+                  }`}
+                >
+                  <span>{driverNotice.message}</span>
+                  <button
+                    onClick={() => setDriverNotice(null)}
+                    className="text-[10px] font-black uppercase tracking-widest opacity-70 hover:opacity-100"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
               <div>
                 <p className="uppercase tracking-widest opacity-60">Verified return UPCs (driver)</p>
                 <div className="mt-3 flex flex-col gap-3">
@@ -1124,6 +1175,20 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                       </button>
                     </div>
                   )}
+
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-[10px] uppercase tracking-widest text-slate-400 space-y-2">
+                    <p className="text-slate-300">Proof requirements</p>
+                    <ul className="space-y-1">
+                      <li>Capture return photo if any returns are collected.</li>
+                      <li>Capture delivery proof photo before completing delivery.</li>
+                      <li>Confirm contamination review if flagged.</li>
+                    </ul>
+                    <p className="text-slate-300">Valid return containers</p>
+                    <ul className="space-y-1">
+                      <li>Clean containers with MI 10¢ deposit label.</li>
+                      <li>Eligible UPCs only; $25/day cap applies.</li>
+                    </ul>
+                  </div>
 
                   <div className="flex items-center justify-between">
                     <div className="text-[10px] uppercase tracking-widest text-slate-500">
