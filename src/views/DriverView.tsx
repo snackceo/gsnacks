@@ -46,7 +46,9 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   } | null>(null);
   const [aiConditionStatus, setAiConditionStatus] = useState<'idle' | 'loading' | 'error'>('idle');
 
-  const [verifiedReturnUpcs, setVerifiedReturnUpcs] = useState<string[]>([]);
+  const [verifiedReturnUpcs, setVerifiedReturnUpcs] = useState<
+    { upc: string; quantity: number }[]
+  >([]);
   const [manualUpc, setManualUpc] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
@@ -65,6 +67,9 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const scanLoopRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const eligibilityCacheRef = useRef<Record<string, boolean>>({});
+
+  const flattenVerifiedUpcs = (entries: { upc: string; quantity: number }[]) =>
+    entries.flatMap(entry => Array.from({ length: entry.quantity }, () => entry.upc));
 
   const handleAccept = (orderId: string) => {
     const driverId = currentUser?.username || currentUser?.id || 'DRIVER';
@@ -102,7 +107,18 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const startVerification = async (order: Order) => {
     setActiveOrder(order);
     resetPhotoState();
-    setVerifiedReturnUpcs(order.verifiedReturnUpcs?.length ? order.verifiedReturnUpcs : order.returnUpcs || []);
+    const initialUpcs = order.verifiedReturnUpcs?.length
+      ? order.verifiedReturnUpcs
+      : order.returnUpcs || [];
+    const counts = new Map<string, number>();
+    initialUpcs.forEach(upc => {
+      const clean = String(upc || '').trim();
+      if (!clean) return;
+      counts.set(clean, (counts.get(clean) || 0) + 1);
+    });
+    setVerifiedReturnUpcs(
+      Array.from(counts.entries()).map(([upc, quantity]) => ({ upc, quantity }))
+    );
     setManualUpc('');
     setScannerOpen(false);
     setScannerError(null);
@@ -171,16 +187,39 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const addEligibleUpc = (upc: string) => {
     let didAdd = false;
     setVerifiedReturnUpcs(prev => {
-      if (prev.includes(upc)) return prev;
+      if (prev.some(entry => entry.upc === upc)) return prev;
       didAdd = true;
-      return [upc, ...prev];
+      return [{ upc, quantity: 1 }, ...prev];
     });
 
-    setScannerError(null);
-    setManualUpc('');
     if (didAdd) {
+      setScannerError(null);
+      setManualUpc('');
       playScannerTone(980, 120, 0.2);
+    } else {
+      playScannerTone(220, 240, 0.25);
+      setScannerError('UPC already scanned. Use + to add another of the same item.');
     }
+  };
+
+  const incrementUpc = (upc: string) => {
+    setVerifiedReturnUpcs(prev =>
+      prev.map(entry =>
+        entry.upc === upc ? { ...entry, quantity: entry.quantity + 1 } : entry
+      )
+    );
+  };
+
+  const decrementUpc = (upc: string) => {
+    setVerifiedReturnUpcs(prev =>
+      prev
+        .map(entry =>
+          entry.upc === upc
+            ? { ...entry, quantity: Math.max(0, entry.quantity - 1) }
+            : entry
+        )
+        .filter(entry => entry.quantity > 0)
+    );
   };
 
   const addUpc = async (upcRaw: string) => {
@@ -237,7 +276,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   };
 
   const removeUpc = (upc: string) => {
-    setVerifiedReturnUpcs(prev => prev.filter(x => x !== upc));
+    setVerifiedReturnUpcs(prev => prev.filter(entry => entry.upc !== upc));
   };
 
   const clearUpcs = () => {
@@ -253,13 +292,14 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setIssueExplanation(null);
     setIssueStatus('idle');
     try {
+      const verifiedUpcsPayload = flattenVerifiedUpcs(verifiedReturnUpcs);
       const res = await fetch(`${BACKEND_URL}/api/payments/capture`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           orderId: activeOrder.id,
-          verifiedReturnUpcs
+          verifiedReturnUpcs: verifiedUpcsPayload
         })
       });
 
@@ -273,7 +313,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
       updateOrder(activeOrder.id, OrderStatus.PAID, {
         verifiedReturnCredit,
-        verifiedReturnUpcs: capturedOrder?.verifiedReturnUpcs || verifiedReturnUpcs,
+        verifiedReturnUpcs: capturedOrder?.verifiedReturnUpcs || verifiedUpcsPayload,
         paidAt: new Date().toISOString()
       });
 
@@ -368,7 +408,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
             gpsCoords: { lat: pos.coords.latitude, lng: pos.coords.longitude },
             verificationPhoto: proofUrl || undefined,
             ...(isReturnOnlyOrder(activeOrder)
-              ? { verifiedReturnUpcs: verifiedReturnUpcs }
+              ? { verifiedReturnUpcs: flattenVerifiedUpcs(verifiedReturnUpcs) }
               : {})
           };
 
@@ -526,6 +566,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   }, [activeOrder]);
 
   const isReturnOnly = isReturnOnlyOrder(activeOrder);
+  const verifiedReturnCount = useMemo(
+    () => verifiedReturnUpcs.reduce((sum, entry) => sum + entry.quantity, 0),
+    [verifiedReturnUpcs]
+  );
 
   const scannerModal =
     scannerOpen && typeof document !== 'undefined'
@@ -565,7 +609,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
               <div className="mt-5 flex items-center justify-between">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Scanned: <span className="text-white">{verifiedReturnUpcs.length}</span>
+                  Scanned: <span className="text-white">{verifiedReturnCount}</span>
                 </div>
 
                 <button
@@ -742,11 +786,11 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
                   <div className="flex items-center justify-between">
                     <div className="text-[10px] uppercase tracking-widest text-slate-500">
-                      Verified UPCs: <span className="text-white">{verifiedReturnUpcs.length}</span>
+                      Verified UPCs: <span className="text-white">{verifiedReturnCount}</span>
                     </div>
                     <button
                       onClick={clearUpcs}
-                      disabled={verifiedReturnUpcs.length === 0}
+                      disabled={verifiedReturnCount === 0}
                       className="px-4 py-2 bg-ninpo-red/10 text-ninpo-red rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-50"
                     >
                       <Trash2 className="w-3 h-3" /> Clear
@@ -755,18 +799,39 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
                   {verifiedReturnUpcs.length > 0 ? (
                     <div className="max-h-40 overflow-y-auto space-y-2 pr-1">
-                      {verifiedReturnUpcs.map(upc => (
+                      {verifiedReturnUpcs.map(entry => (
                         <div
-                          key={upc}
+                          key={entry.upc}
                           className="flex items-center justify-between bg-white/5 border border-white/10 rounded-2xl px-4 py-3"
                         >
-                          <span className="text-[11px] font-black tracking-widest text-white">{upc}</span>
-                          <button
-                            onClick={() => removeUpc(upc)}
-                            className="text-ninpo-red text-[10px] font-black uppercase tracking-widest"
-                          >
-                            Remove
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <span className="text-[11px] font-black tracking-widest text-white">
+                              {entry.upc}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                              × {entry.quantity}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => decrementUpc(entry.upc)}
+                              className="text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg bg-white/5 border border-white/10"
+                            >
+                              -
+                            </button>
+                            <button
+                              onClick={() => incrementUpc(entry.upc)}
+                              className="text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg bg-white/5 border border-white/10"
+                            >
+                              +
+                            </button>
+                            <button
+                              onClick={() => removeUpc(entry.upc)}
+                              className="text-ninpo-red text-[10px] font-black uppercase tracking-widest"
+                            >
+                              Remove
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>

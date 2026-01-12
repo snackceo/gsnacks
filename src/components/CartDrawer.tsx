@@ -49,6 +49,11 @@ type UpcEligibilityCache = Record<
   }
 >;
 
+type ReturnUpcEntry = {
+  upc: string;
+  quantity: number;
+};
+
 function money(n: number) {
   const v = Number.isFinite(n) ? n : 0;
   return `$${v.toFixed(2)}`;
@@ -72,7 +77,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   // ----------------------------
   // Bottle returns (UPC list)
   // ----------------------------
-  const [returnUpcs, setReturnUpcs] = useState<string[]>([]);
+  const [returnUpcs, setReturnUpcs] = useState<ReturnUpcEntry[]>([]);
   const [manualUpc, setManualUpc] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
@@ -85,15 +90,36 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const audioContextRef = useRef<AudioContext | null>(null);
   const eligibilityCacheRef = useRef<UpcEligibilityCache>({});
 
+  const normalizeReturnUpcs = (raw: unknown): ReturnUpcEntry[] => {
+    if (!Array.isArray(raw)) return [];
+    if (raw.length === 0) return [];
+    if (typeof raw[0] === 'string') {
+      const counts = new Map<string, number>();
+      raw.forEach(value => {
+        const upc = String(value || '').trim();
+        if (!upc) return;
+        counts.set(upc, (counts.get(upc) || 0) + 1);
+      });
+      return Array.from(counts.entries()).map(([upc, quantity]) => ({ upc, quantity }));
+    }
+    return raw
+      .map(entry => ({
+        upc: String((entry as ReturnUpcEntry)?.upc || '').trim(),
+        quantity: Math.max(1, Number((entry as ReturnUpcEntry)?.quantity || 1))
+      }))
+      .filter(entry => entry.upc);
+  };
+
+  const flattenReturnUpcs = (entries: ReturnUpcEntry[]) =>
+    entries.flatMap(entry => Array.from({ length: entry.quantity }, () => entry.upc));
+
   // Load UPCs from localStorage on mount
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_KEY_UPCS);
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setReturnUpcs(parsed.map(String).map(s => s.trim()).filter(Boolean));
-      }
+      setReturnUpcs(normalizeReturnUpcs(parsed));
     } catch {
       // ignore
     }
@@ -179,16 +205,39 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const addEligibleUpc = (upc: string) => {
     let didAdd = false;
     setReturnUpcs(prev => {
-      if (prev.includes(upc)) return prev;
+      if (prev.some(entry => entry.upc === upc)) return prev;
       didAdd = true;
-      return [upc, ...prev];
+      return [{ upc, quantity: 1 }, ...prev];
     });
 
-    setScannerError(null);
-    setManualUpc('');
     if (didAdd) {
+      setScannerError(null);
+      setManualUpc('');
       playScannerTone(980, 120, 0.2);
+    } else {
+      playScannerTone(220, 240, 0.25);
+      setScannerError('UPC already scanned. Use + to add another of the same item.');
     }
+  };
+
+  const incrementUpc = (upc: string) => {
+    setReturnUpcs(prev =>
+      prev.map(entry =>
+        entry.upc === upc ? { ...entry, quantity: entry.quantity + 1 } : entry
+      )
+    );
+  };
+
+  const decrementUpc = (upc: string) => {
+    setReturnUpcs(prev =>
+      prev
+        .map(entry =>
+          entry.upc === upc
+            ? { ...entry, quantity: Math.max(0, entry.quantity - 1) }
+            : entry
+        )
+        .filter(entry => entry.quantity > 0)
+    );
   };
 
   const addUpc = async (upcRaw: string) => {
@@ -246,7 +295,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   };
 
   const removeUpc = (upc: string) => {
-    setReturnUpcs(prev => prev.filter(x => x !== upc));
+    setReturnUpcs(prev => prev.filter(entry => entry.upc !== upc));
   };
 
   const clearUpcs = () => {
@@ -254,11 +303,16 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     setScannerError(null);
   };
 
+  const totalReturnCount = useMemo(
+    () => returnUpcs.reduce((sum, entry) => sum + entry.quantity, 0),
+    [returnUpcs]
+  );
+
   // Estimated deposit credit (preview only)
   const estimatedReturnCredit = useMemo(() => {
-    const raw = returnUpcs.length * MI_DEPOSIT_VALUE;
+    const raw = totalReturnCount * MI_DEPOSIT_VALUE;
     return Math.min(raw, DEFAULT_DAILY_CAP);
-  }, [returnUpcs.length]);
+  }, [totalReturnCount]);
 
   // ----------------------------
   // Cart totals
@@ -421,7 +475,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   // Checkout gating
   // ----------------------------
   const cartIsEmpty = cart.length === 0;
-  const hasReturnUpcs = returnUpcs.length > 0;
+  const hasReturnUpcs = totalReturnCount > 0;
   const canCheckoutCredits =
     (!!address.trim() && acceptedPolicies && !isProcessing && cartIsEmpty && hasReturnUpcs);
   const canCheckoutStripe =
@@ -429,7 +483,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const handleCreditsClick = async () => {
     if (!canCheckoutCredits) return;
-    const didComplete = await onPayCredits(returnUpcs);
+    const didComplete = await onPayCredits(flattenReturnUpcs(returnUpcs));
     if (didComplete) {
       clearUpcs();
     }
@@ -478,7 +532,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
           <div className="mt-5 flex items-center justify-between">
             <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-              Scanned: <span className="text-white">{returnUpcs.length}</span>
+              Scanned: <span className="text-white">{totalReturnCount}</span>
             </div>
 
             <button
@@ -489,11 +543,11 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
             </button>
           </div>
 
-          {scannerError && (
-            <div className="mt-4 text-[11px] text-ninpo-red bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4">
-              {scannerError}
-            </div>
-          )}
+              {scannerError && (
+                <div className="mt-4 text-[11px] text-ninpo-red bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4">
+                  {scannerError}
+                </div>
+              )}
 
           <p className="mt-4 text-[10px] text-slate-600 font-bold uppercase tracking-widest">
             Tip: If scanning fails, close this and use manual UPC entry in cart.
@@ -605,7 +659,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
                   <button
                     onClick={clearUpcs}
-                    disabled={returnUpcs.length === 0}
+                    disabled={totalReturnCount === 0}
                     className="px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
                   >
                     Clear
@@ -649,7 +703,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                   <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest">
                     Containers Scanned
                   </p>
-                  <p className="text-white font-black text-lg">{returnUpcs.length}</p>
+                  <p className="text-white font-black text-lg">{totalReturnCount}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest">
@@ -662,18 +716,39 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               {/* UPC list */}
               {returnUpcs.length > 0 && (
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {returnUpcs.map(upc => (
+                  {returnUpcs.map(entry => (
                     <div
-                      key={upc}
+                      key={entry.upc}
                       className="flex items-center justify-between bg-black/30 border border-white/10 rounded-2xl px-4 py-3"
                     >
-                      <span className="text-[11px] text-white font-bold tracking-wider">{upc}</span>
-                      <button
-                        onClick={() => removeUpc(upc)}
-                        className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest hover:bg-ninpo-red/20 hover:border-ninpo-red/20 transition"
-                      >
-                        Remove
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[11px] text-white font-bold tracking-wider">
+                          {entry.upc}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                          × {entry.quantity}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => decrementUpc(entry.upc)}
+                          className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition"
+                        >
+                          -
+                        </button>
+                        <button
+                          onClick={() => incrementUpc(entry.upc)}
+                          className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition"
+                        >
+                          +
+                        </button>
+                        <button
+                          onClick={() => removeUpc(entry.upc)}
+                          className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest hover:bg-ninpo-red/20 hover:border-ninpo-red/20 transition"
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -752,7 +827,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               </button>
 
               <button
-                onClick={() => onPayExternal('STRIPE', returnUpcs)}
+                onClick={() => onPayExternal('STRIPE', flattenReturnUpcs(returnUpcs))}
                 disabled={!canCheckoutStripe}
                 className="py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40"
               >
