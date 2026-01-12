@@ -71,15 +71,18 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     entries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
 
   const handleAccept = (orderId: string) => {
+    if (!orderId) return;
     const driverId = currentUser?.username || currentUser?.id || 'DRIVER';
     updateOrder(orderId, OrderStatus.ASSIGNED, { driverId });
   };
 
   const handlePickUp = (orderId: string) => {
+    if (!orderId) return;
     updateOrder(orderId, OrderStatus.PICKED_UP);
   };
 
   const handleStartNavigation = (orderId: string) => {
+    if (!orderId) return;
     setIsNavigating(true);
     updateOrder(orderId, OrderStatus.ARRIVING);
     setTimeout(() => {
@@ -89,6 +92,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   };
 
   const handleCancel = (orderId: string) => {
+    if (!orderId) return;
     updateOrder(orderId, OrderStatus.CLOSED);
   };
 

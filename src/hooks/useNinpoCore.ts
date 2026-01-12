@@ -530,17 +530,24 @@ export const useNinpoCore = () => {
 
   const updateOrder = useCallback(
     async (id: string, status: OrderStatus, metadata?: any) => {
+      if (!id) {
+        addToast('Order update failed: missing order id', 'warning');
+        return;
+      }
+
       setOrders(prev =>
         prev.map(o => (o.id === id ? { ...o, status, ...metadata } : o))
       );
 
       try {
-        await fetch(`${BACKEND_URL}/api/orders/${id}`, {
+        const res = await fetch(`${BACKEND_URL}/api/orders/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ status, ...metadata })
         });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || 'Order update failed');
       } catch {
         addToast('Order update failed to sync', 'warning');
       }

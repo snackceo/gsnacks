@@ -436,6 +436,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   };
 
   const handleLogisticsUpdate = (orderId: string, status: OrderStatus, metadata?: any) => {
+    if (!orderId) return;
     updateOrder(orderId, status, metadata);
   };
 
