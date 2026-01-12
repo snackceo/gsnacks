@@ -10,7 +10,8 @@ import {
   AuditLog,
   AuditLogType,
   UserStatsSummary,
-  LedgerEntry
+  LedgerEntry,
+  ReturnUpcCount
 } from '../types';
 import {
   Truck,
@@ -102,6 +103,21 @@ const getTierStyles = (tier: string) => {
       return 'border-amber-500/40 bg-amber-700/30 text-amber-200';
   }
 };
+
+const normalizeUpcCounts = (entries?: ReturnUpcCount[], fallback?: string[]) => {
+  if (Array.isArray(entries) && entries.length > 0) return entries;
+  if (!Array.isArray(fallback) || fallback.length === 0) return [];
+  const counts = new Map<string, number>();
+  fallback.forEach(upc => {
+    const clean = String(upc || '').trim();
+    if (!clean) return;
+    counts.set(clean, (counts.get(clean) || 0) + 1);
+  });
+  return Array.from(counts.entries()).map(([upc, quantity]) => ({ upc, quantity }));
+};
+
+const countTotalUpcs = (entries: ReturnUpcCount[]) =>
+  entries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
 
 const isNewSignupWithBonus = (user: User) => {
   const createdAt = user.createdAt ? new Date(user.createdAt) : null;
@@ -1354,6 +1370,13 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     o.verifiedReturnCredit !== undefined
                       ? Number(o.verifiedReturnCredit || 0)
                       : undefined;
+                  const returnCounts = normalizeUpcCounts(o.returnUpcCounts, o.returnUpcs);
+                  const verifiedCounts = normalizeUpcCounts(
+                    o.verifiedReturnUpcCounts,
+                    o.verifiedReturnUpcs
+                  );
+                  const returnCountTotal = countTotalUpcs(returnCounts);
+                  const verifiedCountTotal = countTotalUpcs(verifiedCounts);
 
                   return (
                     <div
@@ -1481,6 +1504,56 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                             </span>
                           </div>
                         ))}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-white/5 pt-6 space-y-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                        Return UPCs
+                      </p>
+                      <div className="flex flex-col md:flex-row gap-6">
+                        <div className="flex-1 space-y-3">
+                          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                            Submitted: <span className="text-slate-200">{returnCountTotal}</span>
+                          </div>
+                          {returnCounts.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {returnCounts.map(entry => (
+                                <span
+                                  key={`return-${o.id}-${entry.upc}`}
+                                  className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-[10px] font-bold text-slate-200"
+                                >
+                                  {entry.upc} × {entry.quantity}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                              No return UPCs.
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex-1 space-y-3">
+                          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                            Verified: <span className="text-slate-200">{verifiedCountTotal}</span>
+                          </div>
+                          {verifiedCounts.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {verifiedCounts.map(entry => (
+                                <span
+                                  key={`verified-${o.id}-${entry.upc}`}
+                                  className="px-3 py-2 rounded-xl bg-ninpo-lime/10 border border-ninpo-lime/20 text-[10px] font-bold text-ninpo-lime"
+                                >
+                                  {entry.upc} × {entry.quantity}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                              No verified UPCs.
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
 
