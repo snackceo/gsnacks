@@ -34,10 +34,10 @@ function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
 
-  const baseDeliveryFee = Number(core.settings.deliveryFee || 0);
+  const baseRouteFee = Number(core.settings.routeFee || 0);
   const isPlatinumMember = core.currentUser?.membershipTier === UserTier.PLATINUM;
-  const effectiveDeliveryFee =
-    isPlatinumMember && core.settings.platinumFreeDelivery ? 0 : baseDeliveryFee;
+  const effectiveRouteFee =
+    isPlatinumMember && core.settings.platinumFreeDelivery ? 0 : baseRouteFee;
 
   const handleExternalPayment = async (
     type: 'STRIPE' | 'GPAY',
@@ -63,7 +63,6 @@ function App() {
           userId: core.currentUser?.id,
           gateway: type,
           address: address, // NEW: stored on order for owner dashboard
-          deliveryFee: effectiveDeliveryFee,
           distanceMiles,
           returnUpcCounts: returnUpcs,
           returnPayoutMethod
@@ -103,7 +102,6 @@ function App() {
         body: JSON.stringify({
           items: core.cart,
           address,
-          deliveryFee: effectiveDeliveryFee,
           distanceMiles,
           returnUpcCounts: returnUpcs,
           returnPayoutMethod
@@ -324,11 +322,8 @@ function App() {
         address={address}
         acceptedPolicies={acceptedPolicies}
         isProcessing={isProcessingOrder}
-        deliveryFee={effectiveDeliveryFee}
+        routeFee={effectiveRouteFee}
         membershipTier={core.currentUser?.membershipTier}
-        michiganDepositValue={core.settings.michiganDepositValue}
-        returnHandlingFeePerContainer={core.settings.returnHandlingFeePerContainer}
-        glassHandlingFeePerContainer={core.settings.glassHandlingFeePerContainer}
         pickupOnlyMultiplier={core.settings.pickupOnlyMultiplier}
         distanceMiles={distanceMiles}
         distanceIncludedMiles={core.settings.distanceIncludedMiles}

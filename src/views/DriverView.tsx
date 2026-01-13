@@ -1129,7 +1129,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                       Total (pre-credit): <span className="text-white">{money(o.total)}</span>
                     </p>
                     <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
-                      Route fee: <span className="text-white">{money(o.deliveryFee || 0)}</span>
+                      Route fee: <span className="text-white">{money(o.routeFee || 0)}</span>
                     </p>
                     <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
                       Est. return credit:{' '}
@@ -1208,7 +1208,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               <p className="font-black text-ninpo-lime">{money(activeOrder.estimatedReturnCredit || 0)}</p>
 
               <p className="uppercase tracking-widest opacity-60 mt-4">Route fee</p>
-              <p className="font-black">{money(activeOrder.deliveryFee || 0)}</p>
+              <p className="font-black">{money(activeOrder.routeFee || 0)}</p>
 
               {driverNotice && (
                 <div

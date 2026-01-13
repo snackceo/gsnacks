@@ -3,12 +3,10 @@ import mongoose from 'mongoose';
 const appSettingsSchema = new mongoose.Schema(
   {
     key: { type: String, default: 'default', unique: true },
+    routeFee: { type: Number, default: 4.99 },
     deliveryFee: { type: Number, default: 4.99 },
     referralBonus: { type: Number, default: 5.0 },
-    michiganDepositValue: { type: Number, default: 0.1 },
     processingFeePercent: { type: Number, default: 0.05 },
-    returnHandlingFeePerContainer: { type: Number, default: 0.02 },
-    glassHandlingFeePerContainer: { type: Number, default: 0.02 },
     pickupOnlyMultiplier: { type: Number, default: 0.5 },
     distanceIncludedMiles: { type: Number, default: 3.0 },
     distanceBand1MaxMiles: { type: Number, default: 10.0 },

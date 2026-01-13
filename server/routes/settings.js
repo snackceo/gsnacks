@@ -9,12 +9,9 @@ const router = express.Router();
 const SETTINGS_KEY = 'default';
 
 const defaultSettings = {
-  deliveryFee: 4.99,
+  routeFee: 4.99,
   referralBonus: 5.0,
-  michiganDepositValue: 0.1,
   processingFeePercent: 0.05,
-  returnHandlingFeePerContainer: 0.02,
-  glassHandlingFeePerContainer: 0.02,
   pickupOnlyMultiplier: 0.5,
   distanceIncludedMiles: 3.0,
   distanceBand1MaxMiles: 10.0,
@@ -32,12 +29,9 @@ const defaultSettings = {
 };
 
 const numericFields = [
-  'deliveryFee',
+  'routeFee',
   'referralBonus',
-  'michiganDepositValue',
   'processingFeePercent',
-  'returnHandlingFeePerContainer',
-  'glassHandlingFeePerContainer',
   'pickupOnlyMultiplier',
   'distanceIncludedMiles',
   'distanceBand1MaxMiles',
@@ -83,19 +77,10 @@ const parseSettingsInput = (payload, { partial }) => {
 };
 
 const mapSettings = (doc) => ({
-  deliveryFee: Number(doc?.deliveryFee ?? defaultSettings.deliveryFee),
+  routeFee: Number(doc?.routeFee ?? doc?.deliveryFee ?? defaultSettings.routeFee),
   referralBonus: Number(doc?.referralBonus ?? defaultSettings.referralBonus),
-  michiganDepositValue: Number(
-    doc?.michiganDepositValue ?? defaultSettings.michiganDepositValue
-  ),
   processingFeePercent: Number(
     doc?.processingFeePercent ?? defaultSettings.processingFeePercent
-  ),
-  returnHandlingFeePerContainer: Number(
-    doc?.returnHandlingFeePerContainer ?? defaultSettings.returnHandlingFeePerContainer
-  ),
-  glassHandlingFeePerContainer: Number(
-    doc?.glassHandlingFeePerContainer ?? defaultSettings.glassHandlingFeePerContainer
   ),
   pickupOnlyMultiplier: Number(
     doc?.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier

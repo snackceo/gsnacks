@@ -29,11 +29,8 @@ interface CartDrawerProps {
   address: string;
   acceptedPolicies: boolean;
   isProcessing: boolean;
-  deliveryFee: number;
+  routeFee: number;
   membershipTier?: UserTier;
-  michiganDepositValue: number;
-  returnHandlingFeePerContainer: number;
-  glassHandlingFeePerContainer: number;
   pickupOnlyMultiplier: number;
   distanceMiles: number;
   distanceIncludedMiles: number;
@@ -143,11 +140,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   address,
   acceptedPolicies,
   isProcessing,
-  deliveryFee,
+  routeFee,
   membershipTier,
-  michiganDepositValue,
-  returnHandlingFeePerContainer,
-  glassHandlingFeePerContainer,
   pickupOnlyMultiplier,
   distanceMiles,
   distanceIncludedMiles,
@@ -433,15 +427,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const hasReturnUpcs = totalReturnCount > 0;
   const isPickupOnlyOrder = cartIsEmpty && hasReturnUpcs;
 
-  const depositValue = Number.isFinite(michiganDepositValue)
-    ? michiganDepositValue
-    : MI_DEPOSIT_VALUE;
-  const handlingFee = Number.isFinite(returnHandlingFeePerContainer)
-    ? returnHandlingFeePerContainer
-    : DEFAULT_HANDLING_FEE;
-  const glassHandlingFee = Number.isFinite(glassHandlingFeePerContainer)
-    ? glassHandlingFeePerContainer
-    : DEFAULT_GLASS_HANDLING_FEE;
+  const depositValue = MI_DEPOSIT_VALUE;
+  const handlingFee = DEFAULT_HANDLING_FEE;
+  const glassHandlingFee = DEFAULT_GLASS_HANDLING_FEE;
   const dailyContainerLimit = Number.isFinite(dailyReturnLimit)
     ? dailyReturnLimit
     : DEFAULT_DAILY_LIMIT;
@@ -516,7 +504,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   }, [cart, products]);
 
   const subtotal = useMemo(() => lineItems.reduce((sum, li) => sum + li.lineTotal, 0), [lineItems]);
-  const sanitizedDeliveryFee = Number.isFinite(deliveryFee) ? deliveryFee : 0;
+  const sanitizedRouteFee = Number.isFinite(routeFee) ? routeFee : 0;
   const sanitizedPickupMultiplier = Number.isFinite(pickupOnlyMultiplier)
     ? pickupOnlyMultiplier
     : 0.5;
@@ -547,8 +535,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     [estimatedReturnCredit]
   );
   const activeRouteFee = isPickupOnlyOrder
-    ? sanitizedDeliveryFee * sanitizedPickupMultiplier
-    : sanitizedDeliveryFee;
+    ? sanitizedRouteFee * sanitizedPickupMultiplier
+    : sanitizedRouteFee;
   const activeDeliveryFeeCents = Math.round(activeRouteFee * 100);
   const baseDistanceFee =
     activeTier === UserTier.GREEN

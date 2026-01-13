@@ -101,7 +101,7 @@ export interface Order {
   driverId?: string;
   items: { productId: string; quantity: number }[];
   total: number;
-  deliveryFee?: number;
+  routeFee?: number;
   distanceMiles?: number;
   distanceFee?: number;
   creditApplied?: number;
@@ -133,12 +133,9 @@ export interface Order {
 }
 
 export interface AppSettings {
-  deliveryFee: number;
+  routeFee: number;
   referralBonus: number;
-  michiganDepositValue: number;
   processingFeePercent: number;
-  returnHandlingFeePerContainer: number;
-  glassHandlingFeePerContainer: number;
   pickupOnlyMultiplier: number;
   distanceIncludedMiles: number;
   distanceBand1MaxMiles: number;
