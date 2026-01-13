@@ -171,6 +171,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [opsSummary, setOpsSummary] = useState('');
   const [isOpsSummaryLoading, setIsOpsSummaryLoading] = useState(false);
 
+  const handleModuleSelect = (moduleId: string) => {
+    setActiveModule(moduleId);
+  };
+
   useEffect(() => {
     if (!settingsDirty) {
       setSettingsDraft(settings);
@@ -1291,7 +1295,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         ].map(m => (
           <button
             key={m.id}
-            onClick={() => setActiveModule(m.id)}
+            type="button"
+            onClick={() => handleModuleSelect(m.id)}
             className={`w-full text-left p-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-4 ${
               activeModule === m.id
                 ? 'bg-ninpo-lime text-ninpo-black shadow-neon'
