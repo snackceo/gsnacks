@@ -1,10 +1,10 @@
 
 import React, { useState } from 'react';
-import { Shield, Info, X, ScrollText, Fingerprint, Gavel } from 'lucide-react';
+import { Shield, Info, X, ScrollText, Fingerprint, Gavel, Users, Twitter, Instagram, Facebook } from 'lucide-react';
 
 const LegalFooter: React.FC = () => {
   const [modalType, setModalType] = useState<
-    'tos' | 'privacy' | 'deposit' | 'model' | null
+    'tos' | 'privacy' | 'deposit' | 'model' | 'about' | null
   >(null);
 
   const Modal = ({ title, content, icon: Icon, onClose }: { title: string, content: React.ReactNode, icon: any, onClose: () => void }) => (
@@ -35,15 +35,15 @@ const LegalFooter: React.FC = () => {
 
   return (
     <footer className="bg-ninpo-black/50 border-t border-white/5 py-16">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
+      <div className="max-w-[1600px] mx-auto px-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-12 mb-16">
           <div className="space-y-6">
             <h4 className="text-[11px] font-black text-ninpo-lime uppercase tracking-widest">Compliance</h4>
             <p className="text-[10px] font-bold text-slate-500 leading-relaxed uppercase tracking-tight">
               Ninpo Snacks operates in accordance with the Michigan Beverage Container Deposit Law and all local health codes.
             </p>
           </div>
-          <div className="space-y-4 lg:col-span-2">
+          <div className="space-y-6 lg:col-span-2">
             <h4 className="text-[11px] font-black text-white uppercase tracking-widest">Legal</h4>
             <div className="flex flex-wrap gap-6">
               <button
@@ -61,7 +61,27 @@ const LegalFooter: React.FC = () => {
               <button onClick={() => setModalType('deposit')} className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-ninpo-lime uppercase tracking-widest transition-colors">
                 <Gavel className="w-4 h-4" /> Refund Policy
               </button>
+              <button onClick={() => setModalType('about')} className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-ninpo-lime uppercase tracking-widest transition-colors">
+                <Users className="w-4 h-4" /> About Us
+              </button>
             </div>
+          </div>
+          <div className="space-y-6">
+            <h4 className="text-[11px] font-black text-white uppercase tracking-widest">Social</h4>
+            <div className="flex items-center gap-4">
+              <a href="#" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white transition-colors">
+                <Twitter className="w-5 h-5" />
+              </a>
+              <a href="#" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white transition-colors">
+                <Instagram className="w-5 h-5" />
+              </a>
+              <a href="#" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white transition-colors">
+                <Facebook className="w-5 h-5" />
+              </a>
+            </div>
+            <p className="text-[10px] font-bold text-slate-500 leading-relaxed uppercase tracking-tight">
+              Follow us for updates, deals, and snack news.
+            </p>
           </div>
           <div className="flex flex-col justify-between items-start md:items-end">
              <div className="flex items-center gap-3 px-6 py-3 bg-ninpo-midnight rounded-2xl border border-white/5 shadow-xl">
@@ -87,9 +107,10 @@ const LegalFooter: React.FC = () => {
                 declined on the spot.
               </p>
               <p>
-                Verified containers earn $0.10 each before fees. A $0.02 handling fee applies
-                per container, with an additional $0.02 for glass (net $0.08 plastic/aluminum,
-                $0.06 glass). Daily return credit is capped at 250 containers per customer.
+                Verified containers earn $0.10 each before fees. A handling fee of 20% of the
+                deposit value (typically $0.02) applies per container, with an additional $0.02 for
+                glass (net $0.08 for plastic/aluminum, $0.06 for glass). Daily return credit is
+                capped at $25 per customer.
               </p>
               <p>
                 Return value posts as store credit by default (no expiration). Gold+ members
@@ -152,14 +173,13 @@ const LegalFooter: React.FC = () => {
                 <ul className="list-disc list-inside space-y-2">
                   <li>Eligible items include Michigan deposit-eligible plastic, aluminum, and glass.</li>
                   <li>Eligible containers earn $0.10 each under Michigan deposit rules.</li>
-                  <li>Service fee: $0.02 per container; glass adds an extra $0.02.</li>
+                  <li>Service fee: 20% of the deposit value (e.g., $0.02); glass adds an extra $0.02.</li>
                   <li>Net credit: $0.08 (plastic/aluminum) or $0.06 (glass).</li>
                   <li>Credits are added as store credit by default and never expire.</li>
                   <li>Credits post after verification; receipts show counts, fees, and net totals.</li>
                   <li>Receipts show counts, fees, and net credits transparently.</li>
                   <li>
-                    Cash payouts are available for Gold+ tiers only, capped at $25/day
-                    (250 containers).
+                    Cash payouts are available for Gold+ tiers only, capped at $25/day.
                   </li>
                 </ul>
               </section>
@@ -190,6 +210,10 @@ const LegalFooter: React.FC = () => {
                     <span className="text-white">Secret Platinum:</span> invitation-only VIP tier
                     with Gold benefits plus exclusive perks.
                   </li>
+                  <li>
+                    <span className="text-white">Secret Green:</span> invitation-only tier with a
+                    flat $1.00 delivery fee.
+                  </li>
                   <li>Upgrades are automatic when requirements are met.</li>
                 </ul>
               </section>
@@ -199,7 +223,7 @@ const LegalFooter: React.FC = () => {
                   Return Limits & Fraud Prevention
                 </h3>
                 <ul className="list-disc list-inside space-y-2">
-                  <li>Daily cap: 250 containers per customer (per Michigan law).</li>
+                  <li>Daily cap: $25 per customer (in line with Michigan law guidelines).</li>
                   <li>Limit is enforced per person (not per address).</li>
                   <li>No splitting returns across multiple addresses to bypass the limit.</li>
                   <li>Tier verification (phone/ID) reduces fake or duplicate accounts.</li>
@@ -248,6 +272,24 @@ const LegalFooter: React.FC = () => {
               <p>Your order history is encrypted and we do not sell your personal data to third parties.</p>
             </>
           } 
+        />
+      )}
+      {modalType === 'about' && (
+        <Modal
+          title="About Us"
+          icon={Users}
+          onClose={() => setModalType(null)}
+          content={
+            <div className="space-y-4">
+              <p>
+                Ninpo Snacks was founded in Detroit by a team of snack enthusiasts and recycling advocates who believed there was a better way to combine convenience with sustainability.
+              </p>
+              <p>
+                We saw an opportunity to solve two common problems at once: getting your favorite snacks delivered quickly, and dealing with the hassle of returning empty bottles and cans. Our integrated system allows you to do both in a single, seamless transaction.
+              </p>
+              <p>Our mission is to provide a fast, reliable, and rewarding service that not only satisfies your cravings but also contributes to a cleaner community. We are proud to be a local business dedicated to serving the Detroit area.</p>
+            </div>
+          }
         />
       )}
     </footer>
