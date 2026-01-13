@@ -117,8 +117,9 @@ function App() {
       }
 
       if (data?.sessionUrl) {
-        core.addToast('Credits checkout should not redirect to Stripe.', 'warning');
-        return false;
+        core.addToast('REDIRECTING TO SECURE VAULT', 'success');
+        window.location.href = data.sessionUrl;
+        return true;
       }
 
       core.addToast('CREDITS APPLIED', 'success');
@@ -325,6 +326,7 @@ function App() {
         michiganDepositValue={core.settings.michiganDepositValue}
         returnHandlingFeePerContainer={core.settings.returnHandlingFeePerContainer}
         glassHandlingFeePerContainer={core.settings.glassHandlingFeePerContainer}
+        pickupOnlyMultiplier={core.settings.pickupOnlyMultiplier}
         dailyReturnLimit={core.settings.dailyReturnLimit}
         onClose={() => setIsCartOpen(false)}
         onAddressChange={setAddress}
