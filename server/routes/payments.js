@@ -57,9 +57,13 @@ const applyDeliveryFeeDiscount = (deliveryFee, discountPercent) => {
 
 const getReturnFeeConfig = async () => {
   const doc = await AppSettings.findOne({ key: 'default' }).lean();
+  const depositValue = Number(doc?.michiganDepositValue ?? 0.1);
+  const feePercent = Number(doc?.returnHandlingFeePercent ?? 0.2);
+  const handlingFee = depositValue * feePercent;
+
   return {
     returnHandlingFeePerContainer: Number(
-      doc?.returnHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.returnHandlingFeePerContainer
+      doc?.returnHandlingFeePerContainer ?? handlingFee
     ),
     glassHandlingFeePerContainer: Number(
       doc?.glassHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.glassHandlingFeePerContainer
