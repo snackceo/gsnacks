@@ -825,6 +825,31 @@ const createPaymentsRouter = ({ stripe }) => {
     }
   });
 
+  router.post('/webhook', async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!sig || !endpointSecret) {
+      return res.status(400).send('Webhook Error: Missing signature or secret');
+    }
+
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    } catch (err) {
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const orderId = session.metadata?.orderId;
+      if (orderId && session.payment_intent) {
+        await Order.findOneAndUpdate({ orderId }, { stripePaymentIntentId: session.payment_intent });
+      }
+    }
+
+    res.json({ received: true });
+  });
+
   return router;
 };
 
