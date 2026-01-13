@@ -6,7 +6,6 @@ const appSettingsSchema = new mongoose.Schema(
     routeFee: { type: Number, default: 4.99 },
     deliveryFee: { type: Number, default: 4.99 },
     referralBonus: { type: Number, default: 5.0 },
-    processingFeePercent: { type: Number, default: 0.05 },
     pickupOnlyMultiplier: { type: Number, default: 0.5 },
     distanceIncludedMiles: { type: Number, default: 3.0 },
     distanceBand1MaxMiles: { type: Number, default: 10.0 },

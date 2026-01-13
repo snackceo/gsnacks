@@ -480,7 +480,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       ...settingsDraft,
       routeFee: Number(settingsDraft.routeFee || 0),
       referralBonus: Number(settingsDraft.referralBonus || 0),
-      processingFeePercent: Number(settingsDraft.processingFeePercent || 0),
       pickupOnlyMultiplier: Number(settingsDraft.pickupOnlyMultiplier || 0),
       distanceIncludedMiles: Number(settingsDraft.distanceIncludedMiles || 0),
       distanceBand1MaxMiles: Number(settingsDraft.distanceBand1MaxMiles || 0),
@@ -2453,22 +2452,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       onChange={e =>
                         updateSettingsDraft({
                           distanceBand3Rate: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Card Rail Buffer Percent (internal)
-                    </label>
-                    <input
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.01"
-                      value={settingsDraft.processingFeePercent}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          processingFeePercent: Number(e.target.value)
                         })
                       }
                     />
