@@ -374,7 +374,7 @@ const createOrdersRouter = ({ stripe }) => {
 
         const isAssignedDriver =
           order.driverId &&
-          [order.driverId, req.user?.username, req.user?.id].includes(order.driverId);
+          [req.user?.username, req.user?.id].includes(order.driverId);
 
         if (!requestedStatus && !isAssignedDriver) {
           const e = new Error('Order is not assigned to this driver.');
