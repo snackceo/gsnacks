@@ -2,91 +2,86 @@ import mongoose from 'mongoose';
 
 const orderSchema = new mongoose.Schema(
   {
-    orderId: { type: String, required: true, unique: true }, // our UUID
-    customerId: { type: String, default: 'GUEST' },
+    orderId: { type: String, required: true, unique: true },
 
+    customerId: { type: String },
     address: { type: String, default: '' },
-    driverId: { type: String, default: '' },
-    gpsCoords: {
-      lat: { type: Number },
-      lng: { type: Number }
-    },
-    verificationPhoto: { type: String, default: '' },
-    returnPhoto: { type: String, default: '' },
-    returnAiAnalysis: {
-      confidence: { type: Number },
-      flags: { type: [String], default: [] },
-      summary: { type: String, default: '' },
-      assessedAt: { type: Date }
+
+    /* =========================================================
+       ORDER INTENT (AUTHORITATIVE)
+       ========================================================= */
+    orderType: {
+      type: String,
+      enum: ['DELIVERY_PURCHASE', 'RETURNS_PICKUP'],
+      default: 'DELIVERY_PURCHASE'
     },
 
-    // Bottle returns (client preview + driver verification)
-    returnUpcs: { type: [String], default: [] },
-    returnUpcCounts: {
-      type: [
-        {
-          upc: { type: String },
-          quantity: { type: Number }
-        }
-      ],
-      default: []
-    },
-    verifiedReturnUpcs: { type: [String], default: [] },
-    verifiedReturnUpcCounts: {
-      type: [
-        {
-          upc: { type: String },
-          quantity: { type: Number }
-        }
-      ],
-      default: []
-    },
-    estimatedReturnCreditGross: { type: Number, default: 0 }, // dollars (gross)
-    estimatedReturnCredit: { type: Number, default: 0 }, // dollars (preview)
-    verifiedReturnCreditGross: { type: Number, default: 0 }, // dollars (gross)
-    verifiedReturnCredit: { type: Number, default: 0 }, // dollars (driver)
-    returnCreditsAppliedAt: { type: Date },
-    returnPayoutMethod: { type: String, default: 'CREDIT' },
+    /* =========================================================
+       ITEMS / TOTALS
+       ========================================================= */
+    items: { type: Array, default: [] },
+    subtotal: { type: Number, default: 0 },
+    total: { type: Number, default: 0 },
 
-    items: [
-      {
-        productId: { type: String, required: true }, // frontendId
-        quantity: { type: Number, required: true }
-      }
-    ],
+    /* =========================================================
+       DELIVERY FEES
+       ========================================================= */
+    deliveryFee: { type: Number, default: 0 },
+    deliveryFeeDiscountPercent: { type: Number, default: 0 },
+    deliveryFeeFinal: { type: Number, default: 0 },
 
-    total: { type: Number, required: true }, // dollars, pre-credit
-    deliveryFee: { type: Number, default: 0 }, // dollars
-    deliveryFeeDiscountPercent: { type: Number, default: 0 }, // percent
-    deliveryFeeFinal: { type: Number, default: 0 }, // dollars
-    creditApplied: { type: Number, default: 0 }, // dollars
-
-    paymentMethod: { type: String, default: 'STRIPE' },
-
-    /**
-     * PENDING: order created, stock reserved, payment NOT captured yet
-     * PAID: payment captured (after driver verification)
-     * CANCELED: canceled/re-stocked (customer cancel redirect or manual owner cancel)
-     * EXPIRED: session expired or payment failed (webhook)
-     */
+    /* =========================================================
+       PAYMENT
+       ========================================================= */
+    paymentMethod: { type: String, default: 'NONE' },
     status: { type: String, default: 'PENDING' },
 
-    // Stripe references + amounts (cents)
-    stripeSessionId: { type: String },
-    stripePaymentIntentId: { type: String },
-    authorizedAt: { type: Date },
     amountAuthorizedCents: { type: Number, default: 0 },
-    capturedAt: { type: Date },
     amountCapturedCents: { type: Number, default: 0 },
 
-    // Lifecycle timestamps
-    inventoryReleasedAt: { type: Date }, // set when we restock (idempotency gate)
-    canceledAt: { type: Date },
-    expiredAt: { type: Date },
-    cancelReason: { type: String, default: '' },
+    authorizedAt: { type: Date },
+    capturedAt: { type: Date },
 
-    paidAt: { type: Date },
-    deliveredAt: { type: Date }
+    /* =========================================================
+       RETURNS (COMMON)
+       ========================================================= */
+    returnUpcs: { type: [String], default: [] },
+    returnUpcCounts: { type: Array, default: [] },
+
+    /* =========================================================
+       RETURNS – CREDIT FLOW (NO FEES)
+       ========================================================= */
+    estimatedReturnCreditGross: { type: Number, default: 0 },
+    estimatedReturnCredit: { type: Number, default: 0 },
+
+    verifiedReturnCreditGross: { type: Number, default: 0 },
+    verifiedReturnCredit: { type: Number, default: 0 },
+
+    returnCreditsAppliedAt: { type: Date },
+
+    /* =========================================================
+       RETURNS – CASH FLOW (FEES + CAP)
+       ========================================================= */
+    returnsPayoutMethod: {
+      type: String,
+      enum: ['CREDIT', 'CASH'],
+      default: 'CREDIT'
+    },
+
+    estimatedReturnCashGross: { type: Number, default: 0 },
+    estimatedReturnCash: { type: Number, default: 0 },
+
+    verifiedReturnCashGross: { type: Number, default: 0 },
+    verifiedReturnCash: { type: Number, default: 0 },
+
+    cashPayoutDue: { type: Number, default: 0 },
+    cashPayoutDueAt: { type: Date },
+    cashPayoutPaidAt: { type: Date },
+
+    /* =========================================================
+       INVENTORY / AUDIT
+       ========================================================= */
+    inventoryReleasedAt: { type: Date }
   },
   { timestamps: true }
 );
