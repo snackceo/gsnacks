@@ -63,7 +63,7 @@ Cash handling is **exceptional**, not default.
 * This value is **fixed** and must not be altered
 * No promotions, multipliers, or dynamic pricing apply
 
-The *only* time container value is reduced is when a customer **explicitly chooses cash settlement**, in which case legally permitted service fees apply.
+**Deposit value must never be reduced except by the Cash Settlement Fees defined in this spec (Cash Handling Fee and Glass Handling Surcharge) during Cash Settlement.**
 
 ---
 
@@ -422,7 +422,26 @@ Receipts should never display:
 
 ---
 
-## 12. Why the System Is Designed This Way
+## 12. Calculation Order & Rounding Rules (Implementation Contract)
+
+### 12.1 Calculation Order (Authoritative)
+
+All order totals MUST be computed in this order:
+
+1. Compute **Product Subtotal**
+2. Compute **Route Fee** and **Distance Fee**
+3. If **Pickup-Only Order**, apply `pickup_only_multiplier` to Route Fee and Distance Fee
+4. Apply any **tier/operator waivers** (if applicable)
+5. Apply **wallet credits** (tier-scoped)
+6. Any remaining payable balance is charged via **Stripe**
+
+### 12.2 Currency Rounding Rule (Authoritative)
+
+All monetary amounts are stored and processed in **USD cents**, and all computed totals MUST be rounded to the nearest cent at the **final order total**.
+
+---
+
+## 13. Why the System Is Designed This Way
 
 * Encourages sustainable behavior without penalizing small returns
 * Preserves dignity by defaulting to credit, not cash friction
