@@ -11,7 +11,6 @@ const SETTINGS_KEY = 'default';
 const defaultSettings = {
   routeFee: 4.99,
   referralBonus: 5.0,
-  processingFeePercent: 0.05,
   pickupOnlyMultiplier: 0.5,
   distanceIncludedMiles: 3.0,
   distanceBand1MaxMiles: 10.0,
@@ -31,7 +30,6 @@ const defaultSettings = {
 const numericFields = [
   'routeFee',
   'referralBonus',
-  'processingFeePercent',
   'pickupOnlyMultiplier',
   'distanceIncludedMiles',
   'distanceBand1MaxMiles',
@@ -79,9 +77,6 @@ const parseSettingsInput = (payload, { partial }) => {
 const mapSettings = (doc) => ({
   routeFee: Number(doc?.routeFee ?? doc?.deliveryFee ?? defaultSettings.routeFee),
   referralBonus: Number(doc?.referralBonus ?? defaultSettings.referralBonus),
-  processingFeePercent: Number(
-    doc?.processingFeePercent ?? defaultSettings.processingFeePercent
-  ),
   pickupOnlyMultiplier: Number(
     doc?.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier
   ),

@@ -32,7 +32,6 @@ const SETTINGS_STORAGE_KEY = 'ninpo:settings';
 const defaultSettings: AppSettings = {
   routeFee: 4.99,
   referralBonus: 5.0,
-  processingFeePercent: 0.05,
   pickupOnlyMultiplier: 0.5,
   distanceIncludedMiles: 3.0,
   distanceBand1MaxMiles: 10.0,
@@ -58,9 +57,6 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     ...data,
     routeFee: Number(data.routeFee ?? resolvedLegacyRouteFee ?? defaultSettings.routeFee),
     referralBonus: Number(data.referralBonus ?? defaultSettings.referralBonus),
-    processingFeePercent: Number(
-      data.processingFeePercent ?? defaultSettings.processingFeePercent
-    ),
     pickupOnlyMultiplier: Number(
       data.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier
     ),

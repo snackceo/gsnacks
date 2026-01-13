@@ -135,7 +135,6 @@ export interface Order {
 export interface AppSettings {
   routeFee: number;
   referralBonus: number;
-  processingFeePercent: number;
   pickupOnlyMultiplier: number;
   distanceIncludedMiles: number;
   distanceBand1MaxMiles: number;
