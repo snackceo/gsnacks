@@ -184,12 +184,20 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     return `${percent}%`;
   };
 
+  const getInitialVerifiedCounts = (order: Order) => {
+    const verified = Array.isArray(order.verifiedReturnUpcCounts)
+      ? order.verifiedReturnUpcCounts
+      : [];
+    if (verified.length > 0) return verified;
+    return Array.isArray(order.returnUpcCounts) ? order.returnUpcCounts : [];
+  };
+
   const startVerification = async (order: Order) => {
     setActiveOrder(order);
     resetPhotoState();
     resetReturnPhotoState();
-    const initialEntries = order.verifiedReturnUpcCounts ?? order.returnUpcCounts ?? [];
-    setVerifiedReturnUpcs(Array.isArray(initialEntries) ? initialEntries : []);
+    const initialEntries = getInitialVerifiedCounts(order);
+    setVerifiedReturnUpcs(initialEntries);
     setScanEvents([]);
     setQuantityEvents([]);
     setPendingDuplicateScan(null);
@@ -540,10 +548,16 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       const capturedOrder = data?.order;
       const verifiedReturnCredit = Number(capturedOrder?.verifiedReturnCredit || 0);
 
+      const resolvedVerifiedCounts =
+        Array.isArray(capturedOrder?.verifiedReturnUpcCounts) &&
+        capturedOrder.verifiedReturnUpcCounts.length > 0
+          ? capturedOrder.verifiedReturnUpcCounts
+          : verifiedReturnUpcs;
+
       updateOrder(activeOrder.id, OrderStatus.PAID, {
         verifiedReturnCredit,
         verifiedReturnUpcs: capturedOrder?.verifiedReturnUpcs || [],
-        verifiedReturnUpcCounts: capturedOrder?.verifiedReturnUpcCounts || verifiedReturnUpcs,
+        verifiedReturnUpcCounts: resolvedVerifiedCounts,
         paidAt: new Date().toISOString()
       });
 
