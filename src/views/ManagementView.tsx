@@ -1912,7 +1912,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   const ledgerBusy = ledgerLoading[u.id];
                   const ledgerError = ledgerErrors[u.id];
                   const statsLoading = userStatsLoading[u.id];
-                  const tierKey = (u.membershipTier || 'NONE').toString().toUpperCase();
+                  const tierKey = (u.membershipTier || 'COMMON').toString().toUpperCase();
                   const tierLabel =
                     tierKey === 'NONE'
                       ? 'COMMON'
@@ -2041,7 +2041,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                               />
                               <select
                                 className="bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
-                                value={(draft.membershipTier ?? u.membershipTier ?? 'NONE').toString()}
+                                value={(draft.membershipTier ?? u.membershipTier ?? 'COMMON').toString()}
                                 onClick={e => e.stopPropagation()}
                                 disabled={!allowPlatinumTier && u.membershipTier === 'PLATINUM'}
                                 onChange={e =>
@@ -2050,7 +2050,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                                   })
                                 }
                               >
-                                <option value="NONE">Common</option>
+                                <option value="COMMON">Common</option>
                                 <option value="BRONZE">Bronze</option>
                                 <option value="SILVER">Silver</option>
                                 <option value="GOLD">Gold</option>

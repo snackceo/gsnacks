@@ -8,13 +8,21 @@ import { authRequired, ownerRequired } from '../utils/helpers.js';
 
 const router = express.Router();
 
+const normalizeTier = (tier) => {
+  const normalized = String(tier || '').trim().toUpperCase();
+  return !normalized || normalized === 'NONE' ? 'COMMON' : normalized;
+};
+
 const mapUser = (user) => ({
   id: user._id.toString(),
   username: user.username,
   role: user.role || 'CUSTOMER',
   creditBalance: Number(user.creditBalance || 0),
   loyaltyPoints: Number(user.loyaltyPoints || 0),
-  membershipTier: user.membershipTier || 'BRONZE',
+  membershipTier: normalizeTier(user.membershipTier),
+  ordersCompleted: Number(user.ordersCompleted || 0),
+  phoneVerified: Boolean(user.phoneVerified),
+  photoIdVerified: Boolean(user.photoIdVerified),
   createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : undefined,
   updatedAt: user.updatedAt ? new Date(user.updatedAt).toISOString() : undefined
 });
@@ -42,24 +50,28 @@ const mapLedgerEntry = (entry) => ({
 });
 
 const tierRank = {
+  COMMON: 0,
   BRONZE: 1,
   SILVER: 2,
   GOLD: 3,
   PLATINUM: 4
 };
 
-const autoTierForPoints = (points) => {
-  if (points >= 2000) return 'GOLD';
-  if (points >= 500) return 'SILVER';
-  return 'BRONZE';
+const autoTierForUser = (user) => {
+  const ordersCompleted = Number(user?.ordersCompleted || 0);
+  const phoneVerified = Boolean(user?.phoneVerified);
+  const photoIdVerified = Boolean(user?.photoIdVerified);
+
+  if (ordersCompleted >= 15 && photoIdVerified) return 'GOLD';
+  if (ordersCompleted >= 10 && phoneVerified) return 'SILVER';
+  return 'COMMON';
 };
 
-const maybeAutoPromote = ({ user, previousPoints, nextPoints }) => {
-  if (nextPoints <= previousPoints) return;
+const maybeAutoPromote = ({ user }) => {
   if (user.membershipTier === 'PLATINUM') return;
 
-  const autoTier = autoTierForPoints(nextPoints);
-  const currentTier = String(user.membershipTier || 'BRONZE').toUpperCase();
+  const autoTier = autoTierForUser(user);
+  const currentTier = normalizeTier(user.membershipTier);
   if ((tierRank[autoTier] || 0) > (tierRank[currentTier] || 0)) {
     user.membershipTier = autoTier;
   }
@@ -166,7 +178,15 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
     const previousCredits = Number(user.creditBalance || 0);
     const previousPoints = Number(user.loyaltyPoints || 0);
     const updates = {};
-    const allowed = ['creditBalance', 'loyaltyPoints', 'membershipTier', 'role'];
+    const allowed = [
+      'creditBalance',
+      'loyaltyPoints',
+      'membershipTier',
+      'role',
+      'ordersCompleted',
+      'phoneVerified',
+      'photoIdVerified'
+    ];
     for (const key of allowed) {
       if (req.body?.[key] !== undefined) updates[key] = req.body[key];
     }
@@ -188,18 +208,38 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
     }
 
     if (updates.membershipTier !== undefined) {
-      updates.membershipTier = String(updates.membershipTier || '').toUpperCase();
+      updates.membershipTier = normalizeTier(updates.membershipTier);
     }
 
     if (updates.role !== undefined) {
       updates.role = String(updates.role || '').toUpperCase();
     }
 
+    if (updates.ordersCompleted !== undefined) {
+      updates.ordersCompleted = Number(updates.ordersCompleted || 0);
+      if (!Number.isFinite(updates.ordersCompleted)) {
+        return res.status(400).json({ error: 'ordersCompleted must be a number' });
+      }
+      updates.ordersCompleted = Math.max(0, updates.ordersCompleted);
+    }
+
+    if (updates.phoneVerified !== undefined) {
+      updates.phoneVerified = Boolean(updates.phoneVerified);
+    }
+
+    if (updates.photoIdVerified !== undefined) {
+      updates.photoIdVerified = Boolean(updates.photoIdVerified);
+    }
+
     user.set(updates);
 
-    if (updates.loyaltyPoints !== undefined && updates.membershipTier === undefined) {
-      const nextPoints = Number(user.loyaltyPoints || 0);
-      maybeAutoPromote({ user, previousPoints, nextPoints });
+    if (
+      updates.membershipTier === undefined &&
+      (updates.ordersCompleted !== undefined ||
+        updates.phoneVerified !== undefined ||
+        updates.photoIdVerified !== undefined)
+    ) {
+      maybeAutoPromote({ user });
     }
 
     await user.save();

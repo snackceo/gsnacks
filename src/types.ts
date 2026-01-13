@@ -20,7 +20,7 @@ export enum OrderStatus {
 export type PaymentMethod = 'STRIPE_CARD' | 'GOOGLE_PAY' | 'CREDITS';
 
 export enum UserTier {
-  NONE = 'NONE',
+  COMMON = 'COMMON',
   BRONZE = 'BRONZE',
   SILVER = 'SILVER',
   GOLD = 'GOLD',
@@ -35,6 +35,9 @@ export interface User {
   creditBalance: number;
   loyaltyPoints?: number;
   membershipTier: UserTier;
+  ordersCompleted?: number;
+  phoneVerified?: boolean;
+  photoIdVerified?: boolean;
   createdAt?: string;
 }
 

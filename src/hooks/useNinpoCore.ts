@@ -168,6 +168,9 @@ export const useNinpoCore = () => {
       const data = await res.json().catch(() => ({}));
       const u = data?.user;
 
+      const normalizedTier = String(u?.membershipTier || 'COMMON').toUpperCase();
+      const membershipTier = normalizedTier === 'NONE' ? 'COMMON' : normalizedTier;
+
       const mapped: any = {
         id: u?.id || u?.userId,
         name: u?.username || 'USER',
@@ -176,7 +179,10 @@ export const useNinpoCore = () => {
         role: u?.role || 'CUSTOMER',
         creditBalance: Number(u?.creditBalance || 0),
         loyaltyPoints: Number(u?.loyaltyPoints || 0),
-        membershipTier: u?.membershipTier || 'NONE',
+        membershipTier,
+        ordersCompleted: Number(u?.ordersCompleted || 0),
+        phoneVerified: Boolean(u?.phoneVerified),
+        photoIdVerified: Boolean(u?.photoIdVerified),
         createdAt: u?.createdAt
       };
 
