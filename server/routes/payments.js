@@ -752,9 +752,19 @@ const createPaymentsRouter = ({ stripe }) => {
           return;
         }
 
-        const captured = await stripe.paymentIntents.capture(pi, {
-          amount_to_capture: finalCaptureCents
-        });
+        let captured;
+        try {
+          captured = await stripe.paymentIntents.capture(pi, {
+            amount_to_capture: finalCaptureCents
+          });
+        } catch (err) {
+          if (err.code === 'payment_intent_unexpected_state') {
+            // The payment intent may have been canceled or already captured.
+            // We can fetch the latest state to confirm.
+            const intent = await stripe.paymentIntents.retrieve(pi);
+            if (intent.status !== 'succeeded') throw err;
+          } else throw err;
+        }
 
         order.status = 'PAID';
         order.paidAt = new Date();
@@ -821,6 +831,11 @@ const createPaymentsRouter = ({ stripe }) => {
       if (err?.code === 'NO_PAYMENT_INTENT') return res.status(400).json({ error: err.message });
       if (err?.code === 'STAFF_REQUIRED') return res.status(403).json({ error: err.message });
       if (err?.code === 'DRIVER_MISMATCH') return res.status(403).json({ error: err.message });
+
+      if (err.type === 'StripeCardError') {
+        await recordAuditLog({ type: 'ORDER_ERROR', actorId: req.user?.username || 'SYSTEM', details: `Stripe card error during capture for order ${orderId}: ${err.message}` });
+        return res.status(400).json({ error: `Stripe card error: ${err.message}` });
+      }
 
       console.error('CAPTURE ERROR:', err);
       res.status(500).json({ error: 'Failed to capture payment' });

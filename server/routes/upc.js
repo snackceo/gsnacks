@@ -106,10 +106,15 @@ router.get('/eligibility/:upc', async (req, res) => {
 
     const entry = await UpcItem.findOne({ upc }).lean();
     if (!entry) {
-      return res.json({ ok: true, upc, isEligible: false });
+      return res.json({ ok: true, upc, isEligible: false, depositValue });
     }
 
-    res.json({ ok: true, upc, isEligible: entry.isEligible !== false });
+    res.json({
+      ok: true,
+      upc,
+      isEligible: entry.isEligible !== false,
+      depositValue: Number(entry.depositValue || depositValue)
+    });
   } catch (err) {
     console.error('UPC ELIGIBILITY ERROR:', err);
     res.status(500).json({ error: 'Failed to check UPC eligibility' });
