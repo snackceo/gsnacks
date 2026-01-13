@@ -83,17 +83,18 @@ const LegalFooter: React.FC = () => {
               <p>
                 Returnables must be empty, clean, intact, and labeled for Michigan’s 10¢ deposit.
                 Drivers confirm eligibility at drop-off by scanning UPCs and visually checking
-                condition. Non-eligible or damaged containers are declined on the spot.
+                condition; duplicate scans are blocked. Non-eligible or damaged containers are
+                declined on the spot.
               </p>
               <p>
                 Verified containers earn $0.10 each before fees. A $0.02 handling fee applies
-                per container, with an additional $0.02 for glass. Daily return credit is capped
-                at 250 containers per customer.
+                per container, with an additional $0.02 for glass (net $0.08 plastic/aluminum,
+                $0.06 glass). Daily return credit is capped at 250 containers per customer.
               </p>
               <p>
                 Return value posts as store credit by default (no expiration). Gold+ members
-                may request cash payouts up to $25/day. AI tools may assist verification but do
-                not make final decisions.
+                may request cash payouts up to $25/day, disbursed by the driver at drop-off.
+                AI tools may assist verification but do not make final decisions.
               </p>
             </>
           }
@@ -154,6 +155,7 @@ const LegalFooter: React.FC = () => {
                   <li>Service fee: $0.02 per container; glass adds an extra $0.02.</li>
                   <li>Net credit: $0.08 (plastic/aluminum) or $0.06 (glass).</li>
                   <li>Credits are added as store credit by default and never expire.</li>
+                  <li>Credits post after verification; receipts show counts, fees, and net totals.</li>
                   <li>Receipts show counts, fees, and net credits transparently.</li>
                   <li>
                     Cash payouts are available for Gold+ tiers only, capped at $25/day
@@ -181,7 +183,8 @@ const LegalFooter: React.FC = () => {
                   </li>
                   <li>
                     <span className="text-white">Gold:</span> 30% delivery fee discount; verified
-                    photo ID + 15 orders; credits apply to all charges; cash payouts available.
+                    photo ID + 15 orders; credits apply to all charges (excluding tips); cash
+                    payouts available.
                   </li>
                   <li>
                     <span className="text-white">Secret Platinum:</span> invitation-only VIP tier
@@ -200,6 +203,7 @@ const LegalFooter: React.FC = () => {
                   <li>Limit is enforced per person (not per address).</li>
                   <li>No splitting returns across multiple addresses to bypass the limit.</li>
                   <li>Tier verification (phone/ID) reduces fake or duplicate accounts.</li>
+                  <li>Multiple accounts tied to one person may be merged or restricted.</li>
                   <li>Monitoring flags unusual return activity for review.</li>
                 </ul>
               </section>
