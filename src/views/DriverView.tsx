@@ -829,8 +829,28 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
         if (cancelled) return;
 
+        const preferredFormats = ['upc_a', 'ean_13', 'ean_8', 'upc_e'];
+        let supportedFormats = preferredFormats;
+        if (typeof (window as any).BarcodeDetector.getSupportedFormats === 'function') {
+          try {
+            const detectedFormats = await (window as any).BarcodeDetector.getSupportedFormats();
+            if (Array.isArray(detectedFormats) && detectedFormats.length > 0) {
+              supportedFormats = preferredFormats.filter(format =>
+                detectedFormats.includes(format)
+              );
+            }
+          } catch {
+            supportedFormats = preferredFormats;
+          }
+        }
+
+        if (supportedFormats.length === 0) {
+          setScannerError('Scanner not supported on this device/browser. Use manual UPC entry below.');
+          return;
+        }
+
         const detector = new (window as any).BarcodeDetector({
-          formats: ['upc_a', 'ean_13', 'ean_8', 'upc_e']
+          formats: supportedFormats
         });
 
         setIsScanning(true);
