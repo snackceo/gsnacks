@@ -17,7 +17,7 @@ const findAbandonedAuthorizations = async () => {
     console.log('Connected to MongoDB.');
 
     const abandonedOrders = await Order.find({
-      status: 'PENDING',
+      status: { $in: ['PENDING', 'AUTHORIZED'] }, // Include 'AUTHORIZED' status
       stripePaymentIntentId: { $exists: true, $ne: null },
       amountAuthorizedCents: { $gt: 0 }, // Ensure it's not a zero-value order
       capturedAt: { $exists: false },

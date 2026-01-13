@@ -80,9 +80,9 @@ const getReturnFeeConfig = async () => {
   const handlingFee = depositValue * feePercent;
 
   return {
-    returnHandlingFeePerContainer: Number(
-      doc?.returnHandlingFeePerContainer ?? handlingFee
-    ),
+    // Business logic states a standard fee of 20% of deposit value.
+    // This should not be overridden by a fixed value in AppSettings if the percentage is the rule.
+    returnHandlingFeePerContainer: handlingFee,
     glassHandlingFeePerContainer: Number(
       doc?.glassHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.glassHandlingFeePerContainer
     )
