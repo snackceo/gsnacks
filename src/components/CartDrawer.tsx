@@ -34,6 +34,7 @@ interface CartDrawerProps {
   michiganDepositValue: number;
   returnHandlingFeePerContainer: number;
   glassHandlingFeePerContainer: number;
+  pickupOnlyMultiplier: number;
   dailyReturnLimit: number;
 
   onClose: () => void;
@@ -68,14 +69,6 @@ const DEFAULT_DAILY_LIMIT = 250;
 const DEFAULT_HANDLING_FEE = 0.02;
 const DEFAULT_GLASS_HANDLING_FEE = 0.02;
 const NOT_ELIGIBLE_MESSAGE = "This container isn't eligible for return value.";
-const DELIVERY_DISCOUNT_PERCENTS: Record<UserTier, number> = {
-  [UserTier.COMMON]: 0,
-  [UserTier.BRONZE]: 10,
-  [UserTier.SILVER]: 20,
-  [UserTier.GOLD]: 30,
-  [UserTier.PLATINUM]: 30
-};
-
 type UpcEligibilityCache = Record<
   string,
   {
@@ -106,6 +99,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   michiganDepositValue,
   returnHandlingFeePerContainer,
   glassHandlingFeePerContainer,
+  pickupOnlyMultiplier,
   dailyReturnLimit,
   onClose,
   onAddressChange,
@@ -378,6 +372,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     () => returnUpcs.reduce((sum, entry) => sum + entry.quantity, 0),
     [returnUpcs]
   );
+  const cartIsEmpty = cart.length === 0;
+  const hasReturnUpcs = totalReturnCount > 0;
+  const isPickupOnlyOrder = cartIsEmpty && hasReturnUpcs;
 
   const depositValue = Number.isFinite(michiganDepositValue)
     ? michiganDepositValue
@@ -463,14 +460,19 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const subtotal = useMemo(() => lineItems.reduce((sum, li) => sum + li.lineTotal, 0), [lineItems]);
   const sanitizedDeliveryFee = Number.isFinite(deliveryFee) ? deliveryFee : 0;
+  const sanitizedPickupMultiplier = Number.isFinite(pickupOnlyMultiplier)
+    ? pickupOnlyMultiplier
+    : 0.5;
 
   const subtotalCents = useMemo(() => Math.round(subtotal * 100), [subtotal]);
   const estimatedReturnCreditCents = useMemo(
     () => Math.round(estimatedReturnCredit * 100),
     [estimatedReturnCredit]
   );
-  const activeDeliveryFee = sanitizedDeliveryFee;
-  const activeDeliveryFeeCents = Math.round(activeDeliveryFee * 100);
+  const activeRouteFee = isPickupOnlyOrder
+    ? sanitizedDeliveryFee * sanitizedPickupMultiplier
+    : sanitizedDeliveryFee;
+  const activeDeliveryFeeCents = Math.round(activeRouteFee * 100);
   const creditsCoverDelivery = [UserTier.SILVER, UserTier.GOLD, UserTier.PLATINUM].includes(
     activeTier
   );
@@ -638,12 +640,14 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   // ----------------------------
   // Checkout gating
   // ----------------------------
-  const cartIsEmpty = cart.length === 0;
-  const hasReturnUpcs = totalReturnCount > 0;
   const canCheckoutCredits =
-    (!!address.trim() && acceptedPolicies && !isProcessing && cartIsEmpty && hasReturnUpcs);
+    (!!address.trim() &&
+      acceptedPolicies &&
+      !isProcessing &&
+      !!membershipTier &&
+      (!cartIsEmpty || hasReturnUpcs));
   const canCheckoutStripe =
-    (!!address.trim() && acceptedPolicies && !isProcessing && !cartIsEmpty);
+    (!!address.trim() && acceptedPolicies && !isProcessing && (!cartIsEmpty || hasReturnUpcs));
 
   const handleCreditsClick = async () => {
     if (!canCheckoutCredits) return;
@@ -1026,9 +1030,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Route Fee
+                  {isPickupOnlyOrder ? 'Route Fee — Pickup-Only Order' : 'Route Fee — Delivery Order'}
                 </p>
-                <p className="text-white font-black">{money(sanitizedDeliveryFee)}</p>
+                <p className="text-white font-black">{money(activeRouteFee)}</p>
               </div>
 
               <div className="flex items-center justify-between">

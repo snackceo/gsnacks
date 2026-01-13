@@ -488,6 +488,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       glassHandlingFeePerContainer: Number(
         settingsDraft.glassHandlingFeePerContainer || 0
       ),
+      pickupOnlyMultiplier: Number(settingsDraft.pickupOnlyMultiplier || 0),
       dailyReturnLimit: Number(settingsDraft.dailyReturnLimit || 0),
       requirePhotoForRefunds: Boolean(settingsDraft.requirePhotoForRefunds),
       allowGuestCheckout: Boolean(settingsDraft.allowGuestCheckout),
@@ -2361,6 +2362,22 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       onChange={e =>
                         updateSettingsDraft({
                           deliveryFee: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Pickup-Only Multiplier
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.pickupOnlyMultiplier}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          pickupOnlyMultiplier: Number(e.target.value)
                         })
                       }
                     />

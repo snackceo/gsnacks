@@ -136,6 +136,7 @@ export interface AppSettings {
   processingFeePercent: number;
   returnHandlingFeePerContainer: number;
   glassHandlingFeePerContainer: number;
+  pickupOnlyMultiplier: number;
   dailyReturnLimit: number;
   maintenanceMode: boolean;
   requirePhotoForRefunds: boolean;
