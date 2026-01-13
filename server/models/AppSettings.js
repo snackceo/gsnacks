@@ -9,7 +9,7 @@ const appSettingsSchema = new mongoose.Schema(
     processingFeePercent: { type: Number, default: 0.05 },
     returnHandlingFeePerContainer: { type: Number, default: 0.02 },
     glassHandlingFeePerContainer: { type: Number, default: 0.02 },
-    dailyReturnLimit: { type: Number, default: 25 },
+    dailyReturnLimit: { type: Number, default: 250 },
     maintenanceMode: { type: Boolean, default: false },
     requirePhotoForRefunds: { type: Boolean, default: false },
     allowGuestCheckout: { type: Boolean, default: false },
