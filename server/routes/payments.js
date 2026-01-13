@@ -330,6 +330,7 @@ const createPaymentsRouter = ({ stripe }) => {
   router.post('/credits', authRequired, async (req, res) => {
     const sessionDb = await mongoose.startSession();
 
+    let user;
     try {
       const rawItems = req.body?.items;
       const address = String(req.body?.address || '').trim();
@@ -353,7 +354,7 @@ const createPaymentsRouter = ({ stripe }) => {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: 'Not logged in' });
 
-      const user = await User.findById(userId).session(sessionDb);
+      user = await User.findById(userId).session(sessionDb);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
       if (user.creditTransactionId) {
@@ -435,7 +436,7 @@ const createPaymentsRouter = ({ stripe }) => {
         const creditApplied = creditAppliedCents / 100;
         if (creditAppliedCents > 0) {
           user.creditBalance = Math.max(0, Number(user.creditBalance || 0) - creditApplied);
-          user.creditTransactionId = undefined;
+          // The transaction ID will be cleared in the outer finally block
           await user.save({ session: sessionDb });
         }
 
@@ -471,11 +472,6 @@ const createPaymentsRouter = ({ stripe }) => {
         );
       });
 
-      const userWithClearedTransaction = await User.findById(userId).session(sessionDb);
-      if (userWithClearedTransaction?.creditTransactionId === creditTransactionId) {
-        userWithClearedTransaction.creditTransactionId = undefined;
-        await userWithClearedTransaction.save({ session: sessionDb });
-      }
       const remainingOrder = await Order.findOne({ orderId }).lean();
       if (!remainingOrder) return res.status(404).json({ error: 'Order not found' });
 
@@ -572,7 +568,18 @@ const createPaymentsRouter = ({ stripe }) => {
 
       res.status(500).json({ error: 'Credits checkout failed' });
     } finally {
-      sessionDb.endSession();
+      if (sessionDb) {
+        sessionDb.endSession();
+      }
+      // Ensure creditTransactionId is cleared regardless of success or failure
+      if (user && creditTransactionId) {
+        try {
+          // Use findOneAndUpdate to release the lock atomically.
+          await User.findOneAndUpdate({ _id: user._id, creditTransactionId }, { $unset: { creditTransactionId: 1 } });
+        } catch (cleanupErr) {
+          console.error(`Error cleaning up creditTransactionId for user ${user._id}:`, cleanupErr);
+        }
+      }
     }
   });
 
