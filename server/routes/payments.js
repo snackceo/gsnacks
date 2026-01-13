@@ -28,6 +28,14 @@ const DEFAULT_RETURN_FEES = {
   returnHandlingFeePerContainer: 0.02,
   glassHandlingFeePerContainer: 0.02
 };
+const DEFAULT_DISTANCE_FEES = {
+  distanceIncludedMiles: 3.0,
+  distanceBand1MaxMiles: 10.0,
+  distanceBand2MaxMiles: 20.0,
+  distanceBand1Rate: 0.5,
+  distanceBand2Rate: 0.75,
+  distanceBand3Rate: 1.0
+};
 
 const normalizeTier = tier => {
   const normalized = String(tier || '').trim().toUpperCase();
@@ -73,6 +81,70 @@ const calculateRouteFee = ({ baseRouteFee, pickupOnlyMultiplier, orderType, tier
 
   const feeCents = Math.round(fee * 100);
   return { routeFee: feeCents / 100, routeFeeCents: feeCents };
+};
+
+const getDistanceFeeConfig = async () => {
+  const doc = await AppSettings.findOne({ key: 'default' }).lean();
+  return {
+    distanceIncludedMiles: Number(
+      doc?.distanceIncludedMiles ?? DEFAULT_DISTANCE_FEES.distanceIncludedMiles
+    ),
+    distanceBand1MaxMiles: Number(
+      doc?.distanceBand1MaxMiles ?? DEFAULT_DISTANCE_FEES.distanceBand1MaxMiles
+    ),
+    distanceBand2MaxMiles: Number(
+      doc?.distanceBand2MaxMiles ?? DEFAULT_DISTANCE_FEES.distanceBand2MaxMiles
+    ),
+    distanceBand1Rate: Number(
+      doc?.distanceBand1Rate ?? DEFAULT_DISTANCE_FEES.distanceBand1Rate
+    ),
+    distanceBand2Rate: Number(
+      doc?.distanceBand2Rate ?? DEFAULT_DISTANCE_FEES.distanceBand2Rate
+    ),
+    distanceBand3Rate: Number(
+      doc?.distanceBand3Rate ?? DEFAULT_DISTANCE_FEES.distanceBand3Rate
+    )
+  };
+};
+
+const roundDownToTenth = value => Math.floor(value * 10) / 10;
+
+const calculateDistanceFee = ({
+  distanceMiles,
+  config,
+  orderType,
+  pickupOnlyMultiplier,
+  tier
+}) => {
+  const normalizedTier = normalizeTier(tier);
+  const rawDistance = Number(distanceMiles);
+  const sanitizedDistance = Number.isFinite(rawDistance) ? Math.max(0, rawDistance) : 0;
+  const roundedDistance = roundDownToTenth(sanitizedDistance);
+
+  if (normalizedTier === 'GREEN') {
+    return { distanceFee: 0, distanceFeeCents: 0, distanceMiles: roundedDistance };
+  }
+
+  const includedMiles = Math.max(0, Number(config.distanceIncludedMiles || 0));
+  const band1Max = Math.max(includedMiles, Number(config.distanceBand1MaxMiles || 0));
+  const band2Max = Math.max(band1Max, Number(config.distanceBand2MaxMiles || 0));
+  const band1Rate = Math.max(0, Number(config.distanceBand1Rate || 0));
+  const band2Rate = Math.max(0, Number(config.distanceBand2Rate || 0));
+  const band3Rate = Math.max(0, Number(config.distanceBand3Rate || 0));
+
+  const band1Miles = Math.max(0, Math.min(roundedDistance, band1Max) - includedMiles);
+  const band2Miles = Math.max(0, Math.min(roundedDistance, band2Max) - band1Max);
+  const band3Miles = Math.max(0, roundedDistance - band2Max);
+
+  let fee =
+    band1Miles * band1Rate + band2Miles * band2Rate + band3Miles * band3Rate;
+
+  if (orderType === 'RETURNS_PICKUP') {
+    fee = fee * Math.max(0, Number(pickupOnlyMultiplier || 0));
+  }
+
+  const feeCents = Math.round(fee * 100);
+  return { distanceFee: feeCents / 100, distanceFeeCents: feeCents, distanceMiles: roundedDistance };
 };
 
 const getReturnFeeConfig = async () => {
@@ -175,6 +247,8 @@ const createPaymentsRouter = ({ stripe }) => {
       );
       const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery } =
         await getRouteFeeConfig();
+      const distanceFeeConfig = await getDistanceFeeConfig();
+      const distanceMiles = req.body?.distanceMiles;
 
       const items = normalizeCart(rawItems);
       const rawReturnUpcs = req.body?.returnUpcCounts ?? req.body?.returnUpcs;
@@ -199,6 +273,14 @@ const createPaymentsRouter = ({ stripe }) => {
         tier: tierLookupUser?.membershipTier,
         platinumFreeDelivery
       });
+      const { distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles } =
+        calculateDistanceFee({
+          distanceMiles,
+          config: distanceFeeConfig,
+          orderType,
+          pickupOnlyMultiplier,
+          tier: tierLookupUser?.membershipTier
+        });
 
       const orderId = crypto.randomUUID();
       const lineItems = [];
@@ -262,6 +344,20 @@ const createPaymentsRouter = ({ stripe }) => {
           });
         }
 
+        if (distanceFeeCents > 0) {
+          totalCents += distanceFeeCents;
+          lineItems.push({
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: 'Distance Fee'
+              },
+              unit_amount: distanceFeeCents
+            },
+            quantity: 1
+          });
+        }
+
         await Order.create(
           [
             {
@@ -274,6 +370,9 @@ const createPaymentsRouter = ({ stripe }) => {
               deliveryFee: baseRouteFee,
               deliveryFeeDiscountPercent: 0,
               deliveryFeeFinal: routeFee,
+              distanceMiles: roundedDistanceMiles,
+              distanceFee,
+              distanceFeeFinal: distanceFee,
               creditApplied: 0,
 
               returnUpcs: eligibleUpcs,
@@ -322,6 +421,13 @@ const createPaymentsRouter = ({ stripe }) => {
           type: 'ORDER_CREATED',
           actorId: userId || 'GUEST',
           details: `Order ${orderId} created with route fee $${routeFee.toFixed(2)}.`
+        });
+      }
+      if (distanceFeeCents > 0) {
+        await recordAuditLog({
+          type: 'ORDER_CREATED',
+          actorId: userId || 'GUEST',
+          details: `Order ${orderId} created with distance fee $${distanceFee.toFixed(2)}.`
         });
       }
 
@@ -385,6 +491,8 @@ const createPaymentsRouter = ({ stripe }) => {
       }
       const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery } =
         await getRouteFeeConfig();
+      const distanceFeeConfig = await getDistanceFeeConfig();
+      const distanceMiles = req.body?.distanceMiles;
       const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
       const { routeFee, routeFeeCents } = calculateRouteFee({
         baseRouteFee,
@@ -393,6 +501,14 @@ const createPaymentsRouter = ({ stripe }) => {
         tier: user?.membershipTier,
         platinumFreeDelivery
       });
+      const { distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles } =
+        calculateDistanceFee({
+          distanceMiles,
+          config: distanceFeeConfig,
+          orderType,
+          pickupOnlyMultiplier,
+          tier: user?.membershipTier
+        });
 
       const orderId = crypto.randomUUID();
       let totalCents = 0;
@@ -440,6 +556,9 @@ const createPaymentsRouter = ({ stripe }) => {
         if (routeFeeCents > 0) {
           totalCents += routeFeeCents;
         }
+        if (distanceFeeCents > 0) {
+          totalCents += distanceFeeCents;
+        }
 
         const tier = normalizeTier(user?.membershipTier);
         const eligibleCreditCents = CREDIT_DELIVERY_ELIGIBLE_TIERS.has(tier)
@@ -471,6 +590,9 @@ const createPaymentsRouter = ({ stripe }) => {
               deliveryFee: baseRouteFee,
               deliveryFeeDiscountPercent: 0,
               deliveryFeeFinal: routeFee,
+              distanceMiles: roundedDistanceMiles,
+              distanceFee,
+              distanceFeeFinal: distanceFee,
               creditApplied,
               paymentMethod: remainingCents > 0 ? 'STRIPE' : 'CREDITS',
               status: remainingCents > 0 ? 'PENDING' : 'PAID',
@@ -502,6 +624,13 @@ const createPaymentsRouter = ({ stripe }) => {
           type: 'ORDER_CREATED',
           actorId: req.user?.username || req.user?.id || userId,
           details: `Order ${orderId} created with route fee $${routeFee.toFixed(2)}.`
+        });
+      }
+      if (distanceFeeCents > 0) {
+        await recordAuditLog({
+          type: 'ORDER_CREATED',
+          actorId: req.user?.username || req.user?.id || userId,
+          details: `Order ${orderId} created with distance fee $${distanceFee.toFixed(2)}.`
         });
       }
 

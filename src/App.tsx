@@ -28,6 +28,7 @@ function App() {
   const location = useLocation();
 
   const [address, setAddress] = useState('');
+  const [distanceMiles, setDistanceMiles] = useState(0);
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
   const [isLoginViewOpen, setIsLoginViewOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -63,6 +64,7 @@ function App() {
           gateway: type,
           address: address, // NEW: stored on order for owner dashboard
           deliveryFee: effectiveDeliveryFee,
+          distanceMiles,
           returnUpcCounts: returnUpcs,
           returnPayoutMethod
         })
@@ -102,6 +104,7 @@ function App() {
           items: core.cart,
           address,
           deliveryFee: effectiveDeliveryFee,
+          distanceMiles,
           returnUpcCounts: returnUpcs,
           returnPayoutMethod
         })
@@ -327,9 +330,17 @@ function App() {
         returnHandlingFeePerContainer={core.settings.returnHandlingFeePerContainer}
         glassHandlingFeePerContainer={core.settings.glassHandlingFeePerContainer}
         pickupOnlyMultiplier={core.settings.pickupOnlyMultiplier}
+        distanceMiles={distanceMiles}
+        distanceIncludedMiles={core.settings.distanceIncludedMiles}
+        distanceBand1MaxMiles={core.settings.distanceBand1MaxMiles}
+        distanceBand2MaxMiles={core.settings.distanceBand2MaxMiles}
+        distanceBand1Rate={core.settings.distanceBand1Rate}
+        distanceBand2Rate={core.settings.distanceBand2Rate}
+        distanceBand3Rate={core.settings.distanceBand3Rate}
         dailyReturnLimit={core.settings.dailyReturnLimit}
         onClose={() => setIsCartOpen(false)}
         onAddressChange={setAddress}
+        onDistanceChange={setDistanceMiles}
         onPolicyChange={setAcceptedPolicies}
         onRemoveItem={id =>
           core.setCart(prev => prev.filter(i => i.productId !== id))

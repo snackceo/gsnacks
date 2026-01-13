@@ -37,6 +37,12 @@ const defaultSettings: AppSettings = {
   returnHandlingFeePerContainer: 0.02,
   glassHandlingFeePerContainer: 0.02,
   pickupOnlyMultiplier: 0.5,
+  distanceIncludedMiles: 3.0,
+  distanceBand1MaxMiles: 10.0,
+  distanceBand2MaxMiles: 20.0,
+  distanceBand1Rate: 0.5,
+  distanceBand2Rate: 0.75,
+  distanceBand3Rate: 1.0,
   dailyReturnLimit: 250,
   maintenanceMode: false,
   requirePhotoForRefunds: false,
@@ -67,6 +73,24 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     ),
     pickupOnlyMultiplier: Number(
       data.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier
+    ),
+    distanceIncludedMiles: Number(
+      data.distanceIncludedMiles ?? defaultSettings.distanceIncludedMiles
+    ),
+    distanceBand1MaxMiles: Number(
+      data.distanceBand1MaxMiles ?? defaultSettings.distanceBand1MaxMiles
+    ),
+    distanceBand2MaxMiles: Number(
+      data.distanceBand2MaxMiles ?? defaultSettings.distanceBand2MaxMiles
+    ),
+    distanceBand1Rate: Number(
+      data.distanceBand1Rate ?? defaultSettings.distanceBand1Rate
+    ),
+    distanceBand2Rate: Number(
+      data.distanceBand2Rate ?? defaultSettings.distanceBand2Rate
+    ),
+    distanceBand3Rate: Number(
+      data.distanceBand3Rate ?? defaultSettings.distanceBand3Rate
     ),
     dailyReturnLimit: Number(data.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
     maintenanceMode: Boolean(

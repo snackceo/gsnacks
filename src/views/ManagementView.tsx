@@ -489,6 +489,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         settingsDraft.glassHandlingFeePerContainer || 0
       ),
       pickupOnlyMultiplier: Number(settingsDraft.pickupOnlyMultiplier || 0),
+      distanceIncludedMiles: Number(settingsDraft.distanceIncludedMiles || 0),
+      distanceBand1MaxMiles: Number(settingsDraft.distanceBand1MaxMiles || 0),
+      distanceBand2MaxMiles: Number(settingsDraft.distanceBand2MaxMiles || 0),
+      distanceBand1Rate: Number(settingsDraft.distanceBand1Rate || 0),
+      distanceBand2Rate: Number(settingsDraft.distanceBand2Rate || 0),
+      distanceBand3Rate: Number(settingsDraft.distanceBand3Rate || 0),
       dailyReturnLimit: Number(settingsDraft.dailyReturnLimit || 0),
       requirePhotoForRefunds: Boolean(settingsDraft.requirePhotoForRefunds),
       allowGuestCheckout: Boolean(settingsDraft.allowGuestCheckout),
@@ -2378,6 +2384,102 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       onChange={e =>
                         updateSettingsDraft({
                           pickupOnlyMultiplier: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Distance Included Miles
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.1"
+                      value={settingsDraft.distanceIncludedMiles}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          distanceIncludedMiles: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Distance Band 1 Max Miles
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.1"
+                      value={settingsDraft.distanceBand1MaxMiles}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          distanceBand1MaxMiles: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Distance Band 2 Max Miles
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.1"
+                      value={settingsDraft.distanceBand2MaxMiles}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          distanceBand2MaxMiles: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Distance Band 1 Rate (per mile)
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.distanceBand1Rate}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          distanceBand1Rate: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Distance Band 2 Rate (per mile)
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.distanceBand2Rate}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          distanceBand2Rate: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Distance Band 3 Rate (per mile)
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.01"
+                      value={settingsDraft.distanceBand3Rate}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          distanceBand3Rate: Number(e.target.value)
                         })
                       }
                     />

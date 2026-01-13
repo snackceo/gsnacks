@@ -35,10 +35,18 @@ interface CartDrawerProps {
   returnHandlingFeePerContainer: number;
   glassHandlingFeePerContainer: number;
   pickupOnlyMultiplier: number;
+  distanceMiles: number;
+  distanceIncludedMiles: number;
+  distanceBand1MaxMiles: number;
+  distanceBand2MaxMiles: number;
+  distanceBand1Rate: number;
+  distanceBand2Rate: number;
+  distanceBand3Rate: number;
   dailyReturnLimit: number;
 
   onClose: () => void;
   onAddressChange: (v: string) => void;
+  onDistanceChange: (v: number) => void;
   onPolicyChange: (v: boolean) => void;
 
   onRemoveItem: (productId: string) => void;
@@ -68,6 +76,12 @@ const MI_DEPOSIT_VALUE = 0.1; // 10¢
 const DEFAULT_DAILY_LIMIT = 250;
 const DEFAULT_HANDLING_FEE = 0.02;
 const DEFAULT_GLASS_HANDLING_FEE = 0.02;
+const DEFAULT_DISTANCE_INCLUDED_MILES = 3.0;
+const DEFAULT_DISTANCE_BAND1_MAX = 10.0;
+const DEFAULT_DISTANCE_BAND2_MAX = 20.0;
+const DEFAULT_DISTANCE_BAND1_RATE = 0.5;
+const DEFAULT_DISTANCE_BAND2_RATE = 0.75;
+const DEFAULT_DISTANCE_BAND3_RATE = 1.0;
 const NOT_ELIGIBLE_MESSAGE = "This container isn't eligible for return value.";
 type UpcEligibilityCache = Record<
   string,
@@ -87,6 +101,41 @@ function money(n: number) {
   return `$${v.toFixed(2)}`;
 }
 
+const roundDownToTenth = (value: number) => Math.floor(value * 10) / 10;
+
+const calculateDistanceFee = ({
+  distanceMiles,
+  includedMiles,
+  band1Max,
+  band2Max,
+  band1Rate,
+  band2Rate,
+  band3Rate
+}: {
+  distanceMiles: number;
+  includedMiles: number;
+  band1Max: number;
+  band2Max: number;
+  band1Rate: number;
+  band2Rate: number;
+  band3Rate: number;
+}) => {
+  const roundedDistance = roundDownToTenth(Math.max(0, distanceMiles));
+  const normalizedIncluded = Math.max(0, includedMiles);
+  const normalizedBand1Max = Math.max(normalizedIncluded, band1Max);
+  const normalizedBand2Max = Math.max(normalizedBand1Max, band2Max);
+
+  const band1Miles = Math.max(0, Math.min(roundedDistance, normalizedBand1Max) - normalizedIncluded);
+  const band2Miles = Math.max(0, Math.min(roundedDistance, normalizedBand2Max) - normalizedBand1Max);
+  const band3Miles = Math.max(0, roundedDistance - normalizedBand2Max);
+
+  return (
+    band1Miles * Math.max(0, band1Rate) +
+    band2Miles * Math.max(0, band2Rate) +
+    band3Miles * Math.max(0, band3Rate)
+  );
+};
+
 const CartDrawer: React.FC<CartDrawerProps> = ({
   isOpen,
   cart,
@@ -100,9 +149,17 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   returnHandlingFeePerContainer,
   glassHandlingFeePerContainer,
   pickupOnlyMultiplier,
+  distanceMiles,
+  distanceIncludedMiles,
+  distanceBand1MaxMiles,
+  distanceBand2MaxMiles,
+  distanceBand1Rate,
+  distanceBand2Rate,
+  distanceBand3Rate,
   dailyReturnLimit,
   onClose,
   onAddressChange,
+  onDistanceChange,
   onPolicyChange,
   onRemoveItem,
   onPayCredits,
@@ -393,7 +450,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const netGlassCash = Math.max(0, depositValue - handlingFee - glassHandlingFee);
 
   const activeTier = membershipTier ?? UserTier.COMMON;
-  const allowCashPayout = [UserTier.GOLD, UserTier.PLATINUM].includes(activeTier);
+  const allowCashPayout = [UserTier.GOLD, UserTier.PLATINUM, UserTier.GREEN].includes(activeTier);
 
   useEffect(() => {
     if (!allowCashPayout && useCashPayout) {
@@ -463,7 +520,27 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const sanitizedPickupMultiplier = Number.isFinite(pickupOnlyMultiplier)
     ? pickupOnlyMultiplier
     : 0.5;
+  const sanitizedDistanceMiles = Number.isFinite(distanceMiles) ? Math.max(0, distanceMiles) : 0;
+  const sanitizedIncludedMiles = Number.isFinite(distanceIncludedMiles)
+    ? distanceIncludedMiles
+    : DEFAULT_DISTANCE_INCLUDED_MILES;
+  const sanitizedBand1Max = Number.isFinite(distanceBand1MaxMiles)
+    ? distanceBand1MaxMiles
+    : DEFAULT_DISTANCE_BAND1_MAX;
+  const sanitizedBand2Max = Number.isFinite(distanceBand2MaxMiles)
+    ? distanceBand2MaxMiles
+    : DEFAULT_DISTANCE_BAND2_MAX;
+  const sanitizedBand1Rate = Number.isFinite(distanceBand1Rate)
+    ? distanceBand1Rate
+    : DEFAULT_DISTANCE_BAND1_RATE;
+  const sanitizedBand2Rate = Number.isFinite(distanceBand2Rate)
+    ? distanceBand2Rate
+    : DEFAULT_DISTANCE_BAND2_RATE;
+  const sanitizedBand3Rate = Number.isFinite(distanceBand3Rate)
+    ? distanceBand3Rate
+    : DEFAULT_DISTANCE_BAND3_RATE;
 
+  const roundedDistanceMiles = roundDownToTenth(sanitizedDistanceMiles);
   const subtotalCents = useMemo(() => Math.round(subtotal * 100), [subtotal]);
   const estimatedReturnCreditCents = useMemo(
     () => Math.round(estimatedReturnCredit * 100),
@@ -473,25 +550,42 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     ? sanitizedDeliveryFee * sanitizedPickupMultiplier
     : sanitizedDeliveryFee;
   const activeDeliveryFeeCents = Math.round(activeRouteFee * 100);
-  const creditsCoverDelivery = [UserTier.SILVER, UserTier.GOLD, UserTier.PLATINUM].includes(
+  const baseDistanceFee =
+    activeTier === UserTier.GREEN
+      ? 0
+      : calculateDistanceFee({
+          distanceMiles: sanitizedDistanceMiles,
+          includedMiles: sanitizedIncludedMiles,
+          band1Max: sanitizedBand1Max,
+          band2Max: sanitizedBand2Max,
+          band1Rate: sanitizedBand1Rate,
+          band2Rate: sanitizedBand2Rate,
+          band3Rate: sanitizedBand3Rate
+        });
+  const activeDistanceFee = isPickupOnlyOrder
+    ? baseDistanceFee * sanitizedPickupMultiplier
+    : baseDistanceFee;
+  const activeDistanceFeeCents = Math.round(activeDistanceFee * 100);
+  const creditsCoverDelivery = [UserTier.SILVER, UserTier.GOLD, UserTier.PLATINUM, UserTier.GREEN].includes(
     activeTier
   );
   const creditEligibleCents = creditsCoverDelivery
-    ? subtotalCents + activeDeliveryFeeCents
+    ? subtotalCents + activeDeliveryFeeCents + activeDistanceFeeCents
     : subtotalCents;
   const creditAppliedCents =
     payoutMethod === 'CASH' ? 0 : Math.min(estimatedReturnCreditCents, creditEligibleCents);
   const deliveryCoveredByCredits =
     payoutMethod !== 'CASH' &&
     creditsCoverDelivery &&
-    activeDeliveryFeeCents > 0 &&
+    activeDeliveryFeeCents + activeDistanceFeeCents > 0 &&
     estimatedReturnCreditCents > subtotalCents;
 
   // Preview total after estimated return credit (cannot go below 0)
   const previewTotalAfterCredit = useMemo(() => {
-    const totalCents = subtotalCents + activeDeliveryFeeCents - creditAppliedCents;
+    const totalCents =
+      subtotalCents + activeDeliveryFeeCents + activeDistanceFeeCents - creditAppliedCents;
     return Math.max(0, totalCents) / 100;
-  }, [subtotalCents, activeDeliveryFeeCents, creditAppliedCents]);
+  }, [subtotalCents, activeDeliveryFeeCents, activeDistanceFeeCents, creditAppliedCents]);
 
   // ----------------------------
   // Scanner modal behavior
@@ -976,6 +1070,23 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 text-white text-xs outline-none focus:border-ninpo-lime"
               />
             </div>
+            <div className="space-y-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                One-Way Distance (Miles)
+              </p>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                placeholder="0.0"
+                value={Number.isFinite(distanceMiles) ? distanceMiles : 0}
+                onChange={e => onDistanceChange(Number(e.target.value))}
+                className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 text-white text-xs outline-none focus:border-ninpo-lime"
+              />
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                Rounded down to 0.1 mi for distance fee tiers.
+              </p>
+            </div>
 
             {/* Policy checkbox */}
             <label className="flex items-center gap-3 text-[10px] font-black uppercase text-slate-500 cursor-pointer select-none">
@@ -1034,6 +1145,14 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 </p>
                 <p className="text-white font-black">{money(activeRouteFee)}</p>
               </div>
+              {activeDistanceFeeCents > 0 && (
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    Distance Fee{roundedDistanceMiles > 0 ? ` (${roundedDistanceMiles.toFixed(1)} mi)` : ''}
+                  </p>
+                  <p className="text-white font-black">{money(activeDistanceFee)}</p>
+                </div>
+              )}
 
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">

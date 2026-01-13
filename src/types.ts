@@ -24,7 +24,8 @@ export enum UserTier {
   BRONZE = 'BRONZE',
   SILVER = 'SILVER',
   GOLD = 'GOLD',
-  PLATINUM = 'PLATINUM'
+  PLATINUM = 'PLATINUM',
+  GREEN = 'GREEN'
 }
 
 export interface User {
@@ -101,6 +102,8 @@ export interface Order {
   items: { productId: string; quantity: number }[];
   total: number;
   deliveryFee?: number;
+  distanceMiles?: number;
+  distanceFee?: number;
   creditApplied?: number;
   estimatedReturnCreditGross?: number;
   estimatedReturnCredit: number;
@@ -137,6 +140,12 @@ export interface AppSettings {
   returnHandlingFeePerContainer: number;
   glassHandlingFeePerContainer: number;
   pickupOnlyMultiplier: number;
+  distanceIncludedMiles: number;
+  distanceBand1MaxMiles: number;
+  distanceBand2MaxMiles: number;
+  distanceBand1Rate: number;
+  distanceBand2Rate: number;
+  distanceBand3Rate: number;
   dailyReturnLimit: number;
   maintenanceMode: boolean;
   requirePhotoForRefunds: boolean;
