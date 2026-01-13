@@ -2539,7 +2539,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         })
                       }
                     />
-                    Free delivery for Platinum tier
+                    Free Route Fee for Platinum tier
                   </label>
                 </div>
               </div>
