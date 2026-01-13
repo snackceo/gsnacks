@@ -47,9 +47,15 @@ const CustomerView: React.FC<CustomerViewProps> = ({
   const safeCredits = (currentUser as any)?.creditBalance ?? 0;
   const safeDailyReturnTotal = (currentUser as any)?.dailyReturnTotal ?? 0;
   const safeLoyaltyPoints = (currentUser as any)?.loyaltyPoints ?? 0;
-  const normalizedTier = (currentUser?.membershipTier ?? UserTier.NONE).toString().toUpperCase();
+  const normalizedTier = (currentUser?.membershipTier ?? UserTier.COMMON)
+    .toString()
+    .toUpperCase();
   const tierLabel =
-    normalizedTier === 'NONE' ? 'COMMON' : normalizedTier === 'PLATINUM' ? 'SECRET PLATINUM' : normalizedTier;
+    normalizedTier === 'NONE'
+      ? 'COMMON'
+      : normalizedTier === 'PLATINUM'
+      ? 'SECRET PLATINUM'
+      : normalizedTier;
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20">

@@ -71,7 +71,7 @@ const DEFAULT_HANDLING_FEE = 0.02;
 const DEFAULT_GLASS_HANDLING_FEE = 0.02;
 const NOT_ELIGIBLE_MESSAGE = "This container isn't eligible for return value.";
 const DELIVERY_DISCOUNT_PERCENTS: Record<UserTier, number> = {
-  [UserTier.NONE]: 0,
+  [UserTier.COMMON]: 0,
   [UserTier.BRONZE]: 10,
   [UserTier.SILVER]: 20,
   [UserTier.GOLD]: 30,
@@ -455,7 +455,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     [sanitizedBaseDeliveryFee]
   );
 
-  const activeTier = membershipTier ?? UserTier.NONE;
+  const activeTier = membershipTier ?? UserTier.COMMON;
   const allowCashPayout = [UserTier.GOLD, UserTier.PLATINUM].includes(activeTier);
 
   useEffect(() => {
@@ -471,7 +471,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const tierDiscounts = useMemo(() => {
     const tiers = [
-      { tier: UserTier.NONE, label: 'Common' },
+      { tier: UserTier.COMMON, label: 'Common' },
       { tier: UserTier.BRONZE, label: 'Bronze' },
       { tier: UserTier.SILVER, label: 'Silver' },
       { tier: UserTier.GOLD, label: 'Gold' },

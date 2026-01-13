@@ -16,6 +16,10 @@ const RESET_TOKEN_TTL_MS = 1000 * 60 * 30;
 
 const hashResetToken = (token) =>
   crypto.createHash('sha256').update(token).digest('hex');
+const normalizeTier = (tier) => {
+  const normalized = String(tier || '').trim().toUpperCase();
+  return !normalized || normalized === 'NONE' ? 'COMMON' : normalized;
+};
 
 router.post('/register', async (req, res) => {
   try {
@@ -40,7 +44,7 @@ router.post('/register', async (req, res) => {
       role,
       loyaltyPoints: 100,
       creditBalance: 0,
-      membershipTier: 'BRONZE'
+      membershipTier: 'COMMON'
     });
 
     const token = jwt.sign(
@@ -58,7 +62,10 @@ router.post('/register', async (req, res) => {
         role,
         creditBalance: Number(user.creditBalance || 0),
         loyaltyPoints: Number(user.loyaltyPoints || 0),
-        membershipTier: user.membershipTier || 'BRONZE'
+        ordersCompleted: Number(user.ordersCompleted || 0),
+        phoneVerified: Boolean(user.phoneVerified),
+        photoIdVerified: Boolean(user.photoIdVerified),
+        membershipTier: normalizeTier(user.membershipTier)
       }
     });
   } catch (err) {
@@ -105,7 +112,10 @@ router.post('/login', async (req, res) => {
         role,
         creditBalance: Number(user.creditBalance || 0),
         loyaltyPoints: Number(user.loyaltyPoints || 0),
-        membershipTier: user.membershipTier || 'BRONZE'
+        ordersCompleted: Number(user.ordersCompleted || 0),
+        phoneVerified: Boolean(user.phoneVerified),
+        photoIdVerified: Boolean(user.photoIdVerified),
+        membershipTier: normalizeTier(user.membershipTier)
       }
     });
   } catch (err) {
@@ -187,7 +197,10 @@ router.get('/me', authRequired, async (req, res) => {
         role: user.role || 'CUSTOMER',
         creditBalance: Number(user.creditBalance || 0),
         loyaltyPoints: Number(user.loyaltyPoints || 0),
-        membershipTier: user.membershipTier || 'BRONZE',
+        ordersCompleted: Number(user.ordersCompleted || 0),
+        phoneVerified: Boolean(user.phoneVerified),
+        photoIdVerified: Boolean(user.photoIdVerified),
+        membershipTier: normalizeTier(user.membershipTier),
         createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : undefined
       }
     });

@@ -23,6 +23,7 @@ import {
 import { recordAuditLog } from '../utils/audit.js';
 
 const deliveryDiscountsByTier = {
+  COMMON: 0,
   BRONZE: 10,
   SILVER: 20,
   GOLD: 30,
@@ -34,8 +35,13 @@ const DEFAULT_RETURN_FEES = {
   glassHandlingFeePerContainer: 0.02
 };
 
+const normalizeTier = tier => {
+  const normalized = String(tier || '').trim().toUpperCase();
+  return !normalized || normalized === 'NONE' ? 'COMMON' : normalized;
+};
+
 const getDeliveryFeeDiscountPercent = tier => {
-  const normalizedTier = String(tier || '').trim().toUpperCase();
+  const normalizedTier = normalizeTier(tier);
   return deliveryDiscountsByTier[normalizedTier] ?? 0;
 };
 
@@ -371,7 +377,7 @@ const createPaymentsRouter = ({ stripe }) => {
           totalCents += deliveryFeeFinalCents;
         }
 
-        const tier = String(user?.membershipTier || 'BRONZE').toUpperCase();
+        const tier = normalizeTier(user?.membershipTier);
         const eligibleCreditCents = CREDIT_DELIVERY_ELIGIBLE_TIERS.has(tier)
           ? totalCents
           : productSubtotalCents;
