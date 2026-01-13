@@ -48,8 +48,10 @@ import {
 } from 'recharts';
 import {
   getAdvancedInventoryInsights,
+  analyzeProductScan,
   getAvailableAuditModels,
-  getOperationsSummary
+  getOperationsSummary,
+  type ProductScanResult
 } from '../services/geminiService';
 
 const BACKEND_URL =
@@ -210,16 +212,25 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     price: 0,
     deposit: 0,
     stock: 0,
+    sizeOz: 0,
     category: 'DRINK',
     image: '',
     isGlass: false
   });
+  const [labelScanPhoto, setLabelScanPhoto] = useState<string | null>(null);
+  const [labelScanMime, setLabelScanMime] = useState<string | null>(null);
+  const [labelScanResult, setLabelScanResult] = useState<ProductScanResult | null>(
+    null
+  );
+  const [labelScanError, setLabelScanError] = useState<string | null>(null);
+  const [isLabelScanning, setIsLabelScanning] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editDraft, setEditDraft] = useState({
     name: '',
     price: 0,
     deposit: 0,
     stock: 0,
+    sizeOz: 0,
     category: '',
     image: '',
     isGlass: false
@@ -849,6 +860,72 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     };
   }, [upcScannerOpen]);
 
+  const readFileAsDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+
+  const handleLabelPhotoChange = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setLabelScanError(null);
+    setLabelScanResult(null);
+    setLabelScanMime(file.type || null);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setLabelScanPhoto(dataUrl);
+    } catch {
+      setLabelScanError('Unable to read the photo.');
+    }
+  };
+
+  const applyLabelScanToDrafts = (result: ProductScanResult) => {
+    const hasSignal =
+      Boolean(result.upc || result.name) ||
+      Number(result.sizeOz) > 0 ||
+      Number(result.quantity) > 0;
+    if (!hasSignal) return;
+    setUpcInput(result.upc || '');
+    setUpcDraft(prev => ({
+      ...prev,
+      upc: result.upc || prev.upc,
+      name: result.name || prev.name,
+      sizeOz: Number.isFinite(result.sizeOz) ? result.sizeOz : prev.sizeOz,
+      isEligible: result.isEligible
+    }));
+    setNewProduct(prev => ({
+      ...prev,
+      name: result.name || prev.name,
+      stock:
+        Number.isFinite(result.quantity) && result.quantity > 0
+          ? result.quantity
+          : prev.stock,
+      sizeOz: Number.isFinite(result.sizeOz) ? result.sizeOz : prev.sizeOz
+    }));
+  };
+
+  const runLabelScan = async () => {
+    if (!labelScanPhoto) {
+      setLabelScanError('Upload a label photo to scan.');
+      return;
+    }
+
+    setIsLabelScanning(true);
+    setLabelScanError(null);
+    const result = await analyzeProductScan(labelScanPhoto, labelScanMime || undefined);
+    setLabelScanResult(result);
+    applyLabelScanToDrafts(result);
+    if (result.message && !result.upc && !result.name) {
+      setLabelScanError(result.message);
+    }
+    setIsLabelScanning(false);
+  };
+
   // ---- Inventory API ----
   const apiCreateProduct = async () => {
     setCreateError(null);
@@ -864,6 +941,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           price: Number(newProduct.price),
           deposit: Number(newProduct.deposit),
           stock: Number(newProduct.stock),
+          sizeOz: Number(newProduct.sizeOz),
           category: newProduct.category,
           image: newProduct.image,
           isGlass: !!newProduct.isGlass
@@ -882,6 +960,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         price: 0,
         deposit: 0,
         stock: 0,
+        sizeOz: 0,
         category: 'DRINK',
         image: '',
         isGlass: false
@@ -920,6 +999,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       price: product.price,
       deposit: product.deposit,
       stock: product.stock,
+      sizeOz: product.sizeOz,
       category: product.category,
       image: product.image,
       isGlass: product.isGlass
@@ -939,14 +1019,15 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     const price = Number(editDraft.price);
     const deposit = Number(editDraft.deposit);
     const stock = Number(editDraft.stock);
+    const sizeOz = Number(editDraft.sizeOz);
 
     if (!name) {
       setEditError('Name is required.');
       return;
     }
 
-    if ([price, deposit, stock].some(value => Number.isNaN(value))) {
-      setEditError('Price, deposit, and stock must be valid numbers.');
+    if ([price, deposit, stock, sizeOz].some(value => Number.isNaN(value))) {
+      setEditError('Price, deposit, stock, and size must be valid numbers.');
       return;
     }
 
@@ -956,6 +1037,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     if (price !== editingProduct.price) updates.price = price;
     if (deposit !== editingProduct.deposit) updates.deposit = deposit;
     if (stock !== editingProduct.stock) updates.stock = stock;
+    if (sizeOz !== editingProduct.sizeOz) updates.sizeOz = sizeOz;
     if (editDraft.category !== editingProduct.category) updates.category = editDraft.category;
     if (editDraft.image !== editingProduct.image) updates.image = editDraft.image;
     if (editDraft.isGlass !== editingProduct.isGlass) updates.isGlass = editDraft.isGlass;
@@ -2412,6 +2494,102 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             </h2>
 
             <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  AI Label Scan
+                </p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-2">
+                  Upload a product label to auto-fill UPC, size, quantity, and eligibility.
+                </p>
+              </div>
+
+              {labelScanError && (
+                <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                  {labelScanError}
+                </div>
+              )}
+
+              <div className="flex flex-col md:flex-row gap-4 items-center">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleLabelPhotoChange}
+                  className="flex-1 text-[11px] text-slate-400 file:mr-4 file:py-3 file:px-4 file:rounded-2xl file:border-0 file:bg-white/10 file:text-white file:text-[10px] file:font-black file:uppercase file:tracking-widest"
+                />
+                <button
+                  onClick={runLabelScan}
+                  disabled={isLabelScanning || !labelScanPhoto}
+                  className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {isLabelScanning ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <ScanLine className="w-4 h-4" />
+                  )}
+                  Analyze Label
+                </button>
+              </div>
+
+              {labelScanPhoto && (
+                <div className="grid grid-cols-1 md:grid-cols-[160px_1fr] gap-4 items-start">
+                  <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40">
+                    <img
+                      src={labelScanPhoto}
+                      alt="Label preview"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-[11px] text-slate-300 uppercase tracking-widest">
+                    <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                      <p className="text-slate-500 font-bold">UPC</p>
+                      <p className="text-white font-semibold mt-2">
+                        {labelScanResult?.upc || '—'}
+                      </p>
+                    </div>
+                    <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                      <p className="text-slate-500 font-bold">Quantity</p>
+                      <p className="text-white font-semibold mt-2">
+                        {labelScanResult?.quantity
+                          ? Number(labelScanResult.quantity).toFixed(0)
+                          : '—'}
+                      </p>
+                    </div>
+                    <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                      <p className="text-slate-500 font-bold">Size (oz)</p>
+                      <p className="text-white font-semibold mt-2">
+                        {labelScanResult?.sizeOz
+                          ? Number(labelScanResult.sizeOz).toFixed(1)
+                          : '—'}
+                      </p>
+                    </div>
+                    <div className="bg-black/30 rounded-2xl p-4 border border-white/5 md:col-span-2">
+                      <p className="text-slate-500 font-bold">Name</p>
+                      <p className="text-white font-semibold mt-2">
+                        {labelScanResult?.name || '—'}
+                      </p>
+                    </div>
+                    <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                      <p className="text-slate-500 font-bold">Eligibility</p>
+                      <p className="text-white font-semibold mt-2">
+                        {labelScanResult
+                          ? labelScanResult.isEligible
+                            ? 'ELIGIBLE'
+                            : 'INELIGIBLE'
+                          : '—'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {labelScanResult?.message && (
+                <div className="text-[11px] text-slate-500 uppercase tracking-widest">
+                  {labelScanResult.message}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
                 Create Product
               </p>
@@ -2471,6 +2649,19 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     onChange={e => setNewProduct({ ...newProduct, stock: Number(e.target.value) })}
                   />
                 </label>
+                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  <span>Size (oz)</span>
+                  <input
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    placeholder="0"
+                    type="number"
+                    step="0.1"
+                    value={newProduct.sizeOz}
+                    onChange={e =>
+                      setNewProduct({ ...newProduct, sizeOz: Number(e.target.value) })
+                    }
+                  />
+                </label>
                 <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
                   <span>Image URL</span>
                   <input
@@ -2505,7 +2696,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   <div>
                     <p className="text-white font-black">{p.name}</p>
                     <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest mt-1">
-                      ID: {p.id} • Stock: {p.stock} • ${Number(p.price || 0).toFixed(2)}
+                      ID: {p.id} • Stock: {p.stock} •{' '}
+                      {p.sizeOz ? `${Number(p.sizeOz).toFixed(1)} oz` : 'No size'} • $
+                      {Number(p.price || 0).toFixed(2)}
                     </p>
                   </div>
 
@@ -2830,6 +3023,19 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   setEditDraft({
                     ...editDraft,
                     stock: Number(e.target.value)
+                  })
+                }
+              />
+              <input
+                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                placeholder="Size (oz)"
+                type="number"
+                step="0.1"
+                value={editDraft.sizeOz}
+                onChange={e =>
+                  setEditDraft({
+                    ...editDraft,
+                    sizeOz: Number(e.target.value)
                   })
                 }
               />

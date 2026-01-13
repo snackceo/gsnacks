@@ -15,6 +15,7 @@ router.get('/', async (req, res) => {
       price: d.price,
       deposit: d.deposit ?? 0,
       stock: d.stock ?? 0,
+      sizeOz: d.sizeOz ?? 0,
       category: d.category ?? 'DRINK',
       image: d.image ?? '',
       isGlass: !!d.isGlass
@@ -28,8 +29,18 @@ router.get('/', async (req, res) => {
 
 router.post('/', authRequired, ownerRequired, async (req, res) => {
   try {
-    const { id, frontendId, name, price, deposit, stock, category, image, isGlass } =
-      req.body || {};
+    const {
+      id,
+      frontendId,
+      name,
+      price,
+      deposit,
+      stock,
+      sizeOz,
+      category,
+      image,
+      isGlass
+    } = req.body || {};
 
     const finalFrontendId = (frontendId || id || '').trim();
     if (!finalFrontendId) return res.status(400).json({ error: 'id is required' });
@@ -44,6 +55,7 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       price: Number(price),
       deposit: Number(deposit || 0),
       stock: Number(stock || 0),
+      sizeOz: Number(sizeOz || 0),
       category: category || 'DRINK',
       image: image || '',
       isGlass: !!isGlass
@@ -58,6 +70,7 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
         price: created.price,
         deposit: created.deposit ?? 0,
         stock: created.stock ?? 0,
+        sizeOz: created.sizeOz ?? 0,
         category: created.category ?? 'DRINK',
         image: created.image ?? '',
         isGlass: !!created.isGlass
@@ -77,7 +90,16 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
     const frontendId = req.params.id;
 
     const updates = {};
-    const allowed = ['name', 'price', 'deposit', 'stock', 'category', 'image', 'isGlass'];
+    const allowed = [
+      'name',
+      'price',
+      'deposit',
+      'stock',
+      'sizeOz',
+      'category',
+      'image',
+      'isGlass'
+    ];
 
     for (const k of allowed) {
       if (req.body?.[k] !== undefined) updates[k] = req.body[k];
@@ -86,6 +108,7 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
     if (updates.price !== undefined) updates.price = Number(updates.price);
     if (updates.deposit !== undefined) updates.deposit = Number(updates.deposit);
     if (updates.stock !== undefined) updates.stock = Number(updates.stock);
+    if (updates.sizeOz !== undefined) updates.sizeOz = Number(updates.sizeOz);
     if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
 
     const updated = await Product.findOneAndUpdate({ frontendId }, updates, {
@@ -103,6 +126,7 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
         price: updated.price,
         deposit: updated.deposit ?? 0,
         stock: updated.stock ?? 0,
+        sizeOz: updated.sizeOz ?? 0,
         category: updated.category ?? 'DRINK',
         image: updated.image ?? '',
         isGlass: !!updated.isGlass

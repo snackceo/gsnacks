@@ -40,6 +40,15 @@ export type BottleScanResult = {
   message: string;
 };
 
+export type ProductScanResult = {
+  upc: string;
+  name: string;
+  sizeOz: number;
+  quantity: number;
+  isEligible: boolean;
+  message?: string;
+};
+
 export const analyzeBottleScan = async (base64Data: string): Promise<BottleScanResult> => {
   const backendUrl = getBackendUrl();
   const normalized = normalizeBase64(base64Data);
@@ -94,6 +103,75 @@ export const analyzeBottleScan = async (base64Data: string): Promise<BottleScanR
       valid: false,
       material: 'OFFLINE',
       message: 'Intelligence Node Unreachable.'
+    };
+  }
+};
+
+export const analyzeProductScan = async (
+  base64Data: string,
+  mimeType?: string
+): Promise<ProductScanResult> => {
+  const backendUrl = getBackendUrl();
+  const normalized = normalizeBase64(base64Data);
+
+  if (!normalized) {
+    return {
+      upc: '',
+      name: '',
+      sizeOz: 0,
+      quantity: 0,
+      isEligible: false,
+      message: 'No image data provided.'
+    };
+  }
+
+  try {
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/ai/product-scan`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ image: normalized, mimeType })
+      },
+      20000
+    );
+
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const data = await response.json();
+        detail = data?.error || data?.message || '';
+      } catch {
+        // ignore
+      }
+      return {
+        upc: '',
+        name: '',
+        sizeOz: 0,
+        quantity: 0,
+        isEligible: false,
+        message: detail || 'Product scan unavailable.'
+      };
+    }
+
+    const data = await response.json();
+    return {
+      upc: String(data?.upc || ''),
+      name: String(data?.name || ''),
+      sizeOz: Number(data?.sizeOz || 0),
+      quantity: Number(data?.quantity || 0),
+      isEligible: Boolean(data?.isEligible),
+      message: typeof data?.message === 'string' ? data.message : undefined
+    };
+  } catch {
+    return {
+      upc: '',
+      name: '',
+      sizeOz: 0,
+      quantity: 0,
+      isEligible: false,
+      message: 'Product scan unavailable.'
     };
   }
 };
