@@ -602,6 +602,12 @@ const createPaymentsRouter = ({ stripe }) => {
       const orderId = String(req.body?.orderId || '').trim();
       if (!orderId) return res.status(400).json({ error: 'orderId is required' });
 
+      await recordAuditLog({
+        type: 'ORDER_CAPTURE_START',
+        actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+        details: `Attempting to capture payment for order ${orderId}.`
+      });
+
       let updatedOrderDoc = null;
 
       const isOwner = isOwnerUsername(req.user?.username);
@@ -668,11 +674,21 @@ const createPaymentsRouter = ({ stripe }) => {
             upcEntries,
             feeConfig
           );
-          const netCredit = Math.max(0, verifiedReturnCreditGross - feeSummary.totalFee);
+          const dailyCap = Number(process.env.DAILY_RETURN_CAP || 25); // dollars
+          const computedVerifiedCreditGross = Math.min(verifiedReturnCreditGross, dailyCap);
+          const netCredit = Math.max(0, computedVerifiedCreditGross - feeSummary.totalFee);
           verifiedCredit = {
-            gross: verifiedReturnCreditGross,
+            gross: computedVerifiedCreditGross,
             net: netCredit
           };
+
+          await recordAuditLog({
+            type: 'ORDER_RETURNS_VERIFIED',
+            actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+            details: `Order ${orderId} returns verified. Gross: $${verifiedCredit.gross.toFixed(
+              2
+            )}, Fees: $${feeSummary.totalFee.toFixed(2)}, Net: $${netCredit.toFixed(2)}.`
+          });
         }
         verifiedReturnCredit = verifiedCredit.net;
 
@@ -712,6 +728,16 @@ const createPaymentsRouter = ({ stripe }) => {
             await stripe.paymentIntents.cancel(pi);
           } catch {
             // ignore
+          }
+
+          if (authorizedCents > 0) {
+            await recordAuditLog({
+              type: 'ORDER_PAYMENT_VOIDED',
+              actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+              details: `Stripe authorization for order ${orderId} voided. Authorized: $${(
+                authorizedCents / 100
+              ).toFixed(2)}. Net return credit $${verifiedReturnCredit.toFixed(2)} covered the cost.`
+            });
           }
 
           order.status = 'PAID';
@@ -766,6 +792,17 @@ const createPaymentsRouter = ({ stripe }) => {
           } else throw err;
         }
 
+        if (captured) {
+          await recordAuditLog({
+            type: 'ORDER_PAYMENT_CAPTURED',
+            actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+            details: `Stripe payment captured for order ${orderId}. Amount: $${(
+              finalCaptureCents / 100
+            ).toFixed(2)}. Authorized: $${(authorizedCents / 100).toFixed(
+              2
+            )}. Net return credit: $${verifiedReturnCredit.toFixed(2)}.`
+          });
+        }
         order.status = 'PAID';
         order.paidAt = new Date();
         order.capturedAt = new Date();
