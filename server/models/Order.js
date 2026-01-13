@@ -29,6 +29,9 @@ const orderSchema = new mongoose.Schema(
     deliveryFee: { type: Number, default: 0 },
     deliveryFeeDiscountPercent: { type: Number, default: 0 },
     deliveryFeeFinal: { type: Number, default: 0 },
+    distanceMiles: { type: Number, default: 0 },
+    distanceFee: { type: Number, default: 0 },
+    distanceFeeFinal: { type: Number, default: 0 },
 
     /* =========================================================
        PAYMENT

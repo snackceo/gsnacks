@@ -262,6 +262,8 @@ function mapOrderForFrontend(d) {
     items: Array.isArray(d.items) ? d.items : [],
     total: Number(d.total || 0),
     deliveryFee: Number(d.deliveryFeeFinal ?? d.deliveryFee ?? 0),
+    distanceMiles: Number(d.distanceMiles || 0),
+    distanceFee: Number(d.distanceFeeFinal ?? d.distanceFee ?? 0),
     creditApplied: Number(d.creditApplied || 0),
 
     // Bottle returns

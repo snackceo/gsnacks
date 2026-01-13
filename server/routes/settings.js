@@ -16,6 +16,12 @@ const defaultSettings = {
   returnHandlingFeePerContainer: 0.02,
   glassHandlingFeePerContainer: 0.02,
   pickupOnlyMultiplier: 0.5,
+  distanceIncludedMiles: 3.0,
+  distanceBand1MaxMiles: 10.0,
+  distanceBand2MaxMiles: 20.0,
+  distanceBand1Rate: 0.5,
+  distanceBand2Rate: 0.75,
+  distanceBand3Rate: 1.0,
   dailyReturnLimit: 250,
   maintenanceMode: false,
   requirePhotoForRefunds: false,
@@ -33,6 +39,12 @@ const numericFields = [
   'returnHandlingFeePerContainer',
   'glassHandlingFeePerContainer',
   'pickupOnlyMultiplier',
+  'distanceIncludedMiles',
+  'distanceBand1MaxMiles',
+  'distanceBand2MaxMiles',
+  'distanceBand1Rate',
+  'distanceBand2Rate',
+  'distanceBand3Rate',
   'dailyReturnLimit'
 ];
 
@@ -88,6 +100,18 @@ const mapSettings = (doc) => ({
   pickupOnlyMultiplier: Number(
     doc?.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier
   ),
+  distanceIncludedMiles: Number(
+    doc?.distanceIncludedMiles ?? defaultSettings.distanceIncludedMiles
+  ),
+  distanceBand1MaxMiles: Number(
+    doc?.distanceBand1MaxMiles ?? defaultSettings.distanceBand1MaxMiles
+  ),
+  distanceBand2MaxMiles: Number(
+    doc?.distanceBand2MaxMiles ?? defaultSettings.distanceBand2MaxMiles
+  ),
+  distanceBand1Rate: Number(doc?.distanceBand1Rate ?? defaultSettings.distanceBand1Rate),
+  distanceBand2Rate: Number(doc?.distanceBand2Rate ?? defaultSettings.distanceBand2Rate),
+  distanceBand3Rate: Number(doc?.distanceBand3Rate ?? defaultSettings.distanceBand3Rate),
   dailyReturnLimit: Number(doc?.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
   maintenanceMode: Boolean(doc?.maintenanceMode ?? defaultSettings.maintenanceMode),
   requirePhotoForRefunds: Boolean(
