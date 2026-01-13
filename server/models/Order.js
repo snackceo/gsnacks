@@ -46,6 +46,7 @@ const orderSchema = new mongoose.Schema(
     verifiedReturnCreditGross: { type: Number, default: 0 }, // dollars (gross)
     verifiedReturnCredit: { type: Number, default: 0 }, // dollars (driver)
     returnCreditsAppliedAt: { type: Date },
+    returnPayoutMethod: { type: String, default: 'CREDIT' },
 
     items: [
       {

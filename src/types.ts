@@ -103,6 +103,7 @@ export interface Order {
   estimatedReturnCredit: number;
   verifiedReturnCreditGross?: number;
   verifiedReturnCredit?: number;
+  returnPayoutMethod?: 'CREDIT' | 'CASH';
   returnUpcs?: string[];
   verifiedReturnUpcs?: string[];
   returnUpcCounts?: ReturnUpcCount[];

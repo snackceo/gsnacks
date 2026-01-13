@@ -149,6 +149,14 @@ function normalizeUpcCounts(rawUpcs) {
   };
 }
 
+function normalizeReturnPayoutMethod(rawMethod) {
+  const normalized = String(rawMethod || '').trim().toUpperCase();
+  if (normalized === 'CASH' || normalized === 'CREDIT') {
+    return normalized;
+  }
+  return 'CREDIT';
+}
+
 function sumReturnCredits(upcCounts, upcEntries) {
   const countMap = new Map();
   if (Array.isArray(upcCounts)) {
@@ -160,11 +168,15 @@ function sumReturnCredits(upcCounts, upcEntries) {
     }
   }
 
-  return (upcEntries || []).reduce((sum, entry) => {
-    if (!entry?.isEligible) return sum;
-    const count = countMap.get(entry?.upc) || 0;
-    return sum + Number(entry?.depositValue || 0) * count;
-  }, 0);
+  const entryByUpc = new Map((upcEntries || []).map(entry => [entry?.upc, entry]));
+  let eligibleCount = 0;
+  for (const [upc, quantity] of countMap.entries()) {
+    const entry = entryByUpc.get(upc);
+    if (!entry?.isEligible) continue;
+    eligibleCount += quantity;
+  }
+
+  return eligibleCount * 0.1;
 }
 
 function calculateReturnFeeSummary(
@@ -270,6 +282,7 @@ function mapOrderForFrontend(d) {
       d.verifiedReturnCredit !== undefined
         ? Number(d.verifiedReturnCredit || 0)
         : undefined,
+    returnPayoutMethod: d.returnPayoutMethod || 'CREDIT',
 
     // Money movement (dollars)
     authorizedAmount,
@@ -343,6 +356,7 @@ export {
   isOwnerUsername,
   calculateReturnFeeSummary,
   mapOrderForFrontend,
+  normalizeReturnPayoutMethod,
   normalizeCart,
   normalizeUpcCounts,
   ownerRequired,
