@@ -63,7 +63,7 @@ Cash handling is **exceptional**, not default.
 * This value is **fixed** and must not be altered
 * No promotions, multipliers, or dynamic pricing apply
 
-**Deposit value must never be reduced except by the Cash Settlement Fees defined in this spec (Cash Handling Fee and Glass Handling Surcharge) during Cash Settlement.**
+The *only* time container value is reduced is when a customer **explicitly chooses cash settlement**, in which case legally permitted service fees apply.
 
 ---
 
@@ -408,7 +408,80 @@ Receipts should never display:
 
 ---
 
-## 11. System Invariants (Must Not Drift)
+## 11. Points (Loyalty) – Earn & Redeem (Non-Cash Credits)
+
+Points are a **loyalty mechanism** that rewards product purchases. Points are **not money** and are not governed by Stripe.
+
+### 11.1 Eligibility
+
+**Points are earned by:**
+
+* **Common**
+* **Bronze**
+* **Silver**
+* **Gold**
+
+**Points are not earned by:**
+
+* **Secret Platinum**
+* **Green (future)**
+
+### 11.2 Earning Rate (Products Only)
+
+Points are earned on **product purchases only** (not Route Fee, Distance Fee, Cash Handling Fee, or Glass Handling Surcharge).
+
+Earn rate by tier:
+
+* **Common / Bronze:** `1.0 points per $1.00` of product subtotal
+* **Silver:** `1.2 points per $1.00` of product subtotal
+* **Gold:** `1.5 points per $1.00` of product subtotal
+
+Points are earned with **cent-level precision**:
+
+* If a customer buys `$0.99` of products, they earn `0.99` points (multiplied by tier rate).
+
+#### Points Storage Rule (Authoritative)
+
+Points are stored as **integer point-units** to avoid floating point drift:
+
+* `100 point-units = 1.00 points`
+
+Example:
+
+* `$0.99` products at `1.0x` earns `99 point-units` (= `0.99` points)
+
+#### Points Earned vs Wallet Credits (Authoritative)
+
+Points are earned only on **product subtotal paid outside the wallet**.
+
+* Product subtotal covered by **wallet credits** does **not** generate points.
+
+### 11.3 Redemption (Points → Wallet Credits)
+
+Bronze and above may redeem points into **Wallet Credits** using this conversion:
+
+* `100 points = $1.00 wallet credit`
+
+Redemption minimums:
+
+* **Bronze:** minimum `500 points` ($5.00)
+* **Silver:** minimum `250 points` ($2.50)
+* **Gold:** no minimum
+
+Redeemed credits are stored in the **same wallet** as bottle return credits.
+
+### 11.4 Non-Cash Rule (Critical)
+
+Credits created via points redemption:
+
+* **May be used like Wallet Credits (tier-scoped)**
+* **May NOT be redeemed or paid out as cash**
+
+The **only** credits that may be converted to cash are the credits that originate from **MI bottle deposits** and are settled via **Cash Settlement**.
+
+---
+
+## 12. System Invariants (Must Not Drift)
 
 1. Michigan container value is fixed at $0.10
 2. Bottle returns are a **service**
@@ -419,25 +492,6 @@ Receipts should never display:
 4. Every delivery and pickup has a Route Fee by default
 5. Tier rules govern all exceptions
 6. Cash handling is discouraged
-
----
-
-## 12. Calculation Order & Rounding Rules (Implementation Contract)
-
-### 12.1 Calculation Order (Authoritative)
-
-All order totals MUST be computed in this order:
-
-1. Compute **Product Subtotal**
-2. Compute **Route Fee** and **Distance Fee**
-3. If **Pickup-Only Order**, apply `pickup_only_multiplier` to Route Fee and Distance Fee
-4. Apply any **tier/operator waivers** (if applicable)
-5. Apply **wallet credits** (tier-scoped)
-6. Any remaining payable balance is charged via **Stripe**
-
-### 12.2 Currency Rounding Rule (Authoritative)
-
-All monetary amounts are stored and processed in **USD cents**, and all computed totals MUST be rounded to the nearest cent at the **final order total**.
 
 ---
 
