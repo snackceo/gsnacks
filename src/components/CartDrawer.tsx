@@ -110,7 +110,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   onPayExternal
 }) => {
   // ----------------------------
-  // Bottle returns (UPC list)
+  // Container returns (UPC list)
   // ----------------------------
   const [returnUpcs, setReturnUpcs] = useState<ReturnUpcEntry[]>([]);
   const [manualUpc, setManualUpc] = useState('');
@@ -665,7 +665,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-white font-black uppercase tracking-widest text-sm">
-                Bottle UPC Scanner
+                Container UPC Scanner
               </p>
               <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
                 Point camera at barcode. Auto-adds detected UPCs.
@@ -751,7 +751,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               <div>
                 <p className="text-white font-black uppercase tracking-widest text-sm">Cart</p>
                 <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
-                  Review • Bottle returns • Checkout
+                  Review • Container returns • Checkout
                 </p>
               </div>
             </div>
@@ -802,17 +802,17 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               )}
             </div>
 
-            {/* Bottle Returns */}
+            {/* Container Returns */}
             <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <p className="text-white font-black uppercase tracking-widest text-xs">
-                      Bottle Returns (Optional)
+                      Container Returns (Optional)
                     </p>
                     <button
                       type="button"
-                      aria-label="Toggle bottle return advisory"
+                      aria-label="Toggle container return advisory"
                       aria-expanded={showBottleReturnAdvisory}
                       onClick={() => setShowBottleReturnAdvisory(prev => !prev)}
                       className="flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-black/40 text-slate-300 hover:text-white hover:border-white/20 transition"
@@ -823,7 +823,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                   {showBottleReturnAdvisory && (
                     <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
                       Enter eligible Michigan 10¢ deposit UPCs to see an estimated net return value
-                      after handling fees. Final value is confirmed after driver verification.
+                      after handling fees. Final value is confirmed after driver verification and
+                      condition checks.
                     </p>
                   )}
                 </div>
@@ -898,8 +899,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 <Info className="w-3 h-3 text-slate-500 mt-0.5" />
                 <p>
                   Net values reflect {money(handlingFee)} handling fees per container and{' '}
-                  {money(handlingFee + glassHandlingFee)} for glass. Daily limits apply. Estimates do
-                  not affect your payment authorization.
+                  {money(handlingFee + glassHandlingFee)} for glass. Daily per-person limits apply.
+                  Estimates do not affect your payment authorization.
                 </p>
               </div>
               {totalReturnCount > dailyContainerLimit && (
@@ -993,10 +994,11 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
               {showPolicyAdvisories && (
                 <div className="space-y-2">
-                  <p>Containers must be clean and clearly marked with the MI 10¢ deposit label.</p>
+                  <p>Containers must be empty, clean, and clearly marked with the MI 10¢ label.</p>
                   <p>Return value posts after verification and credits never expire.</p>
                   <p>Daily limit: {dailyContainerLimit} containers per customer.</p>
-                  <p>Cash payouts are capped at $25 per day for Gold+ members.</p>
+                  <p>Common/Bronze credits apply to products only; Silver+ can cover delivery.</p>
+                  <p>Gold+ cash payouts are capped at $25 per day.</p>
                   <p>No splitting returns across multiple addresses to bypass the limit.</p>
                   <p>
                     AI output is advisory; eligibility is determined by the UPC whitelist and

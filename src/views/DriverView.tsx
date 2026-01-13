@@ -946,12 +946,12 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
                   <p className="text-white font-black">Apply to This Order</p>
                   <p>Use your verified return value to reduce today’s total.</p>
-                  <p>Pickup and delivery fees may be waived.</p>
+                  <p>Silver+ can apply credits to delivery fees; Common/Bronze apply to products.</p>
                 </div>
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
                   <p className="text-white font-black">Save as Credits</p>
                   <p>Store your return value for future orders.</p>
-                  <p>Credits may qualify for reduced service fees.</p>
+                  <p>Credits never expire and post after eligibility is confirmed.</p>
                 </div>
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
                   <p className="text-white font-black">Cash</p>
@@ -1047,7 +1047,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               </p>
               <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-[10px] uppercase tracking-widest text-slate-400 space-y-2">
                 <p className="text-slate-300">Valid returns</p>
-                <p>Clean containers with MI 10¢ deposit label and eligible UPCs.</p>
+                <p>Empty, clean containers with MI 10¢ deposit label and eligible UPCs.</p>
                 <p className="text-slate-300">Proof requirements</p>
                 <p>Return photo + delivery proof photo required before completion.</p>
               </div>
@@ -1095,7 +1095,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                       Delivery fee: <span className="text-white">{money(o.deliveryFee || 0)}</span>
                     </p>
                     <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
-                      Est. bottle credit:{' '}
+                      Est. return credit:{' '}
                       <span className="text-ninpo-lime">{money(o.estimatedReturnCredit || 0)}</span>
                     </p>
                   </div>
@@ -1167,7 +1167,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               <p className="uppercase tracking-widest opacity-60">Order</p>
               <p className="font-black">{activeOrder.id}</p>
 
-              <p className="uppercase tracking-widest opacity-60 mt-4">Estimated bottle credit (preview)</p>
+              <p className="uppercase tracking-widest opacity-60 mt-4">Estimated return credit (preview)</p>
               <p className="font-black text-ninpo-lime">{money(activeOrder.estimatedReturnCredit || 0)}</p>
 
               <p className="uppercase tracking-widest opacity-60 mt-4">Delivery fee</p>
@@ -1194,7 +1194,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               )}
 
               <div>
-                <p className="uppercase tracking-widest opacity-60">Verify Bottle Returns</p>
+                <p className="uppercase tracking-widest opacity-60">Verify Container Returns</p>
                 <p className="text-[10px] uppercase tracking-widest text-slate-600 mt-2">
                   Scan eligible Michigan 10¢ deposit containers. Containers must be empty and clean.
                 </p>
@@ -1244,7 +1244,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                   <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-[10px] uppercase tracking-widest text-slate-400 space-y-2">
                     <p className="text-slate-300">Quantity helper</p>
                     <p>Multiple of the same container are allowed.</p>
-                    <p>Do not scan the same bottle more than once.</p>
+                    <p>Do not scan the same container more than once.</p>
                   </div>
 
                   <label className="flex items-start gap-3 text-[10px] uppercase tracking-widest text-slate-500">
@@ -1336,7 +1336,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                     onClick={handleCapturePaymentClick}
                     disabled={isCapturing || paymentCaptured}
                     className="w-full px-6 py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                    title="Captures (charges) the final amount after verified bottle credit"
+                    title="Captures (charges) the final amount after verified return credit"
                   >
                     {isCapturing ? (
                       <span className="flex items-center justify-center gap-2">
@@ -1703,7 +1703,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
             {!paymentCaptured && !isReturnOnly && (
               <p className="text-[10px] uppercase tracking-widest text-slate-500">
-                Capture payment after verifying bottle returns, then complete delivery.
+                Capture payment after verifying container returns, then complete delivery.
               </p>
             )}
             {isReturnOnly && (
