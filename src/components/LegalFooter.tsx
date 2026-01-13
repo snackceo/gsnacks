@@ -107,15 +107,14 @@ const LegalFooter: React.FC = () => {
                 declined on the spot.
               </p>
               <p>
-                Verified containers earn $0.10 each before fees. A handling fee of 20% of the
-                deposit value (typically $0.02) applies per container, with an additional $0.02 for
-                glass (net $0.08 for plastic/aluminum, $0.06 for glass). Daily return credit is
-                capped at $25 per customer.
+                Verified containers earn $0.10 each. Credit settlement preserves the full deposit
+                value. Cash settlement applies a $0.02 cash handling fee per container and an
+                additional $0.02 glass surcharge.
               </p>
               <p>
                 Return value posts as store credit by default (no expiration). Gold+ members
-                may request cash payouts up to $25/day, disbursed by the driver at drop-off.
-                AI tools may assist verification but do not make final decisions.
+                may request cash payouts at drop-off. AI tools may assist verification but do not
+                make final decisions.
               </p>
             </>
           }
@@ -173,13 +172,13 @@ const LegalFooter: React.FC = () => {
                 <ul className="list-disc list-inside space-y-2">
                   <li>Eligible items include Michigan deposit-eligible plastic, aluminum, and glass.</li>
                   <li>Eligible containers earn $0.10 each under Michigan deposit rules.</li>
-                  <li>Service fee: 20% of the deposit value (e.g., $0.02); glass adds an extra $0.02.</li>
-                  <li>Net credit: $0.08 (plastic/aluminum) or $0.06 (glass).</li>
+                  <li>Credit settlement preserves the full $0.10 per container.</li>
+                  <li>Cash settlement deducts a $0.02 cash handling fee per container.</li>
+                  <li>Glass containers add an extra $0.02 surcharge in cash settlement.</li>
                   <li>Credits are added as store credit by default and never expire.</li>
-                  <li>Credits post after verification; receipts show counts, fees, and net totals.</li>
-                  <li>Receipts show counts, fees, and net credits transparently.</li>
+                  <li>Credits post after verification; receipts show counts, fees, and totals.</li>
                   <li>
-                    Cash payouts are available for Gold+ tiers only, capped at $25/day.
+                    Cash payouts are available for Gold+ tiers only.
                   </li>
                 </ul>
               </section>
@@ -191,30 +190,27 @@ const LegalFooter: React.FC = () => {
                 <ul className="list-disc list-inside space-y-2">
                   <li>
                     <span className="text-white">Common:</span> sign-up tier; credits apply to
-                    products only; no delivery discount.
+                    products only.
                   </li>
                   <li>
-                    <span className="text-white">Bronze:</span> 10% delivery fee discount; credits
-                    apply to products only.
+                    <span className="text-white">Bronze:</span> credits apply to products only.
                   </li>
                   <li>
-                    <span className="text-white">Silver:</span> 20% delivery fee discount; phone
-                    verification + 10 orders; credits can cover products and delivery fees.
+                    <span className="text-white">Silver:</span> credits can cover products, route
+                    fees, and distance fees.
                   </li>
                   <li>
-                    <span className="text-white">Gold:</span> 30% delivery fee discount; verified
-                    photo ID + 15 orders; credits apply to all charges (excluding tips); cash
-                    payouts available.
+                    <span className="text-white">Gold:</span> credits apply to the entire order
+                    (excluding tips); cash payouts available.
                   </li>
                   <li>
                     <span className="text-white">Secret Platinum:</span> invitation-only VIP tier
-                    with Gold benefits plus exclusive perks.
+                    with Gold benefits plus operator-controlled waivers.
                   </li>
                   <li>
-                    <span className="text-white">Secret Green:</span> invitation-only tier with a
-                    flat $1.00 delivery fee.
+                    <span className="text-white">Green (future):</span> invitation-only tier with a
+                    flat $1.00 Route Fee and no distance fee.
                   </li>
-                  <li>Upgrades are automatic when requirements are met.</li>
                 </ul>
               </section>
 
@@ -223,10 +219,9 @@ const LegalFooter: React.FC = () => {
                   Return Limits & Fraud Prevention
                 </h3>
                 <ul className="list-disc list-inside space-y-2">
-                  <li>Daily cap: $25 per customer (in line with Michigan law guidelines).</li>
+                  <li>Daily limits may apply per customer (in line with Michigan law guidelines).</li>
                   <li>Limit is enforced per person (not per address).</li>
                   <li>No splitting returns across multiple addresses to bypass the limit.</li>
-                  <li>Tier verification (phone/ID) reduces fake or duplicate accounts.</li>
                   <li>Multiple accounts tied to one person may be merged or restricted.</li>
                   <li>Monitoring flags unusual return activity for review.</li>
                 </ul>
@@ -240,7 +235,7 @@ const LegalFooter: React.FC = () => {
                   <li>Drivers scan barcodes, confirm condition, and log counts at drop-off.</li>
                   <li>Photo proof and GPS verification support transparency and dispute review.</li>
                   <li>Non-eligible or damaged containers are declined on the spot.</li>
-                  <li>Drivers can assist with large returns within the 250/day limit.</li>
+                  <li>Drivers can assist with large returns within daily limits.</li>
                   <li>Post-delivery tipping is available via driver QR code.</li>
                 </ul>
               </section>

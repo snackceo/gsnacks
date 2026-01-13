@@ -980,7 +980,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
                   <p className="text-white font-black">Apply to This Order</p>
                   <p>Use your verified return value to reduce today’s total.</p>
-                  <p>Silver+ can apply credits to delivery fees; Common/Bronze apply to products.</p>
+                  <p>
+                    Silver+ can apply credits to route and distance fees; Common/Bronze apply to
+                    products.
+                  </p>
                 </div>
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
                   <p className="text-white font-black">Save as Credits</p>
@@ -990,7 +993,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
                   <p className="text-white font-black">Cash</p>
                   <p>Receive cash for your verified returns.</p>
-                  <p>Gold+ only; capped at $25/day (250 containers).</p>
+                  <p>Gold+ only; available when cash settlement is selected.</p>
                   {!cashAvailable && (
                     <p className="text-ninpo-red">
                       Cash payout isn’t available for this return. You can apply value to your
@@ -1126,7 +1129,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                       Total (pre-credit): <span className="text-white">{money(o.total)}</span>
                     </p>
                     <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
-                      Delivery fee: <span className="text-white">{money(o.deliveryFee || 0)}</span>
+                      Route fee: <span className="text-white">{money(o.deliveryFee || 0)}</span>
                     </p>
                     <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
                       Est. return credit:{' '}
@@ -1204,7 +1207,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               <p className="uppercase tracking-widest opacity-60 mt-4">Estimated return credit (preview)</p>
               <p className="font-black text-ninpo-lime">{money(activeOrder.estimatedReturnCredit || 0)}</p>
 
-              <p className="uppercase tracking-widest opacity-60 mt-4">Delivery fee</p>
+              <p className="uppercase tracking-widest opacity-60 mt-4">Route fee</p>
               <p className="font-black">{money(activeOrder.deliveryFee || 0)}</p>
 
               {driverNotice && (

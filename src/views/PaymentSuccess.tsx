@@ -54,7 +54,7 @@ function PaymentSuccess({ clearCart }: { clearCart: () => void }) {
           <div className="text-xs uppercase tracking-widest opacity-70 space-y-2">
             <p>Your return value has been verified.</p>
             <p>Credits were applied to eligible charges and any remaining value posts to your account.</p>
-            <p>Gold+ cash payouts are handled by the driver (up to $25/day when selected).</p>
+            <p>Gold+ cash payouts are handled by the driver when selected.</p>
           </div>
         ) : (
           <p className="text-xs uppercase tracking-widest opacity-70">
@@ -72,10 +72,10 @@ function PaymentSuccess({ clearCart }: { clearCart: () => void }) {
             <p className="uppercase tracking-widest opacity-60">Order ID</p>
             <p className="font-black">{order.id}</p>
 
-            <p className="uppercase tracking-widest opacity-60 mt-4">Estimated return credit (preview)</p>
+            <p className="uppercase tracking-widest opacity-60 mt-4">Estimated return value (preview)</p>
             <p className="font-black text-ninpo-lime">{money(order.estimatedReturnCredit || 0)}</p>
 
-            <p className="uppercase tracking-widest opacity-60 mt-4">Delivery fee</p>
+            <p className="uppercase tracking-widest opacity-60 mt-4">Route fee</p>
             <p className="font-black">{money(order.deliveryFee || 0)}</p>
 
             <p className="uppercase tracking-widest opacity-60 mt-4">Order total (pre-credit)</p>

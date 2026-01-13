@@ -1557,9 +1557,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
                         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-600 space-y-1">
                           <div className="flex items-center justify-between md:justify-end md:gap-3">
-                            <span className="md:hidden">Delivery Fee:</span>
+                            <span className="md:hidden">Route Fee:</span>
                             <span className="text-slate-300">
-                              Delivery Fee: ${Number(o.deliveryFee || 0).toFixed(2)}
+                              Route Fee: ${Number(o.deliveryFee || 0).toFixed(2)}
                             </span>
                           </div>
 
@@ -2351,7 +2351,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Delivery Fee
+                      Route Fee
                     </label>
                     <input
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
@@ -2367,7 +2367,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Processing Fee Percent
+                      Card Rail Buffer Percent (internal)
                     </label>
                     <input
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
@@ -2383,7 +2383,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Return Handling Fee (per container)
+                      Cash Handling Fee (per container)
                     </label>
                     <input
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
@@ -2399,7 +2399,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Glass Handling Fee (per container)
+                      Glass Handling Surcharge (per glass container)
                     </label>
                     <input
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"

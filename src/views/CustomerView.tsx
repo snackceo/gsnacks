@@ -311,8 +311,8 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                   ${(safeCredits as number).toFixed(2)}
                 </p>
                 <p className="mt-4 text-[10px] text-slate-600 font-bold uppercase tracking-widest">
-                  Credits never expire; Silver+ can cover delivery fees, and Gold+ may request cash
-                  payouts up to $25/day.
+                  Credits never expire; Silver+ can cover route and distance fees, and Gold+ may
+                  request cash payouts.
                 </p>
               </div>
 
