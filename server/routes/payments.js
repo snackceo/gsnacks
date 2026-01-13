@@ -542,6 +542,38 @@ const createPaymentsRouter = ({ stripe }) => {
     }
   });
 
+  const applyWalletCredit = async (
+    { order, walletCreditCents, payoutMethod },
+    { session, actorId }
+  ) => {
+    let creditedUserId = null;
+    let creditedAmount = 0;
+    if (
+      payoutMethod === 'CREDIT' &&
+      walletCreditCents > 0 &&
+      order.customerId &&
+      order.customerId !== 'GUEST'
+    ) {
+      const user = await User.findById(order.customerId).session(session);
+      if (user) {
+        const previousCredits = Number(user.creditBalance || 0);
+        user.creditBalance = Math.max(0, previousCredits + walletCreditCents / 100);
+        await user.save({ session });
+
+        const delta = Number(user.creditBalance || 0) - previousCredits;
+        if (delta) {
+          await LedgerEntry.create(
+            [{ userId: order.customerId, delta, reason: `RETURN_CREDIT_REMAINDER:${order.orderId}` }],
+            { session }
+          );
+          creditedUserId = order.customerId;
+          creditedAmount = delta;
+        }
+      }
+    }
+    return { creditedUserId, creditedAmount };
+  };
+
   /**
    * POST /api/payments/capture (owner-only)
    * - Driver submits verifiedReturnCredit
@@ -678,38 +710,11 @@ const createPaymentsRouter = ({ stripe }) => {
           order.verifiedReturnUpcCounts = verifiedReturnUpcCounts;
           order.returnPayoutMethod = payoutMethod;
 
-          if (
-            payoutMethod === 'CREDIT' &&
-            walletCreditCents > 0 &&
-            order.customerId &&
-            order.customerId !== 'GUEST'
-          ) {
-            const user = await User.findById(order.customerId).session(sessionDb);
-            if (user) {
-              const previousCredits = Number(user.creditBalance || 0);
-              user.creditBalance = Math.max(
-                0,
-                previousCredits + Math.round(walletCreditCents) / 100
-              );
-              await user.save({ session: sessionDb });
-
-              const delta = Number(user.creditBalance || 0) - previousCredits;
-              if (delta) {
-                await LedgerEntry.create(
-                  [
-                    {
-                      userId: order.customerId,
-                      delta,
-                      reason: `RETURN_CREDIT_REMAINDER:${order.orderId}`
-                    }
-                  ],
-                  { session: sessionDb }
-                );
-                creditedUserId = order.customerId;
-                creditedAmount = delta;
-              }
-            }
-          }
+          const creditResult = await applyWalletCredit(
+            { order, walletCreditCents, payoutMethod },
+            { session: sessionDb, actorId: req.user?.username || req.user?.id || '' }
+          );
+          ({ creditedUserId, creditedAmount } = creditResult);
 
           if (payoutMethod === 'CASH' && verifiedReturnCredit > 0) {
             await CashPayout.create(
@@ -747,38 +752,11 @@ const createPaymentsRouter = ({ stripe }) => {
         order.verifiedReturnUpcCounts = verifiedReturnUpcCounts;
         order.returnPayoutMethod = payoutMethod;
 
-        if (
-          payoutMethod === 'CREDIT' &&
-          walletCreditCents > 0 &&
-          order.customerId &&
-          order.customerId !== 'GUEST'
-        ) {
-          const user = await User.findById(order.customerId).session(sessionDb);
-          if (user) {
-            const previousCredits = Number(user.creditBalance || 0);
-            user.creditBalance = Math.max(
-              0,
-              previousCredits + Math.round(walletCreditCents) / 100
-            );
-            await user.save({ session: sessionDb });
-
-            const delta = Number(user.creditBalance || 0) - previousCredits;
-            if (delta) {
-              await LedgerEntry.create(
-                [
-                  {
-                    userId: order.customerId,
-                    delta,
-                    reason: `RETURN_CREDIT_REMAINDER:${order.orderId}`
-                  }
-                ],
-                { session: sessionDb }
-              );
-              creditedUserId = order.customerId;
-              creditedAmount = delta;
-            }
-          }
-        }
+        const creditResult = await applyWalletCredit(
+          { order, walletCreditCents, payoutMethod },
+          { session: sessionDb, actorId: req.user?.username || req.user?.id || '' }
+        );
+        ({ creditedUserId, creditedAmount } = creditResult);
 
         if (payoutMethod === 'CASH' && verifiedReturnCredit > 0) {
           await CashPayout.create(

@@ -102,17 +102,14 @@ router.get('/eligibility/:upc', async (req, res) => {
   try {
     const upc = String(req.params.upc || '').trim();
     if (!upc) return res.status(400).json({ error: 'upc is required' });
+    const depositValue = await getMichiganDepositValue();
 
     const entry = await UpcItem.findOne({ upc }).lean();
     if (!entry) {
-      return res.status(404).json({ error: 'UPC not found', isEligible: false });
+      return res.json({ ok: true, upc, isEligible: false });
     }
 
-    res.json({
-      ok: true,
-      upc: entry.upc,
-      isEligible: entry.isEligible !== false
-    });
+    res.json({ ok: true, upc, isEligible: entry.isEligible !== false });
   } catch (err) {
     console.error('UPC ELIGIBILITY ERROR:', err);
     res.status(500).json({ error: 'Failed to check UPC eligibility' });
