@@ -40,7 +40,8 @@ function App() {
 
   const handleExternalPayment = async (
     type: 'STRIPE' | 'GPAY',
-    returnUpcs: ReturnUpcCount[]
+    returnUpcs: ReturnUpcCount[],
+    returnPayoutMethod: 'CREDIT' | 'CASH'
   ) => {
     if (isProcessingOrder) return;
 
@@ -62,7 +63,8 @@ function App() {
           gateway: type,
           address: address, // NEW: stored on order for owner dashboard
           deliveryFee: effectiveDeliveryFee,
-          returnUpcCounts: returnUpcs
+          returnUpcCounts: returnUpcs,
+          returnPayoutMethod
         })
       });
 
@@ -77,7 +79,10 @@ function App() {
     }
   };
 
-  const handleCreditsPayment = async (returnUpcs: ReturnUpcCount[]) => {
+  const handleCreditsPayment = async (
+    returnUpcs: ReturnUpcCount[],
+    returnPayoutMethod: 'CREDIT' | 'CASH'
+  ) => {
     if (isProcessingOrder) return false;
 
     if (!core.currentUser) {
@@ -97,7 +102,8 @@ function App() {
           items: core.cart,
           address,
           deliveryFee: effectiveDeliveryFee,
-          returnUpcCounts: returnUpcs
+          returnUpcCounts: returnUpcs,
+          returnPayoutMethod
         })
       });
 

@@ -28,7 +28,7 @@ const deliveryDiscountsByTier = {
   GOLD: 30,
   PLATINUM: 30
 };
-const CREDIT_DELIVERY_ELIGIBLE_TIERS = new Set(['GOLD', 'PLATINUM']);
+const CREDIT_DELIVERY_ELIGIBLE_TIERS = new Set(['SILVER', 'GOLD', 'PLATINUM']);
 const DEFAULT_RETURN_FEES = {
   returnHandlingFeePerContainer: 0.02,
   glassHandlingFeePerContainer: 0.02
