@@ -299,13 +299,14 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                   Your Credits
                 </h3>
                 <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mb-3">
-                  Credits are earned from verified bottle returns and promotions.
+                  Credits are earned from verified container returns and promotions.
                 </p>
                 <p className="text-6xl font-black text-white tracking-tighter leading-none">
                   ${(safeCredits as number).toFixed(2)}
                 </p>
                 <p className="mt-4 text-[10px] text-slate-600 font-bold uppercase tracking-widest">
-                  Credits never expire; Gold+ can request cash payouts up to $25/day at delivery.
+                  Credits never expire; Silver+ can cover delivery fees, and Gold+ may request cash
+                  payouts up to $25/day.
                 </p>
               </div>
 
