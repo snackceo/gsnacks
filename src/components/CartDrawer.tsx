@@ -30,7 +30,6 @@ interface CartDrawerProps {
   acceptedPolicies: boolean;
   isProcessing: boolean;
   deliveryFee: number;
-  baseDeliveryFee: number;
   membershipTier?: UserTier;
   michiganDepositValue: number;
   returnHandlingFeePerContainer: number;
@@ -103,7 +102,6 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   acceptedPolicies,
   isProcessing,
   deliveryFee,
-  baseDeliveryFee,
   membershipTier,
   michiganDepositValue,
   returnHandlingFeePerContainer,
@@ -394,8 +392,20 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     ? dailyReturnLimit
     : DEFAULT_DAILY_LIMIT;
   const cappedReturnCount = Math.min(totalReturnCount, dailyContainerLimit);
-  const netStandardCredit = Math.max(0, depositValue - handlingFee);
-  const netGlassCredit = Math.max(0, depositValue - handlingFee - glassHandlingFee);
+  const netStandardCash = Math.max(0, depositValue - handlingFee);
+  const netGlassCash = Math.max(0, depositValue - handlingFee - glassHandlingFee);
+
+  const activeTier = membershipTier ?? UserTier.COMMON;
+  const allowCashPayout = [UserTier.GOLD, UserTier.PLATINUM].includes(activeTier);
+
+  useEffect(() => {
+    if (!allowCashPayout && useCashPayout) {
+      setUseCashPayout(false);
+    }
+  }, [allowCashPayout, useCashPayout]);
+
+  const payoutMethod: ReturnPayoutMethod =
+    allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
 
   // Estimated deposit credit (preview only)
   const estimatedReturnCredit = useMemo(() => {
@@ -407,14 +417,23 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       if (remaining <= 0) break;
       const eligibleCount = Math.min(entry.quantity, remaining);
       const containerType = eligibilityCache[entry.upc]?.containerType;
-      const netValue =
-        containerType === 'glass' ? netGlassCredit : netStandardCredit;
-      total += netValue * eligibleCount;
+      const netValue = containerType === 'glass' ? netGlassCash : netStandardCash;
+      const creditValue = depositValue;
+      const valuePerContainer = payoutMethod === 'CASH' ? netValue : creditValue;
+      total += valuePerContainer * eligibleCount;
       remaining -= eligibleCount;
     }
 
     return total;
-  }, [cappedReturnCount, eligibilityCache, netGlassCredit, netStandardCredit, returnUpcs]);
+  }, [
+    cappedReturnCount,
+    depositValue,
+    eligibilityCache,
+    netGlassCash,
+    netStandardCash,
+    payoutMethod,
+    returnUpcs
+  ]);
 
   // ----------------------------
   // Cart totals
@@ -444,32 +463,12 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const subtotal = useMemo(() => lineItems.reduce((sum, li) => sum + li.lineTotal, 0), [lineItems]);
   const sanitizedDeliveryFee = Number.isFinite(deliveryFee) ? deliveryFee : 0;
-  const sanitizedBaseDeliveryFee = Number.isFinite(baseDeliveryFee)
-    ? baseDeliveryFee
-    : sanitizedDeliveryFee;
-
-  const baseDeliveryFeeCents = useMemo(
-    () => Math.round(sanitizedBaseDeliveryFee * 100),
-    [sanitizedBaseDeliveryFee]
-  );
 
   const subtotalCents = useMemo(() => Math.round(subtotal * 100), [subtotal]);
   const estimatedReturnCreditCents = useMemo(
     () => Math.round(estimatedReturnCredit * 100),
     [estimatedReturnCredit]
   );
-
-  const activeTier = membershipTier ?? UserTier.COMMON;
-  const allowCashPayout = [UserTier.GOLD, UserTier.PLATINUM].includes(activeTier);
-
-  useEffect(() => {
-    if (!allowCashPayout && useCashPayout) {
-      setUseCashPayout(false);
-    }
-  }, [allowCashPayout, useCashPayout]);
-
-  const payoutMethod: ReturnPayoutMethod =
-    allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
   const activeDeliveryFee = sanitizedDeliveryFee;
   const activeDeliveryFeeCents = Math.round(activeDeliveryFee * 100);
   const creditsCoverDelivery = [UserTier.SILVER, UserTier.GOLD, UserTier.PLATINUM].includes(
@@ -822,9 +821,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                   </div>
                   {showBottleReturnAdvisory && (
                     <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
-                      Enter eligible Michigan 10¢ deposit UPCs to see an estimated net return value
-                      after handling fees. Final value is confirmed after driver verification and
-                      condition checks.
+                      Enter eligible Michigan 10¢ deposit UPCs to see an estimated return value.
+                      Credit settlement preserves the full deposit value; cash settlement deducts
+                      cash handling and glass surcharges after verification.
                     </p>
                   )}
                 </div>
@@ -887,7 +886,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest">
-                    Estimated Return Value (net)
+                    {payoutMethod === 'CASH'
+                      ? 'Estimated Cash Payout (net)'
+                      : 'Estimated Return Credit'}
                   </p>
                   <p className="text-ninpo-lime font-black text-lg">{money(estimatedReturnCredit)}</p>
                   <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
@@ -898,9 +899,12 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               <div className="flex items-start gap-2 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
                 <Info className="w-3 h-3 text-slate-500 mt-0.5" />
                 <p>
-                  Net values reflect {money(handlingFee)} handling fees per container and{' '}
-                  {money(handlingFee + glassHandlingFee)} for glass. Daily per-person limits apply.
-                  Estimates do not affect your payment authorization.
+                  {payoutMethod === 'CASH'
+                    ? `Cash payouts subtract ${money(handlingFee)} per container plus ${money(
+                        glassHandlingFee
+                      )} for glass.`
+                    : 'Credits are issued at the full $0.10 per eligible container.'}{' '}
+                  Daily per-person limits apply. Estimates do not affect your payment authorization.
                 </p>
               </div>
               {totalReturnCount > dailyContainerLimit && (
@@ -997,8 +1001,11 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                   <p>Containers must be empty, clean, and clearly marked with the MI 10¢ label.</p>
                   <p>Return value posts after verification and credits never expire.</p>
                   <p>Daily limit: {dailyContainerLimit} containers per customer.</p>
-                  <p>Common/Bronze credits apply to products only; Silver+ can cover delivery.</p>
-                  <p>Gold+ cash payouts are capped at $25 per day.</p>
+                  <p>
+                    Common/Bronze credits apply to products only; Silver+ can cover route and
+                    distance fees.
+                  </p>
+                  <p>Gold+ may request cash payouts.</p>
                   <p>No splitting returns across multiple addresses to bypass the limit.</p>
                   <p>
                     AI output is advisory; eligibility is determined by the UPC whitelist and
@@ -1019,29 +1026,20 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Delivery Fee (after tier discount)
+                  Route Fee
                 </p>
                 <p className="text-white font-black">{money(sanitizedDeliveryFee)}</p>
               </div>
 
-              <div className="space-y-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Tier Delivery Discount
-                </p>
-                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/40 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  <span>{membershipTier || 'COMMON'}</span>
-                  <span>
-                    -{' '}
-                    {money(Math.max(0, sanitizedBaseDeliveryFee - sanitizedDeliveryFee))}
-                  </span>
-                </div>
-              </div>
-
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Estimated Return Value (net preview)
+                  {payoutMethod === 'CASH'
+                    ? 'Estimated Cash Payout (net)'
+                    : 'Estimated Return Credit'}
                 </p>
-                <p className="text-ninpo-lime font-black">- {money(estimatedReturnCredit)}</p>
+                <p className="text-ninpo-lime font-black">
+                  {payoutMethod === 'CASH' ? money(estimatedReturnCredit) : `- ${money(estimatedReturnCredit)}`}
+                </p>
               </div>
 
               {allowCashPayout && (
@@ -1079,12 +1077,12 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               {creditsCoverDelivery ? (
                 <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-2">
                   {deliveryCoveredByCredits
-                    ? 'Delivery covered by credits.'
-                    : 'Silver+ credits can cover delivery fees.'}
+                    ? 'Route fee covered by credits.'
+                    : 'Silver+ credits can cover route and distance fees.'}
                 </p>
               ) : (
                 <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-2">
-                  Delivery fees are excluded from credits for Common/Bronze tiers.
+                  Route and distance fees are excluded from credits for Common/Bronze tiers.
                 </p>
               )}
 
@@ -1124,7 +1122,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
             <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
               {payoutMethod === 'CASH'
                 ? 'Cash payouts do not reduce today’s total.'
-                : 'Applying return value as credits may reduce or waive pickup and delivery fees.'}
+                : 'Applying return value as credits may reduce or waive route and distance fees.'}
             </p>
 
             {cartIsEmpty && hasReturnUpcs && (

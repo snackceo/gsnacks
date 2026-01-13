@@ -321,9 +321,7 @@ function App() {
         acceptedPolicies={acceptedPolicies}
         isProcessing={isProcessingOrder}
         deliveryFee={effectiveDeliveryFee}
-        baseDeliveryFee={baseDeliveryFee}
         membershipTier={core.currentUser?.membershipTier}
-        platinumFreeDeliveryEnabled={core.settings.platinumFreeDelivery}
         michiganDepositValue={core.settings.michiganDepositValue}
         returnHandlingFeePerContainer={core.settings.returnHandlingFeePerContainer}
         glassHandlingFeePerContainer={core.settings.glassHandlingFeePerContainer}
