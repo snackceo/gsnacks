@@ -81,10 +81,20 @@ const LegalFooter: React.FC = () => {
           content={
             <>
               <p>
-                Bottle returns must be empty, clean, intact, and labeled for Michigan’s 10¢ deposit.
+                Returnables must be empty, clean, intact, and labeled for Michigan’s 10¢ deposit.
+                Drivers confirm eligibility at drop-off by scanning UPCs and visually checking
+                condition. Non-eligible or damaged containers are declined on the spot.
               </p>
-              <p>Return value is verified at delivery; damaged or non-eligible containers are declined.</p>
-              <p>AI tools may assist verification but do not make final decisions.</p>
+              <p>
+                Verified containers earn $0.10 each before fees. A $0.02 handling fee applies
+                per container, with an additional $0.02 for glass. Daily return credit is capped
+                at 250 containers per customer.
+              </p>
+              <p>
+                Return value posts as store credit by default (no expiration). Gold+ members
+                may request cash payouts up to $25/day. AI tools may assist verification but do
+                not make final decisions.
+              </p>
             </>
           }
         />
@@ -103,8 +113,8 @@ const LegalFooter: React.FC = () => {
                 <p>
                   NinpoSnacks is a mobile-first snack delivery service in Detroit that pairs
                   on-demand delivery with a container return program. Customers order snacks,
-                  hand off eligible empties at delivery, and receive credits or (for eligible tiers)
-                  cash based on Michigan&apos;s 10¢ deposit system.
+                  hand off eligible empties at delivery, and receive credits (or, for eligible tiers,
+                  cash) based on Michigan&apos;s 10¢ deposit system.
                 </p>
                 <p>
                   The result is a single trip that delivers snacks and picks up returns, creating
@@ -117,8 +127,9 @@ const LegalFooter: React.FC = () => {
                   Ordering & Delivery Flow
                 </h3>
                 <ol className="list-decimal list-inside space-y-2">
-                  <li>Customers place an order and indicate if they have returnables.</li>
-                  <li>Payment is processed online; tips can be added at checkout.</li>
+                  <li>Customers order via app or web and flag returnables at checkout.</li>
+                  <li>Payment is processed online; tips can be added upfront.</li>
+                  <li>Drivers collect snacks from inventory or partner stores.</li>
                   <li>Drivers deliver snacks and collect return-eligible containers.</li>
                   <li>
                     Drivers scan UPCs, verify condition, capture photo/GPS proof, and prevent
@@ -129,14 +140,16 @@ const LegalFooter: React.FC = () => {
                     at drop-off (subject to limits).
                   </li>
                   <li>Post-delivery tipping is available via driver QR code.</li>
+                  <li>Return data and order details are logged to the customer account.</li>
                 </ol>
               </section>
 
               <section className="space-y-4">
                 <h3 className="text-white text-sm font-black uppercase tracking-widest">
-                  Return Credits & Fees
+                  Return Program & Credits
                 </h3>
                 <ul className="list-disc list-inside space-y-2">
+                  <li>Eligible items include Michigan deposit-eligible plastic, aluminum, and glass.</li>
                   <li>Eligible containers earn $0.10 each under Michigan deposit rules.</li>
                   <li>Service fee: $0.02 per container; glass adds an extra $0.02.</li>
                   <li>Net credit: $0.08 (plastic/aluminum) or $0.06 (glass).</li>
@@ -174,6 +187,7 @@ const LegalFooter: React.FC = () => {
                     <span className="text-white">Secret Platinum:</span> invitation-only VIP tier
                     with Gold benefits plus exclusive perks.
                   </li>
+                  <li>Upgrades are automatic when requirements are met.</li>
                 </ul>
               </section>
 
@@ -198,6 +212,7 @@ const LegalFooter: React.FC = () => {
                   <li>Drivers scan barcodes, confirm condition, and log counts at drop-off.</li>
                   <li>Photo proof and GPS verification support transparency and dispute review.</li>
                   <li>Non-eligible or damaged containers are declined on the spot.</li>
+                  <li>Drivers can assist with large returns within the 250/day limit.</li>
                   <li>Post-delivery tipping is available via driver QR code.</li>
                 </ul>
               </section>
