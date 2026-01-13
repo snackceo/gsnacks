@@ -37,17 +37,35 @@ const DEFAULT_RETURN_FEES = {
 
 const normalizeTier = tier => {
   const normalized = String(tier || '').trim().toUpperCase();
-  return !normalized || normalized === 'NONE' ? 'COMMON' : normalized;
+  // Add 'GREEN' as a recognized tier
+  if (['COMMON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'GREEN'].includes(normalized)) {
+    return normalized;
+  }
+  return 'COMMON';
 };
 
 const getDeliveryFeeDiscountPercent = tier => {
   const normalizedTier = normalizeTier(tier);
+  // For GREEN tier, the discount is handled as a flat fee, so return 0% here.
+  if (normalizedTier === 'GREEN') {
+    return 0;
+  }
   return deliveryDiscountsByTier[normalizedTier] ?? 0;
 };
 
-const applyDeliveryFeeDiscount = (deliveryFee, discountPercent) => {
+const applyDeliveryFeeDiscount = (deliveryFee, discountPercent, tier) => {
   const fee = Math.max(0, Number(deliveryFee || 0));
   const percent = Math.max(0, Math.min(100, Number(discountPercent || 0)));
+
+  // Special handling for GREEN tier: flat $1 delivery fee
+  if (normalizeTier(tier) === 'GREEN') {
+    const flatFeeCents = 100; // $1.00
+    return {
+      deliveryFeeFinal: flatFeeCents / 100,
+      deliveryFeeFinalCents: flatFeeCents
+    };
+  }
+
   const discountedCents = Math.round(fee * (1 - percent / 100) * 100);
   return {
     deliveryFeeFinal: discountedCents / 100,
@@ -156,7 +174,8 @@ const createPaymentsRouter = ({ stripe }) => {
       );
       const { deliveryFeeFinal, deliveryFeeFinalCents } = applyDeliveryFeeDiscount(
         deliveryFee,
-        deliveryFeeDiscountPercent
+        deliveryFeeDiscountPercent,
+        tierLookupUser?.membershipTier // Pass the user's tier
       );
 
       const { eligibleUpcs, eligibleUpcCounts, ineligibleUpcs, estimatedCredit } =
