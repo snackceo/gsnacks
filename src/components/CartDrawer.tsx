@@ -453,19 +453,12 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     [sanitizedBaseDeliveryFee]
   );
 
-  const allowCashPayout = [UserTier.GOLD, UserTier.PLATINUM].includes(activeTier);
-
-  useEffect(() => {
-    if (!allowCashPayout && useCashPayout) {
-      setUseCashPayout(false);
-
   const subtotalCents = useMemo(() => Math.round(subtotal * 100), [subtotal]);
   const estimatedReturnCreditCents = useMemo(
     () => Math.round(estimatedReturnCredit * 100),
     [estimatedReturnCredit]
   );
-  const payoutMethod: ReturnPayoutMethod =
-    allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
+
   const activeTier = membershipTier ?? UserTier.COMMON;
   const allowCashPayout = [UserTier.GOLD, UserTier.PLATINUM].includes(activeTier);
 
@@ -474,20 +467,19 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       setUseCashPayout(false);
     }
   }, [allowCashPayout, useCashPayout]);
+
+  const payoutMethod: ReturnPayoutMethod =
+    allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
   const activeDeliveryFee = sanitizedDeliveryFee;
   const activeDeliveryFeeCents = Math.round(activeDeliveryFee * 100);
-  const creditsCoverDelivery = [
-    UserTier.SILVER,
-    UserTier.GOLD,
-    UserTier.PLATINUM
-  ].includes(activeTier);
+  const creditsCoverDelivery = [UserTier.SILVER, UserTier.GOLD, UserTier.PLATINUM].includes(
+    activeTier
+  );
   const creditEligibleCents = creditsCoverDelivery
     ? subtotalCents + activeDeliveryFeeCents
     : subtotalCents;
   const creditAppliedCents =
-    payoutMethod === 'CASH'
-      ? 0
-      : Math.min(estimatedReturnCreditCents, creditEligibleCents);
+    payoutMethod === 'CASH' ? 0 : Math.min(estimatedReturnCreditCents, creditEligibleCents);
   const deliveryCoveredByCredits =
     payoutMethod !== 'CASH' &&
     creditsCoverDelivery &&
