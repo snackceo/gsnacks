@@ -89,20 +89,31 @@ The Route Fee **always includes product delivery** when a delivery occurs.
 
 ---
 
-### 4.2 Pickup-Only Orders (Route Fee Modifier)
+### 4.2 Pickup-Only Orders (Reduced Route Rate)
 
-For routes that include **pickup only** (no delivery):
+For orders that include **pickup only** (no delivery):
 
 * The **Route Fee** still applies
+* The **Distance Fee** still applies (if triggered)
 * A **Pickup-Only Discount** may be applied via configuration using a multiplier
 
 **Configuration:** `pickup_only_multiplier` (default **0.5**)
 
-Rule:
+#### Authoritative Rule
+
+When `pickup_only_multiplier` is enabled for a Pickup-Only Order, the multiplier applies to **all route-level logistics charges**, including:
+
+* Route Fee
+* Distance Fee
+
+In other words:
 
 * `effective_route_fee = base_route_fee × pickup_only_multiplier`
+* `effective_distance_fee = base_distance_fee × pickup_only_multiplier`
 
 This is a **route-level discount**, not a container-based fee.
+
+> Note: Pickup-Only Orders do not include product delivery. The multiplier exists to reduce the overall logistics charge relative to a Delivery Order.
 
 ---
 
@@ -110,23 +121,24 @@ This is a **route-level discount**, not a container-based fee.
 
 Distance is calculated **one-way from operator location to customer address**.
 
-* Distance is computed to the **nearest 0.1 mile**
-* Distance is always **rounded down**
+* Distance is measured in **0.1 mile increments** and always **rounded down** to the nearest **0.1 mile**
 
 The first **3.0 miles are included** in the Route Fee.
 
 #### Distance Bands
 
-| Band (absolute distance) |         Rate |
-| ------------------------ | -----------: |
-| 0.0–3.0 miles            |     Included |
-| 4.0–10.0 miles           | $0.50 / mile |
-| 11.0–20.0 miles          | $0.75 / mile |
-| 21.0+ miles              | $1.00 / mile |
+| Band (absolute distance) | Fee Applied    |
+| ------------------------ | -------------- |
+| 0.0–3.0 miles            | Included       |
+| 4.0–10.0 miles           | $0.50 per mile |
+| 11.0–20.0 miles          | $0.75 per mile |
+| 21.0+ miles              | $1.00 per mile |
 
 #### Band Application Rule (Authoritative)
 
-Distance fee bands are applied based on **absolute trip distance**, after excluding the included threshold.
+Distance fee bands are applied based on **absolute trip distance**, after excluding the included threshold (3.0 miles).
+
+> Bands apply based on *absolute distance from origin*, not on “billable miles” after subtraction.
 
 Example:
 
@@ -166,6 +178,8 @@ Each tier defines:
 * Mentioned *vaguely* in documentation
 * Full logistics fee waiver **at operator discretion**
 * Waiver must be configurable in management settings
+
+> Platinum users should only ever pay for products unless the operator explicitly chooses otherwise.
 
 #### Green Tier (Future)
 
@@ -357,6 +371,8 @@ Then:
 
 * **One Route Fee** applies
 * **One Distance Fee** applies (unless tier-waived)
+
+**Do not stack Route Fees** (e.g., no separate “delivery fee” + “pickup fee”).
 
 ---
 
