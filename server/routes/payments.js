@@ -7,12 +7,15 @@ import Product from '../models/Product.js';
 import UpcItem from '../models/UpcItem.js';
 import AppSettings from '../models/AppSettings.js';
 import User from '../models/User.js';
+import LedgerEntry from '../models/LedgerEntry.js';
+import CashPayout from '../models/CashPayout.js';
 import {
   authRequired,
   isDriverUsername,
   isOwnerUsername,
   calculateReturnFeeSummary,
   mapOrderForFrontend,
+  normalizeReturnPayoutMethod,
   normalizeCart,
   normalizeUpcCounts,
   sumReturnCredits
@@ -78,7 +81,6 @@ const buildReturnPreview = async (rawUpcs) => {
       if (entry?.isEligible) {
         eligibleUpcs.push(...Array.from({ length: quantity }, () => upc));
         eligibleUpcCounts.push({ upc, quantity });
-        estimatedCreditFromUpcs += Number(entry.depositValue || 0) * quantity;
       } else {
         ineligibleUpcs.push(upc);
       }
@@ -86,6 +88,7 @@ const buildReturnPreview = async (rawUpcs) => {
 
     const feeConfig = await getReturnFeeConfig();
     feeSummary = calculateReturnFeeSummary(eligibleUpcCounts, upcEntries, feeConfig);
+    estimatedCreditFromUpcs = sumReturnCredits(eligibleUpcCounts, upcEntries);
   }
 
   const dailyCap = Number(process.env.DAILY_RETURN_CAP || 25); // dollars
@@ -134,6 +137,7 @@ const createPaymentsRouter = ({ stripe }) => {
       const address = String(req.body?.address || '').trim();
       const gateway = String(req.body?.gateway || 'STRIPE').toUpperCase();
       const deliveryFee = Math.max(0, Number(req.body?.deliveryFee || 0));
+      const returnPayoutMethod = normalizeReturnPayoutMethod(req.body?.returnPayoutMethod);
       const tierLookupUser = userId
         ? await User.findById(userId, { membershipTier: 1 }).session(sessionDb)
         : null;
@@ -224,6 +228,7 @@ const createPaymentsRouter = ({ stripe }) => {
               estimatedReturnCredit: estimatedCredit.net,
               verifiedReturnCreditGross: 0,
               verifiedReturnCredit: 0,
+              returnPayoutMethod,
 
               paymentMethod: gateway === 'GPAY' ? 'GOOGLE_PAY' : 'STRIPE',
               status: 'PENDING',
@@ -295,6 +300,7 @@ const createPaymentsRouter = ({ stripe }) => {
       const rawItems = req.body?.items;
       const address = String(req.body?.address || '').trim();
       const deliveryFee = Math.max(0, Number(req.body?.deliveryFee || 0));
+      const returnPayoutMethod = normalizeReturnPayoutMethod(req.body?.returnPayoutMethod);
 
       const items = normalizeCart(rawItems);
       const rawReturnUpcs = req.body?.returnUpcCounts ?? req.body?.returnUpcs;
@@ -408,7 +414,8 @@ const createPaymentsRouter = ({ stripe }) => {
               estimatedReturnCreditGross: estimatedCredit.gross,
               estimatedReturnCredit: estimatedCredit.net,
               verifiedReturnCreditGross: 0,
-              verifiedReturnCredit: 0
+              verifiedReturnCredit: 0,
+              returnPayoutMethod
             }
           ],
           { session: sessionDb }
@@ -538,6 +545,10 @@ const createPaymentsRouter = ({ stripe }) => {
       let verifiedReturnUpcCounts = [];
       let verifiedReturnUpcs = [];
       let verifiedCredit = { gross: 0, net: 0 };
+      let creditedUserId = null;
+      let creditedAmount = 0;
+      let cashPayoutAmount = 0;
+      let cashPayoutUserId = null;
 
       await sessionDb.withTransaction(async () => {
         const order = await Order.findOne({ orderId }).session(sessionDb);
@@ -617,7 +628,12 @@ const createPaymentsRouter = ({ stripe }) => {
         const authorizedCents = Number(
           order.amountAuthorizedCents || Math.round(Number(order.total || 0) * 100)
         );
-        const creditCents = Math.round(verifiedReturnCredit * 100);
+        const payoutMethod = normalizeReturnPayoutMethod(order.returnPayoutMethod);
+        const netCreditCents = Math.round(verifiedReturnCredit * 100);
+        const creditCents =
+          payoutMethod === 'CREDIT' ? Math.min(netCreditCents, authorizedCents) : 0;
+        const walletCreditCents =
+          payoutMethod === 'CREDIT' ? Math.max(0, netCreditCents - creditCents) : 0;
 
         const finalCaptureCents = Math.max(0, authorizedCents - creditCents);
 
@@ -637,6 +653,57 @@ const createPaymentsRouter = ({ stripe }) => {
           order.verifiedReturnCreditGross = verifiedCredit.gross;
           order.verifiedReturnUpcs = verifiedReturnUpcs;
           order.verifiedReturnUpcCounts = verifiedReturnUpcCounts;
+          order.returnPayoutMethod = payoutMethod;
+
+          if (
+            payoutMethod === 'CREDIT' &&
+            walletCreditCents > 0 &&
+            order.customerId &&
+            order.customerId !== 'GUEST'
+          ) {
+            const user = await User.findById(order.customerId).session(sessionDb);
+            if (user) {
+              const previousCredits = Number(user.creditBalance || 0);
+              user.creditBalance = Math.max(
+                0,
+                previousCredits + Math.round(walletCreditCents) / 100
+              );
+              await user.save({ session: sessionDb });
+
+              const delta = Number(user.creditBalance || 0) - previousCredits;
+              if (delta) {
+                await LedgerEntry.create(
+                  [
+                    {
+                      userId: order.customerId,
+                      delta,
+                      reason: `RETURN_CREDIT_REMAINDER:${order.orderId}`
+                    }
+                  ],
+                  { session: sessionDb }
+                );
+                creditedUserId = order.customerId;
+                creditedAmount = delta;
+              }
+            }
+          }
+
+          if (payoutMethod === 'CASH' && verifiedReturnCredit > 0) {
+            await CashPayout.create(
+              [
+                {
+                  orderId: order.orderId,
+                  userId: order.customerId,
+                  driverId: order.driverId || '',
+                  amount: verifiedReturnCredit,
+                  createdBy: req.user?.username || req.user?.id || ''
+                }
+              ],
+              { session: sessionDb }
+            );
+            cashPayoutAmount = verifiedReturnCredit;
+            cashPayoutUserId = order.customerId;
+          }
 
           await order.save({ session: sessionDb });
           updatedOrderDoc = order;
@@ -655,6 +722,57 @@ const createPaymentsRouter = ({ stripe }) => {
         order.verifiedReturnCreditGross = verifiedCredit.gross;
         order.verifiedReturnUpcs = verifiedReturnUpcs;
         order.verifiedReturnUpcCounts = verifiedReturnUpcCounts;
+        order.returnPayoutMethod = payoutMethod;
+
+        if (
+          payoutMethod === 'CREDIT' &&
+          walletCreditCents > 0 &&
+          order.customerId &&
+          order.customerId !== 'GUEST'
+        ) {
+          const user = await User.findById(order.customerId).session(sessionDb);
+          if (user) {
+            const previousCredits = Number(user.creditBalance || 0);
+            user.creditBalance = Math.max(
+              0,
+              previousCredits + Math.round(walletCreditCents) / 100
+            );
+            await user.save({ session: sessionDb });
+
+            const delta = Number(user.creditBalance || 0) - previousCredits;
+            if (delta) {
+              await LedgerEntry.create(
+                [
+                  {
+                    userId: order.customerId,
+                    delta,
+                    reason: `RETURN_CREDIT_REMAINDER:${order.orderId}`
+                  }
+                ],
+                { session: sessionDb }
+              );
+              creditedUserId = order.customerId;
+              creditedAmount = delta;
+            }
+          }
+        }
+
+        if (payoutMethod === 'CASH' && verifiedReturnCredit > 0) {
+          await CashPayout.create(
+            [
+              {
+                orderId: order.orderId,
+                userId: order.customerId,
+                driverId: order.driverId || '',
+                amount: verifiedReturnCredit,
+                createdBy: req.user?.username || req.user?.id || ''
+              }
+            ],
+            { session: sessionDb }
+          );
+          cashPayoutAmount = verifiedReturnCredit;
+          cashPayoutUserId = order.customerId;
+        }
 
         await order.save({ session: sessionDb });
         updatedOrderDoc = order;
@@ -667,6 +785,20 @@ const createPaymentsRouter = ({ stripe }) => {
         actorId: req.user?.username || req.user?.id || 'UNKNOWN',
         details: `Order ${orderId} payment captured.`
       });
+      if (creditedUserId && creditedAmount) {
+        await recordAuditLog({
+          type: 'CREDIT_ADJUSTED',
+          actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+          details: `Applied $${creditedAmount.toFixed(2)} return credit remainder for order ${orderId}.`
+        });
+      }
+      if (cashPayoutUserId && cashPayoutAmount) {
+        await recordAuditLog({
+          type: 'ORDER_UPDATED',
+          actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+          details: `Recorded $${cashPayoutAmount.toFixed(2)} cash payout for order ${orderId}.`
+        });
+      }
 
       res.json({ ok: true, order: mapOrderForFrontend(updatedOrderDoc) });
     } catch (err) {

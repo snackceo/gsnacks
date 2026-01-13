@@ -5,6 +5,7 @@ import Order from '../models/Order.js';
 import UpcItem from '../models/UpcItem.js';
 import User from '../models/User.js';
 import LedgerEntry from '../models/LedgerEntry.js';
+import CashPayout from '../models/CashPayout.js';
 import AppSettings from '../models/AppSettings.js';
 import {
   authRequired,
@@ -12,6 +13,7 @@ import {
   isDriverUsername,
   isOwnerUsername,
   mapOrderForFrontend,
+  normalizeReturnPayoutMethod,
   normalizeUpcCounts,
   calculateReturnFeeSummary,
   sumReturnCredits,
@@ -222,7 +224,8 @@ const createOrdersRouter = ({ stripe }) => {
         'verifiedReturnCreditGross',
         'verifiedReturnUpcs',
         'verifiedReturnUpcCounts',
-        'creditApplied'
+        'creditApplied',
+        'returnPayoutMethod'
       ];
       const driverAllowed = [
         'status',
@@ -231,13 +234,17 @@ const createOrdersRouter = ({ stripe }) => {
         'verificationPhoto',
         'returnPhoto',
         'verifiedReturnUpcs',
-        'verifiedReturnUpcCounts'
+        'verifiedReturnUpcCounts',
+        'returnPayoutMethod'
       ];
 
       const updates = {};
       const allowed = isOwner ? ownerAllowed : driverAllowed;
       for (const k of allowed) {
         if (req.body?.[k] !== undefined) updates[k] = req.body[k];
+      }
+      if (updates.returnPayoutMethod !== undefined) {
+        updates.returnPayoutMethod = normalizeReturnPayoutMethod(updates.returnPayoutMethod);
       }
       if (updates.verifiedReturnUpcCounts !== undefined || updates.verifiedReturnUpcs !== undefined) {
         const payload =
@@ -361,6 +368,8 @@ const createOrdersRouter = ({ stripe }) => {
       const driverId = req.user?.username || req.user?.id;
       let creditedUserId = null;
       let creditedAmount = 0;
+      let cashPayoutUserId = null;
+      let cashPayoutAmount = 0;
 
       await sessionDb.withTransaction(async () => {
         const order = await Order.findOne({ orderId }).session(sessionDb);
@@ -380,6 +389,10 @@ const createOrdersRouter = ({ stripe }) => {
           const e = new Error('Order is not assigned to this driver.');
           e.code = 'DRIVER_MISMATCH';
           throw e;
+        }
+
+        if (updates.returnPayoutMethod !== undefined) {
+          order.returnPayoutMethod = updates.returnPayoutMethod;
         }
 
         if (requestedStatus === 'ASSIGNED') {
@@ -466,33 +479,52 @@ const createOrdersRouter = ({ stripe }) => {
             order.verifiedReturnUpcCounts = normalized.upcCounts;
             order.returnCreditsAppliedAt = new Date();
 
-            if (
-              order.customerId &&
-              order.customerId !== 'GUEST' &&
-              order.verifiedReturnCredit > 0
-            ) {
-              const user = await User.findById(order.customerId).session(sessionDb);
-              if (user) {
-                const previousCredits = Number(user.creditBalance || 0);
-                user.creditBalance = Math.max(0, previousCredits + order.verifiedReturnCredit);
-                await user.save({ session: sessionDb });
+            const payoutMethod = normalizeReturnPayoutMethod(order.returnPayoutMethod);
 
-                const delta = Number(user.creditBalance || 0) - previousCredits;
-                if (delta) {
-                  await LedgerEntry.create(
-                    [
-                      {
-                        userId: order.customerId,
-                        delta,
-                        reason: `RETURN_ONLY_CREDIT:${order.orderId}`
-                      }
-                    ],
-                    { session: sessionDb }
-                  );
-                  creditedUserId = order.customerId;
-                  creditedAmount = delta;
+            if (payoutMethod === 'CREDIT') {
+              if (
+                order.customerId &&
+                order.customerId !== 'GUEST' &&
+                order.verifiedReturnCredit > 0
+              ) {
+                const user = await User.findById(order.customerId).session(sessionDb);
+                if (user) {
+                  const previousCredits = Number(user.creditBalance || 0);
+                  user.creditBalance = Math.max(0, previousCredits + order.verifiedReturnCredit);
+                  await user.save({ session: sessionDb });
+
+                  const delta = Number(user.creditBalance || 0) - previousCredits;
+                  if (delta) {
+                    await LedgerEntry.create(
+                      [
+                        {
+                          userId: order.customerId,
+                          delta,
+                          reason: `RETURN_ONLY_CREDIT:${order.orderId}`
+                        }
+                      ],
+                      { session: sessionDb }
+                    );
+                    creditedUserId = order.customerId;
+                    creditedAmount = delta;
+                  }
                 }
               }
+            } else if (payoutMethod === 'CASH' && order.verifiedReturnCredit > 0) {
+              await CashPayout.create(
+                [
+                  {
+                    orderId: order.orderId,
+                    userId: order.customerId,
+                    driverId: order.driverId || '',
+                    amount: order.verifiedReturnCredit,
+                    createdBy: req.user?.username || req.user?.id || ''
+                  }
+                ],
+                { session: sessionDb }
+              );
+              cashPayoutUserId = order.customerId;
+              cashPayoutAmount = order.verifiedReturnCredit;
             }
           }
         }
@@ -523,6 +555,13 @@ const createOrdersRouter = ({ stripe }) => {
           type: 'CREDIT_ADJUSTED',
           actorId: req.user?.username || req.user?.id || 'UNKNOWN',
           details: `Applied $${creditedAmount.toFixed(2)} return credits for order ${orderId}.`
+        });
+      }
+      if (cashPayoutUserId && cashPayoutAmount) {
+        await recordAuditLog({
+          type: 'ORDER_UPDATED',
+          actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+          details: `Recorded $${cashPayoutAmount.toFixed(2)} cash payout for order ${orderId}.`
         });
       }
 
