@@ -33,6 +33,8 @@ interface CartDrawerProps {
   membershipTier?: UserTier;
   pickupOnlyMultiplier: number;
   distanceMiles: number;
+  isDistanceLoading: boolean;
+  distanceError: string | null;
   distanceIncludedMiles: number;
   distanceBand1MaxMiles: number;
   distanceBand2MaxMiles: number;
@@ -43,7 +45,6 @@ interface CartDrawerProps {
 
   onClose: () => void;
   onAddressChange: (v: string) => void;
-  onDistanceChange: (v: number) => void;
   onPolicyChange: (v: boolean) => void;
 
   onRemoveItem: (productId: string) => void;
@@ -144,6 +145,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   membershipTier,
   pickupOnlyMultiplier,
   distanceMiles,
+  isDistanceLoading,
+  distanceError,
   distanceIncludedMiles,
   distanceBand1MaxMiles,
   distanceBand2MaxMiles,
@@ -153,7 +156,6 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   dailyReturnLimit,
   onClose,
   onAddressChange,
-  onDistanceChange,
   onPolicyChange,
   onRemoveItem,
   onPayCredits,
@@ -1059,21 +1061,28 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               />
             </div>
             <div className="space-y-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                One-Way Distance (Miles)
-              </p>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                placeholder="0.0"
-                value={Number.isFinite(distanceMiles) ? distanceMiles : 0}
-                onChange={e => onDistanceChange(Number(e.target.value))}
-                className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 text-white text-xs outline-none focus:border-ninpo-lime"
-              />
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  One-Way Distance (Auto)
+                </p>
+                {isDistanceLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-500" />}
+              </div>
+              <div className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 text-white text-xs">
+                <p className="text-white font-black text-lg">
+                  {Number.isFinite(distanceMiles) ? distanceMiles.toFixed(1) : '0.0'} mi
+                </p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">
+                  Calculated from delivery address.
+                </p>
+              </div>
               <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
                 Rounded down to 0.1 mi for distance fee tiers.
               </p>
+              {distanceError && (
+                <p className="text-[10px] text-ninpo-red font-bold uppercase tracking-widest">
+                  {distanceError}
+                </p>
+              )}
             </div>
 
             {/* Policy checkbox */}

@@ -29,6 +29,8 @@ function App() {
 
   const [address, setAddress] = useState('');
   const [distanceMiles, setDistanceMiles] = useState(0);
+  const [isDistanceLoading, setIsDistanceLoading] = useState(false);
+  const [distanceError, setDistanceError] = useState<string | null>(null);
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
   const [isLoginViewOpen, setIsLoginViewOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -147,6 +149,49 @@ function App() {
       setIsLoginViewOpen(false);
     }
   }, [location.pathname]);
+
+  useEffect(() => {
+    const trimmedAddress = address.trim();
+    if (!trimmedAddress) {
+      setDistanceMiles(0);
+      setDistanceError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setIsDistanceLoading(true);
+      setDistanceError(null);
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/distance`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          signal: controller.signal,
+          body: JSON.stringify({ address: trimmedAddress })
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || 'Distance lookup failed');
+        }
+
+        const resolvedDistance = Number(data?.distanceMiles || 0);
+        setDistanceMiles(Number.isFinite(resolvedDistance) ? resolvedDistance : 0);
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        setDistanceMiles(0);
+        setDistanceError(err?.message || 'Distance lookup failed');
+      } finally {
+        setIsDistanceLoading(false);
+      }
+    }, 600);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [address]);
 
   if (core.isBootstrapping) {
     return (
@@ -326,6 +371,8 @@ function App() {
         membershipTier={core.currentUser?.membershipTier}
         pickupOnlyMultiplier={core.settings.pickupOnlyMultiplier}
         distanceMiles={distanceMiles}
+        isDistanceLoading={isDistanceLoading}
+        distanceError={distanceError}
         distanceIncludedMiles={core.settings.distanceIncludedMiles}
         distanceBand1MaxMiles={core.settings.distanceBand1MaxMiles}
         distanceBand2MaxMiles={core.settings.distanceBand2MaxMiles}
@@ -335,7 +382,6 @@ function App() {
         dailyReturnLimit={core.settings.dailyReturnLimit}
         onClose={() => setIsCartOpen(false)}
         onAddressChange={setAddress}
-        onDistanceChange={setDistanceMiles}
         onPolicyChange={setAcceptedPolicies}
         onRemoveItem={id =>
           core.setCart(prev => prev.filter(i => i.productId !== id))
