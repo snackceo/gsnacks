@@ -259,6 +259,7 @@ export const useNinpoCore = () => {
           price: p.price,
           deposit: (p as any).deposit ?? 0,
           stock: p.stock ?? 0,
+          sizeOz: (p as any).sizeOz ?? 0,
           category: p.category ?? 'DRINK',
           image: p.image ?? '',
           isGlass: (p as any).isGlass ?? false

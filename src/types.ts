@@ -59,6 +59,7 @@ export interface Product {
   price: number;
   deposit: number;
   stock: number;
+  sizeOz: number;
   category: string;
   image: string;
   isGlass: boolean;
