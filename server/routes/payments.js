@@ -22,14 +22,8 @@ import {
 } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 
-const deliveryDiscountsByTier = {
-  COMMON: 0,
-  BRONZE: 10,
-  SILVER: 20,
-  GOLD: 30,
-  PLATINUM: 30
-};
-const CREDIT_DELIVERY_ELIGIBLE_TIERS = new Set(['SILVER', 'GOLD', 'PLATINUM']);
+const CREDIT_DELIVERY_ELIGIBLE_TIERS = new Set(['SILVER', 'GOLD', 'PLATINUM', 'GREEN']);
+const CASH_PAYOUT_ELIGIBLE_TIERS = new Set(['GOLD', 'PLATINUM', 'GREEN']);
 const DEFAULT_RETURN_FEES = {
   returnHandlingFeePerContainer: 0.02,
   glassHandlingFeePerContainer: 0.02
@@ -44,44 +38,49 @@ const normalizeTier = tier => {
   return 'COMMON';
 };
 
-const getDeliveryFeeDiscountPercent = tier => {
-  const normalizedTier = normalizeTier(tier);
-  // For GREEN tier, the discount is handled as a flat fee, so return 0% here.
-  if (normalizedTier === 'GREEN') {
-    return 0;
+const normalizePayoutMethodForTier = (payoutMethod, tier) => {
+  const normalizedPayout = normalizeReturnPayoutMethod(payoutMethod);
+  if (normalizedPayout === 'CASH' && !CASH_PAYOUT_ELIGIBLE_TIERS.has(normalizeTier(tier))) {
+    return 'CREDIT';
   }
-  return deliveryDiscountsByTier[normalizedTier] ?? 0;
+  return normalizedPayout;
 };
 
-const applyDeliveryFeeDiscount = (deliveryFee, discountPercent, tier) => {
-  const fee = Math.max(0, Number(deliveryFee || 0));
-  const percent = Math.max(0, Math.min(100, Number(discountPercent || 0)));
+const getRouteFeeConfig = async () => {
+  const doc = await AppSettings.findOne({ key: 'default' }).lean();
+  return {
+    baseRouteFee: Number(doc?.deliveryFee ?? 4.99),
+    pickupOnlyMultiplier: Number(doc?.pickupOnlyMultiplier ?? 0.5),
+    platinumFreeDelivery: Boolean(doc?.platinumFreeDelivery ?? false)
+  };
+};
 
-  // Special handling for GREEN tier: flat $1 delivery fee
-  if (normalizeTier(tier) === 'GREEN') {
-    const flatFeeCents = 100; // $1.00
-    return {
-      deliveryFeeFinal: flatFeeCents / 100,
-      deliveryFeeFinalCents: flatFeeCents
-    };
+const calculateRouteFee = ({ baseRouteFee, pickupOnlyMultiplier, orderType, tier, platinumFreeDelivery }) => {
+  let fee = Math.max(0, Number(baseRouteFee || 0));
+  const normalizedTier = normalizeTier(tier);
+
+  if (orderType === 'RETURNS_PICKUP') {
+    fee = fee * Math.max(0, Number(pickupOnlyMultiplier || 0));
   }
 
-  const discountedCents = Math.round(fee * (1 - percent / 100) * 100);
-  return {
-    deliveryFeeFinal: discountedCents / 100,
-    deliveryFeeFinalCents: discountedCents
-  };
+  if (normalizedTier === 'GREEN') {
+    fee = 1;
+  }
+
+  if (normalizedTier === 'PLATINUM' && platinumFreeDelivery) {
+    fee = 0;
+  }
+
+  const feeCents = Math.round(fee * 100);
+  return { routeFee: feeCents / 100, routeFeeCents: feeCents };
 };
 
 const getReturnFeeConfig = async () => {
   const doc = await AppSettings.findOne({ key: 'default' }).lean();
-  const depositValue = Number(doc?.michiganDepositValue ?? 0.1);
-  const feePercent = Number(doc?.returnHandlingFeePercent ?? 0.2);
-  const handlingFee = depositValue * feePercent;
 
   return {
     returnHandlingFeePerContainer: Number(
-      doc?.returnHandlingFeePerContainer ?? handlingFee // Revert to allow override if explicitly set, but default to calculated
+      doc?.returnHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.returnHandlingFeePerContainer
     ),
     glassHandlingFeePerContainer: Number(
       doc?.glassHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.glassHandlingFeePerContainer
@@ -89,7 +88,7 @@ const getReturnFeeConfig = async () => {
   };
 };
 
-const buildReturnPreview = async (rawUpcs) => {
+const buildReturnPreview = async (rawUpcs, payoutMethod = 'CREDIT') => {
   const { upcCounts, uniqueUpcs } = normalizeUpcCounts(rawUpcs);
   const returnUpcs = [];
   const returnUpcCounts = [];
@@ -121,7 +120,10 @@ const buildReturnPreview = async (rawUpcs) => {
 
   const dailyCap = Number(process.env.DAILY_RETURN_CAP || 25); // dollars
   const computedEstimatedCredit = Math.min(estimatedCreditFromUpcs, dailyCap);
-  const estimatedNetCredit = Math.max(0, computedEstimatedCredit - feeSummary.totalFee);
+  const shouldApplyFees = payoutMethod === 'CASH';
+  const estimatedNetCredit = shouldApplyFees
+    ? Math.max(0, computedEstimatedCredit - feeSummary.totalFee)
+    : computedEstimatedCredit;
   const estimatedCredit = {
     gross: computedEstimatedCredit,
     net: estimatedNetCredit
@@ -164,27 +166,39 @@ const createPaymentsRouter = ({ stripe }) => {
       const userId = req.body?.userId;
       const address = String(req.body?.address || '').trim();
       const gateway = String(req.body?.gateway || 'STRIPE').toUpperCase();
-      const baseDeliveryFee = 4.99; // Centralized base fee
-      const returnPayoutMethod = normalizeReturnPayoutMethod(req.body?.returnPayoutMethod);
       const tierLookupUser = userId
         ? await User.findById(userId, { membershipTier: 1 }).session(sessionDb)
         : null;
-      const deliveryFeeDiscountPercent = getDeliveryFeeDiscountPercent(
+      const returnPayoutMethod = normalizePayoutMethodForTier(
+        req.body?.returnPayoutMethod,
         tierLookupUser?.membershipTier
       );
-      const { deliveryFeeFinal, deliveryFeeFinalCents } = applyDeliveryFeeDiscount(
-        baseDeliveryFee,
-        deliveryFeeDiscountPercent,
-        tierLookupUser?.membershipTier // Pass the user's tier
-      );
-
-      const { eligibleUpcs, eligibleUpcCounts, ineligibleUpcs, estimatedCredit } =
-        await buildReturnPreview(req.body?.returnUpcCounts ?? req.body?.returnUpcs);
+      const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery } =
+        await getRouteFeeConfig();
 
       const items = normalizeCart(rawItems);
-      if (!Array.isArray(items) || items.length === 0) {
+      const rawReturnUpcs = req.body?.returnUpcCounts ?? req.body?.returnUpcs;
+      const normalizedReturnUpcs = normalizeUpcCounts(rawReturnUpcs);
+      const isReturnOnly =
+        Array.isArray(items) && items.length === 0 && normalizedReturnUpcs.uniqueUpcs.length > 0;
+      if ((!Array.isArray(items) || items.length === 0) && !isReturnOnly) {
         return res.status(400).json({ error: 'Cart is empty' });
       }
+
+      const { eligibleUpcs, eligibleUpcCounts, ineligibleUpcs, estimatedCredit } =
+        await buildReturnPreview(rawReturnUpcs, returnPayoutMethod);
+      if (isReturnOnly && eligibleUpcs.length === 0) {
+        return res.status(400).json({ error: 'No eligible return UPCs provided.' });
+      }
+
+      const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
+      const { routeFee, routeFeeCents } = calculateRouteFee({
+        baseRouteFee,
+        pickupOnlyMultiplier,
+        orderType,
+        tier: tierLookupUser?.membershipTier,
+        platinumFreeDelivery
+      });
 
       const orderId = crypto.randomUUID();
       const lineItems = [];
@@ -231,13 +245,18 @@ const createPaymentsRouter = ({ stripe }) => {
           });
         });
 
-        if (deliveryFeeFinalCents > 0) {
-          totalCents += deliveryFeeFinalCents;
+        if (routeFeeCents > 0) {
+          totalCents += routeFeeCents;
           lineItems.push({
             price_data: {
               currency: 'usd',
-              product_data: { name: 'Delivery fee' },
-              unit_amount: deliveryFeeFinalCents
+              product_data: {
+                name:
+                  orderType === 'RETURNS_PICKUP'
+                    ? 'Route Fee — Pickup-Only Order'
+                    : 'Route Fee — Delivery Order'
+              },
+              unit_amount: routeFeeCents
             },
             quantity: 1
           });
@@ -251,9 +270,10 @@ const createPaymentsRouter = ({ stripe }) => {
               address: address || '',
               items,
               total: totalCents / 100,
-              deliveryFee: baseDeliveryFee,
-              deliveryFeeDiscountPercent,
-              deliveryFeeFinal,
+              orderType,
+              deliveryFee: baseRouteFee,
+              deliveryFeeDiscountPercent: 0,
+              deliveryFeeFinal: routeFee,
               creditApplied: 0,
 
               returnUpcs: eligibleUpcs,
@@ -297,13 +317,11 @@ const createPaymentsRouter = ({ stripe }) => {
         responsePayload.ineligibleUpcs = uniqueIneligibleUpcs;
       }
 
-      if (deliveryFeeFinalCents > 0) {
+      if (routeFeeCents > 0) {
         await recordAuditLog({
           type: 'ORDER_CREATED',
           actorId: userId || 'GUEST',
-          details: `Order ${orderId} created with delivery fee $${deliveryFeeFinal.toFixed(
-            2
-          )} (${deliveryFeeDiscountPercent}% discount).`
+          details: `Order ${orderId} created with route fee $${routeFee.toFixed(2)}.`
         });
       }
 
@@ -334,21 +352,14 @@ const createPaymentsRouter = ({ stripe }) => {
     try {
       const rawItems = req.body?.items;
       const address = String(req.body?.address || '').trim();
-      const baseDeliveryFee = 4.99; // Centralized base fee
-      const returnPayoutMethod = normalizeReturnPayoutMethod(req.body?.returnPayoutMethod);
 
       const items = normalizeCart(rawItems);
       const rawReturnUpcs = req.body?.returnUpcCounts ?? req.body?.returnUpcs;
       const normalizedReturnUpcs = normalizeUpcCounts(rawReturnUpcs);
-      const { eligibleUpcs, eligibleUpcCounts, ineligibleUpcs, estimatedCredit } =
-        await buildReturnPreview(rawReturnUpcs);
       const isReturnOnly =
         Array.isArray(items) && items.length === 0 && normalizedReturnUpcs.uniqueUpcs.length > 0;
       if ((!Array.isArray(items) || items.length === 0) && !isReturnOnly) {
         return res.status(400).json({ error: 'Cart is empty' });
-      }
-      if (isReturnOnly && eligibleUpcs.length === 0) {
-        return res.status(400).json({ error: 'No eligible return UPCs provided.' });
       }
 
       const userId = req.user?.id;
@@ -357,21 +368,31 @@ const createPaymentsRouter = ({ stripe }) => {
       user = await User.findById(userId).session(sessionDb);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
+      const returnPayoutMethod = normalizePayoutMethodForTier(
+        req.body?.returnPayoutMethod,
+        user?.membershipTier
+      );
+      const { eligibleUpcs, eligibleUpcCounts, ineligibleUpcs, estimatedCredit } =
+        await buildReturnPreview(rawReturnUpcs, returnPayoutMethod);
+      if (isReturnOnly && eligibleUpcs.length === 0) {
+        return res.status(400).json({ error: 'No eligible return UPCs provided.' });
+      }
+
       if (user.creditTransactionId) {
         const err = new Error('User has a pending credit transaction.');
         err.code = 'PENDING_CREDIT_TRANSACTION';
         throw err;
       }
-      const deliveryFeeDiscountPercent = getDeliveryFeeDiscountPercent(user?.membershipTier);
-      let { deliveryFeeFinal, deliveryFeeFinalCents } = applyDeliveryFeeDiscount(
-        baseDeliveryFee,
-        deliveryFeeDiscountPercent,
-        user?.membershipTier
-      );
-      if (isReturnOnly) {
-        deliveryFeeFinal = 0;
-        deliveryFeeFinalCents = 0;
-      }
+      const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery } =
+        await getRouteFeeConfig();
+      const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
+      const { routeFee, routeFeeCents } = calculateRouteFee({
+        baseRouteFee,
+        pickupOnlyMultiplier,
+        orderType,
+        tier: user?.membershipTier,
+        platinumFreeDelivery
+      });
 
       const orderId = crypto.randomUUID();
       let totalCents = 0;
@@ -416,8 +437,8 @@ const createPaymentsRouter = ({ stripe }) => {
           });
         }
 
-        if (deliveryFeeFinalCents > 0) {
-          totalCents += deliveryFeeFinalCents;
+        if (routeFeeCents > 0) {
+          totalCents += routeFeeCents;
         }
 
         const tier = normalizeTier(user?.membershipTier);
@@ -428,9 +449,7 @@ const createPaymentsRouter = ({ stripe }) => {
           0,
           Math.round(Number(user.creditBalance || 0) * 100)
         );
-        const creditAppliedCents = isReturnOnly
-          ? 0
-          : Math.min(availableCreditsCents, eligibleCreditCents);
+        const creditAppliedCents = Math.min(availableCreditsCents, eligibleCreditCents);
         const remainingCents = Math.max(0, totalCents - creditAppliedCents);
 
         const creditApplied = creditAppliedCents / 100;
@@ -448,16 +467,17 @@ const createPaymentsRouter = ({ stripe }) => {
               address: address || '',
               items,
               total: totalCents / 100,
-              deliveryFee: baseDeliveryFee,
-              deliveryFeeDiscountPercent,
-              deliveryFeeFinal,
+              orderType,
+              deliveryFee: baseRouteFee,
+              deliveryFeeDiscountPercent: 0,
+              deliveryFeeFinal: routeFee,
               creditApplied,
-              paymentMethod: isReturnOnly ? 'CREDITS' : remainingCents > 0 ? 'STRIPE' : 'CREDITS',
-              status: isReturnOnly ? 'PENDING' : remainingCents > 0 ? 'PENDING' : 'PAID',
+              paymentMethod: remainingCents > 0 ? 'STRIPE' : 'CREDITS',
+              status: remainingCents > 0 ? 'PENDING' : 'PAID',
               amountAuthorizedCents: remainingCents,
               amountCapturedCents: remainingCents > 0 ? 0 : 0,
-              paidAt: isReturnOnly || remainingCents > 0 ? undefined : new Date(),
-              capturedAt: isReturnOnly || remainingCents > 0 ? undefined : new Date(),
+              paidAt: remainingCents > 0 ? undefined : new Date(),
+              capturedAt: remainingCents > 0 ? undefined : new Date(),
 
               returnUpcs: eligibleUpcs,
               returnUpcCounts: eligibleUpcCounts,
@@ -477,13 +497,11 @@ const createPaymentsRouter = ({ stripe }) => {
 
       const remainingCents = Number(remainingOrder.amountAuthorizedCents || 0);
 
-      if (deliveryFeeFinalCents > 0) {
+      if (routeFeeCents > 0) {
         await recordAuditLog({
           type: 'ORDER_CREATED',
           actorId: req.user?.username || req.user?.id || userId,
-          details: `Order ${orderId} created with delivery fee $${deliveryFeeFinal.toFixed(
-            2
-          )} (${deliveryFeeDiscountPercent}% discount).`
+          details: `Order ${orderId} created with route fee $${routeFee.toFixed(2)}.`
         });
       }
 
@@ -655,6 +673,7 @@ const createPaymentsRouter = ({ stripe }) => {
       await sessionDb.withTransaction(async () => {
         const order = await Order.findOne({ orderId }).session(sessionDb);
         if (!order) return;
+        const payoutMethod = normalizeReturnPayoutMethod(order.returnPayoutMethod);
 
         if (!isOwner) {
           if (!isDriver) {
@@ -695,15 +714,21 @@ const createPaymentsRouter = ({ stripe }) => {
             .lean();
 
           verifiedReturnCreditGross = sumReturnCredits(normalized.upcCounts, upcEntries);
-          const feeConfig = await getReturnFeeConfig();
-          const feeSummary = calculateReturnFeeSummary(
-            normalized.upcCounts,
-            upcEntries,
-            feeConfig
-          );
+          let feeSummary = { totalFee: 0 };
+          if (payoutMethod === 'CASH') {
+            const feeConfig = await getReturnFeeConfig();
+            feeSummary = calculateReturnFeeSummary(
+              normalized.upcCounts,
+              upcEntries,
+              feeConfig
+            );
+          }
           const dailyCap = Number(process.env.DAILY_RETURN_CAP || 25); // dollars
           const computedVerifiedCreditGross = Math.min(verifiedReturnCreditGross, dailyCap);
-          const netCredit = Math.max(0, computedVerifiedCreditGross - feeSummary.totalFee);
+          const netCredit =
+            payoutMethod === 'CASH'
+              ? Math.max(0, computedVerifiedCreditGross - feeSummary.totalFee)
+              : computedVerifiedCreditGross;
           verifiedCredit = {
             gross: computedVerifiedCreditGross,
             net: netCredit
@@ -714,7 +739,9 @@ const createPaymentsRouter = ({ stripe }) => {
             actorId: req.user?.username || req.user?.id || 'UNKNOWN',
             details: `Order ${orderId} returns verified. Gross: $${verifiedCredit.gross.toFixed(
               2
-            )}, Fees: $${feeSummary.totalFee.toFixed(2)}, Net: $${netCredit.toFixed(2)}.`
+            )}, Fees: $${Number(feeSummary.totalFee || 0).toFixed(
+              2
+            )}, Net: $${netCredit.toFixed(2)}.`
           });
         }
         verifiedReturnCredit = verifiedCredit.net;
@@ -740,7 +767,6 @@ const createPaymentsRouter = ({ stripe }) => {
         const authorizedCents = Number(
           order.amountAuthorizedCents || Math.round(Number(order.total || 0) * 100)
         );
-        const payoutMethod = normalizeReturnPayoutMethod(order.returnPayoutMethod);
         const netCreditCents = Math.round(verifiedReturnCredit * 100);
         const creditCents =
           payoutMethod === 'CREDIT' ? Math.min(netCreditCents, authorizedCents) : 0;

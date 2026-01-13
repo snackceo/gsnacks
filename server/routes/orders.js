@@ -451,6 +451,7 @@ const createOrdersRouter = ({ stripe }) => {
               [];
             const normalized = normalizeUpcCounts(verifiedPayload);
             const uniqueReturnUpcs = normalized.uniqueUpcs;
+            const payoutMethod = normalizeReturnPayoutMethod(order.returnPayoutMethod);
             let verifiedReturnCreditGross = 0;
             if (uniqueReturnUpcs.length > 0) {
               const upcEntries = await UpcItem.find({
@@ -461,13 +462,19 @@ const createOrdersRouter = ({ stripe }) => {
                 .lean();
 
               verifiedReturnCreditGross = sumReturnCredits(normalized.upcCounts, upcEntries);
-              const feeConfig = await getReturnFeeConfig();
-              const feeSummary = calculateReturnFeeSummary(
-                normalized.upcCounts,
-                upcEntries,
-                feeConfig
-              );
-              const netCredit = Math.max(0, verifiedReturnCreditGross - feeSummary.totalFee);
+              let feeSummary = { totalFee: 0 };
+              if (payoutMethod === 'CASH') {
+                const feeConfig = await getReturnFeeConfig();
+                feeSummary = calculateReturnFeeSummary(
+                  normalized.upcCounts,
+                  upcEntries,
+                  feeConfig
+                );
+              }
+              const netCredit =
+                payoutMethod === 'CASH'
+                  ? Math.max(0, verifiedReturnCreditGross - feeSummary.totalFee)
+                  : verifiedReturnCreditGross;
               order.verifiedReturnCreditGross = verifiedReturnCreditGross;
               order.verifiedReturnCredit = netCredit;
             } else {
@@ -478,8 +485,6 @@ const createOrdersRouter = ({ stripe }) => {
             order.verifiedReturnUpcs = normalized.flattened;
             order.verifiedReturnUpcCounts = normalized.upcCounts;
             order.returnCreditsAppliedAt = new Date();
-
-            const payoutMethod = normalizeReturnPayoutMethod(order.returnPayoutMethod);
 
             if (payoutMethod === 'CREDIT') {
               if (

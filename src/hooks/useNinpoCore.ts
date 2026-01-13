@@ -36,6 +36,7 @@ const defaultSettings: AppSettings = {
   processingFeePercent: 0.05,
   returnHandlingFeePerContainer: 0.02,
   glassHandlingFeePerContainer: 0.02,
+  pickupOnlyMultiplier: 0.5,
   dailyReturnLimit: 250,
   maintenanceMode: false,
   requirePhotoForRefunds: false,
@@ -63,6 +64,9 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     ),
     glassHandlingFeePerContainer: Number(
       data.glassHandlingFeePerContainer ?? defaultSettings.glassHandlingFeePerContainer
+    ),
+    pickupOnlyMultiplier: Number(
+      data.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier
     ),
     dailyReturnLimit: Number(data.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
     maintenanceMode: Boolean(

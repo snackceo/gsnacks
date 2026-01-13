@@ -15,6 +15,7 @@ const defaultSettings = {
   processingFeePercent: 0.05,
   returnHandlingFeePerContainer: 0.02,
   glassHandlingFeePerContainer: 0.02,
+  pickupOnlyMultiplier: 0.5,
   dailyReturnLimit: 250,
   maintenanceMode: false,
   requirePhotoForRefunds: false,
@@ -31,6 +32,7 @@ const numericFields = [
   'processingFeePercent',
   'returnHandlingFeePerContainer',
   'glassHandlingFeePerContainer',
+  'pickupOnlyMultiplier',
   'dailyReturnLimit'
 ];
 
@@ -82,6 +84,9 @@ const mapSettings = (doc) => ({
   ),
   glassHandlingFeePerContainer: Number(
     doc?.glassHandlingFeePerContainer ?? defaultSettings.glassHandlingFeePerContainer
+  ),
+  pickupOnlyMultiplier: Number(
+    doc?.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier
   ),
   dailyReturnLimit: Number(doc?.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
   maintenanceMode: Boolean(doc?.maintenanceMode ?? defaultSettings.maintenanceMode),
