@@ -112,7 +112,7 @@ const LegalFooter: React.FC = () => {
                   Overview
                 </h3>
                 <p>
-                  NinpoSnacks is a mobile-first snack delivery service in Detroit that pairs
+                  Ninpo Snacks is a mobile-first snack delivery service in Detroit that pairs
                   on-demand delivery with a container return program. Customers order snacks,
                   hand off eligible empties at delivery, and receive credits (or, for eligible tiers,
                   cash) based on Michigan&apos;s 10¢ deposit system.

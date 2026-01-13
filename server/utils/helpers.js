@@ -302,7 +302,10 @@ function mapOrderForFrontend(d) {
               : undefined
           }
         : undefined,
-    gpsCoords: d.gpsCoords?.lat && d.gpsCoords?.lng ? d.gpsCoords : undefined
+    gpsCoords:
+      Number.isFinite(d.gpsCoords?.lat) && Number.isFinite(d.gpsCoords?.lng)
+        ? d.gpsCoords
+        : undefined
   };
 }
 
