@@ -56,6 +56,16 @@ const CustomerView: React.FC<CustomerViewProps> = ({
       : normalizedTier === 'PLATINUM'
       ? 'SECRET PLATINUM'
       : normalizedTier;
+  const redemptionTier = normalizedTier === 'NONE' ? 'COMMON' : normalizedTier;
+  const minRedeemByTier: Record<string, number> = {
+    BRONZE: 500,
+    SILVER: 250,
+    GOLD: 0,
+    PLATINUM: 0
+  };
+  const minRedeemPoints = minRedeemByTier[redemptionTier];
+  const canRedeemPoints = Boolean(currentUser) && minRedeemPoints !== undefined;
+  const redemptionOptions = [100, 250, 500, 1000];
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20">
@@ -257,21 +267,35 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                     </span>
 
                     <div className="flex flex-wrap gap-3">
-                      <button
-                        disabled={!currentUser || safeLoyaltyPoints < 100}
-                        onClick={() => onRedeemPoints(100)}
-                        className="px-5 py-3 bg-white/10 text-white rounded-xl text-[9px] font-black uppercase disabled:opacity-20 transition-all active:scale-95"
-                      >
-                        Convert 100 pts ($0.10)
-                      </button>
-                      <button
-                        disabled={!currentUser || safeLoyaltyPoints < 1000}
-                        onClick={() => onRedeemPoints(1000)}
-                        className="px-6 py-3 bg-ninpo-lime text-ninpo-black rounded-xl text-[9px] font-black uppercase disabled:opacity-20 transition-all active:scale-95 shadow-neon"
-                      >
-                        Convert 1000 pts ($1.00)
-                      </button>
+                      {redemptionOptions.map(points => {
+                        const isBelowTierMinimum =
+                          typeof minRedeemPoints === 'number' && points < minRedeemPoints;
+                        const isDisabled =
+                          !canRedeemPoints || safeLoyaltyPoints < points || isBelowTierMinimum;
+                        const creditValue = (points / 100).toFixed(2);
+                        return (
+                          <button
+                            key={points}
+                            disabled={isDisabled}
+                            onClick={() => onRedeemPoints(points)}
+                            className={`px-5 py-3 rounded-xl text-[9px] font-black uppercase disabled:opacity-20 transition-all active:scale-95 ${
+                              points >= 500
+                                ? 'bg-ninpo-lime text-ninpo-black shadow-neon'
+                                : 'bg-white/10 text-white'
+                            }`}
+                          >
+                            Convert {points} pts (${creditValue})
+                          </button>
+                        );
+                      })}
                     </div>
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">
+                      {!canRedeemPoints
+                        ? 'Points redemption is available for Bronze+ tiers only.'
+                        : minRedeemPoints > 0
+                        ? `Minimum redemption: ${minRedeemPoints} points.`
+                        : 'No minimum redemption for Gold+ tiers.'}
+                    </p>
                   </div>
                 </div>
 

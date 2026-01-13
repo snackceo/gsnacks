@@ -327,11 +327,30 @@ router.post('/:id/redeem-points', authRequired, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const currentPoints = Number(user.loyaltyPoints || 0);
+    const userTier = normalizeTier(user.membershipTier);
+    const minRedeemByTier = {
+      BRONZE: 500,
+      SILVER: 250,
+      GOLD: 0,
+      PLATINUM: 0
+    };
+    const minRedeemPoints = minRedeemByTier[userTier];
+
+    if (minRedeemPoints === undefined) {
+      return res.status(400).json({ error: 'Tier not eligible for points redemption' });
+    }
+
     if (points > currentPoints) {
       return res.status(400).json({ error: 'Not enough points' });
     }
 
-    const creditsToAdd = points / 1000;
+    if (points < minRedeemPoints) {
+      return res.status(400).json({
+        error: `Minimum redemption is ${minRedeemPoints} points for ${userTier} tier`
+      });
+    }
+
+    const creditsToAdd = points / 100;
 
     const previousCredits = Number(user.creditBalance || 0);
     user.loyaltyPoints = Math.max(0, currentPoints - points);
