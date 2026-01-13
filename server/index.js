@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 import Stripe from 'stripe';
 import mongoose from 'mongoose';
 import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 
 import authRouter from './routes/auth.js';
 import healthRouter from './routes/health.js';
@@ -24,6 +26,9 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
 
 /* =========================
    STRIPE
@@ -82,14 +87,27 @@ app.use(
 /* =========================
    MIDDLEWARE
 ========================= */
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' }
+  })
+);
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: req => req.originalUrl === '/api/stripe/webhook'
+});
+app.use(apiLimiter);
 app.use(cookieParser());
 
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static('uploads', { fallthrough: false }));
 
 // IMPORTANT: Do NOT run JSON parser on webhook route
 app.use((req, res, next) => {
   if (req.originalUrl === '/api/stripe/webhook') return next();
-  return express.json()(req, res, next);
+  return express.json({ limit: '1mb' })(req, res, next);
 });
 
 /* =========================
