@@ -328,6 +328,11 @@ const createPaymentsRouter = ({ stripe }) => {
       const user = await User.findById(userId).session(sessionDb);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
+      if (user.creditTransactionId) {
+        const err = new Error('User has a pending credit transaction.');
+        err.code = 'PENDING_CREDIT_TRANSACTION';
+        throw err;
+      }
       const deliveryFeeDiscountPercent = getDeliveryFeeDiscountPercent(user?.membershipTier);
       let { deliveryFeeFinal, deliveryFeeFinalCents } = applyDeliveryFeeDiscount(
         deliveryFee,
@@ -342,6 +347,9 @@ const createPaymentsRouter = ({ stripe }) => {
       let totalCents = 0;
       let productSubtotalCents = 0;
 
+      const creditTransactionId = crypto.randomUUID();
+      user.creditTransactionId = creditTransactionId;
+      await user.save({ session: sessionDb });
       await sessionDb.withTransaction(async () => {
         if (!isReturnOnly) {
           for (const item of items) {
@@ -393,6 +401,7 @@ const createPaymentsRouter = ({ stripe }) => {
         const creditApplied = creditAppliedCents / 100;
         if (creditAppliedCents > 0) {
           user.creditBalance = Math.max(0, Number(user.creditBalance || 0) - creditApplied);
+          user.creditTransactionId = undefined;
           await user.save({ session: sessionDb });
         }
 
@@ -428,6 +437,11 @@ const createPaymentsRouter = ({ stripe }) => {
         );
       });
 
+      const userWithClearedTransaction = await User.findById(userId).session(sessionDb);
+      if (userWithClearedTransaction?.creditTransactionId === creditTransactionId) {
+        userWithClearedTransaction.creditTransactionId = undefined;
+        await userWithClearedTransaction.save({ session: sessionDb });
+      }
       const remainingOrder = await Order.findOne({ orderId }).lean();
       if (!remainingOrder) return res.status(404).json({ error: 'Order not found' });
 
@@ -517,6 +531,9 @@ const createPaymentsRouter = ({ stripe }) => {
 
       if (err?.code === 'INSUFFICIENT_STOCK') {
         return res.status(400).json({ error: err.message, meta: err.meta });
+      }
+      if (err?.code === 'PENDING_CREDIT_TRANSACTION') {
+        return res.status(409).json({ error: err.message });
       }
 
       res.status(500).json({ error: 'Credits checkout failed' });

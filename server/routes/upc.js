@@ -1,6 +1,7 @@
 import express from 'express';
 
 import UpcItem from '../models/UpcItem.js';
+import AppSettings from '../models/AppSettings.js';
 import { authRequired, ownerRequired } from '../utils/helpers.js';
 
 const router = express.Router();
@@ -18,13 +19,20 @@ const coerceNumber = value => {
   return Number.isFinite(num) ? num : 0;
 };
 
-const buildEligibilityPayload = entry => {
+const getMichiganDepositValue = async () => {
+  const doc = await AppSettings.findOne({ key: 'default' }).lean();
+  return Number(doc?.michiganDepositValue ?? 0.1);
+};
+
+const buildEligibilityPayload = (entry, depositValue) => {
   const containerType =
     normalizeContainerType(entry?.containerType) ||
     (entry?.isGlass ? 'glass' : 'plastic');
   const payload = {
     eligible: entry ? entry.isEligible !== false : false,
-    depositValue: entry ? Number(entry.depositValue || 0.1) : 0.1,
+    depositValue: entry
+      ? Number(entry.depositValue || depositValue)
+      : depositValue,
     containerType,
     sizeOz: entry ? coerceNumber(entry.sizeOz) : 0,
     price: entry ? coerceNumber(entry.price) : 0
@@ -45,15 +53,17 @@ const normalizeUpcList = value => {
     .filter(Boolean);
 };
 
-const normalizeDepositValue = () => 0.1;
+const normalizeDepositValue = async () => {
+  return await getMichiganDepositValue();
+};
 
 router.get('/eligibility', async (req, res) => {
   try {
     const upc = String(req.query?.upc || '').trim();
     if (!upc) return res.status(400).json({ error: 'upc is required' });
-
+    const depositValue = await getMichiganDepositValue();
     const entry = await UpcItem.findOne({ upc }).lean();
-    res.json(buildEligibilityPayload(entry));
+    res.json(buildEligibilityPayload(entry, depositValue));
   } catch (err) {
     console.error('UPC ELIGIBILITY ERROR:', err);
     res.status(500).json({ error: 'Failed to check UPC eligibility' });
@@ -64,13 +74,14 @@ router.post('/eligibility', async (req, res) => {
   try {
     const body = req.body;
     const upcs = normalizeUpcList(Array.isArray(body) ? body : body?.upcs);
+    const depositValue = await getMichiganDepositValue();
 
     if (upcs.length > 0) {
       const entries = await UpcItem.find({ upc: { $in: upcs } }).lean();
       const entryMap = new Map(entries.map(entry => [entry.upc, entry]));
       const results = upcs.map(upc => ({
         upc,
-        ...buildEligibilityPayload(entryMap.get(upc))
+        ...buildEligibilityPayload(entryMap.get(upc), depositValue)
       }));
 
       return res.json({ results });
@@ -80,7 +91,7 @@ router.post('/eligibility', async (req, res) => {
     if (!upc) return res.status(400).json({ error: 'upc is required' });
 
     const entry = await UpcItem.findOne({ upc }).lean();
-    return res.json(buildEligibilityPayload(entry));
+    return res.json(buildEligibilityPayload(entry, depositValue));
   } catch (err) {
     console.error('UPC ELIGIBILITY BULK ERROR:', err);
     return res.status(500).json({ error: 'Failed to check UPC eligibility' });
@@ -111,10 +122,11 @@ router.get('/eligibility/:upc', async (req, res) => {
 router.get('/', authRequired, ownerRequired, async (_req, res) => {
   try {
     const entries = await UpcItem.find({}).sort({ updatedAt: -1 }).lean();
+    const depositValue = await normalizeDepositValue();
     const upcItems = entries.map(entry => ({
       upc: entry.upc,
       name: entry.name || '',
-      depositValue: normalizeDepositValue(),
+      depositValue: depositValue,
       price: coerceNumber(entry.price),
       containerType:
         normalizeContainerType(entry.containerType) ||
@@ -136,11 +148,12 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
   try {
     const upc = String(req.body?.upc || '').trim();
     if (!upc) return res.status(400).json({ error: 'upc is required' });
+    const depositValue = await normalizeDepositValue();
 
     const updates = {
       upc,
       name: req.body?.name ?? '',
-      depositValue: normalizeDepositValue(),
+      depositValue: depositValue,
       price: coerceNumber(req.body?.price),
       containerType: normalizeContainerType(req.body?.containerType),
       sizeOz: coerceNumber(req.body?.sizeOz),
@@ -165,7 +178,7 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       upcItem: {
         upc: entry.upc,
         name: entry.name || '',
-        depositValue: normalizeDepositValue(),
+        depositValue: depositValue,
         price: coerceNumber(entry.price),
         containerType:
           normalizeContainerType(entry.containerType) ||
@@ -186,6 +199,7 @@ router.patch('/:upc', authRequired, ownerRequired, async (req, res) => {
   try {
     const upc = String(req.params.upc || '').trim();
     if (!upc) return res.status(400).json({ error: 'upc is required' });
+    const depositValue = await normalizeDepositValue();
 
     const updates = {};
     const allowed = [
@@ -228,7 +242,7 @@ router.patch('/:upc', authRequired, ownerRequired, async (req, res) => {
       upcItem: {
         upc: entry.upc,
         name: entry.name || '',
-        depositValue: normalizeDepositValue(),
+        depositValue: depositValue,
         price: coerceNumber(entry.price),
         containerType:
           normalizeContainerType(entry.containerType) ||
