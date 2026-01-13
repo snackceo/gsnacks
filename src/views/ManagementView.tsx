@@ -478,16 +478,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
     const nextSettings: AppSettings = {
       ...settingsDraft,
-      deliveryFee: Number(settingsDraft.deliveryFee || 0),
+      routeFee: Number(settingsDraft.routeFee || 0),
       referralBonus: Number(settingsDraft.referralBonus || 0),
-      michiganDepositValue: Number(settingsDraft.michiganDepositValue || 0),
       processingFeePercent: Number(settingsDraft.processingFeePercent || 0),
-      returnHandlingFeePerContainer: Number(
-        settingsDraft.returnHandlingFeePerContainer || 0
-      ),
-      glassHandlingFeePerContainer: Number(
-        settingsDraft.glassHandlingFeePerContainer || 0
-      ),
       pickupOnlyMultiplier: Number(settingsDraft.pickupOnlyMultiplier || 0),
       distanceIncludedMiles: Number(settingsDraft.distanceIncludedMiles || 0),
       distanceBand1MaxMiles: Number(settingsDraft.distanceBand1MaxMiles || 0),
@@ -700,10 +693,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   useEffect(() => {
     upcItemsRef.current = upcItems;
   }, [upcItems]);
-
-  useEffect(() => {
-    upcDepositRef.current = 0.1;
-  }, [settings.michiganDepositValue]);
 
   useEffect(() => {
     if (activeModule !== 'upc') {
@@ -1566,7 +1555,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                           <div className="flex items-center justify-between md:justify-end md:gap-3">
                             <span className="md:hidden">Route Fee:</span>
                             <span className="text-slate-300">
-                              Route Fee: ${Number(o.deliveryFee || 0).toFixed(2)}
+                              Route Fee: ${Number(o.routeFee || o.deliveryFee || 0).toFixed(2)}
                             </span>
                           </div>
 
@@ -2305,22 +2294,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Michigan Deposit Value
-                    </label>
-                    <input
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.01"
-                      value={settingsDraft.michiganDepositValue}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          michiganDepositValue: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                       Daily Return Limit (containers)
                     </label>
                     <input
@@ -2364,10 +2337,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       step="0.01"
-                      value={settingsDraft.deliveryFee}
+                      value={settingsDraft.routeFee}
                       onChange={e =>
                         updateSettingsDraft({
-                          deliveryFee: Number(e.target.value)
+                          routeFee: Number(e.target.value)
                         })
                       }
                     />
@@ -2496,38 +2469,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       onChange={e =>
                         updateSettingsDraft({
                           processingFeePercent: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Cash Handling Fee (per container)
-                    </label>
-                    <input
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.01"
-                      value={settingsDraft.returnHandlingFeePerContainer}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          returnHandlingFeePerContainer: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Glass Handling Surcharge (per glass container)
-                    </label>
-                    <input
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.01"
-                      value={settingsDraft.glassHandlingFeePerContainer}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          glassHandlingFeePerContainer: Number(e.target.value)
                         })
                       }
                     />

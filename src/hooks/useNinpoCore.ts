@@ -30,12 +30,9 @@ const allowPlatinumTier = (import.meta as any).env?.VITE_ALLOW_PLATINUM_TIER ===
 const SETTINGS_STORAGE_KEY = 'ninpo:settings';
 
 const defaultSettings: AppSettings = {
-  deliveryFee: 4.99,
+  routeFee: 4.99,
   referralBonus: 5.0,
-  michiganDepositValue: 0.1,
   processingFeePercent: 0.05,
-  returnHandlingFeePerContainer: 0.02,
-  glassHandlingFeePerContainer: 0.02,
   pickupOnlyMultiplier: 0.5,
   distanceIncludedMiles: 3.0,
   distanceBand1MaxMiles: 10.0,
@@ -54,22 +51,15 @@ const defaultSettings: AppSettings = {
 
 const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
   const data = raw ?? {};
+  const legacyDeliveryFee = Number((data as { deliveryFee?: number }).deliveryFee);
+  const resolvedLegacyRouteFee = Number.isFinite(legacyDeliveryFee) ? legacyDeliveryFee : undefined;
   return {
     ...defaultSettings,
     ...data,
-    deliveryFee: Number(data.deliveryFee ?? defaultSettings.deliveryFee),
+    routeFee: Number(data.routeFee ?? resolvedLegacyRouteFee ?? defaultSettings.routeFee),
     referralBonus: Number(data.referralBonus ?? defaultSettings.referralBonus),
-    michiganDepositValue: Number(
-      data.michiganDepositValue ?? defaultSettings.michiganDepositValue
-    ),
     processingFeePercent: Number(
       data.processingFeePercent ?? defaultSettings.processingFeePercent
-    ),
-    returnHandlingFeePerContainer: Number(
-      data.returnHandlingFeePerContainer ?? defaultSettings.returnHandlingFeePerContainer
-    ),
-    glassHandlingFeePerContainer: Number(
-      data.glassHandlingFeePerContainer ?? defaultSettings.glassHandlingFeePerContainer
     ),
     pickupOnlyMultiplier: Number(
       data.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier

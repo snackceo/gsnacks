@@ -24,10 +24,8 @@ import { recordAuditLog } from '../utils/audit.js';
 
 const CREDIT_DELIVERY_ELIGIBLE_TIERS = new Set(['SILVER', 'GOLD', 'PLATINUM', 'GREEN']);
 const CASH_PAYOUT_ELIGIBLE_TIERS = new Set(['GOLD', 'PLATINUM', 'GREEN']);
-const DEFAULT_RETURN_FEES = {
-  returnHandlingFeePerContainer: 0.02,
-  glassHandlingFeePerContainer: 0.02
-};
+const CASH_HANDLING_FEE_PER_CONTAINER = 0.02;
+const GLASS_HANDLING_SURCHARGE_PER_CONTAINER = 0.02;
 const DEFAULT_DISTANCE_FEES = {
   distanceIncludedMiles: 3.0,
   distanceBand1MaxMiles: 10.0,
@@ -57,7 +55,7 @@ const normalizePayoutMethodForTier = (payoutMethod, tier) => {
 const getRouteFeeConfig = async () => {
   const doc = await AppSettings.findOne({ key: 'default' }).lean();
   return {
-    baseRouteFee: Number(doc?.deliveryFee ?? 4.99),
+    baseRouteFee: Number(doc?.routeFee ?? doc?.deliveryFee ?? 4.99),
     pickupOnlyMultiplier: Number(doc?.pickupOnlyMultiplier ?? 0.5),
     platinumFreeDelivery: Boolean(doc?.platinumFreeDelivery ?? false)
   };
@@ -147,18 +145,10 @@ const calculateDistanceFee = ({
   return { distanceFee: feeCents / 100, distanceFeeCents: feeCents, distanceMiles: roundedDistance };
 };
 
-const getReturnFeeConfig = async () => {
-  const doc = await AppSettings.findOne({ key: 'default' }).lean();
-
-  return {
-    returnHandlingFeePerContainer: Number(
-      doc?.returnHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.returnHandlingFeePerContainer
-    ),
-    glassHandlingFeePerContainer: Number(
-      doc?.glassHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.glassHandlingFeePerContainer
-    )
-  };
-};
+const getReturnFeeConfig = async () => ({
+  returnHandlingFeePerContainer: CASH_HANDLING_FEE_PER_CONTAINER,
+  glassHandlingFeePerContainer: GLASS_HANDLING_SURCHARGE_PER_CONTAINER
+});
 
 const buildReturnPreview = async (rawUpcs, payoutMethod = 'CREDIT') => {
   const { upcCounts, uniqueUpcs } = normalizeUpcCounts(rawUpcs);
@@ -367,6 +357,9 @@ const createPaymentsRouter = ({ stripe }) => {
               items,
               total: totalCents / 100,
               orderType,
+              routeFee: baseRouteFee,
+              routeFeeDiscountPercent: 0,
+              routeFeeFinal: routeFee,
               deliveryFee: baseRouteFee,
               deliveryFeeDiscountPercent: 0,
               deliveryFeeFinal: routeFee,
@@ -587,6 +580,9 @@ const createPaymentsRouter = ({ stripe }) => {
               items,
               total: totalCents / 100,
               orderType,
+              routeFee: baseRouteFee,
+              routeFeeDiscountPercent: 0,
+              routeFeeFinal: routeFee,
               deliveryFee: baseRouteFee,
               deliveryFeeDiscountPercent: 0,
               deliveryFeeFinal: routeFee,

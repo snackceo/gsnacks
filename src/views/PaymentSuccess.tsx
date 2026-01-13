@@ -76,7 +76,7 @@ function PaymentSuccess({ clearCart }: { clearCart: () => void }) {
             <p className="font-black text-ninpo-lime">{money(order.estimatedReturnCredit || 0)}</p>
 
             <p className="uppercase tracking-widest opacity-60 mt-4">Route fee</p>
-            <p className="font-black">{money(order.deliveryFee || 0)}</p>
+            <p className="font-black">{money(order.routeFee || 0)}</p>
 
             <p className="uppercase tracking-widest opacity-60 mt-4">Order total (pre-credit)</p>
             <p className="font-black">{money(order.total)}</p>

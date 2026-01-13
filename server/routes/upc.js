@@ -1,7 +1,6 @@
 import express from 'express';
 
 import UpcItem from '../models/UpcItem.js';
-import AppSettings from '../models/AppSettings.js';
 import { authRequired, ownerRequired } from '../utils/helpers.js';
 
 const router = express.Router();
@@ -19,10 +18,9 @@ const coerceNumber = value => {
   return Number.isFinite(num) ? num : 0;
 };
 
-const getMichiganDepositValue = async () => {
-  const doc = await AppSettings.findOne({ key: 'default' }).lean();
-  return Number(doc?.michiganDepositValue ?? 0.1);
-};
+const MICHIGAN_DEPOSIT_VALUE = 0.1;
+
+const getMichiganDepositValue = async () => MICHIGAN_DEPOSIT_VALUE;
 
 const buildEligibilityPayload = (entry, depositValue) => {
   const containerType =

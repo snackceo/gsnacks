@@ -24,8 +24,11 @@ const orderSchema = new mongoose.Schema(
     total: { type: Number, default: 0 },
 
     /* =========================================================
-       DELIVERY FEES
+       ROUTE FEES
        ========================================================= */
+    routeFee: { type: Number, default: 0 },
+    routeFeeDiscountPercent: { type: Number, default: 0 },
+    routeFeeFinal: { type: Number, default: 0 },
     deliveryFee: { type: Number, default: 0 },
     deliveryFeeDiscountPercent: { type: Number, default: 0 },
     deliveryFeeFinal: { type: Number, default: 0 },

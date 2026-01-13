@@ -6,7 +6,6 @@ import UpcItem from '../models/UpcItem.js';
 import User from '../models/User.js';
 import LedgerEntry from '../models/LedgerEntry.js';
 import CashPayout from '../models/CashPayout.js';
-import AppSettings from '../models/AppSettings.js';
 import {
   authRequired,
   buildReturnCountUpdates,
@@ -23,22 +22,13 @@ import {
 } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 
-const DEFAULT_RETURN_FEES = {
-  returnHandlingFeePerContainer: 0.02,
-  glassHandlingFeePerContainer: 0.02
-};
+const CASH_HANDLING_FEE_PER_CONTAINER = 0.02;
+const GLASS_HANDLING_SURCHARGE_PER_CONTAINER = 0.02;
 
-const getReturnFeeConfig = async () => {
-  const doc = await AppSettings.findOne({ key: 'default' }).lean();
-  return {
-    returnHandlingFeePerContainer: Number(
-      doc?.returnHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.returnHandlingFeePerContainer
-    ),
-    glassHandlingFeePerContainer: Number(
-      doc?.glassHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.glassHandlingFeePerContainer
-    )
-  };
-};
+const getReturnFeeConfig = async () => ({
+  returnHandlingFeePerContainer: CASH_HANDLING_FEE_PER_CONTAINER,
+  glassHandlingFeePerContainer: GLASS_HANDLING_SURCHARGE_PER_CONTAINER
+});
 
 const createOrdersRouter = ({ stripe }) => {
   const router = express.Router();
