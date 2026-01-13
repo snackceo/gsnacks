@@ -467,9 +467,15 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const payoutMethod: ReturnPayoutMethod =
     allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
   const activeTier = membershipTier ?? UserTier.COMMON;
+  const allowCashPayout = [UserTier.GOLD, UserTier.PLATINUM].includes(activeTier);
+
+  useEffect(() => {
+    if (!allowCashPayout && useCashPayout) {
+      setUseCashPayout(false);
+    }
+  }, [allowCashPayout, useCashPayout]);
   const activeDeliveryFee = sanitizedDeliveryFee;
   const activeDeliveryFeeCents = Math.round(activeDeliveryFee * 100);
-    allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
   const creditsCoverDelivery = [
     UserTier.SILVER,
     UserTier.GOLD,

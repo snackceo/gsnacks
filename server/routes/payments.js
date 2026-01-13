@@ -164,7 +164,7 @@ const createPaymentsRouter = ({ stripe }) => {
       const userId = req.body?.userId;
       const address = String(req.body?.address || '').trim();
       const gateway = String(req.body?.gateway || 'STRIPE').toUpperCase();
-      const deliveryFee = Math.max(0, Number(req.body?.deliveryFee || 0));
+      const baseDeliveryFee = 4.99; // Centralized base fee
       const returnPayoutMethod = normalizeReturnPayoutMethod(req.body?.returnPayoutMethod);
       const tierLookupUser = userId
         ? await User.findById(userId, { membershipTier: 1 }).session(sessionDb)
@@ -173,7 +173,7 @@ const createPaymentsRouter = ({ stripe }) => {
         tierLookupUser?.membershipTier
       );
       const { deliveryFeeFinal, deliveryFeeFinalCents } = applyDeliveryFeeDiscount(
-        deliveryFee,
+        baseDeliveryFee,
         deliveryFeeDiscountPercent,
         tierLookupUser?.membershipTier // Pass the user's tier
       );
@@ -251,7 +251,7 @@ const createPaymentsRouter = ({ stripe }) => {
               address: address || '',
               items,
               total: totalCents / 100,
-              deliveryFee,
+              deliveryFee: baseDeliveryFee,
               deliveryFeeDiscountPercent,
               deliveryFeeFinal,
               creditApplied: 0,
@@ -333,7 +333,7 @@ const createPaymentsRouter = ({ stripe }) => {
     try {
       const rawItems = req.body?.items;
       const address = String(req.body?.address || '').trim();
-      const deliveryFee = Math.max(0, Number(req.body?.deliveryFee || 0));
+      const baseDeliveryFee = 4.99; // Centralized base fee
       const returnPayoutMethod = normalizeReturnPayoutMethod(req.body?.returnPayoutMethod);
 
       const items = normalizeCart(rawItems);
@@ -363,7 +363,7 @@ const createPaymentsRouter = ({ stripe }) => {
       }
       const deliveryFeeDiscountPercent = getDeliveryFeeDiscountPercent(user?.membershipTier);
       let { deliveryFeeFinal, deliveryFeeFinalCents } = applyDeliveryFeeDiscount(
-        deliveryFee,
+        baseDeliveryFee,
         deliveryFeeDiscountPercent,
         user?.membershipTier
       );
@@ -447,7 +447,7 @@ const createPaymentsRouter = ({ stripe }) => {
               address: address || '',
               items,
               total: totalCents / 100,
-              deliveryFee,
+              deliveryFee: baseDeliveryFee,
               deliveryFeeDiscountPercent,
               deliveryFeeFinal,
               creditApplied,
