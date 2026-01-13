@@ -297,11 +297,17 @@ const createPaymentsRouter = ({ stripe }) => {
       const deliveryFee = Math.max(0, Number(req.body?.deliveryFee || 0));
 
       const items = normalizeCart(rawItems);
+      const rawReturnUpcs = req.body?.returnUpcCounts ?? req.body?.returnUpcs;
+      const normalizedReturnUpcs = normalizeUpcCounts(rawReturnUpcs);
       const { eligibleUpcs, eligibleUpcCounts, ineligibleUpcs, estimatedCredit } =
-        await buildReturnPreview(req.body?.returnUpcCounts ?? req.body?.returnUpcs);
-      const isReturnOnly = Array.isArray(items) && items.length === 0 && eligibleUpcs.length > 0;
+        await buildReturnPreview(rawReturnUpcs);
+      const isReturnOnly =
+        Array.isArray(items) && items.length === 0 && normalizedReturnUpcs.uniqueUpcs.length > 0;
       if ((!Array.isArray(items) || items.length === 0) && !isReturnOnly) {
         return res.status(400).json({ error: 'Cart is empty' });
+      }
+      if (isReturnOnly && eligibleUpcs.length === 0) {
+        return res.status(400).json({ error: 'No eligible return UPCs provided.' });
       }
 
       const userId = req.user?.id;
