@@ -416,12 +416,13 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       .map(ci => {
         const p = products.find(x => x.id === ci.productId || (x as any).frontendId === ci.productId);
         if (!p) return null;
+        const unitPrice = Number(p.price || 0) + Number(p.deposit || 0);
         return {
           product: p,
           productId: ci.productId,
           quantity: ci.quantity,
-          unitPrice: Number(p.price || 0),
-          lineTotal: Number(p.price || 0) * ci.quantity
+          unitPrice,
+          lineTotal: unitPrice * ci.quantity
         };
       })
       .filter(Boolean) as Array<{
