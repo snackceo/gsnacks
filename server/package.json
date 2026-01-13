@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "create-owner": "node scripts/create-owner.js"
+    "create-owner": "node scripts/create-owner.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@google/genai": "^1.35.0",
