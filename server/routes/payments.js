@@ -168,28 +168,33 @@ const createPaymentsRouter = ({ stripe }) => {
       let totalCents = 0;
 
       await sessionDb.withTransaction(async () => {
-        for (const item of items) {
-          const updated = await Product.findOneAndUpdate(
-            { frontendId: item.productId, stock: { $gte: item.quantity } },
-            { $inc: { stock: -item.quantity } },
-            { new: true, session: sessionDb }
-          );
+        const products = await Promise.all(
+          items.map(async item => {
+            const updated = await Product.findOneAndUpdate(
+              { frontendId: item.productId, stock: { $gte: item.quantity } },
+              { $inc: { stock: -item.quantity } },
+              { new: true, session: sessionDb }
+            );
 
-          if (!updated) {
-            const current = await Product.findOne(
-              { frontendId: item.productId },
-              { stock: 1, name: 1 }
-            ).session(sessionDb);
+            if (!updated) {
+              const current = await Product.findOne(
+                { frontendId: item.productId },
+                { stock: 1, name: 1 }
+              ).session(sessionDb);
 
-            const available = current?.stock ?? 0;
-            const name = current?.name || item.productId;
+              const available = current?.stock ?? 0;
+              const name = current?.name || item.productId;
 
-            const err = new Error(`Insufficient stock for ${name}. Available: ${available}`);
-            err.code = 'INSUFFICIENT_STOCK';
-            err.meta = { productId: item.productId, available };
-            throw err;
-          }
+              const err = new Error(`Insufficient stock for ${name}. Available: ${available}`);
+              err.code = 'INSUFFICIENT_STOCK';
+              err.meta = { productId: item.productId, available };
+              throw err;
+            }
+            return { updated, item };
+          })
+        );
 
+        products.forEach(({ updated, item }) => {
           const unit = Math.round(Number(updated.price) * 100);
           totalCents += unit * item.quantity;
 
@@ -201,7 +206,7 @@ const createPaymentsRouter = ({ stripe }) => {
             },
             quantity: item.quantity
           });
-        }
+        });
 
         if (deliveryFeeFinalCents > 0) {
           totalCents += deliveryFeeFinalCents;
@@ -352,33 +357,38 @@ const createPaymentsRouter = ({ stripe }) => {
       await user.save({ session: sessionDb });
       await sessionDb.withTransaction(async () => {
         if (!isReturnOnly) {
-          for (const item of items) {
-            const updated = await Product.findOneAndUpdate(
-              { frontendId: item.productId, stock: { $gte: item.quantity } },
-              { $inc: { stock: -item.quantity } },
-              { new: true, session: sessionDb }
-            );
+          const products = await Promise.all(
+            items.map(async item => {
+              const updated = await Product.findOneAndUpdate(
+                { frontendId: item.productId, stock: { $gte: item.quantity } },
+                { $inc: { stock: -item.quantity } },
+                { new: true, session: sessionDb }
+              );
 
-            if (!updated) {
-              const current = await Product.findOne(
-                { frontendId: item.productId },
-                { stock: 1, name: 1 }
-              ).session(sessionDb);
+              if (!updated) {
+                const current = await Product.findOne(
+                  { frontendId: item.productId },
+                  { stock: 1, name: 1 }
+                ).session(sessionDb);
 
-              const available = current?.stock ?? 0;
-              const name = current?.name || item.productId;
+                const available = current?.stock ?? 0;
+                const name = current?.name || item.productId;
 
-              const err = new Error(`Insufficient stock for ${name}. Available: ${available}`);
-              err.code = 'INSUFFICIENT_STOCK';
-              err.meta = { productId: item.productId, available };
-              throw err;
-            }
+                const err = new Error(`Insufficient stock for ${name}. Available: ${available}`);
+                err.code = 'INSUFFICIENT_STOCK';
+                err.meta = { productId: item.productId, available };
+                throw err;
+              }
+              return { updated, item };
+            })
+          );
 
+          products.forEach(({ updated, item }) => {
             const unit = Math.round(Number(updated.price) * 100);
             const lineTotal = unit * item.quantity;
             totalCents += lineTotal;
             productSubtotalCents += lineTotal;
-          }
+          });
         }
 
         if (deliveryFeeFinalCents > 0) {
