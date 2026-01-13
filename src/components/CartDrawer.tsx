@@ -20,6 +20,8 @@ interface CartItem {
   quantity: number;
 }
 
+type ReturnPayoutMethod = 'CREDIT' | 'CASH';
+
 interface CartDrawerProps {
   isOpen: boolean;
   cart: CartItem[];
@@ -43,10 +45,17 @@ interface CartDrawerProps {
   onRemoveItem: (productId: string) => void;
 
   // Not implemented in your current flow (kept for compatibility)
-  onPayCredits: (returnUpcs: ReturnUpcCount[]) => Promise<boolean>;
+  onPayCredits: (
+    returnUpcs: ReturnUpcCount[],
+    returnPayoutMethod: ReturnPayoutMethod
+  ) => Promise<boolean>;
 
   // Your existing Stripe flow handler from App.tsx
-  onPayExternal: (gateway: 'STRIPE' | 'GPAY', returnUpcs: ReturnUpcCount[]) => void;
+  onPayExternal: (
+    gateway: 'STRIPE' | 'GPAY',
+    returnUpcs: ReturnUpcCount[],
+    returnPayoutMethod: ReturnPayoutMethod
+  ) => void;
 }
 
 const LS_KEY_UPCS = 'ninpo_return_upcs_v1';
@@ -121,6 +130,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const [eligibilityCache, setEligibilityCache] = useState<UpcEligibilityCache>({});
   const [showBottleReturnAdvisory, setShowBottleReturnAdvisory] = useState(false);
   const [showPolicyAdvisories, setShowPolicyAdvisories] = useState(false);
+  const [useCashPayout, setUseCashPayout] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -446,6 +456,13 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   );
 
   const activeTier = membershipTier ?? UserTier.NONE;
+  const allowCashPayout = [UserTier.GOLD, UserTier.PLATINUM].includes(activeTier);
+
+  useEffect(() => {
+    if (!allowCashPayout && useCashPayout) {
+      setUseCashPayout(false);
+    }
+  }, [allowCashPayout, useCashPayout]);
 
   const deliveryDiscountPercentForTier = (tier: UserTier) => {
     if (tier === UserTier.PLATINUM && platinumFreeDeliveryEnabled) return 100;
@@ -493,6 +510,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     () => Math.round(estimatedReturnCredit * 100),
     [estimatedReturnCredit]
   );
+  const payoutMethod: ReturnPayoutMethod =
+    allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
   const creditsCoverDelivery = [
     UserTier.SILVER,
     UserTier.GOLD,
@@ -501,8 +520,12 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const creditEligibleCents = creditsCoverDelivery
     ? subtotalCents + activeDeliveryFeeCents
     : subtotalCents;
-  const creditAppliedCents = Math.min(estimatedReturnCreditCents, creditEligibleCents);
+  const creditAppliedCents =
+    payoutMethod === 'CASH'
+      ? 0
+      : Math.min(estimatedReturnCreditCents, creditEligibleCents);
   const deliveryCoveredByCredits =
+    payoutMethod !== 'CASH' &&
     creditsCoverDelivery &&
     activeDeliveryFeeCents > 0 &&
     estimatedReturnCreditCents > subtotalCents;
@@ -669,7 +692,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const handleCreditsClick = async () => {
     if (!canCheckoutCredits) return;
-    const didComplete = await onPayCredits(returnUpcs);
+    const didComplete = await onPayCredits(returnUpcs, payoutMethod);
     if (didComplete) {
       clearUpcs();
     }
@@ -1066,15 +1089,36 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 <p className="text-ninpo-lime font-black">- {money(estimatedReturnCredit)}</p>
               </div>
 
+              {allowCashPayout && (
+                <div className="rounded-2xl border border-white/10 bg-black/40 px-3 py-2 space-y-2">
+                  <label className="flex items-center justify-between gap-3 text-[10px] font-black uppercase tracking-widest text-slate-300">
+                    <span>Receive Return Value as Cash</span>
+                    <input
+                      type="checkbox"
+                      checked={useCashPayout}
+                      onChange={e => setUseCashPayout(e.target.checked)}
+                      className="accent-ninpo-lime"
+                    />
+                  </label>
+                  <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                    Cash payout won’t reduce today’s total.
+                  </p>
+                </div>
+              )}
+
               <div className="border-t border-white/10 pt-4 flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Preview Total After Credit
+                  {payoutMethod === 'CASH'
+                    ? 'Preview Total Due Today'
+                    : 'Preview Total After Credit'}
                 </p>
                 <p className="text-white font-black text-lg">{money(previewTotalAfterCredit)}</p>
               </div>
 
               <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-2">
-                Return value will be applied after delivery and verification.
+                {payoutMethod === 'CASH'
+                  ? 'Return value will be paid out in cash after verification.'
+                  : 'Return value will be applied after delivery and verification.'}
               </p>
 
               {creditsCoverDelivery ? (
@@ -1107,7 +1151,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               </button>
 
               <button
-                onClick={() => onPayExternal('STRIPE', returnUpcs)}
+                onClick={() => onPayExternal('STRIPE', returnUpcs, payoutMethod)}
                 disabled={!canCheckoutStripe}
                 className="py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40"
               >
@@ -1123,7 +1167,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               Authorize now, capture after verification.
             </p>
             <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
-              Applying return value as credits may reduce or waive pickup and delivery fees.
+              {payoutMethod === 'CASH'
+                ? 'Cash payouts do not reduce today’s total.'
+                : 'Applying return value as credits may reduce or waive pickup and delivery fees.'}
             </p>
 
             {cartIsEmpty && hasReturnUpcs && (
