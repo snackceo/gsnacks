@@ -32,7 +32,6 @@ interface CartDrawerProps {
   deliveryFee: number;
   baseDeliveryFee: number;
   membershipTier?: UserTier;
-  platinumFreeDeliveryEnabled: boolean;
   michiganDepositValue: number;
   returnHandlingFeePerContainer: number;
   glassHandlingFeePerContainer: number;
@@ -106,7 +105,6 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   deliveryFee,
   baseDeliveryFee,
   membershipTier,
-  platinumFreeDeliveryEnabled,
   michiganDepositValue,
   returnHandlingFeePerContainer,
   glassHandlingFeePerContainer,
@@ -455,55 +453,11 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     [sanitizedBaseDeliveryFee]
   );
 
-  const activeTier = membershipTier ?? UserTier.COMMON;
   const allowCashPayout = [UserTier.GOLD, UserTier.PLATINUM].includes(activeTier);
 
   useEffect(() => {
     if (!allowCashPayout && useCashPayout) {
       setUseCashPayout(false);
-    }
-  }, [allowCashPayout, useCashPayout]);
-
-  const deliveryDiscountPercentForTier = (tier: UserTier) => {
-    if (tier === UserTier.PLATINUM && platinumFreeDeliveryEnabled) return 100;
-    return DELIVERY_DISCOUNT_PERCENTS[tier] ?? 0;
-  };
-
-  const tierDiscounts = useMemo(() => {
-    const tiers = [
-      { tier: UserTier.COMMON, label: 'Common' },
-      { tier: UserTier.BRONZE, label: 'Bronze' },
-      { tier: UserTier.SILVER, label: 'Silver' },
-      { tier: UserTier.GOLD, label: 'Gold' },
-      { tier: UserTier.PLATINUM, label: 'Secret Platinum' }
-    ];
-
-    return tiers.map(entry => {
-      const discountPercent = deliveryDiscountPercentForTier(entry.tier);
-      const discountCents = Math.round(baseDeliveryFeeCents * (discountPercent / 100));
-      return {
-        ...entry,
-        deliveryDiscount: discountCents / 100
-      };
-    });
-  }, [baseDeliveryFeeCents, platinumFreeDeliveryEnabled]);
-
-  const activeTierDiscount = useMemo(() => {
-    return (
-      tierDiscounts.find(discount => discount.tier === activeTier) ?? {
-        tier: activeTier,
-        label: 'Common',
-        deliveryDiscount: 0
-      }
-    );
-  }, [activeTier, tierDiscounts]);
-
-  const activeDeliveryDiscountPercent = deliveryDiscountPercentForTier(activeTier);
-  const activeDeliveryDiscountCents = Math.round(
-    baseDeliveryFeeCents * (activeDeliveryDiscountPercent / 100)
-  );
-  const activeDeliveryFeeCents = Math.max(0, baseDeliveryFeeCents - activeDeliveryDiscountCents);
-  const activeDeliveryFee = activeDeliveryFeeCents / 100;
 
   const subtotalCents = useMemo(() => Math.round(subtotal * 100), [subtotal]);
   const estimatedReturnCreditCents = useMemo(
@@ -511,6 +465,10 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     [estimatedReturnCredit]
   );
   const payoutMethod: ReturnPayoutMethod =
+    allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
+  const activeTier = membershipTier ?? UserTier.COMMON;
+  const activeDeliveryFee = sanitizedDeliveryFee;
+  const activeDeliveryFeeCents = Math.round(activeDeliveryFee * 100);
     allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
   const creditsCoverDelivery = [
     UserTier.SILVER,
@@ -1065,19 +1023,18 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
                   Delivery Fee (after tier discount)
                 </p>
-                <p className="text-white font-black">{money(activeDeliveryFee)}</p>
+                <p className="text-white font-black">{money(sanitizedDeliveryFee)}</p>
               </div>
 
               <div className="space-y-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
                   Tier Delivery Discount
                 </p>
-                <div className="flex items-center justify-between rounded-2xl border border-ninpo-lime/40 bg-ninpo-lime/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-ninpo-lime">
-                  <span>{activeTierDiscount.label}</span>
+                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/40 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  <span>{membershipTier || 'COMMON'}</span>
                   <span>
-                    {activeTierDiscount.deliveryDiscount > 0
-                      ? `- ${money(activeTierDiscount.deliveryDiscount)}`
-                      : money(0)}
+                    -{' '}
+                    {money(Math.max(0, sanitizedBaseDeliveryFee - sanitizedDeliveryFee))}
                   </span>
                 </div>
               </div>

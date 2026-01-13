@@ -80,9 +80,9 @@ const getReturnFeeConfig = async () => {
   const handlingFee = depositValue * feePercent;
 
   return {
-    // Business logic states a standard fee of 20% of deposit value.
-    // This should not be overridden by a fixed value in AppSettings if the percentage is the rule.
-    returnHandlingFeePerContainer: handlingFee,
+    returnHandlingFeePerContainer: Number(
+      doc?.returnHandlingFeePerContainer ?? handlingFee // Revert to allow override if explicitly set, but default to calculated
+    ),
     glassHandlingFeePerContainer: Number(
       doc?.glassHandlingFeePerContainer ?? DEFAULT_RETURN_FEES.glassHandlingFeePerContainer
     )
@@ -364,7 +364,8 @@ const createPaymentsRouter = ({ stripe }) => {
       const deliveryFeeDiscountPercent = getDeliveryFeeDiscountPercent(user?.membershipTier);
       let { deliveryFeeFinal, deliveryFeeFinalCents } = applyDeliveryFeeDiscount(
         deliveryFee,
-        deliveryFeeDiscountPercent
+        deliveryFeeDiscountPercent,
+        user?.membershipTier
       );
       if (isReturnOnly) {
         deliveryFeeFinal = 0;

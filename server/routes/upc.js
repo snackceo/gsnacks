@@ -53,8 +53,18 @@ const normalizeUpcList = value => {
     .filter(Boolean);
 };
 
-const normalizeDepositValue = async () => {
-  return await getMichiganDepositValue();
+const synchronizeContainerType = (updates) => {
+  const newUpdates = { ...updates };
+  if (newUpdates.isGlass !== undefined) newUpdates.isGlass = !!newUpdates.isGlass;
+  if (newUpdates.containerType) {
+    newUpdates.containerType = normalizeContainerType(newUpdates.containerType);
+  }
+  if (newUpdates.containerType && newUpdates.isGlass === undefined) {
+    newUpdates.isGlass = newUpdates.containerType === 'glass';
+  } else if (newUpdates.isGlass !== undefined && !newUpdates.containerType) {
+    newUpdates.containerType = newUpdates.isGlass ? 'glass' : 'plastic';
+  }
+  return newUpdates;
 };
 
 router.get('/eligibility', async (req, res) => {
@@ -124,7 +134,7 @@ router.get('/eligibility/:upc', async (req, res) => {
 router.get('/', authRequired, ownerRequired, async (_req, res) => {
   try {
     const entries = await UpcItem.find({}).sort({ updatedAt: -1 }).lean();
-    const depositValue = await normalizeDepositValue();
+    const depositValue = await getMichiganDepositValue();
     const upcItems = entries.map(entry => ({
       upc: entry.upc,
       name: entry.name || '',
@@ -150,24 +160,19 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
   try {
     const upc = String(req.body?.upc || '').trim();
     if (!upc) return res.status(400).json({ error: 'upc is required' });
-    const depositValue = await normalizeDepositValue();
+    const depositValue = await getMichiganDepositValue();
 
-    const updates = {
+    let updates = {
       upc,
       name: req.body?.name ?? '',
       depositValue: depositValue,
       price: coerceNumber(req.body?.price),
       containerType: normalizeContainerType(req.body?.containerType),
       sizeOz: coerceNumber(req.body?.sizeOz),
-      isGlass: req.body?.isGlass,
       isEligible: req.body?.isEligible !== false
     };
-
-    if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
-    if (!updates.containerType) {
-      updates.containerType = updates.isGlass ? 'glass' : 'plastic';
-    }
-    updates.isGlass = updates.containerType === 'glass';
+    if (req.body.isGlass !== undefined) updates.isGlass = req.body.isGlass;
+    updates = synchronizeContainerType(updates);
 
     const entry = await UpcItem.findOneAndUpdate({ upc }, updates, {
       new: true,
@@ -201,7 +206,7 @@ router.patch('/:upc', authRequired, ownerRequired, async (req, res) => {
   try {
     const upc = String(req.params.upc || '').trim();
     if (!upc) return res.status(400).json({ error: 'upc is required' });
-    const depositValue = await normalizeDepositValue();
+    const depositValue = await getMichiganDepositValue();
 
     const updates = {};
     const allowed = [
@@ -216,24 +221,14 @@ router.patch('/:upc', authRequired, ownerRequired, async (req, res) => {
       if (req.body?.[key] !== undefined) updates[key] = req.body[key];
     }
 
+    let processedUpdates = { ...updates };
     if (updates.price !== undefined) updates.price = coerceNumber(updates.price);
     if (updates.sizeOz !== undefined) updates.sizeOz = coerceNumber(updates.sizeOz);
-    if (updates.containerType !== undefined) {
-      updates.containerType = normalizeContainerType(updates.containerType);
-      if (!updates.containerType) {
-        return res.status(400).json({ error: 'containerType is invalid' });
-      }
-    }
-    if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
-    if (updates.containerType && updates.isGlass === undefined) {
-      updates.isGlass = updates.containerType === 'glass';
-    }
-    if (updates.isGlass !== undefined && !updates.containerType) {
-      updates.containerType = updates.isGlass ? 'glass' : 'plastic';
-    }
     if (updates.isEligible !== undefined) updates.isEligible = !!updates.isEligible;
 
-    const entry = await UpcItem.findOneAndUpdate({ upc }, updates, {
+    processedUpdates = synchronizeContainerType(processedUpdates);
+
+    const entry = await UpcItem.findOneAndUpdate({ upc }, processedUpdates, {
       new: true
     }).lean();
 
