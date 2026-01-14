@@ -2,7 +2,13 @@ import mongoose from 'mongoose';
 
 const productSchema = new mongoose.Schema(
   {
-    frontendId: { type: String, required: true, unique: true }, // used by frontend/cart
+    frontendId: { type: String, required: true, unique: true }, // legacy frontend id (kept for compatibility)
+    sku: { type: String, required: false, unique: true, sparse: true }, // business identifier NP-000001
+    upc: { type: String, required: false, unique: true, sparse: true },
+    brand: { type: String, default: '' },
+    productType: { type: String, default: '' },
+    storageZone: { type: String, default: '' },
+    storageBin: { type: String, default: '' },
     name: { type: String, required: true },
     price: { type: Number, required: true },
     deposit: { type: Number, default: 0 },

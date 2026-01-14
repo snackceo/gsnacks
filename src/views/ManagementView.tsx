@@ -555,7 +555,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Orders fetch failed');
-
+          name: newProduct.name.trim(),
       // NOTE:
       // This view receives `orders` from parent state. This button checks connectivity,
       // but does not directly set `orders` here. Your parent core should re-fetch orders
@@ -1014,6 +1014,64 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setProducts(prev => prev.map(p => (p.id === id ? updated : p)));
     } catch {
       // silent in UI for now
+    }
+  };
+
+  const apiScanUpc = async (upc: string, qty = 1) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/upc/scan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ upc, qty })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Scan failed');
+
+      if (data.action === 'updated' && data.product) {
+        const prod: Product = {
+          id: data.product.sku || data.product.frontendId,
+          sku: data.product.sku || undefined,
+          name: data.product.name,
+          price: data.product.price,
+          deposit: data.product.deposit ?? 0,
+          stock: data.product.stock ?? 0,
+          sizeOz: data.product.sizeOz ?? 0,
+          category: data.product.category ?? 'DRINK',
+          image: data.product.image || '',
+          brand: data.product.brand || '',
+          productType: data.product.productType || '',
+          storageZone: data.product.storageZone || '',
+          storageBin: data.product.storageBin || '',
+          isGlass: !!data.product.isGlass
+        };
+        setProducts(prev => prev.map(p => (p.id === prod.id ? prod : p)));
+      }
+
+      if (data.action === 'created' && data.product) {
+        const created: Product = {
+          id: data.product.sku || data.product.frontendId,
+          sku: data.product.sku || undefined,
+          name: data.product.name,
+          price: data.product.price,
+          deposit: data.product.deposit ?? 0,
+          stock: data.product.stock ?? 0,
+          sizeOz: data.product.sizeOz ?? 0,
+          category: data.product.category ?? 'DRINK',
+          image: data.product.image || '',
+          brand: data.product.brand || '',
+          productType: data.product.productType || '',
+          storageZone: data.product.storageZone || '',
+          storageBin: data.product.storageBin || '',
+          isGlass: !!data.product.isGlass
+        };
+        setProducts(prev => [created, ...prev]);
+      }
+
+      return data;
+    } catch (e: any) {
+      setUpcError(e?.message || 'Scan failed');
+      return null;
     }
   };
 
@@ -2795,9 +2853,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   <div>
                     <p className="text-white font-black">{p.name}</p>
                     <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest mt-1">
-                      ID: {p.id} • Stock: {p.stock} •{' '}
+                      SKU: {p.sku || p.id} • Stock: {p.stock} •{' '}
                       {p.sizeOz ? `${Number(p.sizeOz).toFixed(1)} oz` : 'No size'} • $
                       {Number(p.price || 0).toFixed(2)}
+                    </p>
+                    <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest mt-1">
+                      {p.brand || 'No Brand'} • {p.productType || 'No Type'} • {p.storageZone || 'No Zone'} / {p.storageBin || 'No Bin'}
                     </p>
                   </div>
 
@@ -2877,6 +2938,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
                 >
                   {isUpcSaving ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  onClick={() => apiScanUpc(upcInput.trim(), 1)}
+                  className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                >
+                  Apply Scan
                 </button>
                 <button
                   onClick={apiDeleteUpc}

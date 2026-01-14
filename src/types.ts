@@ -59,6 +59,7 @@ export interface LedgerEntry {
 
 export interface Product {
   id: string;
+  sku?: string;
   name: string;
   price: number;
   deposit: number;
@@ -66,6 +67,10 @@ export interface Product {
   sizeOz: number;
   category: string;
   image: string;
+  brand?: string;
+  productType?: string;
+  storageZone?: string;
+  storageBin?: string;
   isGlass: boolean;
 }
 

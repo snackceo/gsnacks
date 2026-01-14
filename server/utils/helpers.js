@@ -390,7 +390,7 @@ async function restockOrderItems(order, sessionDb) {
 
       return {
         updateOne: {
-          filter: { frontendId: it.productId },
+          filter: { $or: [{ frontendId: it.productId }, { sku: it.productId }] },
           update: { $inc: { stock: qty } }
         }
       };

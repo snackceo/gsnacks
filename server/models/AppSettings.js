@@ -22,6 +22,9 @@ const appSettingsSchema = new mongoose.Schema(
     showAdvancedInventoryInsights: { type: Boolean, default: false },
     allowPlatinumTier: { type: Boolean, default: false },
     platinumFreeDelivery: { type: Boolean, default: false }
+    ,
+    storageZones: { type: [String], default: [] },
+    productTypes: { type: [String], default: [] }
   },
   { timestamps: true }
 );

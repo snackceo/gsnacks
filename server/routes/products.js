@@ -1,6 +1,7 @@
 import express from 'express';
 
 import Product from '../models/Product.js';
+import { generateSku } from '../utils/sku.js';
 import { authRequired, ownerRequired } from '../utils/helpers.js';
 
 const router = express.Router();
@@ -9,7 +10,8 @@ router.get('/', async (req, res) => {
   try {
     const docs = await Product.find({}).sort({ createdAt: -1 }).lean();
     const products = docs.map(d => ({
-      id: d.frontendId,
+      id: d.sku || d.frontendId,
+      sku: d.sku || undefined,
       frontendId: d.frontendId,
       name: d.name,
       price: d.price,
@@ -18,6 +20,10 @@ router.get('/', async (req, res) => {
       sizeOz: d.sizeOz ?? 0,
       category: d.category ?? 'DRINK',
       image: d.image ?? '',
+      brand: d.brand || '',
+      productType: d.productType || '',
+      storageZone: d.storageZone || '',
+      storageBin: d.storageBin || '',
       isGlass: !!d.isGlass
     }));
     res.json({ ok: true, products });
@@ -30,8 +36,6 @@ router.get('/', async (req, res) => {
 router.post('/', authRequired, ownerRequired, async (req, res) => {
   try {
     const {
-      id,
-      frontendId,
       name,
       price,
       deposit,
@@ -39,18 +43,23 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       sizeOz,
       category,
       image,
-      isGlass
+      isGlass,
+      brand,
+      productType,
+      storageZone,
+      storageBin
     } = req.body || {};
 
-    const finalFrontendId = (frontendId || id || '').trim();
-    if (!finalFrontendId) return res.status(400).json({ error: 'id is required' });
     if (!name) return res.status(400).json({ error: 'name is required' });
     if (price === undefined || price === null || Number.isNaN(Number(price))) {
       return res.status(400).json({ error: 'price is required' });
     }
 
+    // Generate a SKU and use it as frontendId for backwards compatibility
+    const sku = await generateSku();
     const created = await Product.create({
-      frontendId: finalFrontendId,
+      frontendId: sku,
+      sku,
       name,
       price: Number(price),
       deposit: Number(deposit || 0),
@@ -58,13 +67,18 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       sizeOz: Number(sizeOz || 0),
       category: category || 'DRINK',
       image: image || '',
-      isGlass: !!isGlass
+      isGlass: !!isGlass,
+      brand: brand || '',
+      productType: productType || '',
+      storageZone: storageZone || '',
+      storageBin: storageBin || ''
     });
 
     res.json({
       ok: true,
       product: {
-        id: created.frontendId,
+        id: created.sku || created.frontendId,
+        sku: created.sku || undefined,
         frontendId: created.frontendId,
         name: created.name,
         price: created.price,
@@ -73,6 +87,10 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
         sizeOz: created.sizeOz ?? 0,
         category: created.category ?? 'DRINK',
         image: created.image ?? '',
+        brand: created.brand || '',
+        productType: created.productType || '',
+        storageZone: created.storageZone || '',
+        storageBin: created.storageBin || '',
         isGlass: !!created.isGlass
       }
     });
@@ -87,7 +105,7 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
 
 router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
   try {
-    const frontendId = req.params.id;
+    const paramId = req.params.id;
 
     const updates = {};
     const allowed = [
@@ -111,16 +129,21 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
     if (updates.sizeOz !== undefined) updates.sizeOz = Number(updates.sizeOz);
     if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
 
-    const updated = await Product.findOneAndUpdate({ frontendId }, updates, {
-      new: true
-    }).lean();
+    const updated = await Product.findOneAndUpdate(
+      { $or: [{ frontendId: paramId }, { sku: paramId }] },
+      updates,
+      {
+        new: true
+      }
+    ).lean();
 
     if (!updated) return res.status(404).json({ error: 'Product not found' });
 
     res.json({
       ok: true,
       product: {
-        id: updated.frontendId,
+        id: updated.sku || updated.frontendId,
+        sku: updated.sku || undefined,
         frontendId: updated.frontendId,
         name: updated.name,
         price: updated.price,
@@ -129,6 +152,10 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
         sizeOz: updated.sizeOz ?? 0,
         category: updated.category ?? 'DRINK',
         image: updated.image ?? '',
+        brand: updated.brand || '',
+        productType: updated.productType || '',
+        storageZone: updated.storageZone || '',
+        storageBin: updated.storageBin || '',
         isGlass: !!updated.isGlass
       }
     });
@@ -140,8 +167,8 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
 
 router.delete('/:id', authRequired, ownerRequired, async (req, res) => {
   try {
-    const frontendId = req.params.id;
-    const deleted = await Product.findOneAndDelete({ frontendId }).lean();
+    const paramId = req.params.id;
+    const deleted = await Product.findOneAndDelete({ $or: [{ frontendId: paramId }, { sku: paramId }] }).lean();
     if (!deleted) return res.status(404).json({ error: 'Product not found' });
     res.json({ ok: true });
   } catch (err) {

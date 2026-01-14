@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 const UpcItemSchema = new mongoose.Schema(
   {
     upc: { type: String, required: true, unique: true },
+    sku: { type: String, required: false, index: true },
     name: { type: String, default: '' },
     depositValue: { type: Number, default: 0.1 },
     price: { type: Number, default: 0 },

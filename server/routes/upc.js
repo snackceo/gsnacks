@@ -164,6 +164,7 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       upc,
       name: req.body?.name ?? '',
       depositValue: depositValue,
+      sku: req.body?.sku ? String(req.body.sku).trim() : undefined,
       price: coerceNumber(req.body?.price),
       containerType: normalizeContainerType(req.body?.containerType),
       sizeOz: coerceNumber(req.body?.sizeOz),
@@ -182,6 +183,7 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       ok: true,
       upcItem: {
         upc: entry.upc,
+        sku: entry.sku || undefined,
         name: entry.name || '',
         depositValue: depositValue,
         price: coerceNumber(entry.price),
@@ -197,6 +199,49 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
   } catch (err) {
     console.error('UPSERT UPC ERROR:', err);
     res.status(500).json({ error: 'Failed to save UPC' });
+  }
+});
+
+// Scan and apply a UPC: increment product stock by `qty` (default 1) or create product if unmapped.
+router.post('/scan', authRequired, ownerRequired, async (req, res) => {
+  try {
+    const upc = String(req.body?.upc || '').trim();
+    const qty = Number.isFinite(Number(req.body?.qty)) ? Math.floor(Number(req.body.qty)) : 1;
+    if (!upc) return res.status(400).json({ error: 'upc is required' });
+
+    const upcEntry = await UpcItem.findOne({ upc }).lean();
+    const UpcModel = UpcItem;
+    // If mapped SKU exists, increment that product's stock
+    const Product = (await import('../models/Product.js')).default;
+    if (upcEntry?.sku) {
+      const updated = await Product.findOneAndUpdate({ sku: upcEntry.sku }, { $inc: { stock: qty } }, { new: true }).lean();
+      if (!updated) return res.status(404).json({ error: 'Mapped product not found' });
+      return res.json({ ok: true, action: 'updated', product: updated });
+    }
+
+    // No mapping: create new product and persist mapping on UpcItem
+    const { generateSku } = await import('../utils/sku.js');
+    const sku = await generateSku();
+
+    const createPayload = {
+      frontendId: sku,
+      sku,
+      name: upcEntry?.name || `UPC ${upc}`,
+      price: Number(upcEntry?.price || 0),
+      stock: qty,
+      sizeOz: Number(upcEntry?.sizeOz || 0),
+      isGlass: !!upcEntry?.isGlass
+    };
+
+    const created = await Product.create(createPayload);
+
+    // Upsert mapping on UpcItem
+    await UpcModel.findOneAndUpdate({ upc }, { $set: { sku } }, { new: true });
+
+    return res.json({ ok: true, action: 'created', product: created, sku });
+  } catch (err) {
+    console.error('UPC SCAN ERROR:', err);
+    res.status(500).json({ error: 'Failed to apply UPC scan' });
   }
 });
 

@@ -24,7 +24,7 @@ const restockOrderItems = async (order, session) => {
 
   const stockUpdates = order.items.map(item => ({
     updateOne: {
-      filter: { frontendId: item.productId },
+      filter: { $or: [{ frontendId: item.productId }, { sku: item.productId }] },
       update: { $inc: { stock: item.quantity } }
     }
   }));
