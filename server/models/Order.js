@@ -47,6 +47,7 @@ const orderSchema = new mongoose.Schema(
 
     authorizedAt: { type: Date },
     capturedAt: { type: Date },
+    pointsAwardedAt: { type: Date },
 
     /* =========================================================
        RETURNS (COMMON)
@@ -66,7 +67,7 @@ const orderSchema = new mongoose.Schema(
     returnCreditsAppliedAt: { type: Date },
 
     /* =========================================================
-       RETURNS – CASH FLOW (FEES + CAP)
+       RETURNS – CASH FLOW (FEES)
        ========================================================= */
     returnsPayoutMethod: {
       type: String,

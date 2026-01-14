@@ -71,7 +71,6 @@ const defaultSettings: AppSettings = {
   distanceBand1Rate: 0.5,
   distanceBand2Rate: 0.75,
   distanceBand3Rate: 1.0,
-  dailyReturnLimit: 250,
   maintenanceMode: false,
   requirePhotoForRefunds: false,
   allowGuestCheckout: false,
@@ -110,7 +109,6 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     distanceBand3Rate: Number(
       data.distanceBand3Rate ?? defaultSettings.distanceBand3Rate
     ),
-    dailyReturnLimit: Number(data.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
     maintenanceMode: Boolean(
       data.maintenanceMode ?? defaultSettings.maintenanceMode
     ),

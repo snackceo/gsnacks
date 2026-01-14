@@ -487,7 +487,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       distanceBand1Rate: Number(settingsDraft.distanceBand1Rate || 0),
       distanceBand2Rate: Number(settingsDraft.distanceBand2Rate || 0),
       distanceBand3Rate: Number(settingsDraft.distanceBand3Rate || 0),
-      dailyReturnLimit: Number(settingsDraft.dailyReturnLimit || 0),
       requirePhotoForRefunds: Boolean(settingsDraft.requirePhotoForRefunds),
       allowGuestCheckout: Boolean(settingsDraft.allowGuestCheckout),
       showAdvancedInventoryInsights: Boolean(settingsDraft.showAdvancedInventoryInsights),
@@ -2291,22 +2290,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   Returns Rules
                 </p>
                 <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Daily Return Limit (containers)
-                    </label>
-                    <input
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="1"
-                      value={settingsDraft.dailyReturnLimit}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          dailyReturnLimit: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
                   <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     <input
                       type="checkbox"

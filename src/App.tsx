@@ -377,7 +377,6 @@ function App() {
         distanceBand1Rate={core.settings.distanceBand1Rate}
         distanceBand2Rate={core.settings.distanceBand2Rate}
         distanceBand3Rate={core.settings.distanceBand3Rate}
-        dailyReturnLimit={core.settings.dailyReturnLimit}
         onClose={() => setIsCartOpen(false)}
         onAddressChange={setAddress}
         onPolicyChange={setAcceptedPolicies}

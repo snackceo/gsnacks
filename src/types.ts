@@ -143,7 +143,6 @@ export interface AppSettings {
   distanceBand1Rate: number;
   distanceBand2Rate: number;
   distanceBand3Rate: number;
-  dailyReturnLimit: number;
   maintenanceMode: boolean;
   requirePhotoForRefunds: boolean;
   allowGuestCheckout: boolean;
