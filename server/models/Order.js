@@ -29,6 +29,7 @@ const orderSchema = new mongoose.Schema(
     routeFee: { type: Number, default: 0 },
     routeFeeDiscountPercent: { type: Number, default: 0 },
     routeFeeFinal: { type: Number, default: 0 },
+    // Legacy alias for routeFee (deprecated).
     deliveryFee: { type: Number, default: 0 },
     deliveryFeeDiscountPercent: { type: Number, default: 0 },
     deliveryFeeFinal: { type: Number, default: 0 },
