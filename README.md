@@ -458,7 +458,7 @@ Points are earned only on **product subtotal paid outside the wallet**.
 
 ### 11.3 Redemption (Points → Wallet Credits)
 
-Bronze and above may redeem points into **Wallet Credits** using this conversion:
+Bronze, Silver, and Gold may redeem points into **Wallet Credits** using this conversion:
 
 * `100 points = $1.00 wallet credit`
 
