@@ -65,7 +65,6 @@ function App() {
           userId: core.currentUser?.id,
           gateway: type,
           address: address, // NEW: stored on order for owner dashboard
-          distanceMiles,
           returnUpcCounts: returnUpcs,
           returnPayoutMethod
         })
@@ -104,7 +103,6 @@ function App() {
         body: JSON.stringify({
           items: core.cart,
           address,
-          distanceMiles,
           returnUpcCounts: returnUpcs,
           returnPayoutMethod
         })

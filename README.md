@@ -122,6 +122,7 @@ This is a **route-level discount**, not a container-based fee.
 Distance is calculated **one-way from operator location to customer address**.
 
 * Distance is measured in **0.1 mile increments** and always **rounded down** to the nearest **0.1 mile**
+* Distance is calculated automatically server-side from the delivery address; client-reported distances are ignored.
 
 The first **3.0 miles are included** in the Route Fee.
 

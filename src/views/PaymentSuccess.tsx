@@ -14,6 +14,11 @@ function PaymentSuccess({ clearCart }: { clearCart: () => void }) {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const isDelivered = order?.status === OrderStatus.DELIVERED;
+  const isPickupOnlyOrder =
+    order?.orderType === 'RETURNS_PICKUP' || (order?.items?.length ?? 0) === 0;
+  const routeFeeLabel = isPickupOnlyOrder
+    ? 'Route Fee — Pickup-Only Order'
+    : 'Route Fee — Delivery Order';
 
   useEffect(() => {
     clearCart();
@@ -75,8 +80,15 @@ function PaymentSuccess({ clearCart }: { clearCart: () => void }) {
             <p className="uppercase tracking-widest opacity-60 mt-4">Estimated return value (preview)</p>
             <p className="font-black text-ninpo-lime">{money(order.estimatedReturnCredit || 0)}</p>
 
-            <p className="uppercase tracking-widest opacity-60 mt-4">Route fee</p>
+            <p className="uppercase tracking-widest opacity-60 mt-4">{routeFeeLabel}</p>
             <p className="font-black">{money(order.routeFee || 0)}</p>
+
+            {Number(order.distanceFee || 0) > 0 && (
+              <>
+                <p className="uppercase tracking-widest opacity-60 mt-4">Distance Fee</p>
+                <p className="font-black">{money(order.distanceFee || 0)}</p>
+              </>
+            )}
 
             <p className="uppercase tracking-widest opacity-60 mt-4">Order total (pre-credit)</p>
             <p className="font-black">{money(order.total)}</p>
