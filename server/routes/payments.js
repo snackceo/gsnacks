@@ -958,4 +958,240 @@ const createPaymentsRouter = ({ stripe }) => {
               2
             )}, Net: $${netCredit.toFixed(2)}.`
           });
-    
+        }
+        verifiedReturnCredit = verifiedCredit.net;
+
+        if (order.status === 'PAID') {
+          updatedOrderDoc = order;
+          return;
+        }
+
+        if (order.status === 'CANCELED' || order.status === 'EXPIRED') {
+          const e = new Error('Cannot capture a canceled/expired order.');
+          e.code = 'ORDER_CANCELED';
+          throw e;
+        }
+
+        const pi = order.stripePaymentIntentId;
+        if (!pi) {
+          const e = new Error('No Stripe PaymentIntent found for this order yet.');
+          e.code = 'NO_PAYMENT_INTENT';
+          throw e;
+        }
+
+        const authorizedCents = Number(
+          order.amountAuthorizedCents || Math.round(Number(order.total || 0) * 100)
+        );
+        const netCreditCents = Math.round(verifiedReturnCredit * 100);
+        const payoutUser =
+          order.customerId && order.customerId !== 'GUEST'
+            ? await User.findById(order.customerId).session(sessionDb)
+            : null;
+        const tier = normalizeTier(payoutUser?.membershipTier);
+        const productSubtotalCents = Math.round(Number(order.subtotal || 0) * 100);
+        const creditAppliedCents = Math.round(Number(order.creditApplied || 0) * 100);
+        const creditAppliedToProductsCents = Math.min(
+          creditAppliedCents,
+          productSubtotalCents
+        );
+        const remainingProductCents = Math.max(
+          0,
+          productSubtotalCents - creditAppliedToProductsCents
+        );
+
+        const eligibleReturnCreditCents =
+          payoutMethod === 'CREDIT'
+            ? CREDIT_DELIVERY_ELIGIBLE_TIERS.has(tier)
+              ? authorizedCents
+              : Math.min(authorizedCents, remainingProductCents)
+            : 0;
+        const creditCents = Math.min(netCreditCents, eligibleReturnCreditCents);
+        const walletCreditCents =
+          payoutMethod === 'CREDIT' ? Math.max(0, netCreditCents - creditCents) : 0;
+        const returnCreditAppliedToProductsCents = Math.min(
+          creditCents,
+          remainingProductCents
+        );
+        const productPaidCents = Math.max(
+          0,
+          remainingProductCents - returnCreditAppliedToProductsCents
+        );
+
+        const finalCaptureCents = Math.max(0, authorizedCents - creditCents);
+
+        // If capture would be 0, void the authorization instead of capturing 0.
+        if (finalCaptureCents === 0) {
+          try {
+            await stripe.paymentIntents.cancel(pi);
+          } catch {
+            // ignore
+          }
+
+          if (authorizedCents > 0) {
+            await recordAuditLog({
+              type: 'ORDER_PAYMENT_VOIDED',
+              actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+              details: `Stripe authorization for order ${orderId} voided. Authorized: $${(
+                authorizedCents / 100
+              ).toFixed(2)}. Net return credit $${verifiedReturnCredit.toFixed(2)} covered the cost.`
+            });
+          }
+
+          order.status = 'PAID';
+          order.paidAt = new Date();
+          order.capturedAt = new Date();
+          order.amountCapturedCents = 0;
+          order.verifiedReturnCredit = verifiedReturnCredit;
+          order.verifiedReturnCreditGross = verifiedCredit.gross;
+          order.verifiedReturnUpcs = verifiedReturnUpcs;
+          order.verifiedReturnUpcCounts = verifiedReturnUpcCounts;
+          order.returnPayoutMethod = payoutMethod;
+
+          const creditResult = await applyWalletCredit(
+            { order, walletCreditCents, payoutMethod },
+            { session: sessionDb, actorId: req.user?.username || req.user?.id || '' }
+          );
+          ({ creditedUserId, creditedAmount } = creditResult);
+
+          await awardLoyaltyPoints({
+            order,
+            user: payoutUser,
+            productPaidCents,
+            session: sessionDb
+          });
+
+          if (payoutMethod === 'CASH' && verifiedReturnCredit > 0) {
+            await CashPayout.create(
+              [
+                {
+                  orderId: order.orderId,
+                  userId: order.customerId,
+                  driverId: order.driverId || '',
+                  amount: verifiedReturnCredit,
+                  createdBy: req.user?.username || req.user?.id || ''
+                }
+              ],
+              { session: sessionDb }
+            );
+            cashPayoutAmount = verifiedReturnCredit;
+            cashPayoutUserId = order.customerId;
+          }
+
+          await order.save({ session: sessionDb });
+          updatedOrderDoc = order;
+          return;
+        }
+
+        let captured;
+        try {
+          captured = await stripe.paymentIntents.capture(pi, {
+            amount_to_capture: finalCaptureCents
+          });
+        } catch (err) {
+          if (err.code === 'payment_intent_unexpected_state') {
+            // The payment intent may have been canceled or already captured.
+            // We can fetch the latest state to confirm.
+            const intent = await stripe.paymentIntents.retrieve(pi);
+            if (intent.status !== 'succeeded') throw err;
+          } else throw err;
+        }
+
+        if (captured) {
+          await recordAuditLog({
+            type: 'ORDER_PAYMENT_CAPTURED',
+            actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+            details: `Stripe payment captured for order ${orderId}. Amount: $${(
+              finalCaptureCents / 100
+            ).toFixed(2)}. Authorized: $${(authorizedCents / 100).toFixed(
+              2
+            )}. Net return credit: $${verifiedReturnCredit.toFixed(2)}.`
+          });
+        }
+        order.status = 'PAID';
+        order.paidAt = new Date();
+        order.capturedAt = new Date();
+        order.amountCapturedCents = Number(captured?.amount_received || finalCaptureCents);
+        order.verifiedReturnCredit = verifiedReturnCredit;
+        order.verifiedReturnCreditGross = verifiedCredit.gross;
+        order.verifiedReturnUpcs = verifiedReturnUpcs;
+        order.verifiedReturnUpcCounts = verifiedReturnUpcCounts;
+        order.returnPayoutMethod = payoutMethod;
+
+        const creditResult = await applyWalletCredit(
+          { order, walletCreditCents, payoutMethod },
+          { session: sessionDb, actorId: req.user?.username || req.user?.id || '' }
+        );
+        ({ creditedUserId, creditedAmount } = creditResult);
+
+        await awardLoyaltyPoints({
+          order,
+          user: payoutUser,
+          productPaidCents,
+          session: sessionDb
+        });
+
+        if (payoutMethod === 'CASH' && verifiedReturnCredit > 0) {
+          await CashPayout.create(
+            [
+              {
+                orderId: order.orderId,
+                userId: order.customerId,
+                driverId: order.driverId || '',
+                amount: verifiedReturnCredit,
+                createdBy: req.user?.username || req.user?.id || ''
+              }
+            ],
+            { session: sessionDb }
+          );
+          cashPayoutAmount = verifiedReturnCredit;
+          cashPayoutUserId = order.customerId;
+        }
+
+        await order.save({ session: sessionDb });
+        updatedOrderDoc = order;
+      });
+
+      if (!updatedOrderDoc) return res.status(404).json({ error: 'Order not found' });
+
+      const responseOrder = mapOrderForFrontend(updatedOrderDoc);
+
+      if (cashPayoutAmount > 0 && cashPayoutUserId) {
+        await recordAuditLog({
+          type: 'CASH_PAYOUT_CREATED',
+          actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+          details: `Cash payout for order ${orderId} created for user ${cashPayoutUserId}: $${Number(
+            cashPayoutAmount || 0
+          ).toFixed(2)}.`
+        });
+      }
+
+      if (creditedUserId && creditedAmount) {
+        await recordAuditLog({
+          type: 'CREDIT_ADJUSTED',
+          actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+          details: `Applied $${creditedAmount.toFixed(2)} return credit remainder for order ${orderId}.`
+        });
+      }
+
+      res.json({
+        ok: true,
+        order: responseOrder,
+        cashPayoutAmount
+      });
+    } catch (err) {
+      const message = err?.message || 'Failed to capture payment';
+      if (err?.code === 'STAFF_REQUIRED') return res.status(403).json({ error: message });
+      if (err?.code === 'DRIVER_MISMATCH') return res.status(403).json({ error: message });
+      if (err?.code === 'ORDER_CANCELED') return res.status(400).json({ error: message });
+      if (err?.code === 'NO_PAYMENT_INTENT') return res.status(400).json({ error: message });
+      console.error('CAPTURE ERROR:', err);
+      res.status(500).json({ error: message });
+    } finally {
+      sessionDb.endSession();
+    }
+  });
+
+  return router;
+};
+
+export default createPaymentsRouter;
