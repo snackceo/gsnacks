@@ -60,8 +60,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
   const minRedeemByTier: Record<string, number> = {
     BRONZE: 500,
     SILVER: 250,
-    GOLD: 0,
-    PLATINUM: 0
+    GOLD: 0
   };
   const minRedeemPoints = minRedeemByTier[redemptionTier];
   const canRedeemPoints = Boolean(currentUser) && minRedeemPoints !== undefined;
@@ -291,7 +290,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                     </div>
                     <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">
                       {!canRedeemPoints
-                        ? 'Points redemption is available for Bronze+ tiers only.'
+                        ? 'Points redemption is available for Bronze, Silver, and Gold tiers only.'
                         : minRedeemPoints > 0
                         ? `Minimum redemption: ${minRedeemPoints} points.`
                         : 'No minimum redemption for Gold+ tiers.'}

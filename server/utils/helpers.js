@@ -261,6 +261,7 @@ function mapOrderForFrontend(d) {
     driverId: d.driverId || undefined,
     items: Array.isArray(d.items) ? d.items : [],
     total: Number(d.total || 0),
+    orderType: d.orderType || undefined,
     routeFee: Number(d.routeFeeFinal ?? d.routeFee ?? d.deliveryFeeFinal ?? d.deliveryFee ?? 0),
     distanceMiles: Number(d.distanceMiles || 0),
     distanceFee: Number(d.distanceFeeFinal ?? d.distanceFee ?? 0),

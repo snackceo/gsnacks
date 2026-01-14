@@ -21,6 +21,7 @@ import {
   sumReturnCredits
 } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
+import { resolveDistanceMiles } from '../utils/distance.js';
 
 const CREDIT_DELIVERY_ELIGIBLE_TIERS = new Set(['SILVER', 'GOLD', 'PLATINUM', 'GREEN']);
 const CASH_PAYOUT_ELIGIBLE_TIERS = new Set(['GOLD', 'PLATINUM', 'GREEN']);
@@ -204,6 +205,19 @@ const buildReturnPreview = async (rawUpcs, payoutMethod = 'CREDIT') => {
   };
 };
 
+const handleDistanceLookupError = (res, err) => {
+  if (err?.code === 'ADDRESS_REQUIRED') {
+    return res.status(400).json({ error: err.message });
+  }
+  if (err?.code === 'HUB_NOT_CONFIGURED') {
+    return res.status(503).json({ error: err.message });
+  }
+  if (err?.code === 'ADDRESS_NOT_FOUND') {
+    return res.status(404).json({ error: err.message });
+  }
+  return res.status(500).json({ error: 'Distance lookup failed' });
+};
+
 const createPaymentsRouter = ({ stripe }) => {
   const router = express.Router();
 
@@ -238,7 +252,12 @@ const createPaymentsRouter = ({ stripe }) => {
       const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery } =
         await getRouteFeeConfig();
       const distanceFeeConfig = await getDistanceFeeConfig();
-      const distanceMiles = req.body?.distanceMiles;
+      let distanceMiles;
+      try {
+        distanceMiles = await resolveDistanceMiles(address);
+      } catch (err) {
+        return handleDistanceLookupError(res, err);
+      }
 
       const items = normalizeCart(rawItems);
       const rawReturnUpcs = req.body?.returnUpcCounts ?? req.body?.returnUpcs;
@@ -485,7 +504,12 @@ const createPaymentsRouter = ({ stripe }) => {
       const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery } =
         await getRouteFeeConfig();
       const distanceFeeConfig = await getDistanceFeeConfig();
-      const distanceMiles = req.body?.distanceMiles;
+      let distanceMiles;
+      try {
+        distanceMiles = await resolveDistanceMiles(address);
+      } catch (err) {
+        return handleDistanceLookupError(res, err);
+      }
       const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
       const { routeFee, routeFeeCents } = calculateRouteFee({
         baseRouteFee,

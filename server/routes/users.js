@@ -331,8 +331,7 @@ router.post('/:id/redeem-points', authRequired, async (req, res) => {
     const minRedeemByTier = {
       BRONZE: 500,
       SILVER: 250,
-      GOLD: 0,
-      PLATINUM: 0
+      GOLD: 0
     };
     const minRedeemPoints = minRedeemByTier[userTier];
 

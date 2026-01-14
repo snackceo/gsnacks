@@ -101,6 +101,7 @@ export interface Order {
   driverId?: string;
   items: { productId: string; quantity: number }[];
   total: number;
+  orderType?: 'DELIVERY_PURCHASE' | 'RETURNS_PICKUP';
   routeFee?: number;
   distanceMiles?: number;
   distanceFee?: number;
