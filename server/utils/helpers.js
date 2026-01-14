@@ -262,14 +262,19 @@ async function releaseCreditAuthorization(order, sessionDb) {
   if (!order) return;
   // Idempotency: if creditApplied is already set, capture happened.
   // If inventory is already released, this has been run.
-  if (order.creditApplied > 0 || order.inventoryReleasedAt) {
+  if (order.creditAppliedCents > 0 || order.inventoryReleasedAt) {
     return;
   }
 
-  const creditToRelease = Number(order.creditAuthorized || 0);
-  if (creditToRelease > 0 && order.customerId && order.customerId !== 'GUEST') {
+  const creditToReleaseCents = Number(order.creditAuthorizedCents || 0);
+  if (
+    creditToReleaseCents > 0 &&
+    order.customerId &&
+    order.customerId !== 'GUEST'
+  ) {
     const user = await User.findById(order.customerId).session(sessionDb);
     if (user) {
+      const creditToRelease = creditToReleaseCents / 100;
       const currentBalance = Number(user.creditBalance || 0);
       const currentAuthorized = Number(user.authorizedCreditBalance || 0);
 
@@ -310,8 +315,10 @@ function mapOrderForFrontend(d) {
     routeFee: Number(d.routeFeeFinal ?? d.routeFee ?? d.deliveryFeeFinal ?? d.deliveryFee ?? 0),
     distanceMiles: Number(d.distanceMiles || 0),
     distanceFee: Number(d.distanceFeeFinal ?? d.distanceFee ?? 0),
-    creditAuthorized: Number(d.creditAuthorized || 0),
-    creditApplied: d.creditAppliedAt ? Number(d.creditApplied || 0) : undefined,
+    creditAuthorizedCents: Math.round(Number(d.creditAuthorizedCents || 0)),
+    creditAppliedCents: d.creditAppliedAt
+      ? Math.round(Number(d.creditAppliedCents || 0))
+      : undefined,
 
     // Bottle returns
     returnUpcs: Array.isArray(d.returnUpcs) ? d.returnUpcs : [],

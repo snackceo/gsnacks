@@ -426,7 +426,8 @@ const createPaymentsRouter = ({ stripe }) => {
               distanceMiles: roundedDistanceMiles,
               distanceFee,
               distanceFeeFinal: distanceFee,
-              creditApplied: 0,
+              creditAppliedCents: 0,
+              creditAuthorizedCents: 0,
 
               returnUpcs: eligibleUpcs,
               returnUpcCounts: eligibleUpcCounts,
@@ -658,8 +659,8 @@ const createPaymentsRouter = ({ stripe }) => {
               distanceMiles: roundedDistanceMiles,
               distanceFee,
               distanceFeeFinal: distanceFee,
-              creditAuthorized,
-              creditApplied: 0, // Will be set on capture
+              creditAuthorizedCents: creditAppliedCents,
+              creditAppliedCents: 0, // Will be set on capture
               paymentMethod: remainingCents > 0 ? 'STRIPE' : 'CREDITS', // if fully covered
               status: remainingCents > 0 ? 'PENDING' : 'AUTHORIZED',
               amountAuthorizedCents: remainingCents,
@@ -697,13 +698,13 @@ const createPaymentsRouter = ({ stripe }) => {
         });
       }
 
-      if (remainingOrder.creditAuthorized > 0) {
+      if (remainingOrder.creditAuthorizedCents > 0) {
         await recordAuditLog({
           type: 'CREDIT_ADJUSTED',
           actorId: req.user?.username || req.user?.id || userId,
-          details: `Authorized $${Number(remainingOrder.creditAuthorized || 0).toFixed(
-            2
-          )} credits for order ${orderId}. Available Balance: $${Number(
+          details: `Authorized $${(
+            Number(remainingOrder.creditAuthorizedCents || 0) / 100
+          ).toFixed(2)} credits for order ${orderId}. Available Balance: $${Number(
             user.creditBalance || 0
           ).toFixed(2)}.`
         });
@@ -720,7 +721,9 @@ const createPaymentsRouter = ({ stripe }) => {
           ]);
           if (orderForPoints && userForPoints) {
             const productSubtotalCents = Math.round(Number(orderForPoints.subtotal || 0) * 100);
-            const creditAppliedCents = Math.round(Number(orderForPoints.creditAuthorized || 0) * 100);
+            const creditAppliedCents = Math.round(
+              Number(orderForPoints.creditAuthorizedCents || 0)
+            );
             const creditAppliedToProductsCents = Math.min(
               creditAppliedCents,
               productSubtotalCents
@@ -783,7 +786,7 @@ const createPaymentsRouter = ({ stripe }) => {
       const responsePayload = {
         sessionUrl: stripeSession.url,
         orderId,
-        creditsAuthorized: Number(remainingOrder.creditAuthorized || 0),
+        creditsAuthorized: Number(remainingOrder.creditAuthorizedCents || 0) / 100,
         creditBalance: Number(user.creditBalance || 0)
       };
       if (uniqueIneligibleUpcs.length > 0) {
@@ -990,7 +993,7 @@ const createPaymentsRouter = ({ stripe }) => {
             : null;
         const tier = normalizeTier(payoutUser?.membershipTier);
         const productSubtotalCents = Math.round(Number(order.subtotal || 0) * 100);
-        const creditAppliedCents = Math.round(Number(order.creditApplied || 0) * 100);
+        const creditAppliedCents = Math.round(Number(order.creditAppliedCents || 0));
         const creditAppliedToProductsCents = Math.min(
           creditAppliedCents,
           productSubtotalCents

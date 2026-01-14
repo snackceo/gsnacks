@@ -105,7 +105,8 @@ export interface Order {
   routeFee?: number;
   distanceMiles?: number;
   distanceFee?: number;
-  creditApplied?: number;
+  creditAuthorizedCents?: number;
+  creditAppliedCents?: number;
   estimatedReturnCreditGross?: number;
   estimatedReturnCredit: number;
   verifiedReturnCreditGross?: number;

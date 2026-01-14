@@ -48,8 +48,8 @@ const orderSchema = new mongoose.Schema(
     authorizedAt: { type: Date },
     capturedAt: { type: Date },
     pointsAwardedAt: { type: Date },
-    creditAuthorized: { type: Number, default: 0 },
-    creditApplied: { type: Number, default: 0 },
+    creditAuthorizedCents: { type: Number, default: 0 },
+    creditAppliedCents: { type: Number, default: 0 },
     creditAppliedAt: { type: Date },
 
     /* =========================================================
@@ -72,7 +72,7 @@ const orderSchema = new mongoose.Schema(
     /* =========================================================
        RETURNS – CASH FLOW (FEES)
        ========================================================= */
-    returnsPayoutMethod: {
+    returnPayoutMethod: {
       type: String,
       enum: ['CREDIT', 'CASH'],
       default: 'CREDIT'
