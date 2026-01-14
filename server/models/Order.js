@@ -48,6 +48,9 @@ const orderSchema = new mongoose.Schema(
     authorizedAt: { type: Date },
     capturedAt: { type: Date },
     pointsAwardedAt: { type: Date },
+    creditAuthorized: { type: Number, default: 0 },
+    creditApplied: { type: Number, default: 0 },
+    creditAppliedAt: { type: Date },
 
     /* =========================================================
        RETURNS (COMMON)
