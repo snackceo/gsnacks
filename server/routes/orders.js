@@ -160,6 +160,9 @@ const createOrdersRouter = ({ stripe }) => {
         const order = await Order.findOne({ stripeSessionId: sessionId }).session(sessionDb);
         if (!order) return;
 
+        // This handles both credit release and inventory restock.
+        await releaseCreditAuthorization(order, sessionDb);
+
         if (order.status === 'PAID') return;
         if (order.inventoryReleasedAt) return;
 

@@ -310,7 +310,6 @@ function mapOrderForFrontend(d) {
     routeFee: Number(d.routeFeeFinal ?? d.routeFee ?? d.deliveryFeeFinal ?? d.deliveryFee ?? 0),
     distanceMiles: Number(d.distanceMiles || 0),
     distanceFee: Number(d.distanceFeeFinal ?? d.distanceFee ?? 0),
-    creditApplied: Number(d.creditApplied || 0),
     creditAuthorized: Number(d.creditAuthorized || 0),
     creditApplied: d.creditAppliedAt ? Number(d.creditApplied || 0) : undefined,
 
@@ -373,46 +372,56 @@ function mapOrderForFrontend(d) {
 }
 
 async function restockOrderItems(order, sessionDb) {
-  for (const it of order.items || []) {
-    const qty = Number(it.quantity || 0);
-    if (!qty || qty <= 0) continue;
+  if (!order || !Array.isArray(order.items) || order.items.length === 0) {
+    return;
+  }
 
-    await Product.findOneAndUpdate(
-      { frontendId: it.productId },
-      { $inc: { stock: qty } },
-      { session: sessionDb }
-    );
+  const productUpdates = order.items
+    .map(it => {
+      const qty = Number(it.quantity || 0);
+      if (!it.productId || !qty || qty <= 0) return null;
+
+      return {
+        updateOne: {
+          filter: { frontendId: it.productId },
+          update: { $inc: { stock: qty } }
+        }
+      };
+    })
+    .filter(Boolean);
+
+  if (productUpdates.length > 0) {
+    await Product.bulkWrite(productUpdates, { session: sessionDb });
   }
 }
 
 async function voidStripeAuthorizationBestEffort(stripe, order) {
-  if (!stripe) return;
-  const pi = order?.stripePaymentIntentId;
-  if (!pi) return;
+  if (!stripe || !order?.stripePaymentIntentId) return;
 
   try {
-    await stripe.paymentIntents.cancel(pi);
-  } catch {
-    // ignore (best-effort)
+    await stripe.paymentIntents.cancel(order.stripePaymentIntentId);
+  } catch (err) {
+    // Ignore if already captured or canceled
+    if (err.code === 'payment_intent_unexpected_state') return;
+    console.error(`STRIPE VOID FAILED (order ${order.orderId}):`, err);
   }
 }
 
 export {
   authRequired,
-  buildReturnCountUpdates,
   clearAuthCookie,
-  getCookieOptions,
+  setAuthCookie,
+  buildReturnCountUpdates,
   isDriverUsername,
   isOwnerUsername,
-  calculateReturnFeeSummary,
   mapOrderForFrontend,
   normalizeReturnPayoutMethod,
   normalizeCart,
   normalizeUpcCounts,
-  ownerRequired,
-  restockOrderItems,
-  setAuthCookie,
+  calculateReturnFeeSummary,
   sumReturnCredits,
+  ownerRequired,
+  releaseCreditAuthorization,
+  restockOrderItems,
   voidStripeAuthorizationBestEffort
 };
-      { frontendId: it.p
