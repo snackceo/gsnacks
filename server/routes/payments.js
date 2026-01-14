@@ -69,24 +69,54 @@ const getRouteFeeConfig = async () => {
   };
 };
 
-const calculateRouteFee = ({ baseRouteFee, pickupOnlyMultiplier, orderType, tier, platinumFreeDelivery }) => {
+const TIER_ROUTE_DISCOUNTS = {
+  BRONZE: 0.1,
+  SILVER: 0.2,
+  GOLD: 0.3
+};
+
+const calculateRouteFee = ({
+  baseRouteFee,
+  pickupOnlyMultiplier,
+  orderType,
+  tier,
+  platinumFreeDelivery
+}) => {
   let fee = Math.max(0, Number(baseRouteFee || 0));
   const normalizedTier = normalizeTier(tier);
+  let discountPercent = 0;
 
   if (orderType === 'RETURNS_PICKUP') {
     fee = fee * Math.max(0, Number(pickupOnlyMultiplier || 0));
   }
 
+  const feeBeforeTierDiscount = fee;
+  const tierDiscount = TIER_ROUTE_DISCOUNTS[normalizedTier] ?? 0;
+
+  if (tierDiscount > 0) {
+    discountPercent = tierDiscount;
+    fee = fee * (1 - tierDiscount);
+  }
+
   if (normalizedTier === 'GREEN') {
     fee = 1;
+    discountPercent =
+      feeBeforeTierDiscount > 0
+        ? Math.max(0, Math.min(1, 1 - fee / feeBeforeTierDiscount))
+        : 0;
   }
 
   if (normalizedTier === 'PLATINUM' && platinumFreeDelivery) {
     fee = 0;
+    discountPercent = feeBeforeTierDiscount > 0 ? 1 : 0;
   }
 
   const feeCents = Math.round(fee * 100);
-  return { routeFee: feeCents / 100, routeFeeCents: feeCents };
+  return {
+    routeFee: feeCents / 100,
+    routeFeeCents: feeCents,
+    routeFeeDiscountPercent: discountPercent
+  };
 };
 
 const getDistanceFeeConfig = async () => {
@@ -312,7 +342,7 @@ const createPaymentsRouter = ({ stripe }) => {
       }
 
       const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
-      const { routeFee, routeFeeCents } = calculateRouteFee({
+      const { routeFee, routeFeeCents, routeFeeDiscountPercent } = calculateRouteFee({
         baseRouteFee,
         pickupOnlyMultiplier,
         orderType,
@@ -418,10 +448,10 @@ const createPaymentsRouter = ({ stripe }) => {
               total: totalCents / 100,
               orderType,
               routeFee: baseRouteFee,
-              routeFeeDiscountPercent: 0,
+              routeFeeDiscountPercent,
               routeFeeFinal: routeFee,
               deliveryFee: baseRouteFee,
-              deliveryFeeDiscountPercent: 0,
+              deliveryFeeDiscountPercent: routeFeeDiscountPercent,
               deliveryFeeFinal: routeFee,
               distanceMiles: roundedDistanceMiles,
               distanceFee,
@@ -554,7 +584,7 @@ const createPaymentsRouter = ({ stripe }) => {
         return handleDistanceLookupError(res, err);
       }
       const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
-      const { routeFee, routeFeeCents } = calculateRouteFee({
+      const { routeFee, routeFeeCents, routeFeeDiscountPercent } = calculateRouteFee({
         baseRouteFee,
         pickupOnlyMultiplier,
         orderType,
@@ -651,10 +681,10 @@ const createPaymentsRouter = ({ stripe }) => {
               total: totalCents / 100,
               orderType,
               routeFee: baseRouteFee,
-              routeFeeDiscountPercent: 0,
+              routeFeeDiscountPercent,
               routeFeeFinal: routeFee,
               deliveryFee: baseRouteFee,
-              deliveryFeeDiscountPercent: 0,
+              deliveryFeeDiscountPercent: routeFeeDiscountPercent,
               deliveryFeeFinal: routeFee,
               distanceMiles: roundedDistanceMiles,
               distanceFee,
