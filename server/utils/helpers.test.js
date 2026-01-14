@@ -6,7 +6,7 @@ import { buildReturnCountUpdates, normalizeUpcCounts, sumReturnCredits } from '.
 test('return credits match for counts and flattened UPC payloads', () => {
   const upcEntries = [
     { upc: '000111', depositValue: 0.1, isEligible: true },
-    { upc: '000222', depositValue: 0.05, isEligible: true }
+    { upc: '000222', depositValue: 0.1, isEligible: true }
   ];
   const countsPayload = [
     { upc: '000111', quantity: 2 },

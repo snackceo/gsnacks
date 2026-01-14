@@ -216,12 +216,10 @@ const LegalFooter: React.FC = () => {
 
               <section className="space-y-4">
                 <h3 className="text-white text-sm font-black uppercase tracking-widest">
-                  Return Limits & Fraud Prevention
+                  Return Verification & Fraud Prevention
                 </h3>
                 <ul className="list-disc list-inside space-y-2">
-                  <li>Daily limits may apply per customer (in line with Michigan law guidelines).</li>
-                  <li>Limit is enforced per person (not per address).</li>
-                  <li>No splitting returns across multiple addresses to bypass the limit.</li>
+                  <li>Returns are verified per person (not per address).</li>
                   <li>Multiple accounts tied to one person may be merged or restricted.</li>
                   <li>Monitoring flags unusual return activity for review.</li>
                 </ul>
@@ -235,7 +233,7 @@ const LegalFooter: React.FC = () => {
                   <li>Drivers scan barcodes, confirm condition, and log counts at drop-off.</li>
                   <li>Photo proof and GPS verification support transparency and dispute review.</li>
                   <li>Non-eligible or damaged containers are declined on the spot.</li>
-                  <li>Drivers can assist with large returns within daily limits.</li>
+                  <li>Drivers can assist with large returns during scheduled pickups.</li>
                   <li>Post-delivery tipping is available via driver QR code.</li>
                 </ul>
               </section>

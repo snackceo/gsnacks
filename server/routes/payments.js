@@ -27,6 +27,13 @@ const CREDIT_DELIVERY_ELIGIBLE_TIERS = new Set(['SILVER', 'GOLD', 'PLATINUM', 'G
 const CASH_PAYOUT_ELIGIBLE_TIERS = new Set(['GOLD', 'PLATINUM', 'GREEN']);
 const CASH_HANDLING_FEE_PER_CONTAINER = 0.02;
 const GLASS_HANDLING_SURCHARGE_PER_CONTAINER = 0.02;
+const POINT_ELIGIBLE_TIERS = new Set(['COMMON', 'BRONZE', 'SILVER', 'GOLD']);
+const POINT_EARNING_RATES = {
+  COMMON: 1.0,
+  BRONZE: 1.0,
+  SILVER: 1.2,
+  GOLD: 1.5
+};
 const DEFAULT_DISTANCE_FEES = {
   distanceIncludedMiles: 3.0,
   distanceBand1MaxMiles: 10.0,
@@ -108,6 +115,14 @@ const getDistanceFeeConfig = async () => {
 
 const roundDownToTenth = value => Math.floor(value * 10) / 10;
 
+const calculatePointUnits = ({ productPaidCents, tier }) => {
+  const normalizedTier = normalizeTier(tier);
+  if (!POINT_ELIGIBLE_TIERS.has(normalizedTier)) return 0;
+  const rate = POINT_EARNING_RATES[normalizedTier] ?? 0;
+  if (!rate || productPaidCents <= 0) return 0;
+  return Math.max(0, Math.round(productPaidCents * rate));
+};
+
 const calculateDistanceFee = ({
   distanceMiles,
   config,
@@ -181,8 +196,7 @@ const buildReturnPreview = async (rawUpcs, payoutMethod = 'CREDIT') => {
     estimatedCreditFromUpcs = sumReturnCredits(eligibleUpcCounts, upcEntries);
   }
 
-  const dailyCap = Number(process.env.DAILY_RETURN_CAP || 25); // dollars
-  const computedEstimatedCredit = Math.min(estimatedCreditFromUpcs, dailyCap);
+  const computedEstimatedCredit = estimatedCreditFromUpcs;
   const shouldApplyFees = payoutMethod === 'CASH';
   const estimatedNetCredit = shouldApplyFees
     ? Math.max(0, computedEstimatedCredit - feeSummary.totalFee)
@@ -216,6 +230,29 @@ const handleDistanceLookupError = (res, err) => {
     return res.status(404).json({ error: err.message });
   }
   return res.status(500).json({ error: 'Distance lookup failed' });
+};
+
+const awardLoyaltyPoints = async ({ order, user, productPaidCents, session }) => {
+  if (!order || !user) return 0;
+  if (order.pointsAwardedAt) return 0;
+  const pointsToAdd = calculatePointUnits({
+    productPaidCents,
+    tier: user.membershipTier
+  });
+  if (pointsToAdd <= 0) return 0;
+
+  const previousPoints = Math.max(0, Math.round(Number(user.loyaltyPoints || 0)));
+  user.loyaltyPoints = previousPoints + pointsToAdd;
+  await user.save({ session });
+
+  await LedgerEntry.create(
+    [{ userId: user._id, delta: pointsToAdd, reason: `POINTS_EARNED:${order.orderId}` }],
+    { session }
+  );
+
+  order.pointsAwardedAt = new Date();
+  await order.save({ session });
+  return pointsToAdd;
 };
 
 const createPaymentsRouter = ({ stripe }) => {
@@ -294,6 +331,7 @@ const createPaymentsRouter = ({ stripe }) => {
       const orderId = crypto.randomUUID();
       const lineItems = [];
       let totalCents = 0;
+      let productSubtotalCents = 0;
 
       await sessionDb.withTransaction(async () => {
         const products = await Promise.all(
@@ -324,7 +362,9 @@ const createPaymentsRouter = ({ stripe }) => {
 
         products.forEach(({ updated, item }) => {
           const unit = Math.round(Number(updated.price) * 100);
-          totalCents += unit * item.quantity;
+          const lineTotal = unit * item.quantity;
+          totalCents += lineTotal;
+          productSubtotalCents += lineTotal;
 
           lineItems.push({
             price_data: {
@@ -374,6 +414,7 @@ const createPaymentsRouter = ({ stripe }) => {
               customerId: userId || 'GUEST',
               address: address || '',
               items,
+              subtotal: productSubtotalCents / 100,
               total: totalCents / 100,
               orderType,
               routeFee: baseRouteFee,
@@ -602,6 +643,7 @@ const createPaymentsRouter = ({ stripe }) => {
               customerId: userId,
               address: address || '',
               items,
+              subtotal: productSubtotalCents / 100,
               total: totalCents / 100,
               orderType,
               routeFee: baseRouteFee,
@@ -669,6 +711,30 @@ const createPaymentsRouter = ({ stripe }) => {
       const uniqueIneligibleUpcs = [...new Set(ineligibleUpcs)];
 
       if (remainingCents === 0) {
+        if (remainingOrder.customerId && remainingOrder.customerId !== 'GUEST') {
+          const [orderForPoints, userForPoints] = await Promise.all([
+            Order.findOne({ orderId }),
+            User.findById(remainingOrder.customerId)
+          ]);
+          if (orderForPoints && userForPoints) {
+            const productSubtotalCents = Math.round(Number(orderForPoints.subtotal || 0) * 100);
+            const creditAppliedCents = Math.round(Number(orderForPoints.creditApplied || 0) * 100);
+            const creditAppliedToProductsCents = Math.min(
+              creditAppliedCents,
+              productSubtotalCents
+            );
+            const productPaidCents = Math.max(
+              0,
+              productSubtotalCents - creditAppliedToProductsCents
+            );
+            await awardLoyaltyPoints({
+              order: orderForPoints,
+              user: userForPoints,
+              productPaidCents
+            });
+          }
+        }
+
         const responsePayload = {
           ok: true,
           order: mapOrderForFrontend(remainingOrder),
@@ -872,8 +938,7 @@ const createPaymentsRouter = ({ stripe }) => {
               feeConfig
             );
           }
-          const dailyCap = Number(process.env.DAILY_RETURN_CAP || 25); // dollars
-          const computedVerifiedCreditGross = Math.min(verifiedReturnCreditGross, dailyCap);
+          const computedVerifiedCreditGross = verifiedReturnCreditGross;
           const netCredit =
             payoutMethod === 'CASH'
               ? Math.max(0, computedVerifiedCreditGross - feeSummary.totalFee)
@@ -917,10 +982,39 @@ const createPaymentsRouter = ({ stripe }) => {
           order.amountAuthorizedCents || Math.round(Number(order.total || 0) * 100)
         );
         const netCreditCents = Math.round(verifiedReturnCredit * 100);
-        const creditCents =
-          payoutMethod === 'CREDIT' ? Math.min(netCreditCents, authorizedCents) : 0;
+        const payoutUser =
+          order.customerId && order.customerId !== 'GUEST'
+            ? await User.findById(order.customerId).session(sessionDb)
+            : null;
+        const tier = normalizeTier(payoutUser?.membershipTier);
+        const productSubtotalCents = Math.round(Number(order.subtotal || 0) * 100);
+        const creditAppliedCents = Math.round(Number(order.creditApplied || 0) * 100);
+        const creditAppliedToProductsCents = Math.min(
+          creditAppliedCents,
+          productSubtotalCents
+        );
+        const remainingProductCents = Math.max(
+          0,
+          productSubtotalCents - creditAppliedToProductsCents
+        );
+
+        const eligibleReturnCreditCents =
+          payoutMethod === 'CREDIT'
+            ? CREDIT_DELIVERY_ELIGIBLE_TIERS.has(tier)
+              ? authorizedCents
+              : Math.min(authorizedCents, remainingProductCents)
+            : 0;
+        const creditCents = Math.min(netCreditCents, eligibleReturnCreditCents);
         const walletCreditCents =
           payoutMethod === 'CREDIT' ? Math.max(0, netCreditCents - creditCents) : 0;
+        const returnCreditAppliedToProductsCents = Math.min(
+          creditCents,
+          remainingProductCents
+        );
+        const productPaidCents = Math.max(
+          0,
+          remainingProductCents - returnCreditAppliedToProductsCents
+        );
 
         const finalCaptureCents = Math.max(0, authorizedCents - creditCents);
 
@@ -957,6 +1051,13 @@ const createPaymentsRouter = ({ stripe }) => {
             { session: sessionDb, actorId: req.user?.username || req.user?.id || '' }
           );
           ({ creditedUserId, creditedAmount } = creditResult);
+
+          await awardLoyaltyPoints({
+            order,
+            user: payoutUser,
+            productPaidCents,
+            session: sessionDb
+          });
 
           if (payoutMethod === 'CASH' && verifiedReturnCredit > 0) {
             await CashPayout.create(
@@ -1020,6 +1121,13 @@ const createPaymentsRouter = ({ stripe }) => {
           { session: sessionDb, actorId: req.user?.username || req.user?.id || '' }
         );
         ({ creditedUserId, creditedAmount } = creditResult);
+
+        await awardLoyaltyPoints({
+          order,
+          user: payoutUser,
+          productPaidCents,
+          session: sessionDb
+        });
 
         if (payoutMethod === 'CASH' && verifiedReturnCredit > 0) {
           await CashPayout.create(

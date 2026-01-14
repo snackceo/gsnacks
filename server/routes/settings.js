@@ -18,7 +18,6 @@ const defaultSettings = {
   distanceBand1Rate: 0.5,
   distanceBand2Rate: 0.75,
   distanceBand3Rate: 1.0,
-  dailyReturnLimit: 250,
   maintenanceMode: false,
   requirePhotoForRefunds: false,
   allowGuestCheckout: false,
@@ -36,8 +35,7 @@ const numericFields = [
   'distanceBand2MaxMiles',
   'distanceBand1Rate',
   'distanceBand2Rate',
-  'distanceBand3Rate',
-  'dailyReturnLimit'
+  'distanceBand3Rate'
 ];
 
 const booleanFields = [
@@ -92,7 +90,6 @@ const mapSettings = (doc) => ({
   distanceBand1Rate: Number(doc?.distanceBand1Rate ?? defaultSettings.distanceBand1Rate),
   distanceBand2Rate: Number(doc?.distanceBand2Rate ?? defaultSettings.distanceBand2Rate),
   distanceBand3Rate: Number(doc?.distanceBand3Rate ?? defaultSettings.distanceBand3Rate),
-  dailyReturnLimit: Number(doc?.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
   maintenanceMode: Boolean(doc?.maintenanceMode ?? defaultSettings.maintenanceMode),
   requirePhotoForRefunds: Boolean(
     doc?.requirePhotoForRefunds ?? defaultSettings.requirePhotoForRefunds

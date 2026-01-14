@@ -41,7 +41,6 @@ interface CartDrawerProps {
   distanceBand1Rate: number;
   distanceBand2Rate: number;
   distanceBand3Rate: number;
-  dailyReturnLimit: number;
 
   onClose: () => void;
   onAddressChange: (v: string) => void;
@@ -71,7 +70,6 @@ const UPC_ELIGIBILITY_TTL_MS = 24 * 60 * 60 * 1000;
 
 // Business defaults (we can later move these into settings)
 const MI_DEPOSIT_VALUE = 0.1; // 10¢
-const DEFAULT_DAILY_LIMIT = 250;
 const DEFAULT_HANDLING_FEE = 0.02;
 const DEFAULT_GLASS_HANDLING_FEE = 0.02;
 const DEFAULT_DISTANCE_INCLUDED_MILES = 3.0;
@@ -153,7 +151,6 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   distanceBand1Rate,
   distanceBand2Rate,
   distanceBand3Rate,
-  dailyReturnLimit,
   onClose,
   onAddressChange,
   onPolicyChange,
@@ -432,10 +429,6 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const depositValue = MI_DEPOSIT_VALUE;
   const handlingFee = DEFAULT_HANDLING_FEE;
   const glassHandlingFee = DEFAULT_GLASS_HANDLING_FEE;
-  const dailyContainerLimit = Number.isFinite(dailyReturnLimit)
-    ? dailyReturnLimit
-    : DEFAULT_DAILY_LIMIT;
-  const cappedReturnCount = Math.min(totalReturnCount, dailyContainerLimit);
   const netStandardCash = Math.max(0, depositValue - handlingFee);
   const netGlassCash = Math.max(0, depositValue - handlingFee - glassHandlingFee);
 
@@ -453,8 +446,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   // Estimated deposit credit (preview only)
   const estimatedReturnCredit = useMemo(() => {
-    if (cappedReturnCount === 0) return 0;
-    let remaining = cappedReturnCount;
+    if (totalReturnCount === 0) return 0;
+    let remaining = totalReturnCount;
     let total = 0;
 
     for (const entry of returnUpcs) {
@@ -470,13 +463,13 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
     return total;
   }, [
-    cappedReturnCount,
     depositValue,
     eligibilityCache,
     netGlassCash,
     netStandardCash,
     payoutMethod,
-    returnUpcs
+    returnUpcs,
+    totalReturnCount
   ]);
 
   // ----------------------------
@@ -991,15 +984,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                     ? `Cash payouts subtract ${money(handlingFee)} per container plus ${money(
                         glassHandlingFee
                       )} for glass.`
-                    : 'Credits are issued at the full $0.10 per eligible container.'}{' '}
-                  Daily per-person limits apply. Estimates do not affect your payment authorization.
+                    : 'Credits are issued at the full $0.10 per eligible container.'}
                 </p>
               </div>
-              {totalReturnCount > dailyContainerLimit && (
-                <div className="text-[10px] text-ninpo-red font-bold uppercase tracking-widest">
-                  Daily limit reached: only {dailyContainerLimit} containers can be credited today.
-                </div>
-              )}
 
               {/* UPC list */}
               {returnUpcs.length > 0 && (
@@ -1112,13 +1099,11 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 <div className="space-y-2">
                   <p>Containers must be empty, clean, and clearly marked with the MI 10¢ label.</p>
                   <p>Return value posts after verification and credits never expire.</p>
-                  <p>Daily limit: {dailyContainerLimit} containers per customer.</p>
                   <p>
                     Common/Bronze credits apply to products only; Silver+ can cover route and
                     distance fees.
                   </p>
                   <p>Gold+ may request cash payouts.</p>
-                  <p>No splitting returns across multiple addresses to bypass the limit.</p>
                   <p>
                     AI output is advisory; eligibility is determined by the UPC whitelist and
                     deposit labeling.
