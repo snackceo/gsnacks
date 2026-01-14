@@ -122,7 +122,6 @@ This is a **route-level discount**, not a container-based fee.
 Distance is calculated **one-way from operator location to customer address**.
 
 * Distance is measured in **0.1 mile increments** and always **rounded down** to the nearest **0.1 mile**
-* Distance is calculated automatically server-side from the delivery address; client-reported distances are ignored.
 
 The first **3.0 miles are included** in the Route Fee.
 
@@ -172,13 +171,84 @@ Each tier defines:
 * Eligibility for cash settlement
 * Any fee reductions
 
-### 5.2 Hidden / Special Tiers
+---
+
+### 5.2 Tier Qualification Requirements (Identity & Trust)
+
+Tiers are earned by completing orders and meeting verification requirements.
+
+These requirements are **operational gating** rules and may be enforced in the admin system.
+
+#### Common (Default)
+
+* ✅ Account created
+* ✅ Email, address, and username required
+* ❌ No phone, ID, or full legal name required
+
+#### Bronze
+
+* ✅ 25 completed orders
+* ✅ Verified email
+* ✅ Verified address
+* ✅ Username
+* ❌ No phone or ID required
+* ❌ Full legal name not required
+
+#### Silver
+
+* ✅ 50 completed orders
+* ✅ All Bronze requirements
+* ✅ Verified phone number
+* ❌ Full legal name not required
+* ❌ ID not required
+
+#### Gold
+
+* ✅ 100 completed orders
+* ✅ All Silver requirements
+* ✅ Upload photo ID
+* ✅ Provide full legal name
+
+---
+
+### 5.3 Route Fee Discounts by Tier (Promotional)
+
+Tiers may receive discounts on the **Route Fee only**.
+
+Discounts:
+
+* Apply to **Delivery Orders** and **Pickup-Only Orders**
+* Do **not** apply to Distance Fee
+* Do **not** apply to any cash settlement fees (Cash Handling Fee, Glass Handling Surcharge)
+
+| Tier   | Route Fee Discount |
+| ------ | -----------------: |
+| Common |                 0% |
+| Bronze |                10% |
+| Silver |                20% |
+| Gold   |                30% |
+
+Discount math (authoritative):
+
+* `discounted_route_fee = base_route_fee × pickup_only_multiplier × (1 − tier_route_fee_discount)`
+
+---
+
+### 5.4 Hidden / Special Tiers
 
 #### Secret Platinum
 
-* Mentioned *vaguely* in documentation
-* Full logistics fee waiver **at operator discretion**
-* Waiver must be configurable in management settings
+* 🔐 Invite-only / hand-selected by owner
+* ✅ All Gold requirements
+* ✅ Verified loyalty, trust, or in-person relationship
+* Hidden tier (not shown publicly)
+
+Platinum may receive operator-controlled waivers via management settings, including:
+
+* Route Fee discounts or full waiver
+* Distance Fee waiver
+* Cash Handling Fee bypass (cash settlement)
+* Glass Handling Surcharge bypass (cash settlement)
 
 > Platinum users should only ever pay for products unless the operator explicitly chooses otherwise.
 
