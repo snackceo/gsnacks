@@ -143,6 +143,8 @@ export interface AppSettings {
   distanceBand1Rate: number;
   distanceBand2Rate: number;
   distanceBand3Rate: number;
+  hubLat: number | null;
+  hubLng: number | null;
   maintenanceMode: boolean;
   requirePhotoForRefunds: boolean;
   allowGuestCheckout: boolean;

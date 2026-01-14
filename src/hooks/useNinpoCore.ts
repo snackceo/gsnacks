@@ -71,12 +71,24 @@ const defaultSettings: AppSettings = {
   distanceBand1Rate: 0.5,
   distanceBand2Rate: 0.75,
   distanceBand3Rate: 1.0,
+  hubLat: null,
+  hubLng: null,
   maintenanceMode: false,
   requirePhotoForRefunds: false,
   allowGuestCheckout: false,
   showAdvancedInventoryInsights: false,
   allowPlatinumTier,
   platinumFreeDelivery: false
+};
+
+const parseOptionalNumber = (
+  value: number | null | undefined,
+  fallback: number | null
+) => {
+  if (value === null || value === undefined) return fallback;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return number;
 };
 
 const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
@@ -109,6 +121,8 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     distanceBand3Rate: Number(
       data.distanceBand3Rate ?? defaultSettings.distanceBand3Rate
     ),
+    hubLat: parseOptionalNumber(data.hubLat, defaultSettings.hubLat),
+    hubLng: parseOptionalNumber(data.hubLng, defaultSettings.hubLng),
     maintenanceMode: Boolean(
       data.maintenanceMode ?? defaultSettings.maintenanceMode
     ),

@@ -18,6 +18,8 @@ const defaultSettings = {
   distanceBand1Rate: 0.5,
   distanceBand2Rate: 0.75,
   distanceBand3Rate: 1.0,
+  hubLat: null,
+  hubLng: null,
   maintenanceMode: false,
   requirePhotoForRefunds: false,
   allowGuestCheckout: false,
@@ -47,6 +49,19 @@ const booleanFields = [
   'platinumFreeDelivery'
 ];
 
+const optionalNumericFields = ['hubLat', 'hubLng'];
+
+const parseOptionalNumber = (value, field) => {
+  if (value === null || value === undefined || value === '') {
+    return { value: null };
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return { error: `${field} must be a number` };
+  }
+  return { value: number };
+};
+
 const parseSettingsInput = (payload, { partial }) => {
   const updates = partial ? {} : { ...defaultSettings };
   for (const field of numericFields) {
@@ -69,7 +84,26 @@ const parseSettingsInput = (payload, { partial }) => {
     }
   }
 
+  for (const field of optionalNumericFields) {
+    if (payload?.[field] !== undefined || !partial) {
+      const rawValue =
+        payload?.[field] !== undefined ? payload[field] : defaultSettings[field];
+      const { value, error } = parseOptionalNumber(rawValue, field);
+      if (error) {
+        return { error };
+      }
+      updates[field] = value;
+    }
+  }
+
   return { updates };
+};
+
+const parseOptionalSettingNumber = value => {
+  if (value === null || value === undefined) return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return number;
 };
 
 const mapSettings = (doc) => ({
@@ -90,6 +124,8 @@ const mapSettings = (doc) => ({
   distanceBand1Rate: Number(doc?.distanceBand1Rate ?? defaultSettings.distanceBand1Rate),
   distanceBand2Rate: Number(doc?.distanceBand2Rate ?? defaultSettings.distanceBand2Rate),
   distanceBand3Rate: Number(doc?.distanceBand3Rate ?? defaultSettings.distanceBand3Rate),
+  hubLat: parseOptionalSettingNumber(doc?.hubLat ?? defaultSettings.hubLat),
+  hubLng: parseOptionalSettingNumber(doc?.hubLng ?? defaultSettings.hubLng),
   maintenanceMode: Boolean(doc?.maintenanceMode ?? defaultSettings.maintenanceMode),
   requirePhotoForRefunds: Boolean(
     doc?.requirePhotoForRefunds ?? defaultSettings.requirePhotoForRefunds
@@ -113,7 +149,7 @@ const diffSettings = (before, after) =>
     .filter(key => before?.[key] !== after?.[key])
     .map(key => `${key}: ${before?.[key]} -> ${after?.[key]}`);
 
-router.get('/', async (_req, res) => {
+router.get('/', authRequired, ownerRequired, async (_req, res) => {
   try {
     const existing = await AppSettings.findOne({ key: SETTINGS_KEY }).lean();
     if (!existing) {
@@ -127,7 +163,7 @@ router.get('/', async (_req, res) => {
   }
 });
 
-router.post('/', authRequired, ownerRequired, async (req, res) => {
+const handleFullSettingsUpdate = async (req, res) => {
   try {
     const { updates, error } = parseSettingsInput(req.body, { partial: false });
     if (error) return res.status(400).json({ error });
@@ -154,10 +190,14 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
 
     res.json({ ok: true, settings: nextSettings });
   } catch (err) {
-    console.error('POST SETTINGS ERROR:', err);
+    console.error('SAVE SETTINGS ERROR:', err);
     res.status(500).json({ error: 'Failed to save settings' });
   }
-});
+};
+
+router.post('/', authRequired, ownerRequired, handleFullSettingsUpdate);
+
+router.put('/', authRequired, ownerRequired, handleFullSettingsUpdate);
 
 router.patch('/', authRequired, ownerRequired, async (req, res) => {
   try {

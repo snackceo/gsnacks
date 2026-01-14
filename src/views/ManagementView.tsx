@@ -476,6 +476,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setSettingsError(null);
     setSettingsSaved(false);
 
+    const parseNullableNumber = (value: number | null) => {
+      if (value === null) return null;
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    };
+
     const nextSettings: AppSettings = {
       ...settingsDraft,
       routeFee: Number(settingsDraft.routeFee || 0),
@@ -487,6 +493,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       distanceBand1Rate: Number(settingsDraft.distanceBand1Rate || 0),
       distanceBand2Rate: Number(settingsDraft.distanceBand2Rate || 0),
       distanceBand3Rate: Number(settingsDraft.distanceBand3Rate || 0),
+      hubLat: parseNullableNumber(settingsDraft.hubLat),
+      hubLng: parseNullableNumber(settingsDraft.hubLng),
       requirePhotoForRefunds: Boolean(settingsDraft.requirePhotoForRefunds),
       allowGuestCheckout: Boolean(settingsDraft.allowGuestCheckout),
       showAdvancedInventoryInsights: Boolean(settingsDraft.showAdvancedInventoryInsights),
@@ -506,7 +514,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
     try {
       const res = await fetch(`${BACKEND_URL}/api/settings`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(nextSettings)
@@ -2435,6 +2443,46 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       onChange={e =>
                         updateSettingsDraft({
                           distanceBand3Rate: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Hub Coordinates
+                </p>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Hub Latitude
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.000001"
+                      value={settingsDraft.hubLat ?? ''}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          hubLat: e.target.value === '' ? null : Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Hub Longitude
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      step="0.000001"
+                      value={settingsDraft.hubLng ?? ''}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          hubLng: e.target.value === '' ? null : Number(e.target.value)
                         })
                       }
                     />
