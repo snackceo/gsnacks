@@ -37,9 +37,20 @@ function App() {
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
 
   const baseRouteFee = Number(core.settings.routeFee || 0);
-  const isPlatinumMember = core.currentUser?.membershipTier === UserTier.PLATINUM;
+  const currentTier = core.currentUser?.membershipTier ?? UserTier.COMMON;
+  const isPlatinumMember = currentTier === UserTier.PLATINUM;
+  const tierRouteDiscounts: Partial<Record<UserTier, number>> = {
+    [UserTier.BRONZE]: 0.1,
+    [UserTier.SILVER]: 0.2,
+    [UserTier.GOLD]: 0.3
+  };
+  const tierRouteDiscount = tierRouteDiscounts[currentTier] ?? 0;
   const effectiveRouteFee =
-    isPlatinumMember && core.settings.platinumFreeDelivery ? 0 : baseRouteFee;
+    currentTier === UserTier.GREEN
+      ? 1
+      : isPlatinumMember && core.settings.platinumFreeDelivery
+      ? 0
+      : baseRouteFee * (1 - tierRouteDiscount);
 
   const handleExternalPayment = async (
     type: 'STRIPE' | 'GPAY',
