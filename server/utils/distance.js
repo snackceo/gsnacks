@@ -1,10 +1,29 @@
-const getHubCoords = () => {
-  const lat = Number(process.env.HUB_LAT);
-  const lng = Number(process.env.HUB_LNG);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return null;
+import AppSettings from '../models/AppSettings.js';
+
+const parseCoordinate = value => {
+  if (value === null || value === undefined || value === '') return undefined;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return undefined;
+  return number;
+};
+
+const getHubCoords = async () => {
+  const settings = await AppSettings.findOne({ key: 'default' }).lean();
+  const settingsLat = parseCoordinate(settings?.hubLat);
+  const settingsLng = parseCoordinate(settings?.hubLng);
+  const envLat = parseCoordinate(process.env.HUB_LAT);
+  const envLng = parseCoordinate(process.env.HUB_LNG);
+
+  const hubLat = Number.isFinite(settingsLat) ? settingsLat : envLat;
+  const hubLng = Number.isFinite(settingsLng) ? settingsLng : envLng;
+
+  if (!Number.isFinite(hubLat) || !Number.isFinite(hubLng)) {
+    const error = new Error('Hub coordinates are not configured.');
+    error.code = 'HUB_NOT_CONFIGURED';
+    throw error;
   }
-  return { lat, lng };
+
+  return { lat: hubLat, lng: hubLng };
 };
 
 const toRadians = value => (value * Math.PI) / 180;
@@ -54,12 +73,7 @@ const resolveDistanceMiles = async address => {
     throw error;
   }
 
-  const hub = getHubCoords();
-  if (!hub) {
-    const error = new Error('Hub coordinates are not configured.');
-    error.code = 'HUB_NOT_CONFIGURED';
-    throw error;
-  }
+  const hub = await getHubCoords();
 
   const destination = await geocodeAddress(trimmedAddress);
   if (!destination) {

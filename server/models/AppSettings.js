@@ -13,6 +13,8 @@ const appSettingsSchema = new mongoose.Schema(
     distanceBand1Rate: { type: Number, default: 0.5 },
     distanceBand2Rate: { type: Number, default: 0.75 },
     distanceBand3Rate: { type: Number, default: 1.0 },
+    hubLat: { type: Number, default: null },
+    hubLng: { type: Number, default: null },
     maintenanceMode: { type: Boolean, default: false },
     requirePhotoForRefunds: { type: Boolean, default: false },
     allowGuestCheckout: { type: Boolean, default: false },
