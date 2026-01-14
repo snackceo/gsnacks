@@ -508,6 +508,7 @@ const createPaymentsRouter = ({ stripe }) => {
     const sessionDb = await mongoose.startSession();
 
     let user;
+    let creditTransactionId = null;
     try {
       const rawItems = req.body?.items;
       const address = String(req.body?.address || '').trim();
@@ -572,7 +573,7 @@ const createPaymentsRouter = ({ stripe }) => {
       let totalCents = 0;
       let productSubtotalCents = 0;
 
-      const creditTransactionId = crypto.randomUUID();
+      creditTransactionId = crypto.randomUUID();
       user.creditTransactionId = creditTransactionId;
       await user.save({ session: sessionDb });
       await sessionDb.withTransaction(async () => {
