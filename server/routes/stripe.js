@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 
 import Order from '../models/Order.js';
 import {
-  restockOrderItems,
+  releaseCreditAuthorization,
   voidStripeAuthorizationBestEffort
 } from '../utils/helpers.js';
 
@@ -82,7 +82,7 @@ const createStripeRouter = ({ stripe, webhookSecret }) => {
             if (order.status === 'PAID') return;
             if (order.inventoryReleasedAt) return;
 
-            await restockOrderItems(order, sessionDb);
+            await releaseCreditAuthorization(order, sessionDb);
 
             order.status = 'EXPIRED';
             order.inventoryReleasedAt = new Date();
