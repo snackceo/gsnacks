@@ -216,10 +216,10 @@ const createOrdersRouter = ({ stripe }) => {
         'returnPhoto',
         'verifiedReturnCredit',
         'verifiedReturnCreditGross',
-        'creditAuthorized',
+        'creditAuthorizedCents',
         'verifiedReturnUpcs',
         'verifiedReturnUpcCounts',
-        'creditApplied',
+        'creditAppliedCents',
         'returnPayoutMethod'
       ];
       const driverAllowed = [
@@ -341,8 +341,17 @@ const createOrdersRouter = ({ stripe }) => {
             Number(updates.verifiedReturnCreditGross || 0)
           );
         }
-        if (updates.creditApplied !== undefined) {
-          updates.creditApplied = Math.max(0, Number(updates.creditApplied || 0));
+        if (updates.creditAuthorizedCents !== undefined) {
+          updates.creditAuthorizedCents = Math.max(
+            0,
+            Math.round(Number(updates.creditAuthorizedCents || 0))
+          );
+        }
+        if (updates.creditAppliedCents !== undefined) {
+          updates.creditAppliedCents = Math.max(
+            0,
+            Math.round(Number(updates.creditAppliedCents || 0))
+          );
         }
 
         const updated = await Order.findOneAndUpdate({ orderId }, updates, {
@@ -439,16 +448,16 @@ const createOrdersRouter = ({ stripe }) => {
           order.deliveredAt = new Date();
 
           // Capture authorized credits
-          if (order.creditAuthorized > 0 && !order.creditAppliedAt) {
+          if (order.creditAuthorizedCents > 0 && !order.creditAppliedAt) {
             const user = await User.findById(order.customerId).session(sessionDb);
             if (user) {
-              const authorizedAmount = Number(order.creditAuthorized || 0);
+              const authorizedAmount = Number(order.creditAuthorizedCents || 0) / 100;
               const currentAuthorizedBalance = Number(user.authorizedCreditBalance || 0);
 
               user.authorizedCreditBalance = Math.max(0, currentAuthorizedBalance - authorizedAmount);
               await user.save({ session: sessionDb });
 
-              order.creditApplied = authorizedAmount;
+              order.creditAppliedCents = Math.round(Number(order.creditAuthorizedCents || 0));
               order.creditAppliedAt = new Date();
 
               // If fully paid by credits, mark as PAID now.
