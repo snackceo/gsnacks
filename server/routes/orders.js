@@ -164,9 +164,6 @@ const createOrdersRouter = ({ stripe }) => {
         await releaseCreditAuthorization(order, sessionDb);
 
         if (order.status === 'PAID') return;
-        if (order.inventoryReleasedAt) return;
-
-        await restockOrderItems(order, sessionDb);
 
         order.status = 'CANCELED';
         order.inventoryReleasedAt = new Date();
