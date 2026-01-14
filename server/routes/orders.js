@@ -17,7 +17,8 @@ import {
   calculateReturnFeeSummary,
   sumReturnCredits,
   ownerRequired,
-  restockOrderItems,
+  releaseCreditAuthorization,
+  restockOrderItems, // eslint-disable-line no-unused-vars
   voidStripeAuthorizationBestEffort
 } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
@@ -212,6 +213,7 @@ const createOrdersRouter = ({ stripe }) => {
         'returnPhoto',
         'verifiedReturnCredit',
         'verifiedReturnCreditGross',
+        'creditAuthorized',
         'verifiedReturnUpcs',
         'verifiedReturnUpcCounts',
         'creditApplied',
@@ -261,12 +263,15 @@ const createOrdersRouter = ({ stripe }) => {
         await sessionDb.withTransaction(async () => {
           const order = await Order.findOne({ orderId }).session(sessionDb);
           if (!order) return;
-
-          if (order.status === 'PAID') {
+ 
+          // Allow canceling PAID orders if they are just credit-authorized
+          if (order.status === 'PAID' && order.paymentMethod !== 'CREDITS') {
             const e = new Error('Cannot cancel a PAID order (refund flow required).');
             e.code = 'CANNOT_CANCEL_PAID';
             throw e;
           }
+
+          await releaseCreditAuthorization(order, sessionDb);
 
           // Already released/canceled/expired => idempotent return
           if (order.inventoryReleasedAt || order.status === 'CANCELED' || order.status === 'EXPIRED') {
@@ -274,7 +279,7 @@ const createOrdersRouter = ({ stripe }) => {
             return;
           }
 
-          await restockOrderItems(order, sessionDb);
+          // await restockOrderItems(order, sessionDb); // restock is now part of releaseCreditAuthorization
 
           order.status = 'CANCELED';
           order.inventoryReleasedAt = new Date();
@@ -429,6 +434,27 @@ const createOrdersRouter = ({ stripe }) => {
           }
           order.status = 'DELIVERED';
           order.deliveredAt = new Date();
+
+          // Capture authorized credits
+          if (order.creditAuthorized > 0 && !order.creditAppliedAt) {
+            const user = await User.findById(order.customerId).session(sessionDb);
+            if (user) {
+              const authorizedAmount = Number(order.creditAuthorized || 0);
+              const currentAuthorizedBalance = Number(user.authorizedCreditBalance || 0);
+
+              user.authorizedCreditBalance = Math.max(0, currentAuthorizedBalance - authorizedAmount);
+              await user.save({ session: sessionDb });
+
+              order.creditApplied = authorizedAmount;
+              order.creditAppliedAt = new Date();
+
+              // If fully paid by credits, mark as PAID now.
+              if (order.paymentMethod === 'CREDITS') {
+                order.status = 'PAID';
+                order.paidAt = new Date();
+              }
+            }
+          }
 
           if (isReturnOnly && !order.returnCreditsAppliedAt) {
             const verifiedPayload =

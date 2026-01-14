@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 
 import Product from '../models/Product.js';
+import User from '../models/User.js';
 
 /* =========================
    COOKIE HELPERS (FIXED LOGOUT)
@@ -257,6 +258,31 @@ function buildReturnCountUpdates(order) {
   return updates;
 }
 
+async function releaseCreditAuthorization(order, sessionDb) {
+  if (!order) return;
+  // Idempotency: if creditApplied is already set, capture happened.
+  // If inventory is already released, this has been run.
+  if (order.creditApplied > 0 || order.inventoryReleasedAt) {
+    return;
+  }
+
+  const creditToRelease = Number(order.creditAuthorized || 0);
+  if (creditToRelease > 0 && order.customerId && order.customerId !== 'GUEST') {
+    const user = await User.findById(order.customerId).session(sessionDb);
+    if (user) {
+      const currentBalance = Number(user.creditBalance || 0);
+      const currentAuthorized = Number(user.authorizedCreditBalance || 0);
+
+      user.creditBalance = currentBalance + creditToRelease;
+      user.authorizedCreditBalance = Math.max(0, currentAuthorized - creditToRelease);
+      await user.save({ session: sessionDb });
+    }
+  }
+
+  // Restock items as part of releasing the hold
+  await restockOrderItems(order, sessionDb);
+}
+
 function mapOrderForFrontend(d) {
   // Frontend enum does not include CANCELED/EXPIRED, so map them to CLOSED.
   const mappedStatus =
@@ -285,6 +311,8 @@ function mapOrderForFrontend(d) {
     distanceMiles: Number(d.distanceMiles || 0),
     distanceFee: Number(d.distanceFeeFinal ?? d.distanceFee ?? 0),
     creditApplied: Number(d.creditApplied || 0),
+    creditAuthorized: Number(d.creditAuthorized || 0),
+    creditApplied: d.creditAppliedAt ? Number(d.creditApplied || 0) : undefined,
 
     // Bottle returns
     returnUpcs: Array.isArray(d.returnUpcs) ? d.returnUpcs : [],
@@ -387,3 +415,4 @@ export {
   sumReturnCredits,
   voidStripeAuthorizationBestEffort
 };
+      { frontendId: it.p
