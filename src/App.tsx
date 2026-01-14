@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
 import { useNinpoCore } from './hooks/useNinpoCore';
-import { ReturnUpcCount, UserRole, UserTier } from './types';
+import { ReturnUpcCount, UserRole } from './types';
 
 import CustomerView from './views/CustomerView';
 import ManagementView from './views/ManagementView';
@@ -28,29 +28,10 @@ function App() {
   const location = useLocation();
 
   const [address, setAddress] = useState('');
-  const [distanceMiles, setDistanceMiles] = useState(0);
-  const [isDistanceLoading, setIsDistanceLoading] = useState(false);
-  const [distanceError, setDistanceError] = useState<string | null>(null);
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
   const [isLoginViewOpen, setIsLoginViewOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
-
-  const baseRouteFee = Number(core.settings.routeFee || 0);
-  const currentTier = core.currentUser?.membershipTier ?? UserTier.COMMON;
-  const isPlatinumMember = currentTier === UserTier.PLATINUM;
-  const tierRouteDiscounts: Partial<Record<UserTier, number>> = {
-    [UserTier.BRONZE]: 0.1,
-    [UserTier.SILVER]: 0.2,
-    [UserTier.GOLD]: 0.3
-  };
-  const tierRouteDiscount = tierRouteDiscounts[currentTier] ?? 0;
-  const effectiveRouteFee =
-    currentTier === UserTier.GREEN
-      ? 1
-      : isPlatinumMember && core.settings.platinumFreeDelivery
-      ? 0
-      : baseRouteFee * (1 - tierRouteDiscount);
 
   const handleExternalPayment = async (
     type: 'STRIPE' | 'GPAY',
@@ -158,49 +139,6 @@ function App() {
       setIsLoginViewOpen(false);
     }
   }, [location.pathname]);
-
-  useEffect(() => {
-    const trimmedAddress = address.trim();
-    if (!trimmedAddress) {
-      setDistanceMiles(0);
-      setDistanceError(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(async () => {
-      setIsDistanceLoading(true);
-      setDistanceError(null);
-      try {
-        const res = await fetch(`${BACKEND_URL}/api/distance`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          signal: controller.signal,
-          body: JSON.stringify({ address: trimmedAddress })
-        });
-
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(data?.error || 'Distance lookup failed');
-        }
-
-        const resolvedDistance = Number(data?.distanceMiles || 0);
-        setDistanceMiles(Number.isFinite(resolvedDistance) ? resolvedDistance : 0);
-      } catch (err: any) {
-        if (err?.name === 'AbortError') return;
-        setDistanceMiles(0);
-        setDistanceError(err?.message || 'Distance lookup failed');
-      } finally {
-        setIsDistanceLoading(false);
-      }
-    }, 600);
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(timeoutId);
-    };
-  }, [address]);
 
   if (core.isBootstrapping) {
     return (
@@ -376,18 +314,8 @@ function App() {
         address={address}
         acceptedPolicies={acceptedPolicies}
         isProcessing={isProcessingOrder}
-        routeFee={effectiveRouteFee}
+        currentUserId={core.currentUser?.id}
         membershipTier={core.currentUser?.membershipTier}
-        pickupOnlyMultiplier={core.settings.pickupOnlyMultiplier}
-        distanceMiles={distanceMiles}
-        isDistanceLoading={isDistanceLoading}
-        distanceError={distanceError}
-        distanceIncludedMiles={core.settings.distanceIncludedMiles}
-        distanceBand1MaxMiles={core.settings.distanceBand1MaxMiles}
-        distanceBand2MaxMiles={core.settings.distanceBand2MaxMiles}
-        distanceBand1Rate={core.settings.distanceBand1Rate}
-        distanceBand2Rate={core.settings.distanceBand2Rate}
-        distanceBand3Rate={core.settings.distanceBand3Rate}
         onClose={() => setIsCartOpen(false)}
         onAddressChange={setAddress}
         onPolicyChange={setAcceptedPolicies}

@@ -294,6 +294,102 @@ const createPaymentsRouter = ({ stripe }) => {
   ========================= */
 
   /**
+   * POST /api/payments/quote
+   * - estimates subtotal + fees based on backend logic
+   */
+  router.post('/quote', async (req, res) => {
+    try {
+      const rawItems = req.body?.items;
+      const userId = req.body?.userId;
+      const address = String(req.body?.address || '').trim();
+      const rawReturnUpcs = req.body?.returnUpcCounts ?? req.body?.returnUpcs;
+
+      const items = normalizeCart(rawItems);
+      const normalizedReturnUpcs = normalizeUpcCounts(rawReturnUpcs);
+      const isReturnOnly =
+        Array.isArray(items) && items.length === 0 && normalizedReturnUpcs.uniqueUpcs.length > 0;
+      if ((!Array.isArray(items) || items.length === 0) && !isReturnOnly) {
+        return res.status(400).json({ error: 'Cart is empty' });
+      }
+
+      const tierLookupUser = userId
+        ? await User.findById(userId, { membershipTier: 1 }).lean()
+        : null;
+      const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery } =
+        await getRouteFeeConfig();
+      const distanceFeeConfig = await getDistanceFeeConfig();
+
+      let distanceMiles = 0;
+      if (address) {
+        try {
+          distanceMiles = await resolveDistanceMiles(address);
+        } catch (err) {
+          return handleDistanceLookupError(res, err);
+        }
+      }
+
+      const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
+      const { routeFee, routeFeeCents } = calculateRouteFee({
+        baseRouteFee,
+        pickupOnlyMultiplier,
+        orderType,
+        tier: tierLookupUser?.membershipTier,
+        platinumFreeDelivery
+      });
+      const { distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles } =
+        calculateDistanceFee({
+          distanceMiles,
+          config: distanceFeeConfig,
+          orderType,
+          pickupOnlyMultiplier,
+          tier: tierLookupUser?.membershipTier
+        });
+
+      let totalCents = 0;
+      let productSubtotalCents = 0;
+
+      if (Array.isArray(items) && items.length > 0) {
+        const products = await Product.find(
+          { frontendId: { $in: items.map(item => item.productId) } },
+          { price: 1, frontendId: 1 }
+        ).lean();
+        const productMap = new Map(products.map(product => [product.frontendId, product]));
+
+        for (const item of items) {
+          const product = productMap.get(item.productId);
+          if (!product) {
+            return res.status(400).json({ error: `Unknown product ${item.productId}` });
+          }
+          const unit = Math.round(Number(product.price || 0) * 100);
+          const lineTotal = unit * item.quantity;
+          totalCents += lineTotal;
+          productSubtotalCents += lineTotal;
+        }
+      }
+
+      if (routeFeeCents > 0) {
+        totalCents += routeFeeCents;
+      }
+
+      if (distanceFeeCents > 0) {
+        totalCents += distanceFeeCents;
+      }
+
+      return res.json({
+        subtotal: productSubtotalCents / 100,
+        total: totalCents / 100,
+        routeFeeFinal: routeFee,
+        distanceFeeFinal: distanceFee,
+        distanceMiles: roundedDistanceMiles,
+        orderType
+      });
+    } catch (err) {
+      console.error('QUOTE ERROR:', err);
+      return res.status(500).json({ error: 'Quote failed' });
+    }
+  });
+
+  /**
    * POST /api/payments/create-session
    * - reserves inventory
    * - creates order (PENDING)
