@@ -28,6 +28,38 @@ const runtimeBackendUrl = () => {
 const BACKEND_URL = runtimeBackendUrl();
 const allowPlatinumTier = (import.meta as any).env?.VITE_ALLOW_PLATINUM_TIER === 'true';
 const SETTINGS_STORAGE_KEY = 'ninpo:settings';
+const CART_STORAGE_KEY = 'ninpo:cart';
+
+const normalizeStoredCart = (raw: unknown) => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(item => ({
+      productId: String((item as { productId?: string }).productId || '').trim(),
+      quantity: Math.max(1, Number((item as { quantity?: number }).quantity || 1))
+    }))
+    .filter(item => item.productId);
+};
+
+const readStoredCart = () => {
+  if (typeof window === 'undefined') return [];
+  const stored = window.localStorage.getItem(CART_STORAGE_KEY);
+  if (!stored) return [];
+  try {
+    return normalizeStoredCart(JSON.parse(stored));
+  } catch {
+    return [];
+  }
+};
+
+const persistCart = (next: { productId: string; quantity: number }[]) => {
+  if (typeof window === 'undefined') return false;
+  try {
+    window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(next));
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const defaultSettings: AppSettings = {
   routeFee: 4.99,
@@ -138,7 +170,9 @@ export const useNinpoCore = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [cart, setCart] = useState<{ productId: string; quantity: number }[]>([]);
+  const [cart, setCart] = useState<{ productId: string; quantity: number }[]>(
+    () => readStoredCart()
+  );
 
   const addToast = useCallback(
     (message: string, type: Toast['type'] = 'info') => {
@@ -151,6 +185,7 @@ export const useNinpoCore = () => {
 
   const clearCart = useCallback(() => {
     setCart([]);
+    persistCart([]);
   }, []);
 
   const syncWithBackend = useCallback(async () => {
@@ -167,6 +202,10 @@ export const useNinpoCore = () => {
     const i = setInterval(syncWithBackend, 30000);
     return () => clearInterval(i);
   }, [syncWithBackend]);
+
+  useEffect(() => {
+    persistCart(cart);
+  }, [cart]);
 
   const restoreSession = useCallback(async () => {
     try {
