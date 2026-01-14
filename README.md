@@ -41,6 +41,15 @@ This document uses **one unified vocabulary**. Code, admin UI, receipts, and sup
 
 > **Forbidden synonyms** in UI/receipts: delivery fee, pickup fee, processing fee (except “Cash Handling Fee”), bottle fee, return fee.
 
+### 1.4 Pricing Authority (Source of Truth)
+
+**Backend totals are authoritative.** The frontend may display estimates for user experience, but:
+
+* The server must compute the final Route Fee, Distance Fee, tier discounts, and credits applied.
+* Stripe charges must match what is written to the Order record.
+
+If UI estimates disagree with server totals, **the server wins**.
+
 ---
 
 ## 2. Business Overview
@@ -151,6 +160,27 @@ Distance Fee = 7.0×$0.50 + 2.8×$0.75
 ```
 
 Distance fees may be offset or waived based on tier rules.
+
+#### 4.3.X Origin / Hub Configuration
+
+Distance is measured from the **hub origin point** (operator location).
+
+Hub coordinates must be configured using **one** of the following sources:
+
+1. **AppSettings** (recommended)
+
+   * `hubLat`
+   * `hubLng`
+
+2. **Environment variables** (deployment fallback)
+
+   * `HUB_LAT`
+   * `HUB_LNG`
+
+If hub coordinates are missing, distance resolution must fail with:
+
+* `HUB_NOT_CONFIGURED`
+* Message: `Hub coordinates are not configured.`
 
 ---
 
@@ -563,6 +593,7 @@ The **only** credits that may be converted to cash are the credits that originat
 4. Every delivery and pickup has a Route Fee by default
 5. Tier rules govern all exceptions
 6. Cash handling is discouraged
+7. **Cancel before capture/delivery must release authorized wallet credits and restock inventory immediately.**
 
 ---
 
