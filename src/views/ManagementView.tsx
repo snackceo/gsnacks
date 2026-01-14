@@ -554,9 +554,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         credentials: 'include'
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Orders fetch failed');
-          name: newProduct.name.trim(),
-      // NOTE:
+        if (!res.ok) throw new Error(data?.error || 'Orders fetch failed');
+        // NOTE:
       // This view receives `orders` from parent state. This button checks connectivity,
       // but does not directly set `orders` here. Your parent core should re-fetch orders
       // on session restore / status updates (which you already have).
