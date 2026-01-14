@@ -30,20 +30,24 @@ function getCookieOptions(req) {
   return base;
 }
 
+const SESSION_COOKIE_NAME = 'session';
+const LEGACY_SESSION_COOKIE_NAME = 'auth_token';
+
 function setAuthCookie(req, res, token) {
   const opts = {
     ...getCookieOptions(req),
     maxAge: 7 * 24 * 60 * 60 * 1000
   };
 
-  res.cookie('auth_token', token, opts);
+  res.cookie(SESSION_COOKIE_NAME, token, opts);
 }
 
 function clearAuthCookie(req, res) {
-  res.clearCookie('auth_token', getCookieOptions(req));
+  res.clearCookie(SESSION_COOKIE_NAME, getCookieOptions(req));
+  res.clearCookie(LEGACY_SESSION_COOKIE_NAME, getCookieOptions(req));
 
   // Extra safety for mixed testing
-  res.clearCookie('auth_token', {
+  res.clearCookie(SESSION_COOKIE_NAME, {
     httpOnly: true,
     sameSite: 'lax',
     secure: true,
@@ -51,7 +55,22 @@ function clearAuthCookie(req, res) {
     path: '/'
   });
 
-  res.clearCookie('auth_token', {
+  res.clearCookie(LEGACY_SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: true,
+    domain: '.ninposnacks.com',
+    path: '/'
+  });
+
+  res.clearCookie(SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: false,
+    path: '/'
+  });
+
+  res.clearCookie(LEGACY_SESSION_COOKIE_NAME, {
     httpOnly: true,
     sameSite: 'lax',
     secure: false,
@@ -63,7 +82,7 @@ function clearAuthCookie(req, res) {
    AUTH HELPERS
 ========================= */
 function authRequired(req, res, next) {
-  const token = req.cookies?.auth_token;
+  const token = req.cookies?.[SESSION_COOKIE_NAME] ?? req.cookies?.[LEGACY_SESSION_COOKIE_NAME];
   if (!token) return res.status(401).json({ error: 'Not logged in' });
 
   try {
