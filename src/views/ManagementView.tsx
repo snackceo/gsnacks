@@ -692,6 +692,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Failed to delete UPC');
       setUpcItems(prev => prev.filter(item => item.upc !== upcDraft.upc));
+      // Invalidate caches
+      try { localStorage.removeItem('ninpo_upc_eligibility_v1'); } catch {}
       setUpcDraft({
         upc: '',
         name: '',

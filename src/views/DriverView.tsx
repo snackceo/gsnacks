@@ -75,6 +75,8 @@ function money(n: any) {
   return `$${v.toFixed(2)}`;
 }
 
+const UPC_ELIGIBILITY_TTL_MS = 1 * 60 * 60 * 1000; // 1 hour
+
 const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrder }) => {
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -115,7 +117,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const eligibilityCacheRef = useRef<Record<string, boolean>>({});
+  const eligibilityCacheRef = useRef<Record<string, { isEligible: boolean; checkedAt: string }>>({});
   const lastScanRef = useRef<{ upc: string; at: number } | null>(null);
   const verifiedReturnUpcsRef = useRef<ReturnUpcCount[]>([]);
   const scanSessionIdRef = useRef<string>('');
@@ -267,7 +269,14 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   };
 
   const updateEligibilityCache = (upc: string, isEligible: boolean) => {
-    eligibilityCacheRef.current = { ...eligibilityCacheRef.current, [upc]: isEligible };
+    eligibilityCacheRef.current = { ...eligibilityCacheRef.current, [upc]: { isEligible, checkedAt: new Date().toISOString() } };
+  };
+
+  const isEligibilityCacheFresh = (checkedAt?: string) => {
+    if (!checkedAt) return false;
+    const parsed = Date.parse(checkedAt);
+    if (!Number.isFinite(parsed)) return false;
+    return Date.now() - parsed < UPC_ELIGIBILITY_TTL_MS;
   };
 
   const playScannerTone = (frequency: number, durationMs: number, gain = 0.2) => {
@@ -411,8 +420,8 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     }
 
     const cached = eligibilityCacheRef.current[upc];
-    if (cached !== undefined) {
-      if (!cached) {
+    if (cached && isEligibilityCacheFresh(cached.checkedAt)) {
+      if (!cached.isEligible) {
         playScannerTone(220, 240, 0.25);
         setScannerError("This container isn't eligible for return value.");
         if (source === 'scanner') {

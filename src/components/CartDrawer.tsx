@@ -56,7 +56,7 @@ const LS_KEY_UPCS = 'ninpo_return_upcs_v1';
 const LS_KEY_UPC_ELIGIBILITY = 'ninpo_upc_eligibility_v1';
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
-const UPC_ELIGIBILITY_TTL_MS = 24 * 60 * 60 * 1000;
+const UPC_ELIGIBILITY_TTL_MS = 1 * 60 * 60 * 1000;
 
 // Business defaults (we can later move these into settings)
 const MI_DEPOSIT_VALUE = 0.1; // 10¢
