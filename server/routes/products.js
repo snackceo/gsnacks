@@ -12,7 +12,6 @@ router.get('/', async (req, res) => {
     const products = docs.map(d => ({
       id: d.sku || d.frontendId,
       sku: d.sku || undefined,
-      upc: d.upc || undefined,
       frontendId: d.frontendId,
       name: d.name,
       price: d.price,

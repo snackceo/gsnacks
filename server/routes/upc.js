@@ -205,25 +205,46 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
 // Scan and apply a UPC: increment product stock by `qty` (default 1) or create product if unmapped.
 router.post('/scan', authRequired, ownerRequired, async (req, res) => {
   try {
-    const upc = String(req.body?.upc || '').trim();
-    const qty = Number.isFinite(Number(req.body?.qty)) ? Math.floor(Number(req.body.qty)) : 1;
+    const { upc, qty = 1, resolveOnly } = req.body;
     if (!upc) return res.status(400).json({ error: 'upc is required' });
 
     const upcEntry = await UpcItem.findOne({ upc }).lean();
-    const UpcModel = UpcItem;
-    // If mapped SKU exists, increment that product's stock
     const Product = (await import('../models/Product.js')).default;
+
     if (upcEntry?.sku) {
+      if (resolveOnly) {
+        const product = await Product.findOne({ sku: upcEntry.sku }).lean();
+        return res.json({ ok: true, action: 'resolved', product });
+      }
       const updated = await Product.findOneAndUpdate({ sku: upcEntry.sku }, { $inc: { stock: qty } }, { new: true }).lean();
       if (!updated) return res.status(404).json({ error: 'Mapped product not found' });
       return res.json({ ok: true, action: 'updated', product: updated });
     }
 
-    // No mapping: return unmapped action for frontend to handle
     return res.json({ ok: true, action: 'unmapped', upc, upcEntry });
   } catch (err) {
     console.error('UPC SCAN ERROR:', err);
     res.status(500).json({ error: 'Failed to apply UPC scan' });
+  }
+});
+
+router.post('/link', authRequired, ownerRequired, async (req, res) => {
+  try {
+    const { upc, productId } = req.body;
+    if (!upc || !productId) {
+      return res.status(400).json({ error: 'upc and productId are required' });
+    }
+
+    const upcEntry = await UpcItem.findOneAndUpdate(
+      { upc },
+      { sku: productId },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    ).lean();
+
+    res.json({ ok: true, upcEntry });
+  } catch (err) {
+    console.error('UPC LINK ERROR:', err);
+    res.status(500).json({ error: 'Failed to link UPC' });
   }
 });
 

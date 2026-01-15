@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { XCircle, Plus, Search } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { XCircle, Plus, Search, ScanLine, Loader2 } from 'lucide-react';
 
 interface UnmappedUpcModalProps {
   upc: string;
@@ -13,7 +13,10 @@ interface UnmappedUpcModalProps {
   }) => void;
   onAttachToExisting: (productId: string) => void;
   onClose: () => void;
+  onAnalyze: () => void;
   products: Array<{ id: string; name: string; sku?: string }>;
+  productDraft: any;
+  isAnalyzing: boolean;
 }
 
 const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
@@ -21,7 +24,10 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
   onCreateProduct,
   onAttachToExisting,
   onClose,
+  onAnalyze,
   products,
+  productDraft,
+  isAnalyzing,
 }) => {
   const [activeTab, setActiveTab] = useState<'create' | 'attach'>('create');
   const [createForm, setCreateForm] = useState({
@@ -34,6 +40,20 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
   });
   const [attachSearch, setAttachSearch] = useState('');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (productDraft) {
+      setCreateForm(prev => ({
+        ...prev,
+        name: productDraft.name || prev.name,
+        price: productDraft.price || prev.price,
+        deposit: productDraft.deposit || prev.deposit,
+        stock: productDraft.stock || prev.stock,
+        sizeOz: productDraft.sizeOz || prev.sizeOz,
+        category: productDraft.category || prev.category,
+      }));
+    }
+  }, [productDraft]);
 
   const filteredProducts = products.filter(p =>
     p.name.toLowerCase().includes(attachSearch.toLowerCase()) ||
@@ -159,6 +179,14 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
                 </select>
               </label>
             </div>
+            <button
+              onClick={onAnalyze}
+              disabled={isAnalyzing}
+              className="w-full py-4 bg-white/10 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3"
+            >
+              {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />}
+              Analyze Label Photo (Optional)
+            </button>
             <button
               onClick={handleCreate}
               disabled={!createForm.name.trim()}

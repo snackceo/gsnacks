@@ -181,7 +181,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [auditUpcInput, setAuditUpcInput] = useState('');
   const [auditError, setAuditError] = useState<string | null>(null);
   const [scannerModalOpen, setScannerModalOpen] = useState(false);
-  const [scannerMode, setScannerMode] = useState<'A' | 'B' | 'C' | 'D'>('A');
+  const [scannerMode, setScannerMode] = useState<'A' | 'B' | 'C' | 'D' | 'UPC_REGISTRY'>('A');
   const [unmappedUpcModalOpen, setUnmappedUpcModalOpen] = useState(false);
   const [unmappedUpcPayload, setUnmappedUpcPayload] = useState<UnmappedUpcData | null>(null);
 
@@ -578,7 +578,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
-  // ---- UPC Whitelist API (OWNER) ----
+  // ---- UPC Registry Maintenance API (OWNER) ----
   const apiLoadUpcItems = async () => {
     setUpcError(null);
     setIsUpcLoading(true);
@@ -701,6 +701,21 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
+  const apiLinkUpc = async (upc: string, productId: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/upc/link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ upc, productId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Link failed');
+    } catch (e: any) {
+      setUpcError(e?.message || 'Link failed');
+    }
+  };
+
   useEffect(() => {
     if (activeModule === 'upc' && upcItems.length === 0 && !isUpcLoading) {
       apiLoadUpcItems();
@@ -728,55 +743,63 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     });
   }, [upcFilter, upcItems]);
 
-  const apiScanUpc = async (upc: string, qty = 1) => {
+  const apiScanUpc = async (upc: string, qty = 1, resolveOnly = false) => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/upc/scan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ upc, qty })
+        body: JSON.stringify({ upc, qty, resolveOnly })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Scan failed');
 
-      if (data.action === 'updated' && data.product) {
-        const prod: Product = {
-          id: data.product.sku || data.product.frontendId,
-          sku: data.product.sku || undefined,
-          name: data.product.name,
-          price: data.product.price,
-          deposit: data.product.deposit ?? 0,
-          stock: data.product.stock ?? 0,
-          sizeOz: data.product.sizeOz ?? 0,
-          category: data.product.category ?? 'DRINK',
-          image: data.product.image || '',
-          brand: data.product.brand || '',
-          productType: data.product.productType || '',
-          storageZone: data.product.storageZone || '',
-          storageBin: data.product.storageBin || '',
-          isGlass: !!data.product.isGlass
-        };
-        setProducts(prev => prev.map(p => (p.id === prod.id ? prod : p)));
+      if (data.action === 'unmapped') {
+        setUnmappedUpcPayload({ upc } as UnmappedUpcData);
+        setUnmappedUpcModalOpen(true);
+        return data;
       }
 
-      if (data.action === 'created' && data.product) {
-        const created: Product = {
-          id: data.product.sku || data.product.frontendId,
-          sku: data.product.sku || undefined,
-          name: data.product.name,
-          price: data.product.price,
-          deposit: data.product.deposit ?? 0,
-          stock: data.product.stock ?? 0,
-          sizeOz: data.product.sizeOz ?? 0,
-          category: data.product.category ?? 'DRINK',
-          image: data.product.image || '',
-          brand: data.product.brand || '',
-          productType: data.product.productType || '',
-          storageZone: data.product.storageZone || '',
-          storageBin: data.product.storageBin || '',
-          isGlass: !!data.product.isGlass
-        };
-        setProducts(prev => [created, ...prev]);
+      if (!resolveOnly) {
+        if (data.action === 'updated' && data.product) {
+          const prod: Product = {
+            id: data.product.sku || data.product.frontendId,
+            sku: data.product.sku || undefined,
+            name: data.product.name,
+            price: data.product.price,
+            deposit: data.product.deposit ?? 0,
+            stock: data.product.stock ?? 0,
+            sizeOz: data.product.sizeOz ?? 0,
+            category: data.product.category ?? 'DRINK',
+            image: data.product.image || '',
+            brand: data.product.brand || '',
+            productType: data.product.productType || '',
+            storageZone: data.product.storageZone || '',
+            storageBin: data.product.storageBin || '',
+            isGlass: !!data.product.isGlass
+          };
+          setProducts(prev => prev.map(p => (p.id === prod.id ? prod : p)));
+        }
+
+        if (data.action === 'created' && data.product) {
+          const created: Product = {
+            id: data.product.sku || data.product.frontendId,
+            sku: data.product.sku || undefined,
+            name: data.product.name,
+            price: data.product.price,
+            deposit: data.product.deposit ?? 0,
+            stock: data.product.stock ?? 0,
+            sizeOz: data.product.sizeOz ?? 0,
+            category: data.product.category ?? 'DRINK',
+            image: data.product.image || '',
+            brand: data.product.brand || '',
+            productType: data.product.productType || '',
+            storageZone: data.product.storageZone || '',
+            storageBin: data.product.storageBin || '',
+            isGlass: !!data.product.isGlass
+          };
+          setProducts(prev => [created, ...prev]);
+        }
       }
 
       return data;
@@ -890,8 +913,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         image: '',
         isGlass: false
       });
+      return created;
     } catch (e: any) {
       setCreateError(e?.message || 'Create failed');
+      return null;
     } finally {
       setIsCreating(false);
     }
@@ -912,36 +937,38 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   }, [selectedLocation, auditId]);
 
   const handleAuditScan = async (upc: string, qty = 1) => {
-    const product = products.find(p => p.upc === upc);
-    if (!product) {
+    const data = await apiScanUpc(upc, qty, true); 
+
+    if (data && data.product) {
+      const product = data.product;
+      const newCount = (auditCounts[product.id] || 0) + qty;
+      setAuditCounts(prev => ({ ...prev, [product.id]: newCount }));
+      // Save to backend
+      try {
+        await fetch(`${BACKEND_URL}/api/inventory-audit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ auditId, location: selectedLocation, productId: product.id, countedQuantity: newCount })
+        });
+      } catch (err) {
+        console.error('Failed to save audit count');
+      }
+      setAuditUpcInput('');
+      setAuditError(null);
+    } else {
       setAuditError('Product not found for UPC');
-      return;
     }
-    const newCount = (auditCounts[product.id] || 0) + qty;
-    setAuditCounts(prev => ({ ...prev, [product.id]: newCount }));
-    // Save to backend
-    try {
-      await fetch(`${BACKEND_URL}/api/inventory-audit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ auditId, location: selectedLocation, productId: product.id, countedQuantity: newCount })
-      });
-    } catch (err) {
-      console.error('Failed to save audit count');
-    }
-    setAuditUpcInput('');
-    setAuditError(null);
   };
 
   const handleScannerScan = async (upc: string, qty = 1) => {
     if (scannerMode === 'A') {
-      await apiScanUpc(upc, qty);
+      await apiScanUpc(upc, qty, false);
     } else if (scannerMode === 'B') {
       await handleAuditScan(upc, qty);
     }
     // For C and D, will be in DriverView
-    if (scannerMode === 'upcWhitelist') {
+    if (scannerMode === 'UPC_REGISTRY') {
       setUpcInput(upc);
       handleUpcLookup(upc);
       setScannerModalOpen(false);
@@ -1240,7 +1267,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           { id: 'orders', label: 'Orders', icon: Truck },
           { id: 'approvals', label: 'Auth Hub', icon: ShieldCheck },
           { id: 'inventory', label: 'Inventory', icon: Package },
-          { id: 'upc', label: 'UPC Whitelist', icon: ScanLine },
+          { id: 'upc', label: 'UPC Registry', icon: ScanLine },
           { id: 'users', label: 'Users', icon: Users },
           { id: 'logs', label: 'Audit Logs', icon: Terminal },
           { id: 'settings', label: 'Settings', icon: Sliders }
@@ -2958,16 +2985,15 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         )}
 
         {/* =========================
-            UPC WHITELIST
+            UPC REGISTRY MAINTENANCE
         ========================= */}
         {activeModule === 'upc' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-xl font-black uppercase text-white tracking-widest">
-                UPC Whitelist
-              </h2>
-              <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
-                Scan UPCs, confirm eligibility, and store deposit metadata.
+                          <h2 className="text-xl font-black uppercase text-white tracking-widest">
+                            UPC Registry Maintenance
+                          </h2>              <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
+                Edit eligibility and metadata for existing UPCs.
               </p>
             </div>
 
@@ -2991,7 +3017,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 />
                 <button
                   onClick={() => {
-                    setScannerMode('upcWhitelist' as any);
+                    setScannerMode('UPC_REGISTRY');
                     setScannerModalOpen(true);
                   }}
                   className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
@@ -3012,7 +3038,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   {isUpcSaving ? 'Saving...' : 'Save'}
                 </button>
                 <button
-                  onClick={() => apiScanUpc(upcInput.trim(), 1)}
+                  onClick={() => apiScanUpc(upcInput.trim(), 1, false)}
                   className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
                 >
                   Apply Scan
@@ -3359,6 +3385,38 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {unmappedUpcModalOpen && unmappedUpcPayload && (
+        <UnmappedUpcModal
+          upc={unmappedUpcPayload.upc}
+          products={products}
+          isAnalyzing={isLabelScanning}
+          productDraft={labelScanResult}
+          onClose={() => setUnmappedUpcModalOpen(false)}
+          onAnalyze={() => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.onchange = (e: any) => {
+              handleLabelPhotoChange(e);
+              runLabelScan();
+            };
+            input.click();
+          }}
+          onCreateProduct={async (productData) => {
+            setNewProduct(prev => ({...prev, ...productData}));
+            const newProd = await apiCreateProduct();
+            if (newProd) {
+              await apiLinkUpc(unmappedUpcPayload.upc, newProd.id);
+            }
+            setUnmappedUpcModalOpen(false);
+          }}
+          onAttachToExisting={async (productId) => {
+            await apiLinkUpc(unmappedUpcPayload.upc, productId);
+            setUnmappedUpcModalOpen(false);
+          }}
+        />
       )}
     </div>
   );

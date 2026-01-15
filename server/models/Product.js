@@ -4,7 +4,6 @@ const productSchema = new mongoose.Schema(
   {
     frontendId: { type: String, required: true, unique: true }, // legacy frontend id (kept for compatibility)
     sku: { type: String, required: false, unique: true, sparse: true }, // business identifier NP-000001
-    upc: { type: String, required: false, unique: true, sparse: true },
     brand: { type: String, default: '' },
     productType: { type: String, default: '' },
     storageZone: { type: String, default: '' },
