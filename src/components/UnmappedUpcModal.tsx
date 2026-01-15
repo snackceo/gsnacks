@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { XCircle, Plus, Search, ScanLine, Loader2 } from 'lucide-react';
+import { UnmappedUpcData } from '../types';
 
 interface UnmappedUpcModalProps {
-  upc: string;
+  data: UnmappedUpcData;
   onCreateProduct: (productData: {
     name: string;
     price: number;
@@ -15,19 +16,17 @@ interface UnmappedUpcModalProps {
   onClose: () => void;
   onAnalyze: () => void;
   products: Array<{ id: string; name: string; sku?: string }>;
-  productDraft: any;
   isAnalyzing: boolean;
 }
 
 const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
-  upc,
+  data,
   onCreateProduct,
   onAttachToExisting,
   onClose,
   onAnalyze,
   products,
-  productDraft,
-  isAnalyzing,
+  isAnalyzing
 }) => {
   const [activeTab, setActiveTab] = useState<'create' | 'attach'>('create');
   const [createForm, setCreateForm] = useState({
@@ -36,28 +35,28 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
     deposit: 0,
     stock: 1,
     sizeOz: 0,
-    category: 'DRINK',
+    category: 'DRINK'
   });
   const [attachSearch, setAttachSearch] = useState('');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (productDraft) {
+    if (data) {
       setCreateForm(prev => ({
         ...prev,
-        name: productDraft.name || prev.name,
-        price: productDraft.price || prev.price,
-        deposit: productDraft.deposit || prev.deposit,
-        stock: productDraft.stock || prev.stock,
-        sizeOz: productDraft.sizeOz || prev.sizeOz,
-        category: productDraft.category || prev.category,
+        name: data.name || prev.name,
+        price: data.price || prev.price,
+        deposit: data.deposit || prev.deposit,
+        sizeOz: data.sizeOz || prev.sizeOz,
+        category: data.category || prev.category
       }));
     }
-  }, [productDraft]);
+  }, [data]);
 
-  const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(attachSearch.toLowerCase()) ||
-    (p.sku && p.sku.toLowerCase().includes(attachSearch.toLowerCase()))
+  const filteredProducts = products.filter(
+    p =>
+      p.name.toLowerCase().includes(attachSearch.toLowerCase()) ||
+      (p.sku && p.sku.toLowerCase().includes(attachSearch.toLowerCase()))
   );
 
   const handleCreate = () => {
@@ -72,12 +71,15 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[14000] flex items-center justify-center p-6">
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/80 backdrop-blur-md"
+        onClick={onClose}
+      />
       <div className="relative w-full max-w-2xl bg-ninpo-black border border-white/10 rounded-[2.5rem] p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-start justify-between gap-4 mb-6">
           <div>
             <p className="text-white font-black uppercase tracking-widest text-lg">
-              Unmapped UPC: {upc}
+              Unmapped UPC: {data.upc}
             </p>
             <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
               This UPC is not linked to any product. Choose how to handle it.

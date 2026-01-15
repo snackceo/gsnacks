@@ -755,7 +755,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       if (!res.ok) throw new Error(data?.error || 'Scan failed');
 
       if (data.action === 'unmapped') {
-        setUnmappedUpcPayload({ upc } as UnmappedUpcData);
+        const { upc, upcEntry } = data;
+        setUnmappedUpcPayload({
+          upc,
+          name: upcEntry?.name,
+          price: upcEntry?.price,
+          deposit: upcEntry?.depositValue,
+          sizeOz: upcEntry?.sizeOz
+        });
         setUnmappedUpcModalOpen(true);
         return data;
       }
@@ -3389,23 +3396,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
       {unmappedUpcModalOpen && unmappedUpcPayload && (
         <UnmappedUpcModal
-          upc={unmappedUpcPayload.upc}
+          key={unmappedUpcPayload.upc}
+          data={unmappedUpcPayload}
           products={products}
           isAnalyzing={isLabelScanning}
-          productDraft={labelScanResult}
           onClose={() => setUnmappedUpcModalOpen(false)}
-          onAnalyze={() => {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'image/*';
-            input.onchange = (e: any) => {
-              handleLabelPhotoChange(e);
-              runLabelScan();
-            };
-            input.click();
-          }}
-          onCreateProduct={async (productData) => {
-            setNewProduct(prev => ({...prev, ...productData}));
+          onAnalyze={runLabelScan}
+          onCreateProduct={async productData => {
+            setNewProduct(prev => ({ ...prev, ...productData }));
             const newProd = await apiCreateProduct();
             if (newProd) {
               await apiLinkUpc(unmappedUpcPayload.upc, newProd.id);
