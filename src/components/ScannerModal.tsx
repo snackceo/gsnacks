@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, ScanLine, Camera, Volume2, RefreshCw, Flashlight } from 'lucide-react';
 
 interface ScannerModalProps {
-  mode: 'A' | 'B' | 'C' | 'D' | 'PRODUCT_CREATION' | 'UPC_REGISTRY' | string;
+  mode: 'A' | 'B' | 'C' | 'D' | 'PRODUCT_CREATION' | 'UPC_REGISTRY';
   onScan: (upc: string, quantityOrPhoto?: number | string) => void;
   onClose: () => void;
   title: string;

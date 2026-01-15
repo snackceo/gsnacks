@@ -3040,27 +3040,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
               </div>
             )}
 
-            {scannerModalOpen && (
-              <ScannerModal
-                mode={scannerMode}
-                onScan={handleScannerScan}
-                onClose={() => setScannerModalOpen(false)}
-                title={
-                  scannerMode === 'A' ? 'Add Stock' : 
-                  scannerMode === 'PRODUCT_CREATION' ? 'Scan Product' :
-                  scannerMode === 'UPC_REGISTRY' ? 'Scan UPC' :
-                  'Count Item'
-                }
-                subtitle={
-                  scannerMode === 'A' ? 'Scan UPC to add stock or create product' : 
-                  scannerMode === 'PRODUCT_CREATION' ? 'Scan UPC and capture photo for AI analysis' :
-                  scannerMode === 'UPC_REGISTRY' ? 'Scan UPC to lookup or edit registry entry' :
-                  'Scan UPC to count inventory'
-                }
-                beepEnabled={settings.beepEnabled ?? true}
-                cooldownMs={settings.cooldownMs ?? 1000}
-              />
-            )}
           </div>
         )}
 
@@ -3521,6 +3500,28 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             await apiLinkUpc(unmappedUpcPayload.upc, productId);
             setUnmappedUpcModalOpen(false);
           }}
+        />
+      )}
+
+      {scannerModalOpen && (
+        <ScannerModal
+          mode={scannerMode}
+          onScan={handleScannerScan}
+          onClose={() => setScannerModalOpen(false)}
+          title={
+            scannerMode === 'A' ? 'Add Stock' : 
+            scannerMode === 'PRODUCT_CREATION' ? 'Scan Product' :
+            scannerMode === 'UPC_REGISTRY' ? 'Scan UPC' :
+            'Count Item'
+          }
+          subtitle={
+            scannerMode === 'A' ? 'Scan UPC to add stock or create product' : 
+            scannerMode === 'PRODUCT_CREATION' ? 'Scan UPC and capture photo for AI analysis' :
+            scannerMode === 'UPC_REGISTRY' ? 'Scan UPC to lookup or edit registry entry' :
+            'Scan UPC to count inventory'
+          }
+          beepEnabled={settings.beepEnabled ?? true}
+          cooldownMs={settings.cooldownMs ?? 1000}
         />
       )}
     </div>
