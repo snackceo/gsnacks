@@ -181,7 +181,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [auditUpcInput, setAuditUpcInput] = useState('');
   const [auditError, setAuditError] = useState<string | null>(null);
   const [scannerModalOpen, setScannerModalOpen] = useState(false);
-  const [scannerMode, setScannerMode] = useState<'A' | 'B' | 'C' | 'D' | 'UPC_REGISTRY'>('A');
+  const [scannerMode, setScannerMode] = useState<'A' | 'B' | 'C' | 'D' | 'PRODUCT_CREATION' | 'UPC_REGISTRY'>('A');
+  const [scannedUpcForCreation, setScannedUpcForCreation] = useState<string>('');
   const [unmappedUpcModalOpen, setUnmappedUpcModalOpen] = useState(false);
   const [unmappedUpcPayload, setUnmappedUpcPayload] = useState<UnmappedUpcData | null>(null);
 
@@ -842,14 +843,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
   const applyLabelScanToDrafts = (result: ProductScanResult) => {
     const hasSignal =
-      Boolean(result.upc || result.name) ||
+      Boolean(result.name) ||
       Number(result.sizeOz) > 0 ||
       Number(result.quantity) > 0;
     if (!hasSignal) return;
-    setUpcInput(result.upc || '');
     setUpcDraft(prev => ({
       ...prev,
-      upc: result.upc || prev.upc,
       name: result.name || prev.name,
       sizeOz: Number.isFinite(result.sizeOz) ? result.sizeOz : prev.sizeOz,
       isEligible: result.isEligible
@@ -866,6 +865,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   };
 
   const runLabelScan = async () => {
+    if (!scannedUpcForCreation) {
+      setLabelScanError('Scan a product UPC first.');
+      return;
+    }
     if (!labelScanPhoto) {
       setLabelScanError('Upload a label photo to scan.');
       return;
@@ -876,7 +879,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     const result = await analyzeProductScan(labelScanPhoto, labelScanMime || undefined);
     setLabelScanResult(result);
     applyLabelScanToDrafts(result);
-    if (result.message && !result.upc && !result.name) {
+    if (result.message && !result.name) {
       setLabelScanError(result.message);
     }
     setIsLabelScanning(false);
@@ -909,6 +912,34 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       const created: Product = data.product;
       setProducts(prev => [created, ...prev]);
 
+      // Link UPC to SKU if scanned
+      if (scannedUpcForCreation) {
+        try {
+          await fetch(`${BACKEND_URL}/api/upc/link`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ upc: scannedUpcForCreation, productId: created.id })
+          });
+
+          // Update UPC metadata
+          await fetch(`${BACKEND_URL}/api/upc/${scannedUpcForCreation}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              name: upcDraft.name,
+              sizeOz: upcDraft.sizeOz,
+              isEligible: upcDraft.isEligible,
+              containerType: upcDraft.containerType
+            })
+          });
+        } catch (linkError) {
+          console.error('Failed to link UPC:', linkError);
+          // Don't fail the whole creation
+        }
+      }
+
       setNewProduct({
         id: '',
         name: '',
@@ -920,6 +951,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         image: '',
         isGlass: false
       });
+      setScannedUpcForCreation('');
       return created;
     } catch (e: any) {
       setCreateError(e?.message || 'Create failed');
@@ -969,6 +1001,23 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   };
 
   const handleScannerScan = async (upc: string, qty = 1) => {
+    if (scannerMode === 'PRODUCT_CREATION') {
+      // Normalize: digits only
+      const normalized = String(upc).replace(/\D/g, '').trim();
+      if (!normalized) return;
+
+      // Set authoritative creation UPC
+      setScannedUpcForCreation(normalized);
+
+      // Keep existing fields in sync for registry/inventory UI
+      setUpcInput(normalized);
+      setUpcDraft(prev => ({ ...prev, upc: normalized }));
+
+      // Optional: open the creation UI section if you have a flag
+      // setShowProductCreation(true);
+
+      return;
+    }
     if (scannerMode === 'A') {
       await apiScanUpc(upc, qty, false);
     } else if (scannerMode === 'B') {
@@ -2666,11 +2715,26 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      AI Label Scan
+                      Product Creation
                     </p>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-2">
-                      Upload a product label to auto-fill UPC, size, quantity, and eligibility.
+                      Create new products with AI assistance.
                     </p>
+                  </div>
+
+                  <div className="flex gap-4">
+                    <button
+                      onClick={() => {
+                        setScannerMode('PRODUCT_CREATION');
+                        setScannerModalOpen(true);
+                      }}
+                      className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                    >
+                      <ScanLine className="w-4 h-4" /> Scan Product UPC
+                    </button>
+                    <div className="flex-1 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      Scanned UPC: <span className="text-white">{scannedUpcForCreation || 'No UPC scanned'}</span>
+                    </div>
                   </div>
 
                   {labelScanError && (
@@ -2688,7 +2752,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     />
                     <button
                       onClick={runLabelScan}
-                      disabled={isLabelScanning || !labelScanPhoto}
+                      disabled={isLabelScanning || !labelScanPhoto || !scannedUpcForCreation}
                       className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {isLabelScanning ? (
@@ -2696,7 +2760,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       ) : (
                         <ScanLine className="w-4 h-4" />
                       )}
-                      Analyze Label
+                      Analyze Product Details with AI
                     </button>
                   </div>
 
