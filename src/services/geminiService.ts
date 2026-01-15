@@ -41,7 +41,6 @@ export type BottleScanResult = {
 };
 
 export type ProductScanResult = {
-  upc: string;
   name: string;
   sizeOz: number;
   quantity: number;
@@ -109,6 +108,7 @@ export const analyzeBottleScan = async (base64Data: string): Promise<BottleScanR
 
 export const analyzeProductScan = async (
   base64Data: string,
+  upc: string,
   mimeType?: string
 ): Promise<ProductScanResult> => {
   const backendUrl = getBackendUrl();
@@ -116,7 +116,6 @@ export const analyzeProductScan = async (
 
   if (!normalized) {
     return {
-      upc: '',
       name: '',
       sizeOz: 0,
       quantity: 0,
@@ -132,7 +131,7 @@ export const analyzeProductScan = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ image: normalized, mimeType })
+        body: JSON.stringify({ image: normalized, mimeType, upc })
       },
       20000
     );
@@ -146,7 +145,6 @@ export const analyzeProductScan = async (
         // ignore
       }
       return {
-        upc: '',
         name: '',
         sizeOz: 0,
         quantity: 0,
@@ -157,7 +155,6 @@ export const analyzeProductScan = async (
 
     const data = await response.json();
     return {
-      upc: String(data?.upc || ''),
       name: String(data?.name || ''),
       sizeOz: Number(data?.sizeOz || 0),
       quantity: Number(data?.quantity || 0),
@@ -166,7 +163,6 @@ export const analyzeProductScan = async (
     };
   } catch {
     return {
-      upc: '',
       name: '',
       sizeOz: 0,
       quantity: 0,

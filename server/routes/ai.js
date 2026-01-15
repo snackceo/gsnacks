@@ -194,7 +194,7 @@ Reply with JSON only: {"valid": true|false, "material": "PLASTIC|GLASS|ALUMINUM|
 });
 
 router.post('/product-scan', async (req, res) => {
-  const { image, mimeType, model } = req.body ?? {};
+  const { image, mimeType, model, upc } = req.body ?? {};
 
   if (!image || typeof image !== 'string') {
     return res.status(400).json({ message: 'Product image is required.' });
@@ -214,8 +214,8 @@ router.post('/product-scan', async (req, res) => {
     });
   }
 
-  const prompt = `Extract product metadata from this label image.
-Return JSON only: {"upc":"", "name":"", "sizeOz":0, "quantity":0, "isEligible":true|false, "message":""}.
+  const prompt = `For a product with UPC "${upc || 'unknown'}", extract metadata from this label image.
+Return JSON only: {"name":"", "sizeOz":0, "quantity":0, "isEligible":true|false, "message":""}.
 Use empty string or 0 if unknown. "isEligible" means Michigan 10¢ deposit eligible.`;
 
   try {
@@ -242,7 +242,6 @@ Use empty string or 0 if unknown. "isEligible" means Michigan 10¢ deposit eligi
     const rawText = response?.text?.trim?.() ?? '';
     if (!rawText) {
       return res.status(502).json({
-        upc: '',
         name: '',
         sizeOz: 0,
         quantity: 0,
@@ -260,7 +259,6 @@ Use empty string or 0 if unknown. "isEligible" means Michigan 10¢ deposit eligi
 
     if (parsed && typeof parsed === 'object') {
       return res.json({
-        upc: String(parsed.upc || ''),
         name: String(parsed.name || ''),
         sizeOz: normalizeNumber(parsed.sizeOz, 0),
         quantity: Math.max(0, Math.round(normalizeNumber(parsed.quantity, 0))),
@@ -270,7 +268,6 @@ Use empty string or 0 if unknown. "isEligible" means Michigan 10¢ deposit eligi
     }
 
     return res.json({
-      upc: '',
       name: '',
       sizeOz: 0,
       quantity: 0,
@@ -280,7 +277,6 @@ Use empty string or 0 if unknown. "isEligible" means Michigan 10¢ deposit eligi
   } catch (error) {
     console.error('Gemini product scan failed.', error);
     return res.status(502).json({
-      upc: '',
       name: '',
       sizeOz: 0,
       quantity: 0,
