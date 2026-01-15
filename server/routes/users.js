@@ -381,4 +381,40 @@ router.post('/:id/redeem-points', authRequired, async (req, res) => {
   }
 });
 
+router.delete('/:id', authRequired, ownerRequired, async (req, res) => {
+  try {
+    const userId = req.params.id;
+    if (!userId) return res.status(400).json({ error: 'User ID is required' });
+
+    // Prevent deleting self
+    if (req.user?.id === userId || req.user?.userId === userId) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+
+    // Check if user exists
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Prevent deleting other owners
+    if (user.role === 'OWNER') {
+      return res.status(400).json({ error: 'Cannot delete owner accounts' });
+    }
+
+    // Delete the user
+    await User.findByIdAndDelete(userId);
+
+    // Log the deletion
+    await recordAuditLog({
+      type: 'USER_DELETED',
+      actorId: req.user?.username || req.user?.id || 'SYSTEM',
+      details: `Deleted user: ${user.username || userId}`
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE USER ERROR:', err);
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
 export default router;

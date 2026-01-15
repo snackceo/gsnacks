@@ -129,6 +129,7 @@ const isNewSignupWithBonus = (user: User) => {
 };
 
 const ManagementView: React.FC<ManagementViewProps> = ({
+  user,
   products,
   setProducts,
   orders,
@@ -1149,6 +1150,35 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
+  const apiDeleteUser = async (userId: string) => {
+    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+      return;
+    }
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/users/${userId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || data?.message || 'Delete failed');
+      // Refetch users to update the list
+      await fetchUsers();
+      // Clean up local state
+      setUserDrafts(prev => {
+        const next = { ...prev };
+        delete next[userId];
+        return next;
+      });
+      setUserLedgers(prev => {
+        const next = { ...prev };
+        delete next[userId];
+        return next;
+      });
+    } catch (e: any) {
+      alert(e?.message || 'Failed to delete user');
+    }
+  };
+
   const runAudit = async () => {
     if (!auditModel) {
       setAiInsights('No AI model configured for audit.');
@@ -2114,6 +2144,17 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                               >
                                 Save
                               </button>
+                              {u.role !== 'OWNER' && u.id !== user?.id && (
+                                <button
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    apiDeleteUser(u.id);
+                                  }}
+                                  className="px-6 py-3 rounded-2xl bg-ninpo-red text-white text-[10px] font-black uppercase tracking-widest"
+                                >
+                                  Delete
+                                </button>
+                              )}
                               <button
                                 onClick={e => {
                                   e.stopPropagation();
