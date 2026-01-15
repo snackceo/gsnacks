@@ -826,6 +826,40 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       reader.readAsDataURL(file);
     });
 
+  const capturePhotoForAI = async (): Promise<string | null> => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        }
+      });
+      
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      await video.play();
+      
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        stream.getTracks().forEach(t => t.stop());
+        return null;
+      }
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      
+      stream.getTracks().forEach(t => t.stop());
+      
+      return canvas.toDataURL('image/jpeg', 0.8);
+    } catch (error) {
+      console.warn('Photo capture failed:', error);
+      return null;
+    }
+  };
+
   const handleLabelPhotoChange = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -1001,7 +1035,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
-  const handleScannerScan = async (upc: string, quantityOrPhoto?: number | string) => {
+  const handleScannerScan = async (upc: string) => {
     if (scannerMode === 'PRODUCT_CREATION') {
       // Normalize: digits only
       const normalized = String(upc).replace(/\D/g, '').trim();
@@ -1014,20 +1048,25 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setUpcInput(normalized);
       setUpcDraft(prev => ({ ...prev, upc: normalized }));
 
-      // If photo was captured, set it for AI analysis
-      if (typeof quantityOrPhoto === 'string') {
-        setLabelScanPhoto(quantityOrPhoto);
-        setLabelScanMime('image/jpeg');
-        // Optionally auto-run analysis
-        // runLabelScan();
+      // Auto-capture photo for AI analysis
+      try {
+        const photoDataUrl = await capturePhotoForAI();
+        if (photoDataUrl) {
+          setLabelScanPhoto(photoDataUrl);
+          setLabelScanMime('image/jpeg');
+          // Optionally auto-run analysis
+          // runLabelScan();
+        }
+      } catch (error) {
+        console.warn('Auto-capture failed:', error);
       }
 
       return;
     }
     if (scannerMode === 'A') {
-      await apiScanUpc(upc, typeof quantityOrPhoto === 'number' ? quantityOrPhoto : 1, false);
+      await apiScanUpc(upc, 1, false);
     } else if (scannerMode === 'B') {
-      await handleAuditScan(upc, typeof quantityOrPhoto === 'number' ? quantityOrPhoto : 1);
+      await handleAuditScan(upc, 1);
     }
     // For C and D, will be in DriverView
     if (scannerMode === 'UPC_REGISTRY') {
@@ -3503,27 +3542,25 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         />
       )}
 
-      {scannerModalOpen && (
-        <ScannerModal
-          mode={scannerMode}
-          onScan={handleScannerScan}
-          onClose={() => setScannerModalOpen(false)}
-          title={
-            scannerMode === 'A' ? 'Add Stock' : 
-            scannerMode === 'PRODUCT_CREATION' ? 'Scan Product' :
-            scannerMode === 'UPC_REGISTRY' ? 'Scan UPC' :
-            'Count Item'
-          }
-          subtitle={
-            scannerMode === 'A' ? 'Scan UPC to add stock or create product' : 
-            scannerMode === 'PRODUCT_CREATION' ? 'Scan UPC and capture photo for AI analysis' :
-            scannerMode === 'UPC_REGISTRY' ? 'Scan UPC to lookup or edit registry entry' :
-            'Scan UPC to count inventory'
-          }
-          beepEnabled={settings.beepEnabled ?? true}
-          cooldownMs={settings.cooldownMs ?? 1000}
-        />
-      )}
+      <ScannerModal
+        onScan={handleScannerScan}
+        onClose={() => setScannerModalOpen(false)}
+        title={
+          scannerMode === 'A' ? 'Add Stock' : 
+          scannerMode === 'PRODUCT_CREATION' ? 'Scan Product' :
+          scannerMode === 'UPC_REGISTRY' ? 'Scan UPC' :
+          'Count Item'
+        }
+        subtitle={
+          scannerMode === 'A' ? 'Scan UPC to add stock or create product' : 
+          scannerMode === 'PRODUCT_CREATION' ? 'Scan UPC and capture photo for AI analysis' :
+          scannerMode === 'UPC_REGISTRY' ? 'Scan UPC to lookup or edit registry entry' :
+          'Scan UPC to count inventory'
+        }
+        beepEnabled={settings.beepEnabled ?? true}
+        cooldownMs={settings.cooldownMs ?? 1000}
+        isOpen={scannerModalOpen}
+      />
     </div>
   );
 };
