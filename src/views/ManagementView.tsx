@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
   Product,
@@ -1035,7 +1035,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
-  const handleScannerScan = async (upc: string) => {
+  const handlePhotoCaptured = useCallback((photoDataUrl: string, mime: string) => {
+    setLabelScanPhoto(photoDataUrl);
+    setLabelScanMime(mime);
+  }, [setLabelScanPhoto, setLabelScanMime]);
+
+  const handleScannerScan = useCallback(async (upc: string) => {
     if (scannerMode === 'PRODUCT_CREATION') {
       // Normalize: digits only
       const normalized = String(upc).replace(/\D/g, '').trim();
@@ -1048,18 +1053,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setUpcInput(normalized);
       setUpcDraft(prev => ({ ...prev, upc: normalized }));
 
-      // Auto-capture photo for AI analysis
-      try {
-        const photoDataUrl = await capturePhotoForAI();
-        if (photoDataUrl) {
-          setLabelScanPhoto(photoDataUrl);
-          setLabelScanMime('image/jpeg');
-          // Optionally auto-run analysis
-          // runLabelScan();
-        }
-      } catch (error) {
-        console.warn('Auto-capture failed:', error);
-      }
+      // Photo is captured manually via button
 
       return;
     }
@@ -1074,7 +1068,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       handleUpcLookup(upc);
       // Keep modal open for UPC_REGISTRY mode
     }
-  };
+  }, [scannerMode, setScannedUpcForCreation, setUpcInput, setUpcDraft, apiScanUpc, handleAuditScan, handleUpcLookup]);
 
   const startEditProduct = (product: Product) => {
     setEditError(null);
@@ -2945,6 +2939,19 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     </label>
                   </div>
 
+                  <div className="md:col-span-2">
+                    <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      <input
+                        type="checkbox"
+                        checked={upcDraft.isEligible}
+                        onChange={e =>
+                          setUpcDraft({ ...upcDraft, isEligible: e.target.checked })
+                        }
+                      />
+                      Eligible for Michigan Deposit Refund
+                    </label>
+                  </div>
+
                   <button
                     onClick={apiCreateProduct}
                     disabled={isCreating}
@@ -3560,6 +3567,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         beepEnabled={settings.beepEnabled ?? true}
         cooldownMs={settings.cooldownMs ?? 1000}
         isOpen={scannerModalOpen}
+        onPhotoCaptured={scannerMode === 'PRODUCT_CREATION' ? handlePhotoCaptured : undefined}
       />
     </div>
   );

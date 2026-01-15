@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ScanLine, Camera, Volume2, RefreshCw } from 'lucide-react';
+import { X, ScanLine, Camera, Volume2, RefreshCw, Flashlight, FlashlightOff } from 'lucide-react';
 
 interface ScannerModalProps {
   onScan: (upc: string) => void;
@@ -10,6 +10,7 @@ interface ScannerModalProps {
   beepEnabled?: boolean;
   cooldownMs?: number;
   isOpen?: boolean;
+  onPhotoCaptured?: (photoDataUrl: string, mime: string) => void;
 }
 
 const ScannerModal: React.FC<ScannerModalProps> = ({
@@ -20,22 +21,28 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
   beepEnabled = true,
   cooldownMs = 1200,
   isOpen = false,
+  onPhotoCaptured,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanLoopRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const videoTrackRef = useRef<MediaStreamTrack | null>(null);
+  const lastCodeRef = useRef<string | null>(null);
+  const repeatCountRef = useRef<number>(0);
+  const lastAcceptTimeRef = useRef<number>(0);
 
   const [isScanning, setIsScanning] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [manualUpc, setManualUpc] = useState('');
-  const [lastScanTime, setLastScanTime] = useState(0);
   const [lastDetectedUpc, setLastDetectedUpc] = useState<string | null>(null);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
 
   const handleScan = useCallback(async (upc: string) => {
     const now = Date.now();
-    if (now - lastScanTime < cooldownMs) return;
-    setLastScanTime(now);
+    if (now - lastAcceptTimeRef.current < cooldownMs) return;
+    lastAcceptTimeRef.current = now;
     setLastDetectedUpc(upc);
     if (beepEnabled) playBeep();
 
@@ -58,6 +65,30 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
     oscillator.start();
     oscillator.stop(context.currentTime + 0.12);
   };
+
+  const takePhoto = useCallback(() => {
+    if (!videoRef.current || !onPhotoCaptured) return;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    ctx.drawImage(videoRef.current, 0, 0);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    onPhotoCaptured(dataUrl, 'image/jpeg');
+  }, [onPhotoCaptured]);
+
+  const toggleTorch = useCallback(async () => {
+    if (!videoTrackRef.current) return;
+    try {
+      await videoTrackRef.current.applyConstraints({
+        advanced: [{ torch: !torchOn } as any]
+      });
+      setTorchOn(!torchOn);
+    } catch (err) {
+      console.warn('Torch toggle failed:', err);
+    }
+  }, [torchOn]);
 
   const handleManualScan = () => {
     if (manualUpc.trim()) {
@@ -103,6 +134,10 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
           return;
         }
         streamRef.current = stream;
+        const videoTrack = stream.getVideoTracks()[0];
+        videoTrackRef.current = videoTrack;
+        const capabilities = videoTrack.getCapabilities?.();
+        setTorchSupported(!!(capabilities as any)?.torch);
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
@@ -113,7 +148,29 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
           if (!videoRef.current || cancelled) return;
           try {
             const barcodes = await detector.detect(videoRef.current);
-            if (barcodes.length > 0) handleScan(barcodes[0].rawValue);
+            if (barcodes.length > 0) {
+              const rawValue = barcodes[0].rawValue;
+              // Normalize: digits only
+              const normalized = rawValue.replace(/\D/g, '');
+              // Validate length
+              if (![8, 12, 13].includes(normalized.length)) return;
+              // Check stability
+              if (lastCodeRef.current === normalized) {
+                repeatCountRef.current += 1;
+                if (repeatCountRef.current >= 2) {
+                  handleScan(normalized);
+                  lastCodeRef.current = null;
+                  repeatCountRef.current = 0;
+                }
+              } else {
+                lastCodeRef.current = normalized;
+                repeatCountRef.current = 1;
+              }
+            } else {
+              // Reset if no barcode detected
+              lastCodeRef.current = null;
+              repeatCountRef.current = 0;
+            }
           } catch (err) { /* ignore detection errors */ }
           if (!cancelled) scanLoopRef.current = requestAnimationFrame(detect);
         };
@@ -173,6 +230,23 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
           )}
         </div>
         <div className="mt-5 space-y-4">
+          <div className="flex gap-2">
+            <button
+              onClick={takePhoto}
+              disabled={!isScanning || !onPhotoCaptured}
+              className="px-4 py-4 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Camera className="w-4 h-4" /> Photo
+            </button>
+            <button
+              onClick={toggleTorch}
+              disabled={!torchSupported}
+              className={`px-4 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${torchSupported ? (torchOn ? 'bg-yellow-500 text-black' : 'bg-white/10 text-white') : 'bg-gray-600 text-gray-400 cursor-not-allowed'}`}
+              title={torchSupported ? (torchOn ? 'Turn off torch' : 'Turn on torch') : 'Torch not supported'}
+            >
+              {torchOn ? <FlashlightOff className="w-4 h-4" /> : <Flashlight className="w-4 h-4" />} Torch
+            </button>
+          </div>
           <div className="flex gap-2">
             <input
               className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white flex-1"
