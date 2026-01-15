@@ -168,7 +168,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
             };
           }
         } catch (deviceError) {
-          // Fall back to default constraints
+          // Fall back to default constraints - device enumeration may fail due to permissions
           console.warn('Could not enumerate devices:', deviceError);
         }
 
@@ -207,6 +207,10 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
       stopScanner();
     };
   }, [stopScanner]);
+
+  useEffect(() => {
+    startScanner();
+  }, [startScanner]);
 
   return createPortal(
     <div className="fixed inset-0 z-[14000] flex items-center justify-center p-6">
