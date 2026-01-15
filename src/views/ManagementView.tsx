@@ -35,8 +35,12 @@ import {
   UserCheck,
   XCircle,
   ScanLine,
-  Camera
+  Camera,
+  X
 } from 'lucide-react';
+import ScannerModal from '../components/ScannerModal';
+import UnmappedUpcModal from '../components/UnmappedUpcModal';
+import { UnmappedUpcData } from '../types';
 import {
   LineChart,
   Line,
@@ -170,6 +174,16 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [auditModelsError, setAuditModelsError] = useState<string | null>(null);
   const [opsSummary, setOpsSummary] = useState('');
   const [isOpsSummaryLoading, setIsOpsSummaryLoading] = useState(false);
+  const [inventoryMode, setInventoryMode] = useState<'A' | 'B'>('A');
+  const [selectedLocation, setSelectedLocation] = useState<string>('');
+  const [auditId, setAuditId] = useState<string>('current-audit');
+  const [auditCounts, setAuditCounts] = useState<Record<string, number>>({});
+  const [auditUpcInput, setAuditUpcInput] = useState('');
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [scannerModalOpen, setScannerModalOpen] = useState(false);
+  const [scannerMode, setScannerMode] = useState<'A' | 'B' | 'C' | 'D'>('A');
+  const [unmappedUpcModalOpen, setUnmappedUpcModalOpen] = useState(false);
+  const [unmappedUpcPayload, setUnmappedUpcPayload] = useState<UnmappedUpcData | null>(null);
 
   const handleModuleSelect = (moduleId: string) => {
     setActiveModule(moduleId);
@@ -262,18 +276,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [approvalFilter, setApprovalFilter] =
     useState<ApprovalRequest['status']>('PENDING');
   const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
-  const [auditTypeFilter, setAuditTypeFilter] = useState<'ALL' | AuditLogType>('ALL');
-  const [auditActorFilter, setAuditActorFilter] = useState('');
-  const [auditRangeFilter, setAuditRangeFilter] = useState<'24h' | '7d' | '30d'>('7d');
-  const allowPlatinumTier = Boolean(settings.allowPlatinumTier);
-
-  const upcVideoRef = useRef<HTMLVideoElement | null>(null);
-  const upcStreamRef = useRef<MediaStream | null>(null);
-  const upcScanLoopRef = useRef<number | null>(null);
-  const upcLastScannedRef = useRef<string>('');
-  const upcItemsRef = useRef<UpcItem[]>([]);
-  const upcDepositRef = useRef<number>(0.1);
-  const upcAudioContextRef = useRef<AudioContext | null>(null);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
 
   const chartData = useMemo(() => {
@@ -290,6 +292,16 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const filteredApprovals = useMemo(() => {
     return approvals.filter(approval => approval.status === approvalFilter);
   }, [approvals, approvalFilter]);
+
+  const upcLastScannedRef = useRef<string>('');
+  const upcItemsRef = useRef<UpcItem[]>([]);
+  const upcDepositRef = useRef<number>(0.1);
+  const upcAudioContextRef = useRef<AudioContext | null>(null);
+
+  const [auditTypeFilter, setAuditTypeFilter] = useState<'ALL' | AuditLogType>('ALL');
+  const [auditActorFilter, setAuditActorFilter] = useState('');
+  const [auditRangeFilter, setAuditRangeFilter] = useState<'24h' | '7d' | '30d'>('7d');
+  const allowPlatinumTier = Boolean(settings.allowPlatinumTier);
 
   const auditTypeOptions = useMemo(() => {
     const types = Array.from(new Set(auditLogs.map(log => log.type))).sort();
@@ -597,22 +609,22 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     });
   };
 
-  const handleUpcLookup = () => {
-    const upc = upcInput.trim();
-    if (!upc) {
+  const handleUpcLookup = (upc?: string) => {
+    const targetUpc = upc || upcInput.trim();
+    if (!targetUpc) {
       setUpcError('UPC is required.');
       return;
     }
 
     setUpcError(null);
-    const existing = upcItems.find(item => item.upc === upc);
+    const existing = upcItems.find(item => item.upc === targetUpc);
     if (existing) {
       loadUpcDraft(existing);
       return;
     }
 
     setUpcDraft({
-      upc,
+      upc: targetUpc,
       name: '',
       depositValue: 0.1,
       price: 0,
@@ -701,7 +713,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
   useEffect(() => {
     if (activeModule !== 'upc') {
-      closeUpcScanner();
+      setUpcScannerOpen(false);
     }
   }, [activeModule]);
 
@@ -716,174 +728,63 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     });
   }, [upcFilter, upcItems]);
 
-  const stopUpcScanner = async () => {
-    setIsUpcScanning(false);
+  const apiScanUpc = async (upc: string, qty = 1) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/upc/scan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ upc, qty })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Scan failed');
 
-    if (upcScanLoopRef.current) {
-      window.clearTimeout(upcScanLoopRef.current);
-      upcScanLoopRef.current = null;
-    }
-
-    if (upcStreamRef.current) {
-      try {
-        upcStreamRef.current.getTracks().forEach(t => t.stop());
-      } catch {
-        // ignore
-      }
-      upcStreamRef.current = null;
-    }
-
-    if (upcVideoRef.current) {
-      try {
-        (upcVideoRef.current as any).srcObject = null;
-      } catch {
-        // ignore
-      }
-    }
-  };
-
-  const closeUpcScanner = async () => {
-    await stopUpcScanner();
-    setUpcScannerOpen(false);
-    setUpcScannerError(null);
-  };
-
-  const openUpcScanner = async () => {
-    setUpcScannerError(null);
-    upcLastScannedRef.current = '';
-    setUpcScannerOpen(true);
-  };
-
-  const playUpcBeep = (frequency: number, durationMs: number) => {
-    if (typeof window === 'undefined') return;
-    if (!upcAudioContextRef.current) {
-      upcAudioContextRef.current = new AudioContext();
-    }
-    const context = upcAudioContextRef.current;
-    if (context.state === 'suspended') {
-      context.resume();
-    }
-    const oscillator = context.createOscillator();
-    const gainNode = context.createGain();
-    oscillator.type = 'sine';
-    oscillator.frequency.value = frequency;
-    gainNode.gain.value = 0.15;
-    oscillator.connect(gainNode);
-    gainNode.connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + durationMs / 1000);
-  };
-
-  useEffect(() => {
-    if (!upcScannerOpen) return;
-
-    let cancelled = false;
-
-    const start = async () => {
-      setUpcScannerError(null);
-      await stopUpcScanner();
-
-      const hasBarcodeDetector = typeof (window as any).BarcodeDetector !== 'undefined';
-      if (!hasBarcodeDetector) {
-        setUpcScannerError('Scanner not supported on this device/browser.');
-        return;
-      }
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
-          audio: false
-        });
-
-        upcStreamRef.current = stream;
-        if (upcVideoRef.current) {
-          (upcVideoRef.current as any).srcObject = stream;
-          await upcVideoRef.current.play();
-        }
-
-        if (cancelled) return;
-
-        const preferredFormats = ['upc_a', 'ean_13', 'ean_8', 'upc_e'];
-        let supportedFormats = preferredFormats;
-        if (typeof (window as any).BarcodeDetector.getSupportedFormats === 'function') {
-          try {
-            const detectedFormats = await (window as any).BarcodeDetector.getSupportedFormats();
-            if (Array.isArray(detectedFormats) && detectedFormats.length > 0) {
-              supportedFormats = preferredFormats.filter(format =>
-                detectedFormats.includes(format)
-              );
-            }
-          } catch {
-            supportedFormats = preferredFormats;
-          }
-        }
-
-        if (supportedFormats.length === 0) {
-          setUpcScannerError('Scanner not supported on this device/browser.');
-          return;
-        }
-
-        const detector = new (window as any).BarcodeDetector({
-          formats: supportedFormats
-        });
-
-        setIsUpcScanning(true);
-
-        const scanTick = async () => {
-          if (!upcScannerOpen || cancelled) return;
-          if (!upcVideoRef.current || upcVideoRef.current.readyState < 2) {
-            upcScanLoopRef.current = window.setTimeout(scanTick, 250);
-            return;
-          }
-
-          try {
-            const barcodes = await detector.detect(upcVideoRef.current);
-            if (Array.isArray(barcodes) && barcodes.length > 0) {
-              const rawValue = String(barcodes[0]?.rawValue || '').trim();
-              if (rawValue && rawValue !== upcLastScannedRef.current) {
-                upcLastScannedRef.current = rawValue;
-                setUpcInput(rawValue);
-                setUpcError(null);
-                playUpcBeep(980, 120);
-
-                const existing = upcItemsRef.current.find(item => item.upc === rawValue);
-                if (existing) {
-                  loadUpcDraft(existing);
-                } else {
-                  setUpcDraft({
-                    upc: rawValue,
-                    name: '',
-                    depositValue: upcDepositRef.current,
-                    price: 0,
-                    containerType: 'plastic',
-                    sizeOz: 0,
-                    isEligible: true
-                  });
-                }
-
-                await new Promise(r => setTimeout(r, 900));
-              }
-            }
-          } catch {
-            // ignore detection errors; keep scanning
-          }
-
-          upcScanLoopRef.current = window.setTimeout(scanTick, 250);
+      if (data.action === 'updated' && data.product) {
+        const prod: Product = {
+          id: data.product.sku || data.product.frontendId,
+          sku: data.product.sku || undefined,
+          name: data.product.name,
+          price: data.product.price,
+          deposit: data.product.deposit ?? 0,
+          stock: data.product.stock ?? 0,
+          sizeOz: data.product.sizeOz ?? 0,
+          category: data.product.category ?? 'DRINK',
+          image: data.product.image || '',
+          brand: data.product.brand || '',
+          productType: data.product.productType || '',
+          storageZone: data.product.storageZone || '',
+          storageBin: data.product.storageBin || '',
+          isGlass: !!data.product.isGlass
         };
-
-        scanTick();
-      } catch (e: any) {
-        setUpcScannerError(e?.message || 'Camera permission denied or unavailable.');
+        setProducts(prev => prev.map(p => (p.id === prod.id ? prod : p)));
       }
-    };
 
-    start();
+      if (data.action === 'created' && data.product) {
+        const created: Product = {
+          id: data.product.sku || data.product.frontendId,
+          sku: data.product.sku || undefined,
+          name: data.product.name,
+          price: data.product.price,
+          deposit: data.product.deposit ?? 0,
+          stock: data.product.stock ?? 0,
+          sizeOz: data.product.sizeOz ?? 0,
+          category: data.product.category ?? 'DRINK',
+          image: data.product.image || '',
+          brand: data.product.brand || '',
+          productType: data.product.productType || '',
+          storageZone: data.product.storageZone || '',
+          storageBin: data.product.storageBin || '',
+          isGlass: !!data.product.isGlass
+        };
+        setProducts(prev => [created, ...prev]);
+      }
 
-    return () => {
-      cancelled = true;
-      stopUpcScanner();
-    };
-  }, [upcScannerOpen]);
+      return data;
+    } catch (e: any) {
+      setUpcError(e?.message || 'Scan failed');
+      return null;
+    }
+  };
 
   const readFileAsDataUrl = (file: File) =>
     new Promise<string>((resolve, reject) => {
@@ -961,7 +862,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          id: newProduct.id.trim(),
           name: newProduct.name.trim(),
           price: Number(newProduct.price),
           deposit: Number(newProduct.deposit),
@@ -997,80 +897,54 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
-  const apiRestockPlus10 = async (id: string, currentStock: number) => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/products/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ stock: Number(currentStock) + 10 })
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Restock failed');
-
-      const updated: Product = data.product;
-      setProducts(prev => prev.map(p => (p.id === id ? updated : p)));
-    } catch {
-      // silent in UI for now
+  // Load audit counts when location changes
+  useEffect(() => {
+    if (selectedLocation && auditId) {
+      fetch(`${BACKEND_URL}/api/inventory-audit?auditId=${auditId}&location=${selectedLocation}`, {
+        credentials: 'include'
+      })
+        .then(res => res.json())
+        .then(data => setAuditCounts(data.counts || {}))
+        .catch(() => setAuditCounts({}));
+    } else {
+      setAuditCounts({});
     }
-  };
+  }, [selectedLocation, auditId]);
 
-  const apiScanUpc = async (upc: string, qty = 1) => {
+  const handleAuditScan = async (upc: string, qty = 1) => {
+    const product = products.find(p => p.upc === upc);
+    if (!product) {
+      setAuditError('Product not found for UPC');
+      return;
+    }
+    const newCount = (auditCounts[product.id] || 0) + qty;
+    setAuditCounts(prev => ({ ...prev, [product.id]: newCount }));
+    // Save to backend
     try {
-      const res = await fetch(`${BACKEND_URL}/api/upc/scan`, {
+      await fetch(`${BACKEND_URL}/api/inventory-audit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ upc, qty })
+        body: JSON.stringify({ auditId, location: selectedLocation, productId: product.id, countedQuantity: newCount })
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Scan failed');
+    } catch (err) {
+      console.error('Failed to save audit count');
+    }
+    setAuditUpcInput('');
+    setAuditError(null);
+  };
 
-      if (data.action === 'updated' && data.product) {
-        const prod: Product = {
-          id: data.product.sku || data.product.frontendId,
-          sku: data.product.sku || undefined,
-          name: data.product.name,
-          price: data.product.price,
-          deposit: data.product.deposit ?? 0,
-          stock: data.product.stock ?? 0,
-          sizeOz: data.product.sizeOz ?? 0,
-          category: data.product.category ?? 'DRINK',
-          image: data.product.image || '',
-          brand: data.product.brand || '',
-          productType: data.product.productType || '',
-          storageZone: data.product.storageZone || '',
-          storageBin: data.product.storageBin || '',
-          isGlass: !!data.product.isGlass
-        };
-        setProducts(prev => prev.map(p => (p.id === prod.id ? prod : p)));
-      }
-
-      if (data.action === 'created' && data.product) {
-        const created: Product = {
-          id: data.product.sku || data.product.frontendId,
-          sku: data.product.sku || undefined,
-          name: data.product.name,
-          price: data.product.price,
-          deposit: data.product.deposit ?? 0,
-          stock: data.product.stock ?? 0,
-          sizeOz: data.product.sizeOz ?? 0,
-          category: data.product.category ?? 'DRINK',
-          image: data.product.image || '',
-          brand: data.product.brand || '',
-          productType: data.product.productType || '',
-          storageZone: data.product.storageZone || '',
-          storageBin: data.product.storageBin || '',
-          isGlass: !!data.product.isGlass
-        };
-        setProducts(prev => [created, ...prev]);
-      }
-
-      return data;
-    } catch (e: any) {
-      setUpcError(e?.message || 'Scan failed');
-      return null;
+  const handleScannerScan = async (upc: string, qty = 1) => {
+    if (scannerMode === 'A') {
+      await apiScanUpc(upc, qty);
+    } else if (scannerMode === 'B') {
+      await handleAuditScan(upc, qty);
+    }
+    // For C and D, will be in DriverView
+    if (scannerMode === 'upcWhitelist') {
+      setUpcInput(upc);
+      handleUpcLookup(upc);
+      setScannerModalOpen(false);
     }
   };
 
@@ -1149,6 +1023,25 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setEditError(e?.message || 'Update failed');
     } finally {
       setIsSavingEdit(false);
+    }
+  };
+
+  const apiRestockPlus10 = async (id: string, currentStock: number) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/products/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ stock: Number(currentStock) + 10 })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Restock failed');
+
+      const updated: Product = data.product;
+      setProducts(prev => prev.map(p => (p.id === id ? updated : p)));
+    } catch {
+      // silent in UI for now
     }
   };
 
@@ -2614,6 +2507,72 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </label>
                 </div>
               </div>
+
+              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Scanning Settings
+                </p>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Default Increment
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      min="1"
+                      value={settingsDraft.defaultIncrement ?? 1}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          defaultIncrement: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Cooldown (ms)
+                    </label>
+                    <input
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      type="number"
+                      min="0"
+                      value={settingsDraft.cooldownMs ?? 1000}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          cooldownMs: Number(e.target.value)
+                        })
+                      }
+                    />
+                  </div>
+                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-ninpo-lime"
+                      checked={settingsDraft.requireSkuForScanning ?? true}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          requireSkuForScanning: e.target.checked
+                        })
+                      }
+                    />
+                    Require SKU for scanning
+                  </label>
+                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-ninpo-lime"
+                      checked={settingsDraft.shelfGroupingEnabled ?? true}
+                      onChange={e =>
+                        updateSettingsDraft({
+                          shelfGroupingEnabled: e.target.checked
+                        })
+                      }
+                    />
+                    Enable shelf grouping
+                  </label>
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -2645,245 +2604,356 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         ========================= */}
         {activeModule === 'inventory' && (
           <div className="space-y-6">
-            <h2 className="text-xl font-black uppercase text-white tracking-widest">
-              Inventory
-            </h2>
-
-            <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  AI Label Scan
-                </p>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-2">
-                  Upload a product label to auto-fill UPC, size, quantity, and eligibility.
-                </p>
-              </div>
-
-              {labelScanError && (
-                <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
-                  {labelScanError}
-                </div>
-              )}
-
-              <div className="flex flex-col md:flex-row gap-4 items-center">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleLabelPhotoChange}
-                  className="flex-1 text-[11px] text-slate-400 file:mr-4 file:py-3 file:px-4 file:rounded-2xl file:border-0 file:bg-white/10 file:text-white file:text-[10px] file:font-black file:uppercase file:tracking-widest"
-                />
-                <button
-                  onClick={runLabelScan}
-                  disabled={isLabelScanning || !labelScanPhoto}
-                  className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {isLabelScanning ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <ScanLine className="w-4 h-4" />
-                  )}
-                  Analyze Label
-                </button>
-              </div>
-
-              {labelScanPhoto && (
-                <div className="grid grid-cols-1 md:grid-cols-[160px_1fr] gap-4 items-start">
-                  <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40">
-                    <img
-                      src={labelScanPhoto}
-                      alt="Label preview"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-[11px] text-slate-300 uppercase tracking-widest">
-                    <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                      <p className="text-slate-500 font-bold">UPC</p>
-                      <p className="text-white font-semibold mt-2">
-                        {labelScanResult?.upc || '—'}
-                      </p>
-                    </div>
-                    <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                      <p className="text-slate-500 font-bold">Quantity</p>
-                      <p className="text-white font-semibold mt-2">
-                        {labelScanResult?.quantity
-                          ? Number(labelScanResult.quantity).toFixed(0)
-                          : '—'}
-                      </p>
-                    </div>
-                    <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                      <p className="text-slate-500 font-bold">Size (oz)</p>
-                      <p className="text-white font-semibold mt-2">
-                        {labelScanResult?.sizeOz
-                          ? Number(labelScanResult.sizeOz).toFixed(1)
-                          : '—'}
-                      </p>
-                    </div>
-                    <div className="bg-black/30 rounded-2xl p-4 border border-white/5 md:col-span-2">
-                      <p className="text-slate-500 font-bold">Name</p>
-                      <p className="text-white font-semibold mt-2">
-                        {labelScanResult?.name || '—'}
-                      </p>
-                    </div>
-                    <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                      <p className="text-slate-500 font-bold">Eligibility</p>
-                      <p className="text-white font-semibold mt-2">
-                        {labelScanResult
-                          ? labelScanResult.isEligible
-                            ? 'ELIGIBLE'
-                            : 'INELIGIBLE'
-                          : '—'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {labelScanResult?.message && (
-                <div className="text-[11px] text-slate-500 uppercase tracking-widest">
-                  {labelScanResult.message}
-                </div>
-              )}
-            </div>
-
-            <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                Create Product
-              </p>
-
-              {createError && (
-                <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
-                  {createError}
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  <span>Product ID</span>
-                  <input
-                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                    placeholder="e.g. coke-12oz"
-                    value={newProduct.id}
-                    onChange={e => setNewProduct({ ...newProduct, id: e.target.value })}
-                  />
-                </label>
-                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  <span>Name</span>
-                  <input
-                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                    placeholder="Product name"
-                    value={newProduct.name}
-                    onChange={e => setNewProduct({ ...newProduct, name: e.target.value })}
-                  />
-                </label>
-                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  <span>Price</span>
-                  <input
-                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                    placeholder="0.00"
-                    type="number"
-                    value={newProduct.price}
-                    onChange={e => setNewProduct({ ...newProduct, price: Number(e.target.value) })}
-                  />
-                </label>
-                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  <span>Deposit</span>
-                  <input
-                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                    placeholder="0.00"
-                    type="number"
-                    value={newProduct.deposit}
-                    onChange={e => setNewProduct({ ...newProduct, deposit: Number(e.target.value) })}
-                  />
-                </label>
-                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  <span>Stock</span>
-                  <input
-                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                    placeholder="0"
-                    type="number"
-                    value={newProduct.stock}
-                    onChange={e => setNewProduct({ ...newProduct, stock: Number(e.target.value) })}
-                  />
-                </label>
-                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  <span>Size (oz)</span>
-                  <input
-                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                    placeholder="0"
-                    type="number"
-                    step="0.1"
-                    value={newProduct.sizeOz}
-                    onChange={e =>
-                      setNewProduct({ ...newProduct, sizeOz: Number(e.target.value) })
-                    }
-                  />
-                </label>
-                <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
-                  <span>Image URL</span>
-                  <input
-                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                    placeholder="https://"
-                    value={newProduct.image}
-                    onChange={e => setNewProduct({ ...newProduct, image: e.target.value })}
-                  />
-                </label>
-              </div>
-
+            <div className="flex gap-4">
               <button
-                onClick={apiCreateProduct}
-                disabled={isCreating}
-                className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.01] transition-all shadow-neon"
+                onClick={() => setInventoryMode('A')}
+                className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
+                  inventoryMode === 'A' ? 'bg-ninpo-lime text-ninpo-black' : 'bg-white/5 text-white'
+                }`}
               >
-                {isCreating ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Plus className="w-5 h-5" />
-                )}
-                Create
+                Mode A (Management)
+              </button>
+              <button
+                onClick={() => setInventoryMode('B')}
+                className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
+                  inventoryMode === 'B' ? 'bg-ninpo-lime text-ninpo-black' : 'bg-white/5 text-white'
+                }`}
+              >
+                Mode B (Audit)
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-6">
-              {products.map(p => (
-                <div
-                  key={p.id}
-                  className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
-                >
+            {inventoryMode === 'A' && (
+              <>
+                <h2 className="text-xl font-black uppercase text-white tracking-widest">
+                  Inventory Management
+                </h2>
+
+                <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
                   <div>
-                    <p className="text-white font-black">{p.name}</p>
-                    <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest mt-1">
-                      SKU: {p.sku || p.id} • Stock: {p.stock} •{' '}
-                      {p.sizeOz ? `${Number(p.sizeOz).toFixed(1)} oz` : 'No size'} • $
-                      {Number(p.price || 0).toFixed(2)}
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      AI Label Scan
                     </p>
-                    <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest mt-1">
-                      {p.brand || 'No Brand'} • {p.productType || 'No Type'} • {p.storageZone || 'No Zone'} / {p.storageBin || 'No Bin'}
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-2">
+                      Upload a product label to auto-fill UPC, size, quantity, and eligibility.
                     </p>
                   </div>
 
-                  <div className="flex gap-3">
+                  {labelScanError && (
+                    <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                      {labelScanError}
+                    </div>
+                  )}
+
+                  <div className="flex flex-col md:flex-row gap-4 items-center">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLabelPhotoChange}
+                      className="flex-1 text-[11px] text-slate-400 file:mr-4 file:py-3 file:px-4 file:rounded-2xl file:border-0 file:bg-white/10 file:text-white file:text-[10px] file:font-black file:uppercase file:tracking-widest"
+                    />
                     <button
-                      onClick={() => startEditProduct(p)}
-                      className="px-6 py-3 rounded-2xl bg-white/5 text-white/70 text-[10px] font-black uppercase tracking-widest border border-white/10"
+                      onClick={runLabelScan}
+                      disabled={isLabelScanning || !labelScanPhoto}
+                      className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => apiRestockPlus10(p.id, p.stock)}
-                      className="px-6 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
-                    >
-                      +10 Stock
-                    </button>
-                    <button
-                      onClick={() => apiDeleteProduct(p.id)}
-                      className="px-6 py-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest border border-ninpo-red/20"
-                    >
-                      Delete
+                      {isLabelScanning ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <ScanLine className="w-4 h-4" />
+                      )}
+                      Analyze Label
                     </button>
                   </div>
+
+                  {labelScanPhoto && (
+                    <div className="grid grid-cols-1 md:grid-cols-[160px_1fr] gap-4 items-start">
+                      <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40">
+                        <img
+                          src={labelScanPhoto}
+                          alt="Label preview"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-[11px] text-slate-300 uppercase tracking-widest">
+                        <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                          <p className="text-slate-500 font-bold">UPC</p>
+                          <p className="text-white font-semibold mt-2">
+                            {labelScanResult?.upc || '—'}
+                          </p>
+                        </div>
+                        <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                          <p className="text-slate-500 font-bold">Quantity</p>
+                          <p className="text-white font-semibold mt-2">
+                            {labelScanResult?.quantity
+                              ? Number(labelScanResult.quantity).toFixed(0)
+                              : '—'}
+                          </p>
+                        </div>
+                        <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                          <p className="text-slate-500 font-bold">Size (oz)</p>
+                          <p className="text-white font-semibold mt-2">
+                            {labelScanResult?.sizeOz
+                              ? Number(labelScanResult.sizeOz).toFixed(1)
+                              : '—'}
+                          </p>
+                        </div>
+                        <div className="bg-black/30 rounded-2xl p-4 border border-white/5 md:col-span-2">
+                          <p className="text-slate-500 font-bold">Name</p>
+                          <p className="text-white font-semibold mt-2">
+                            {labelScanResult?.name || '—'}
+                          </p>
+                        </div>
+                        <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                          <p className="text-slate-500 font-bold">Eligibility</p>
+                          <p className="text-white font-semibold mt-2">
+                            {labelScanResult
+                              ? labelScanResult.isEligible
+                                ? 'ELIGIBLE'
+                                : 'INELIGIBLE'
+                              : '—'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {labelScanResult?.message && (
+                    <div className="text-[11px] text-slate-500 uppercase tracking-widest">
+                      {labelScanResult.message}
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
+
+                <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    Create Product
+                  </p>
+
+                  {createError && (
+                    <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                      {createError}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>SKU</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full disabled:opacity-50"
+                        placeholder="Auto-generated on creation"
+                        value=""
+                        disabled
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Name</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="Product name"
+                        value={newProduct.name}
+                        onChange={e => setNewProduct({ ...newProduct, name: e.target.value })}
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Price</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="0.00"
+                        type="number"
+                        value={newProduct.price}
+                        onChange={e => setNewProduct({ ...newProduct, price: Number(e.target.value) })}
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Deposit</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="0.00"
+                        type="number"
+                        value={newProduct.deposit}
+                        onChange={e => setNewProduct({ ...newProduct, deposit: Number(e.target.value) })}
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Stock</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="0"
+                        type="number"
+                        value={newProduct.stock}
+                        onChange={e => setNewProduct({ ...newProduct, stock: Number(e.target.value) })}
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Size (oz)</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="0"
+                        type="number"
+                        step="0.1"
+                        value={newProduct.sizeOz}
+                        onChange={e =>
+                          setNewProduct({ ...newProduct, sizeOz: Number(e.target.value) })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
+                      <span>Image URL</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="https://"
+                        value={newProduct.image}
+                        onChange={e => setNewProduct({ ...newProduct, image: e.target.value })}
+                      />
+                    </label>
+                  </div>
+
+                  <button
+                    onClick={apiCreateProduct}
+                    disabled={isCreating}
+                    className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.01] transition-all shadow-neon"
+                  >
+                    {isCreating ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Plus className="w-5 h-5" />
+                    )}
+                    Create
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6">
+                  {products.map(p => (
+                    <div
+                      key={p.id}
+                      className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+                    >
+                      <div>
+                        <p className="text-white font-black">{p.name}</p>
+                        <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest mt-1">
+                          SKU: {p.sku || p.id} • Stock: {p.stock} •{' '}
+                          {p.sizeOz ? `${Number(p.sizeOz).toFixed(1)} oz` : 'No size'} • $
+                          {Number(p.price || 0).toFixed(2)}
+                        </p>
+                        <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest mt-1">
+                          {p.brand || 'No Brand'} • {p.productType || 'No Type'} • {p.storageZone || 'No Zone'} / {p.storageBin || 'No Bin'}
+                        </p>
+                      </div>
+
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => startEditProduct(p)}
+                          className="px-6 py-3 rounded-2xl bg-white/5 text-white/70 text-[10px] font-black uppercase tracking-widest border border-white/10"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => apiRestockPlus10(p.id, p.stock)}
+                          className="px-6 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                        >
+                          +10 Stock
+                        </button>
+                        <button
+                          onClick={() => apiDeleteProduct(p.id)}
+                          className="px-6 py-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest border border-ninpo-red/20"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {inventoryMode === 'B' && (
+              <div className="space-y-6">
+                <h2 className="text-xl font-black uppercase text-white tracking-widest">
+                  Inventory Count/Audit
+                </h2>
+
+                <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
+                  <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    <span>Select Location</span>
+                    <select
+                      value={selectedLocation}
+                      onChange={e => setSelectedLocation(e.target.value)}
+                      className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    >
+                      <option value="">Select Location</option>
+                      {[...new Set(products.map(p => p.storageZone).filter(Boolean))].map(zone => (
+                        <option key={zone} value={zone}>{zone}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {selectedLocation && (
+                    <>
+                      <div className="flex flex-col md:flex-row gap-4">
+                        <input
+                          className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white flex-1"
+                          placeholder="Scan or enter UPC"
+                          value={auditUpcInput}
+                          onChange={e => setAuditUpcInput(e.target.value)}
+                        />
+                        <button
+                          onClick={() => {
+                            setScannerMode('B');
+                            setScannerModalOpen(true);
+                          }}
+                          className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                        >
+                          <ScanLine className="w-4 h-4" /> Scan
+                        </button>
+                        <button
+                          onClick={() => handleAuditScan(auditUpcInput.trim(), 1)}
+                          className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                        >
+                          Count Item
+                        </button>
+                      </div>
+
+                      {auditError && (
+                        <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                          {auditError}
+                        </div>
+                      )}
+
+                      <div className="space-y-4">
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          Counted Items at {selectedLocation}
+                        </h3>
+                        {Object.entries(auditCounts).map(([productId, count]) => {
+                          const product = products.find(p => p.id === productId);
+                          return (
+                            <div key={productId} className="bg-black/30 rounded-2xl p-4 border border-white/5 flex justify-between">
+                              <span className="text-white font-semibold">{product?.name || 'Unknown'}</span>
+                              <span className="text-slate-400">Count: {count}</span>
+                            </div>
+                          );
+                        })}
+                        {Object.keys(auditCounts).length === 0 && (
+                          <p className="text-slate-500 text-[10px] uppercase tracking-widest">No items counted yet.</p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {scannerModalOpen && (
+              <ScannerModal
+                mode={scannerMode}
+                onScan={handleScannerScan}
+                onClose={() => setScannerModalOpen(false)}
+                title={scannerMode === 'A' ? 'Add Stock' : 'Count Item'}
+                subtitle={scannerMode === 'A' ? 'Scan UPC to add stock or create product' : 'Scan UPC to count inventory'}
+                beepEnabled={settings.beepEnabled ?? true}
+                cooldownMs={settings.cooldownMs ?? 1000}
+              />
+            )}
           </div>
         )}
 
@@ -2920,7 +2990,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   onChange={e => setUpcInput(e.target.value)}
                 />
                 <button
-                  onClick={openUpcScanner}
+                  onClick={() => {
+                    setScannerMode('upcWhitelist' as any);
+                    setScannerModalOpen(true);
+                  }}
                   className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                 >
                   <ScanLine className="w-4 h-4" /> Scan
@@ -2952,61 +3025,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   Delete
                 </button>
               </div>
-
-              {upcScannerOpen && (
-                <div className="fixed inset-0 z-[14000] flex items-center justify-center p-6">
-                  <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={closeUpcScanner} />
-                  <div className="relative w-full max-w-lg bg-ninpo-black border border-white/10 rounded-[2.5rem] p-6 shadow-2xl">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-white font-black uppercase tracking-widest text-sm">
-                          UPC Scanner
-                        </p>
-                        <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
-                          Point the camera at the barcode to populate the whitelist form.
-                        </p>
-                      </div>
-                      <button
-                        onClick={closeUpcScanner}
-                        className="p-3 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"
-                      >
-                        <XCircle className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    <div className="mt-5 rounded-3xl overflow-hidden border border-white/10 bg-black/40 aspect-video flex items-center justify-center relative">
-                      <video ref={upcVideoRef} className="w-full h-full object-cover" playsInline muted />
-                      {isUpcScanning && <span className="scanning-line" />}
-                      {!isUpcScanning && (
-                        <div className="absolute text-center px-8">
-                          <Camera className="w-8 h-8 text-slate-600 mx-auto mb-3" />
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                            {upcScannerError ? 'Scanner unavailable' : 'Initializing camera...'}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-5 flex items-center justify-between">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                        Latest: <span className="text-white">{upcInput || '—'}</span>
-                      </div>
-                      <button
-                        onClick={closeUpcScanner}
-                        className="px-5 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
-                      >
-                        <ScanLine className="w-4 h-4" /> Done
-                      </button>
-                    </div>
-
-                    {upcScannerError && (
-                      <div className="mt-4 text-[11px] text-ninpo-red bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4">
-                        {upcScannerError}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input

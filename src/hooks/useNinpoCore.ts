@@ -78,7 +78,19 @@ const defaultSettings: AppSettings = {
   allowGuestCheckout: false,
   showAdvancedInventoryInsights: false,
   allowPlatinumTier,
-  platinumFreeDelivery: false
+  platinumFreeDelivery: false,
+  storageZones: [],
+  productTypes: [],
+  scanningModesEnabled: {
+    A: true,
+    B: true,
+    C: true,
+    D: true
+  },
+  defaultIncrement: 1,
+  cooldownMs: 1000,
+  requireSkuForScanning: false,
+  shelfGroupingEnabled: false
 };
 
 const parseOptionalNumber = (
@@ -140,7 +152,21 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     ),
     platinumFreeDelivery: Boolean(
       data.platinumFreeDelivery ?? defaultSettings.platinumFreeDelivery
-    )
+    ),
+    storageZones: Array.isArray(data.storageZones) ? data.storageZones : defaultSettings.storageZones,
+    productTypes: Array.isArray(data.productTypes) ? data.productTypes : defaultSettings.productTypes,
+    scanningModesEnabled: data.scanningModesEnabled && typeof data.scanningModesEnabled === 'object'
+      ? {
+          A: Boolean(data.scanningModesEnabled.A ?? defaultSettings.scanningModesEnabled.A),
+          B: Boolean(data.scanningModesEnabled.B ?? defaultSettings.scanningModesEnabled.B),
+          C: Boolean(data.scanningModesEnabled.C ?? defaultSettings.scanningModesEnabled.C),
+          D: Boolean(data.scanningModesEnabled.D ?? defaultSettings.scanningModesEnabled.D)
+        }
+      : defaultSettings.scanningModesEnabled,
+    defaultIncrement: Number(data.defaultIncrement ?? defaultSettings.defaultIncrement),
+    cooldownMs: Number(data.cooldownMs ?? defaultSettings.cooldownMs),
+    requireSkuForScanning: Boolean(data.requireSkuForScanning ?? defaultSettings.requireSkuForScanning),
+    shelfGroupingEnabled: Boolean(data.shelfGroupingEnabled ?? defaultSettings.shelfGroupingEnabled)
   };
 };
 

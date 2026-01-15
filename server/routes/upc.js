@@ -219,26 +219,8 @@ router.post('/scan', authRequired, ownerRequired, async (req, res) => {
       return res.json({ ok: true, action: 'updated', product: updated });
     }
 
-    // No mapping: create new product and persist mapping on UpcItem
-    const { generateSku } = await import('../utils/sku.js');
-    const sku = await generateSku();
-
-    const createPayload = {
-      frontendId: sku,
-      sku,
-      name: upcEntry?.name || `UPC ${upc}`,
-      price: Number(upcEntry?.price || 0),
-      stock: qty,
-      sizeOz: Number(upcEntry?.sizeOz || 0),
-      isGlass: !!upcEntry?.isGlass
-    };
-
-    const created = await Product.create(createPayload);
-
-    // Upsert mapping on UpcItem
-    await UpcModel.findOneAndUpdate({ upc }, { $set: { sku } }, { new: true });
-
-    return res.json({ ok: true, action: 'created', product: created, sku });
+    // No mapping: return unmapped action for frontend to handle
+    return res.json({ ok: true, action: 'unmapped', upc, upcEntry });
   } catch (err) {
     console.error('UPC SCAN ERROR:', err);
     res.status(500).json({ error: 'Failed to apply UPC scan' });

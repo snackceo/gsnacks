@@ -60,6 +60,7 @@ export interface LedgerEntry {
 export interface Product {
   id: string;
   sku?: string;
+  upc?: string;
   name: string;
   price: number;
   deposit: number;
@@ -86,6 +87,15 @@ export interface UpcItem {
   isEligible: boolean;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface UnmappedUpcData {
+  upc: string;
+  name?: string;
+  price?: number;
+  deposit?: number;
+  sizeOz?: number;
+  category?: string;
 }
 
 export interface ReturnUpcCount {
@@ -157,6 +167,18 @@ export interface AppSettings {
   showAdvancedInventoryInsights: boolean;
   allowPlatinumTier: boolean;
   platinumFreeDelivery: boolean;
+  storageZones: string[];
+  productTypes: string[];
+  scanningModesEnabled: {
+    A: boolean;
+    B: boolean;
+    C: boolean;
+    D: boolean;
+  };
+  defaultIncrement: number;
+  cooldownMs: number;
+  requireSkuForScanning: boolean;
+  shelfGroupingEnabled: boolean;
 }
 
 export type ApprovalType = 'REFUND' | 'CREDIT_ADJUSTMENT' | 'MEMBERSHIP_UPGRADE';

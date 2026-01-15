@@ -22,6 +22,7 @@ import auditLogsRouter from './routes/audit-logs.js';
 import uploadsRouter from './routes/uploads.js';
 import scanSessionsRouter from './routes/scan-sessions.js';
 import distanceRouter from './routes/distance.js';
+import inventoryAuditRouter from './routes/inventory-audit.js';
 
 dotenv.config();
 
@@ -129,6 +130,7 @@ app.use('/api/audit-logs', auditLogsRouter);
 app.use('/api/uploads', uploadsRouter);
 app.use('/api/scan-sessions', scanSessionsRouter);
 app.use('/api/distance', distanceRouter);
+app.use('/api/inventory-audit', inventoryAuditRouter);
 
 /* =========================
    START SERVER

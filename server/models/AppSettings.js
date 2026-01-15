@@ -24,7 +24,17 @@ const appSettingsSchema = new mongoose.Schema(
     platinumFreeDelivery: { type: Boolean, default: false }
     ,
     storageZones: { type: [String], default: [] },
-    productTypes: { type: [String], default: [] }
+    productTypes: { type: [String], default: [] },
+    scanningModesEnabled: {
+      A: { type: Boolean, default: true },
+      B: { type: Boolean, default: true },
+      C: { type: Boolean, default: true },
+      D: { type: Boolean, default: true }
+    },
+    defaultIncrement: { type: Number, default: 1 },
+    cooldownMs: { type: Number, default: 1000 },
+    requireSkuForScanning: { type: Boolean, default: true },
+    shelfGroupingEnabled: { type: Boolean, default: true }
   },
   { timestamps: true }
 );
