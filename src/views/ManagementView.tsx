@@ -662,7 +662,17 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         const next = prev.filter(item => item.upc !== saved.upc);
         return [saved, ...next];
       });
-      loadUpcDraft(saved);
+      // Clear inputs after successful save
+      setUpcInput('');
+      setUpcDraft({
+        upc: '',
+        name: '',
+        depositValue: 0.1,
+        price: 0,
+        containerType: 'plastic',
+        sizeOz: 0,
+        isEligible: true
+      });
     } catch (e: any) {
       setUpcError(e?.message || 'Failed to save UPC');
     } finally {
@@ -3049,13 +3059,16 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                           <h2 className="text-xl font-black uppercase text-white tracking-widest">
                             UPC Registry Maintenance
                           </h2>              <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
-                Edit eligibility and metadata for existing UPCs.
+                Manage UPC codes, product metadata, and Michigan deposit eligibility.
               </p>
             </div>
 
             <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                Scanner Input
+                UPC Lookup & Edit
+              </p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                Enter a UPC code, scan it, or lookup existing entries to view and edit product metadata.
               </p>
 
               {upcError && (
@@ -3065,103 +3078,134 @@ const ManagementView: React.FC<ManagementViewProps> = ({
               )}
 
               <div className="flex flex-col md:flex-row gap-4">
-                <input
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white flex-1"
-                  placeholder="Scan or enter UPC"
-                  value={upcInput}
-                  onChange={e => setUpcInput(e.target.value)}
-                />
-                <button
-                  onClick={() => {
-                    setScannerMode('UPC_REGISTRY');
-                    setScannerModalOpen(true);
-                  }}
-                  className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
-                >
-                  <ScanLine className="w-4 h-4" /> Scan
-                </button>
-                <button
-                  onClick={handleUpcLookup}
-                  className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
-                >
-                  Load
-                </button>
-                <button
-                  onClick={apiSaveUpc}
-                  disabled={isUpcSaving}
-                  className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
-                >
-                  {isUpcSaving ? 'Saving...' : 'Save'}
-                </button>
-                <button
-                  onClick={() => apiScanUpc(upcInput.trim(), 1, false)}
-                  className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
-                >
-                  Apply Scan
-                </button>
-                <button
-                  onClick={apiDeleteUpc}
-                  disabled={isUpcSaving || !upcDraft.upc}
-                  className="px-6 py-4 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest border border-ninpo-red/20"
-                >
-                  Delete
-                </button>
+                <div className="flex-1">
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">
+                    UPC Code
+                  </label>
+                  <input
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    placeholder="Enter or scan UPC"
+                    value={upcInput}
+                    onChange={e => setUpcInput(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    Actions
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setScannerMode('UPC_REGISTRY');
+                        setScannerModalOpen(true);
+                      }}
+                      className="px-4 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                    >
+                      <ScanLine className="w-4 h-4" /> Scan
+                    </button>
+                    <button
+                      onClick={handleUpcLookup}
+                      disabled={!upcInput.trim()}
+                      className="px-4 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Lookup
+                    </button>
+                    <button
+                      onClick={apiSaveUpc}
+                      disabled={isUpcSaving || !upcDraft.upc}
+                      className="px-4 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {isUpcSaving ? 'Saving...' : 'Save'}
+                    </button>
+                    <button
+                      onClick={apiDeleteUpc}
+                      disabled={isUpcSaving || !upcDraft.upc}
+                      className="px-4 py-4 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest border border-ninpo-red/20"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  placeholder="Name / Description"
-                  value={upcDraft.name}
-                  onChange={e => setUpcDraft({ ...upcDraft, name: e.target.value })}
-                />
-                <input
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  placeholder="Price"
-                  type="number"
-                  value={upcDraft.price}
-                  onChange={e => setUpcDraft({ ...upcDraft, price: Number(e.target.value) })}
-                />
-                <input
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  placeholder="Ounces / Weight"
-                  type="number"
-                  value={upcDraft.sizeOz}
-                  onChange={e => setUpcDraft({ ...upcDraft, sizeOz: Number(e.target.value) })}
-                />
-                <select
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  value={upcDraft.containerType}
-                  onChange={e =>
-                    setUpcDraft({
-                      ...upcDraft,
-                      containerType: e.target.value as UpcContainerType
-                    })
-                  }
-                >
-                  {Object.entries(UPC_CONTAINER_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-                <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">
+                    Product Name
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={upcDraft.isEligible}
-                    onChange={e =>
-                      setUpcDraft({ ...upcDraft, isEligible: e.target.checked })
-                    }
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    placeholder="Enter product name"
+                    value={upcDraft.name}
+                    onChange={e => setUpcDraft({ ...upcDraft, name: e.target.value })}
                   />
-                  Eligible for MI Deposit
-                </label>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">
+                    Price ($)
+                  </label>
+                  <input
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    placeholder="0.00"
+                    type="number"
+                    step="0.01"
+                    value={upcDraft.price}
+                    onChange={e => setUpcDraft({ ...upcDraft, price: Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">
+                    Size (oz)
+                  </label>
+                  <input
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    placeholder="12"
+                    type="number"
+                    step="0.1"
+                    value={upcDraft.sizeOz}
+                    onChange={e => setUpcDraft({ ...upcDraft, sizeOz: Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">
+                    Container Type
+                  </label>
+                  <select
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    value={upcDraft.containerType}
+                    onChange={e =>
+                      setUpcDraft({
+                        ...upcDraft,
+                        containerType: e.target.value as UpcContainerType
+                      })
+                    }
+                  >
+                    {Object.entries(UPC_CONTAINER_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <input
+                      type="checkbox"
+                      checked={upcDraft.isEligible}
+                      onChange={e =>
+                        setUpcDraft({ ...upcDraft, isEligible: e.target.checked })
+                      }
+                    />
+                    Eligible for Michigan Deposit Refund
+                  </label>
+                </div>
               </div>
             </div>
 
             <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Whitelist Entries
+                  Registered UPCs
                 </p>
                 <div className="flex gap-3">
                   <input
