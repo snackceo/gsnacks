@@ -60,7 +60,6 @@ export interface LedgerEntry {
 export interface Product {
   id: string;
   sku?: string;
-  upc?: string;
   name: string;
   price: number;
   deposit: number;
