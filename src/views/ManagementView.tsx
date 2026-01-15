@@ -826,40 +826,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       reader.readAsDataURL(file);
     });
 
-  const capturePhotoForAI = async (): Promise<string | null> => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        }
-      });
-      
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      await video.play();
-      
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        stream.getTracks().forEach(t => t.stop());
-        return null;
-      }
-
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0);
-      
-      stream.getTracks().forEach(t => t.stop());
-      
-      return canvas.toDataURL('image/jpeg', 0.8);
-    } catch (error) {
-      console.warn('Photo capture failed:', error);
-      return null;
-    }
-  };
-
   const handleLabelPhotoChange = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
