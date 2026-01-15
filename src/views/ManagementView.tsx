@@ -898,7 +898,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         body: JSON.stringify({
           name: newProduct.name.trim(),
           price: Number(newProduct.price),
-          deposit: Number(newProduct.deposit),
+          deposit: upcDraft.isEligible ? 0.10 : 0.00,
           stock: Number(newProduct.stock),
           sizeOz: Number(newProduct.sizeOz),
           category: newProduct.category,
@@ -945,7 +945,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         id: '',
         name: '',
         price: 0,
-        deposit: 0,
+        deposit: 0, // Will be auto-calculated
         stock: 0,
         sizeOz: 0,
         category: 'DRINK',
@@ -1001,7 +1001,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
-  const handleScannerScan = async (upc: string, qty = 1) => {
+  const handleScannerScan = async (upc: string, quantityOrPhoto?: number | string) => {
     if (scannerMode === 'PRODUCT_CREATION') {
       // Normalize: digits only
       const normalized = String(upc).replace(/\D/g, '').trim();
@@ -1014,21 +1014,26 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setUpcInput(normalized);
       setUpcDraft(prev => ({ ...prev, upc: normalized }));
 
-      // Optional: open the creation UI section if you have a flag
-      // setShowProductCreation(true);
+      // If photo was captured, set it for AI analysis
+      if (typeof quantityOrPhoto === 'string') {
+        setLabelScanPhoto(quantityOrPhoto);
+        setLabelScanMime('image/jpeg');
+        // Optionally auto-run analysis
+        // runLabelScan();
+      }
 
       return;
     }
     if (scannerMode === 'A') {
-      await apiScanUpc(upc, qty, false);
+      await apiScanUpc(upc, typeof quantityOrPhoto === 'number' ? quantityOrPhoto : 1, false);
     } else if (scannerMode === 'B') {
-      await handleAuditScan(upc, qty);
+      await handleAuditScan(upc, typeof quantityOrPhoto === 'number' ? quantityOrPhoto : 1);
     }
     // For C and D, will be in DriverView
     if (scannerMode === 'UPC_REGISTRY') {
       setUpcInput(upc);
       handleUpcLookup(upc);
-      setScannerModalOpen(false);
+      // Keep modal open for UPC_REGISTRY mode
     }
   };
 
@@ -2862,10 +2867,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       <span>Deposit</span>
                       <input
                         className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                        placeholder="0.00"
-                        type="number"
-                        value={newProduct.deposit}
-                        onChange={e => setNewProduct({ ...newProduct, deposit: Number(e.target.value) })}
+                        placeholder="Auto-calculated"
+                        value={upcDraft.isEligible ? "0.10" : "0.00"}
+                        disabled
                       />
                     </label>
                     <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
@@ -3041,8 +3045,18 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 mode={scannerMode}
                 onScan={handleScannerScan}
                 onClose={() => setScannerModalOpen(false)}
-                title={scannerMode === 'A' ? 'Add Stock' : 'Count Item'}
-                subtitle={scannerMode === 'A' ? 'Scan UPC to add stock or create product' : 'Scan UPC to count inventory'}
+                title={
+                  scannerMode === 'A' ? 'Add Stock' : 
+                  scannerMode === 'PRODUCT_CREATION' ? 'Scan Product' :
+                  scannerMode === 'UPC_REGISTRY' ? 'Scan UPC' :
+                  'Count Item'
+                }
+                subtitle={
+                  scannerMode === 'A' ? 'Scan UPC to add stock or create product' : 
+                  scannerMode === 'PRODUCT_CREATION' ? 'Scan UPC and capture photo for AI analysis' :
+                  scannerMode === 'UPC_REGISTRY' ? 'Scan UPC to lookup or edit registry entry' :
+                  'Scan UPC to count inventory'
+                }
                 beepEnabled={settings.beepEnabled ?? true}
                 cooldownMs={settings.cooldownMs ?? 1000}
               />

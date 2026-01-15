@@ -1,10 +1,10 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ScanLine, Camera, Volume2, RefreshCw } from 'lucide-react';
+import { X, ScanLine, Camera, Volume2, RefreshCw, Flashlight } from 'lucide-react';
 
 interface ScannerModalProps {
   mode: 'A' | 'B' | 'C' | 'D' | 'PRODUCT_CREATION' | 'UPC_REGISTRY' | string;
-  onScan: (upc: string, quantity?: number) => void;
+  onScan: (upc: string, quantityOrPhoto?: number | string) => void;
   onClose: () => void;
   title: string;
   subtitle: string;
@@ -32,28 +32,64 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
   const [quantity, setQuantity] = useState(1);
   const [lastScanTime, setLastScanTime] = useState(0);
   const [lastDetectedUpc, setLastDetectedUpc] = useState<string | null>(null);
+  const [flashlightOn, setFlashlightOn] = useState(false);
+  const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(mode === 'PRODUCT_CREATION');
 
-  const stopScanner = useCallback(async () => {
-    setIsScanning(false);
-    if (scanLoopRef.current) {
-      window.cancelAnimationFrame(scanLoopRef.current);
-      scanLoopRef.current = null;
+  const toggleFlashlight = useCallback(async () => {
+    if (!streamRef.current) return;
+    
+    const videoTrack = streamRef.current.getVideoTracks()[0];
+    if (!videoTrack) return;
+
+    try {
+      const capabilities = videoTrack.getCapabilities();
+      if (capabilities.torch) {
+        await videoTrack.applyConstraints({
+          advanced: [{ torch: !flashlightOn } as any]
+        });
+        setFlashlightOn(!flashlightOn);
+      }
+    } catch (error) {
+      console.warn('Flashlight not supported:', error);
     }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
+  }, [flashlightOn]);
+
+  const capturePhoto = useCallback(async (): Promise<string | null> => {
+    if (!videoRef.current) return null;
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    
+    ctx.drawImage(videoRef.current, 0, 0);
+    
+    return canvas.toDataURL('image/jpeg', 0.8);
   }, []);
 
-  const handleScan = (upc: string) => {
+  const handleScan = async (upc: string) => {
     const now = Date.now();
     if (now - lastScanTime < cooldownMs) return;
     setLastScanTime(now);
     setLastDetectedUpc(upc);
     if (beepEnabled) playBeep();
+
+    // Auto-capture photo for PRODUCT_CREATION mode
+    if (mode === 'PRODUCT_CREATION' && autoCaptureEnabled) {
+      try {
+        const photoDataUrl = await capturePhoto();
+        if (photoDataUrl) {
+          // Pass the photo data along with the UPC
+          onScan(upc, photoDataUrl);
+          return;
+        }
+      } catch (error) {
+        console.warn('Auto-capture failed:', error);
+      }
+    }
+
     onScan(upc, mode === 'A' || mode === 'B' ? quantity : 1);
   };
 
@@ -81,6 +117,18 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
     }
   };
 
+  const stopScanner = useCallback(async () => {
+    setIsScanning(false);
+    if (scanLoopRef.current) {
+      cancelAnimationFrame(scanLoopRef.current);
+      scanLoopRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+  }, []);
+
   const startScanner = useCallback(async () => {
     let cancelled = false;
     await stopScanner();
@@ -90,7 +138,41 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
         return;
       }
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        // Try different camera constraints for better scanning
+        let constraints: MediaStreamConstraints = {
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 30 }
+          }
+        };
+
+        // Try to get macro lens if available (experimental)
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoDevices = devices.filter(device => device.kind === 'videoinput');
+          
+          // Look for macro or wide-angle camera
+          const macroDevice = videoDevices.find(device => 
+            device.label.toLowerCase().includes('macro') || 
+            device.label.toLowerCase().includes('wide')
+          );
+          
+          if (macroDevice) {
+            constraints.video = {
+              deviceId: { exact: macroDevice.deviceId },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              frameRate: { ideal: 30 }
+            };
+          }
+        } catch (deviceError) {
+          // Fall back to default constraints
+          console.warn('Could not enumerate devices:', deviceError);
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
         if (cancelled) {
           stream.getTracks().forEach(t => t.stop());
           return;
@@ -117,11 +199,14 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
   }, [stopScanner, handleScan]);
 
   useEffect(() => {
-    startScanner();
+    setAutoCaptureEnabled(mode === 'PRODUCT_CREATION');
+  }, [mode]);
+
+  useEffect(() => {
     return () => {
       stopScanner();
     };
-  }, [startScanner, stopScanner]);
+  }, [stopScanner]);
 
   return createPortal(
     <div className="fixed inset-0 z-[14000] flex items-center justify-center p-6">
@@ -192,11 +277,51 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
             <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
               Latest: <span className="text-white">{lastDetectedUpc || '—'}</span>
             </div>
-            {beepEnabled && (
-              <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                <Volume2 className="w-3 h-3" /> Beep
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {mode === 'PRODUCT_CREATION' && (
+                <>
+                  <button
+                    onClick={() => setAutoCaptureEnabled(!autoCaptureEnabled)}
+                    className={`p-2 rounded-xl transition ${
+                      autoCaptureEnabled 
+                        ? 'bg-green-500/20 text-green-400' 
+                        : 'bg-white/10 text-white hover:bg-white/20'
+                    }`}
+                    title="Auto-capture photo on scan"
+                  >
+                    <Camera className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const photo = await capturePhoto();
+                      if (photo && lastDetectedUpc) {
+                        onScan(lastDetectedUpc, photo);
+                      }
+                    }}
+                    className="p-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition"
+                    title="Capture photo manually"
+                  >
+                    <ScanLine className="w-4 h-4" />
+                  </button>
+                </>
+              )}
+              <button
+                onClick={toggleFlashlight}
+                className={`p-2 rounded-xl transition ${
+                  flashlightOn 
+                    ? 'bg-yellow-500/20 text-yellow-400' 
+                    : 'bg-white/10 text-white hover:bg-white/20'
+                }`}
+                title="Toggle flashlight"
+              >
+                <Flashlight className="w-4 h-4" />
+              </button>
+              {beepEnabled && (
+                <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  <Volume2 className="w-3 h-3" /> Beep
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
