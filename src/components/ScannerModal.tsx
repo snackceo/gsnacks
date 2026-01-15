@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, ScanLine, Camera, Volume2, RefreshCw } from 'lucide-react';
 
 interface ScannerModalProps {
-  mode: 'A' | 'B' | 'C' | 'D' | 'UPC_REGISTRY' | string; // Allow custom modes like 'upcWhitelist'
+  mode: 'A' | 'B' | 'C' | 'D' | 'PRODUCT_CREATION' | 'UPC_REGISTRY' | string;
   onScan: (upc: string, quantity?: number) => void;
   onClose: () => void;
   title: string;

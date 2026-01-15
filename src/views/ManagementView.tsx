@@ -271,9 +271,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [isUpcLoading, setIsUpcLoading] = useState(false);
   const [isUpcSaving, setIsUpcSaving] = useState(false);
   const [upcError, setUpcError] = useState<string | null>(null);
-  const [upcScannerOpen, setUpcScannerOpen] = useState(false);
-  const [upcScannerError, setUpcScannerError] = useState<string | null>(null);
-  const [isUpcScanning, setIsUpcScanning] = useState(false);
   const [approvalFilter, setApprovalFilter] =
     useState<ApprovalRequest['status']>('PENDING');
   const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
@@ -726,12 +723,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   useEffect(() => {
     upcItemsRef.current = upcItems;
   }, [upcItems]);
-
-  useEffect(() => {
-    if (activeModule !== 'upc') {
-      setUpcScannerOpen(false);
-    }
-  }, [activeModule]);
 
   const filteredUpcItems = useMemo(() => {
     const needle = upcFilter.trim().toLowerCase();
@@ -2773,13 +2764,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                           className="w-full h-full object-cover"
                         />
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-[11px] text-slate-300 uppercase tracking-widest">
-                        <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                          <p className="text-slate-500 font-bold">UPC</p>
-                          <p className="text-white font-semibold mt-2">
-                            {labelScanResult?.upc || '—'}
-                          </p>
-                        </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px] text-slate-300 uppercase tracking-widest">
                         <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
                           <p className="text-slate-500 font-bold">Quantity</p>
                           <p className="text-white font-semibold mt-2">
@@ -2796,7 +2781,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                               : '—'}
                           </p>
                         </div>
-                        <div className="bg-black/30 rounded-2xl p-4 border border-white/5 md:col-span-2">
+                        <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
                           <p className="text-slate-500 font-bold">Name</p>
                           <p className="text-white font-semibold mt-2">
                             {labelScanResult?.name || '—'}
