@@ -1725,19 +1725,40 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const modules = [
+    { id: 'analytics', label: 'Dashboard', icon: BarChart3 },
+    { id: 'orders', label: 'Orders', icon: Truck },
+    { id: 'reviews', label: 'Reviews', icon: ShieldCheck },
+    { id: 'inventory', label: 'Inventory', icon: Package },
+    { id: 'upc', label: 'UPC Registry', icon: ScanLine },
+    { id: 'users', label: 'Users', icon: Users },
+    { id: 'logs', label: 'Audit Logs', icon: Terminal },
+    { id: 'settings', label: 'Settings', icon: Sliders }
+  ];
+
   return (
-    <div className="flex flex-col xl:flex-row gap-12 animate-in fade-in md:h-screen md:overflow-hidden">
-      <aside className="w-full xl:w-72 space-y-2 xl:sticky xl:top-6 xl:self-start xl:shrink-0">
-        {[
-          { id: 'analytics', label: 'Dashboard', icon: BarChart3 },
-          { id: 'orders', label: 'Orders', icon: Truck },
-          { id: 'reviews', label: 'Reviews', icon: ShieldCheck },
-          { id: 'inventory', label: 'Inventory', icon: Package },
-          { id: 'upc', label: 'UPC Registry', icon: ScanLine },
-          { id: 'users', label: 'Users', icon: Users },
-          { id: 'logs', label: 'Audit Logs', icon: Terminal },
-          { id: 'settings', label: 'Settings', icon: Sliders }
-        ].map(m => (
+    <div className="flex flex-col md:flex-row gap-12 animate-in fade-in">
+      <nav className="md:hidden -mx-4 px-4">
+        <div className="flex gap-2 overflow-x-auto whitespace-nowrap pb-2">
+          {modules.map(m => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => handleModuleSelect(m.id)}
+              className={`shrink-0 text-left px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-3 ${
+                activeModule === m.id
+                  ? 'bg-ninpo-lime text-ninpo-black shadow-neon'
+                  : 'hover:bg-white/5 text-slate-500'
+              }`}
+            >
+              <m.icon className="w-4 h-4" /> {m.label}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      <aside className="hidden md:block w-full md:w-72 space-y-2 md:sticky md:top-6 md:self-start md:shrink-0">
+        {modules.map(m => (
           <button
             key={m.id}
             type="button"
@@ -1753,7 +1774,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         ))}
       </aside>
 
-      <div className="flex-1 space-y-8 pb-32 md:min-h-0 md:overflow-y-auto">
+      <div className="flex-1 w-full space-y-8 pb-32">
         {activeModule === 'analytics' && (
           <ManagementDashboard
             auditModel={auditModel}
