@@ -1038,19 +1038,55 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             body: JSON.stringify({ upc: scannedUpcForCreation, productId: created.id })
           });
 
-          // Update UPC metadata
-          await fetch(`${BACKEND_URL}/api/upc/${scannedUpcForCreation}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              name: upcDraft.name,
-              sizeOz: upcDraft.sizeOz,
-              sizeUnit: upcDraft.sizeUnit,
+          const canWriteRegistry = activeModule === 'inventory' && scannerMode === ScannerMode.INVENTORY_CREATE;
+          if (canWriteRegistry) {
+            const sizeOz = Number.isFinite(Number(newProduct.sizeOz))
+              ? Number(newProduct.sizeOz)
+              : Number(upcDraft.sizeOz || 0);
+            const sizeUnit = newProduct.sizeUnit || upcDraft.sizeUnit;
+            const registryPayload = {
+              upc: scannedUpcForCreation,
+              name: upcDraft.name || newProduct.name.trim(),
+              brand: newProduct.brand,
+              productType: newProduct.productType,
+              depositValue: upcDraft.isEligible ? 0.1 : 0,
+              price: Number(newProduct.price),
+              sizeOz,
+              sizeUnit,
               isEligible: upcDraft.isEligible,
               containerType: upcDraft.containerType
-            })
-          });
+            };
+            const registryExists = upcItemsRef.current.some(item => item.upc === scannedUpcForCreation);
+
+            if (!registryExists) {
+              const registryRes = await fetch(`${BACKEND_URL}/api/upc`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(registryPayload)
+              });
+              if (!registryRes.ok && registryRes.status !== 409) {
+                const registryData = await registryRes.json().catch(() => ({}));
+                throw new Error(registryData?.error || 'Failed to create UPC registry entry');
+              }
+            }
+
+            // Update UPC metadata
+            await fetch(`${BACKEND_URL}/api/upc/${scannedUpcForCreation}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                name: registryPayload.name,
+                brand: registryPayload.brand,
+                productType: registryPayload.productType,
+                sizeOz: registryPayload.sizeOz,
+                sizeUnit: registryPayload.sizeUnit,
+                isEligible: registryPayload.isEligible,
+                containerType: registryPayload.containerType
+              })
+            });
+          }
         } catch (linkError) {
           console.error('Failed to link UPC:', linkError);
           // Don't fail the whole creation
