@@ -52,6 +52,13 @@ const normalizeNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const normalizeContainerType = value => {
+  const normalized =
+    typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (['plastic', 'glass', 'aluminum'].includes(normalized)) return normalized;
+  return '';
+};
+
 router.get('/health', (req, res) => {
   const apiKey = getGeminiApiKey();
   return res.json({ configured: Boolean(apiKey) });
@@ -215,8 +222,8 @@ router.post('/product-scan', async (req, res) => {
   }
 
   const prompt = `For a product with UPC "${upc || 'unknown'}", extract metadata from this label image.
-Return JSON only: {"name":"", "sizeOz":0, "quantity":0, "isEligible":true|false, "message":""}.
-Use empty string or 0 if unknown. "isEligible" means Michigan 10¢ deposit eligible.`;
+Return JSON only: {"name":"", "brand":"", "productType":"", "sizeOz":0, "quantity":0, "nutritionNote":"", "storageZone":"", "storageBin":"", "image":"", "containerType":"plastic|glass|aluminum|", "isEligible":true|false, "message":""}.
+Use empty string or 0 if unknown. "containerType" should be one of plastic, glass, aluminum, or empty. "isEligible" means Michigan 10¢ deposit eligible.`;
 
   try {
     const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
@@ -243,8 +250,15 @@ Use empty string or 0 if unknown. "isEligible" means Michigan 10¢ deposit eligi
     if (!rawText) {
       return res.status(502).json({
         name: '',
+        brand: '',
+        productType: '',
         sizeOz: 0,
         quantity: 0,
+        nutritionNote: '',
+        storageZone: '',
+        storageBin: '',
+        image: '',
+        containerType: '',
         isEligible: false,
         message: 'No analysis response returned.'
       });
@@ -260,8 +274,15 @@ Use empty string or 0 if unknown. "isEligible" means Michigan 10¢ deposit eligi
     if (parsed && typeof parsed === 'object') {
       return res.json({
         name: String(parsed.name || ''),
+        brand: String(parsed.brand || ''),
+        productType: String(parsed.productType || ''),
         sizeOz: normalizeNumber(parsed.sizeOz, 0),
         quantity: Math.max(0, Math.round(normalizeNumber(parsed.quantity, 0))),
+        nutritionNote: String(parsed.nutritionNote || ''),
+        storageZone: String(parsed.storageZone || ''),
+        storageBin: String(parsed.storageBin || ''),
+        image: String(parsed.image || ''),
+        containerType: normalizeContainerType(parsed.containerType),
         isEligible: Boolean(parsed.isEligible),
         message: String(parsed.message || '')
       });
@@ -269,8 +290,15 @@ Use empty string or 0 if unknown. "isEligible" means Michigan 10¢ deposit eligi
 
     return res.json({
       name: '',
+      brand: '',
+      productType: '',
       sizeOz: 0,
       quantity: 0,
+      nutritionNote: '',
+      storageZone: '',
+      storageBin: '',
+      image: '',
+      containerType: '',
       isEligible: false,
       message: rawText
     });
@@ -278,8 +306,15 @@ Use empty string or 0 if unknown. "isEligible" means Michigan 10¢ deposit eligi
     console.error('Gemini product scan failed.', error);
     return res.status(502).json({
       name: '',
+      brand: '',
+      productType: '',
       sizeOz: 0,
       quantity: 0,
+      nutritionNote: '',
+      storageZone: '',
+      storageBin: '',
+      image: '',
+      containerType: '',
       isEligible: false,
       message: 'Product scan failed.',
       error: error?.message || 'Unknown error',
