@@ -214,7 +214,7 @@ const isLikelyBase64 = (value: string) => /^[A-Za-z0-9+/]+={0,2}$/.test(value);
 const isValidPhotoDataUrl = (value: unknown): value is string => {
   if (typeof value !== 'string') return false;
   const trimmed = value.trim();
-  if (!trimmed) return false;
+  if (!trimmed || !trimmed.startsWith('data:image/')) return false;
   const base64Data = extractBase64FromDataUrl(trimmed);
   if (!base64Data) return false;
   return isLikelyBase64(base64Data);
@@ -1087,6 +1087,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setLabelScanError('Capture a label photo in the scanner.');
       return;
     }
+    if (typeof photo !== 'string' || !photo.startsWith('data:image/')) {
+      console.error('Invalid photo data for label scan.', { photo });
+      setLabelScanError(INVALID_PHOTO_MESSAGE);
+      return;
+    }
     if (!isValidPhotoDataUrl(photo)) {
       console.error('Invalid photo data for label scan.', { photo });
       setLabelScanError(INVALID_PHOTO_MESSAGE);
@@ -1278,6 +1283,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   };
 
   const handlePhotoCaptured = useCallback((photoDataUrl: unknown, mime: unknown) => {
+    if (typeof photoDataUrl !== 'string' || !photoDataUrl.startsWith('data:image/')) {
+      console.error('Invalid photo data captured from scanner.', { photoDataUrl });
+      setLabelScanError(INVALID_PHOTO_MESSAGE);
+      return;
+    }
     if (!isValidPhotoDataUrl(photoDataUrl)) {
       console.error('Invalid photo data captured from scanner.', { photoDataUrl });
       setLabelScanError(INVALID_PHOTO_MESSAGE);
