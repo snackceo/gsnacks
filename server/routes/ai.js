@@ -153,6 +153,13 @@ router.post('/analyze-bottle', async (req, res) => {
 Reply with JSON only: {"valid": true|false, "material": "PLASTIC|GLASS|ALUMINUM|OTHER|UNKNOWN", "message": "short reason"}.`;
 
   try {
+    const base64Data = stripBase64ImagePrefix(image);
+    const imageData = typeof base64Data === 'string' ? base64Data : '';
+    console.info('Gemini bottle image data:', {
+      type: typeof imageData,
+      length: imageData.length
+    });
+
     const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
     const response = await ai.models.generateContent({
       model: modelSelection.modelName,
@@ -162,9 +169,9 @@ Reply with JSON only: {"valid": true|false, "material": "PLASTIC|GLASS|ALUMINUM|
           parts: [
             { text: prompt },
             {
-              inlineData: {
-                data: image,
-                mimeType: mimeType || 'image/jpeg'
+              inline_data: {
+                data: imageData,
+                mime_type: mimeType || 'image/jpeg'
               }
             }
           ]
@@ -241,6 +248,11 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
 
   try {
     const base64Data = stripBase64ImagePrefix(image);
+    const imageData = typeof base64Data === 'string' ? base64Data : '';
+    console.info('Gemini product image data:', {
+      type: typeof imageData,
+      length: imageData.length
+    });
     const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
     const response = await ai.models.generateContent({
       model: modelSelection.modelName,
@@ -250,9 +262,9 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
           parts: [
             { text: prompt },
             {
-              inlineData: {
-                data: base64Data,
-                mimeType: mimeType || 'image/jpeg'
+              inline_data: {
+                data: imageData,
+                mime_type: mimeType || 'image/jpeg'
               }
             }
           ]
