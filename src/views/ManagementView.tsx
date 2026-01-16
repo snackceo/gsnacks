@@ -1726,7 +1726,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col xl:flex-row gap-12 animate-in fade-in h-screen overflow-hidden">
+    <div className="flex flex-col xl:flex-row gap-12 animate-in fade-in md:h-screen md:overflow-hidden">
       <aside className="w-full xl:w-72 space-y-2 xl:sticky xl:top-6 xl:self-start xl:shrink-0">
         {[
           { id: 'analytics', label: 'Dashboard', icon: BarChart3 },
@@ -1753,7 +1753,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         ))}
       </aside>
 
-      <div className="flex-1 min-h-0 overflow-y-auto space-y-8 pb-32">
+      <div className="flex-1 space-y-8 pb-32 md:min-h-0 md:overflow-y-auto">
         {activeModule === 'analytics' && (
           <ManagementDashboard
             auditModel={auditModel}
