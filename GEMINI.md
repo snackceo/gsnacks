@@ -104,6 +104,11 @@ ScannerModal must **not**:
 * create products
 * decide business logic
 
+Result panel requirement:
+
+* The **Create Product form** is the required result panel after scans that lead to product creation.
+* Preview cards are **not** used; all edits happen directly in the form.
+
 ### 3.2 Scanner Modes
 
 Scanner behavior after a scan is determined by **mode**, not by separate scanners.
@@ -176,6 +181,10 @@ Automatic creation without operator intent is forbidden.
 
   * mapped UPC → increment Product.stock
   * unmapped UPC → return `action: unmapped`
+* Inventory scanning closes the scanner:
+
+  * immediately after a UPC scan
+  * after photo capture completes
 
 ### 5.2 Inventory Audits
 
