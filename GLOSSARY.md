@@ -135,6 +135,8 @@ distanceIncludedMiles (number setting): The distance threshold (in miles) includ
 
 DriverView (component/view): Interface for drivers (and owners acting as drivers) to manage order fulfillment and returns pickup. Displays assigned orders, allows scanning of returns (verification) and marking orders as delivered. Props include currentUser, orders, and updateOrder.
 
+driverMode (string state): DriverView mode selector for driver workflows. Values: RETURNS_INTAKE (returns intake/verification) and PICK_PACK (pick/pack orders).
+
 DRIVER (UserRole): Role for delivery drivers. Drivers have access to the DriverView for verifying returns and completing deliveries. (Currently, the app limits DriverView to users with role DRIVER or OWNER).
 
 DRIVER_VERIFY_CONTAINERS (ScannerMode enum): Scanner mode for verifying returned containers (Driver Mode C). Triggers scanning UPCs from returned bottles to count and validate eligibility. In DriverView, when scannerMode is set to this, the ScannerModal titles reflect “Verify Returns”.
