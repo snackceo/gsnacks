@@ -752,6 +752,39 @@ Header (component): Top navigation bar with login/logout, branding, and links. A
 LegalFooter (component): Footer with legal notices, copyright, and links. Shown on all pages.
 Navbar (component): Main navigation bar for switching between app sections (e.g., shop, management, driver).
 ScannerModal (component): Shared camera barcode scanner modal. Handles scanning, cooldown, and scan events for all scanner modes.
+Example usage:
+	<ScannerModal
+		mode={ScannerMode.INVENTORY_CREATE}
+		onScan={handleScannerScan}
+		onClose={() => setScannerModalOpen(false)}
+		title="Scan Product UPC"
+		subtitle="Scan to add product or audit inventory"
+		beepEnabled={settings.beepEnabled}
+		cooldownMs={settings.cooldownMs}
+		isOpen={scannerModalOpen}
+	/>
+Cross-file relationships: Imported by ManagementView, DriverView, CustomerView. Depends on types.ts for ScannerMode enum.
+Business rationale: Centralizes all scanning logic to enforce consistent UX and business rules for inventory, returns, and audits.
+
+geminiService.ts (service): Frontend service for interacting with Gemini AI APIs (e.g., label analysis, issue explanation).
+Example usage:
+	const result = await analyzeBottleScan(photoDataUrl);
+Cross-file relationships: Used by ManagementView for AI label analysis and issue explanation. Calls backend endpoints for AI tasks.
+Business rationale: Abstracts AI logic and backend communication, enabling advanced inventory and returns analysis without exposing keys.
+
+ManagementView (view): Admin dashboard for owners. Manages modules (orders, inventory, users, settings, audit logs, approvals).
+Example usage:
+	<ManagementView
+		user={currentUser}
+		products={products}
+		setProducts={setProducts}
+		orders={orders}
+		...
+	/>
+Cross-file relationships: Imports ScannerModal, UnmappedUpcModal, geminiService, types.ts. Central hub for all admin actions and state.
+Business rationale: Provides a unified interface for business operations, enforcing workflow, audit, and approval rules.
+
+DEPRECATED: deliveryFee (term): Deprecated in favor of routeFee. Appears in legacy code paths and should be cleaned up in future refactors.
 ToastStack (component): Renders notification toasts (success, error, info) for user feedback. Consumes core.toasts state.
 UnmappedUpcModal (component): Modal for handling unmapped UPC scans. Allows creating new products or linking UPCs to existing products.
 
