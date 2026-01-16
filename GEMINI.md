@@ -148,13 +148,7 @@ Modes must be explicit. Using ad‑hoc strings or `as any` is forbidden.
 
 ### 4.3 Always Show What Was Detected
 
-After each scan, the UI must display:
-
-* UPC digits
-* matched product name (if mapped)
-* SKU
-* storage location (zone / bin)
-* a confidence or fallback message
+After each scan, the UI must display a **post-scan result panel**. In Inventory Mode A, the **Scanned UPC badge + Create Product form** is the result panel, and it only shows the scanned UPC digits. If the team wants the full result panel (UPC + product name + SKU + storage location + confidence/fallback message), the UI code must be updated to add those fields.
 
 ### 4.4 Unmapped UPC Handling
 
