@@ -45,6 +45,8 @@ address (string state): Delivery address input by the user, stored in App state 
 
 adjustCredits (function): Admin action to modify a user’s credit balance. Provided by useNinpoCore and passed into ManagementView for owners to perform credit adjustments.
 
+AI analysis (label scan flow): Manual label photo capture used to auto-fill Create Product fields. Operators capture a product label image (via ScannerModal) and submit it for AI labeling; the response can populate name/category/size defaults for the Create Product form and show confidence/notes for review.
+
 aiCondition (object state): In DriverView, holds AI analysis result for container return condition (fields: valid, material, message). Reflects if returned bottles pass automated checks (e.g., not contaminated) and status message.
 
 aiConditionStatus (string state): Status of AI condition check in DriverView ("idle", "loading", "error"). Indicates progress of analyzing return bottle images.
@@ -196,6 +198,8 @@ id (as in various interfaces): Generally a unique identifier string. For example
 ineligible (ScanEventStatus): Indicates a scanned UPC was recognized but is not eligible for Michigan deposit (e.g., out-of-state container). Logged in scan events so the driver knows it won’t count for credit.
 
 inventoryMode (string state): In ManagementView, toggles between inventory management modes "A" and "B". Mode A = normal stock management; Mode B = audit (count without auto-updating stock). UI buttons allow switching Mode A/Mode B.
+
+inventory create scan (workflow): Inventory Mode A scanner flow for unmapped UPCs. The scanner captures a UPC, optionally captures a label photo for AI analysis, and then closes after the scan/photo to return the operator to the Create Product form.
 
 isAuditing (boolean state): Indicates an inventory audit is currently running (to disable repeated clicks and show a loader). Set true when runAudit is in progress.
 
@@ -349,6 +353,10 @@ refundRequestedAt (datetime field): In Order, timestamp when the customer reques
 
 RefundRequested/Refunded (statuses): See OrderStatus – REFUND_REQUESTED means the user or system has flagged the order for a refund (requires attention). REFUNDED indicates the order has been refunded (money returned or credits given) and is closed out.
 
+Re-run AI Analysis (button/action): In the Create Product flow, re-analyzes the most recently captured label image and refreshes the AI-suggested fields in the form. Used when the initial AI analysis was incorrect or incomplete.
+
+result panel (UI): The Create Product form shown after an inventory create scan or AI label analysis. This panel displays the scanned UPC and the AI-suggested fields, and it’s where operators finalize and save the new product.
+
 ReturnAiAnalysis (interface): Structure holding AI results for a returns verification photo. Fields: confidence (e.g., how sure the AI is), flags (list of issues detected), summary (text summary of AI’s findings), assessedAt (timestamp). Attached to Order as returnAiAnalysis after processing a return verification image. Helps the admin decide on approving the returns count.
 
 ReturnUpcCount (interface): Object with upc and quantity fields. Used to list how many of each UPC were returned. Appears in Order as returnUpcCounts (customer-declared counts) and verifiedReturnUpcCounts (driver-verified counts).
@@ -367,7 +375,7 @@ Run Audit (action/button): In ManagementView’s Analytics, an action to run an 
 
 runAudit (function): Initiates the inventory audit process. Dispatched when “Run Audit” is clicked. It likely calls an AI service (Gemini) to analyze inventory and produce a report (the specifics are not fully visible, but error and loading state around it indicate an async operation).
 
-runLabelScan (function): Initiates an AI analysis of a product label image (for unmapped UPC). Passed to UnmappedUpcModal as onAnalyze. Likely calls an endpoint (e.g., POST /api/upc/scan-label) to identify the product via image, returning suggested name/category.
+runLabelScan (function): Initiates an AI analysis of a manually captured product label image for an unmapped UPC. Triggered from the Create Product flow (UnmappedUpcModal onAnalyze) after the operator captures a label photo; the response auto-fills suggested fields (name/category/size) in the Create Product form while still requiring operator review.
 
 runOpsSummary (function): Likely triggers an operations summary generation (perhaps a PDF or data export for operations). Bound to “Ops Summary” button in Analytics. Not much detail, but it’s disabled when orders list is empty or already loading.
 
