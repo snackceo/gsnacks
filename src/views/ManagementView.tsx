@@ -81,6 +81,7 @@ const UPC_CONTAINER_LABELS: Record<UpcContainerType, string> = {
   plastic: 'PLASTIC / BOTTLE'
 };
 const SIZE_UNIT_OPTIONS: SizeUnit[] = ['oz', 'fl oz', 'g', 'kg', 'ml', 'l'];
+const AI_ANALYSIS_FALLBACK_MESSAGE = 'AI analysis failed. Please retake the photo.';
 const DEFAULT_NEW_PRODUCT = {
   id: '',
   name: '',
@@ -169,6 +170,34 @@ const isNewSignupWithBonus = (user: User) => {
   if (!createdAt || Number.isNaN(createdAt.getTime())) return false;
   const ageMs = Date.now() - createdAt.getTime();
   return Number(user.loyaltyPoints || 0) >= 100 && ageMs < 24 * 60 * 60 * 1000;
+};
+
+const isLikelyJsonPayload = (value: string) => {
+  const trimmed = value.trim();
+  if (
+    !(
+      (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']'))
+    )
+  ) {
+    return false;
+  }
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const sanitizeAiMessage = (message: string | null | undefined) => {
+  if (!message) return null;
+  const trimmed = message.trim();
+  const isLargePayload = trimmed.length > 240;
+  if (isLargePayload || isLikelyJsonPayload(trimmed)) {
+    return AI_ANALYSIS_FALLBACK_MESSAGE;
+  }
+  return trimmed;
 };
 
 const ManagementView: React.FC<ManagementViewProps> = ({
@@ -296,6 +325,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   );
   const [labelScanError, setLabelScanError] = useState<string | null>(null);
   const [isLabelScanning, setIsLabelScanning] = useState(false);
+  const sanitizedLabelScanError = useMemo(
+    () => sanitizeAiMessage(labelScanError),
+    [labelScanError]
+  );
+  const sanitizedLabelScanMessage = useMemo(
+    () => sanitizeAiMessage(labelScanResult?.message),
+    [labelScanResult?.message]
+  );
   const [inventorySort, setInventorySort] = useState<
     'alpha' | 'price' | 'brand' | 'type' | 'storage-zone' | 'storage-bin'
   >('alpha');
@@ -338,6 +375,27 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     useState<ApprovalRequest['status']>('PENDING');
   const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (
+      labelScanError &&
+      sanitizedLabelScanError === AI_ANALYSIS_FALLBACK_MESSAGE
+    ) {
+      console.error('Label scan error details:', labelScanError);
+    }
+  }, [labelScanError, sanitizedLabelScanError]);
+
+  useEffect(() => {
+    if (
+      labelScanResult?.message &&
+      sanitizedLabelScanMessage === AI_ANALYSIS_FALLBACK_MESSAGE
+    ) {
+      console.error(
+        'Label scan result message details:',
+        labelScanResult.message
+      );
+    }
+  }, [labelScanResult?.message, sanitizedLabelScanMessage]);
 
   const chartData = useMemo(() => {
     return (orders || [])
@@ -3311,9 +3369,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     Scanned UPC: <span className="text-white">{scannedUpcForCreation || 'No UPC scanned'}</span>
                   </div>
 
-                  {labelScanError && (
+                  {sanitizedLabelScanError && (
                     <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
-                      {labelScanError}
+                      {sanitizedLabelScanError}
                     </div>
                   )}
 
@@ -3382,9 +3440,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     </div>
                   )}
 
-                  {labelScanResult?.message && (
+                  {sanitizedLabelScanMessage && (
                     <div className="text-[11px] text-slate-500 uppercase tracking-widest">
-                      {labelScanResult.message}
+                      {sanitizedLabelScanMessage}
                     </div>
                   )}
                   {scannedUpcForCreation ? (
