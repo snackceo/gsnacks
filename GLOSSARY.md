@@ -269,6 +269,8 @@ mapUser (function): Backend helper to shape a User document into JSON for fronte
 
 membershipTier (string field): The user’s current membership tier (COMMON, BRONZE, SILVER, GOLD, PLATINUM, GREEN). Tiers gate certain benefits (credits usage, cash-out eligibility, discounts). Platinum is a hidden tier (invite-only) and Green is future. Tier can auto-promote based on ordersCompleted and verifications (Common→Bronze→Silver→Gold).
 
+Secret Platinum (term): Documentation-facing name for the hidden PLATINUM tier. Used in docs to limit awareness; internal tier identifier remains PLATINUM.
+
 metadata (general): Throughout the code, “metadata” refers to supplemental info often stored as object fields. E.g., updateOrder(id, status, metadata?) where metadata can include assignments (driverId etc.). Also, some backend APIs return data in { ok, ... } wrappers and might include metadata about errors or operations.
 
 MI-Eligible Container (concept): A container that qualifies for Michigan’s $0.10 deposit refund. Only these generate return credits. The system filters scanned UPCs by an internal list of eligible items (isEligible flag on UPC records).
@@ -335,7 +337,7 @@ PaymentMethod (type/enum): Accepted payment methods for orders. Defined as union
 
 Payment Rail (concept): The mechanism used to collect payment for any remaining balance (e.g., Stripe for card payments). Distinct from settlement mode.
 
-Pickup-Only Order (order type): An order containing only bottle pickup (returns) with no product delivery. Uses the pickupOnlyMultiplier for route-level fees.
+Settlement Mode (concept): How bottle deposit value is settled (Credit Settlement or Cash Settlement). Distinct from payment rail.
 
 pending (status): See PENDING (OrderStatus): initial status for new orders awaiting authorization. Also PENDING is used for ApprovalRequests that haven’t been processed.
 
