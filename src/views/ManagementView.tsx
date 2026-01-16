@@ -1737,7 +1737,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   ];
 
   return (
-    <div className="flex flex-col md:flex-row gap-12 animate-in fade-in">
+    <div className="overflow-visible md:overflow-y-auto md:h-[calc(100vh-12rem)]">
+      <div className="flex flex-col md:flex-row gap-12 animate-in fade-in">
       <nav className="md:hidden -mx-4 px-4">
         <div className="flex gap-2 overflow-x-auto whitespace-nowrap pb-2">
           {modules.map(m => (
@@ -4083,6 +4084,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         onPhotoCaptured={scannerMode === ScannerMode.INVENTORY_CREATE ? handlePhotoCaptured : undefined}
         closeOnScan={scannerMode === ScannerMode.INVENTORY_CREATE}
       />
+      </div>
     </div>
   );
 };
