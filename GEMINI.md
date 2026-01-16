@@ -175,10 +175,8 @@ Automatic creation without operator intent is forbidden.
 
   * mapped UPC → increment Product.stock
   * unmapped UPC → return `action: unmapped`
-* Inventory scanning closes the scanner:
-
-  * immediately after a UPC scan
-  * after photo capture completes
+* Inventory scanning keeps the scanner open after a UPC scan.
+* Inventory scanning closes the scanner only after photo capture completes.
 
 ### 5.2 Inventory Audits
 
