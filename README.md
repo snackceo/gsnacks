@@ -36,6 +36,15 @@ NinpoSnacks is a delivery-first snack business with integrated Michigan 10¢ bot
 ## Glossary
 
 All roles, permissions, scanner modes, and flags are defined in [GLOSSARY.md](GLOSSARY.md). Do not redefine terms here.
+
+---
+
+## Inventory Scanner Workflow (UI)
+
+* Inventory scan closes the camera and opens the auto-filled **Create Product** form.
+* The **Create Product** form is the only review panel.
+* Photo capture is manual; re-run analysis uses the last captured photo.
+
 ## 1. Naming Standard (Do Not Deviate)
 
 This document uses **one unified vocabulary**. Code, admin UI, receipts, and support scripts must use these exact terms.
