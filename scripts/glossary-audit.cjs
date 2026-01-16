@@ -27,13 +27,21 @@ function getAllFiles() {
 // Helper: Extract candidate terms from file content
 function extractTerms(content) {
   const terms = new Set();
-  // Identifiers: camelCase, PascalCase, UPPER_CASE, kebab-case
-  const idRegex = /\b([A-Z][a-zA-Z0-9]+|[a-z]+[A-Z][a-zA-Z0-9]+|[A-Z_]{2,}|[a-z0-9]+-[a-z0-9-]+)\b/g;
+  // Business term patterns: interface, type, enum, class, model
+  const patterns = [
+    /interface\s+([A-Z][a-zA-Z0-9_]*)/g,
+    /type\s+([A-Z][a-zA-Z0-9_]*)/g,
+    /enum\s+([A-Z][a-zA-Z0-9_]*)/g,
+    /class\s+([A-Z][a-zA-Z0-9_]*)/g,
+    /model\s+([A-Z][a-zA-Z0-9_]*)/gi,
+  ];
   let match;
-  while ((match = idRegex.exec(content))) {
-    terms.add(match[1]);
-  }
-  // Markdown headings and bolded terms
+  patterns.forEach((regex) => {
+    while ((match = regex.exec(content))) {
+      terms.add(match[1]);
+    }
+  });
+  // Also extract Markdown headings and bolded terms
   const mdHeading = /^#+\s+([A-Za-z0-9 _-]{3,})/gm;
   while ((match = mdHeading.exec(content))) {
     terms.add(match[1].trim());
@@ -72,13 +80,13 @@ function insertTemplates(glossaryText, templates) {
 }
 
 // Main
+
 function main() {
   const files = getAllFiles();
   const allTerms = new Set();
   files.forEach(file => {
     // Add base file name (without extension) as a candidate term
     const baseName = path.basename(file, path.extname(file));
-    // Add all file names, regardless of format
     allTerms.add(baseName);
     const content = fs.readFileSync(file, 'utf8');
     extractTerms(content).forEach(t => allTerms.add(t));
@@ -87,8 +95,10 @@ function main() {
   const glossaryTerms = parseGlossaryTerms(glossaryText);
   // Only add terms not already in glossary
   const missing = Array.from(allTerms).filter(t => !glossaryTerms.has(t));
+  // Output results in text and JSON
   if (missing.length === 0) {
     console.log('No missing terms found. Glossary is up to date.');
+    fs.writeFileSync(path.resolve(__dirname, '../glossary-audit-results.json'), JSON.stringify({ missing: [] }, null, 2), 'utf8');
     return;
   }
   // Avoid duplicate insertions
@@ -106,11 +116,15 @@ function main() {
   const toInsert = missing.filter(t => !alreadyInserted.has(t));
   if (toInsert.length === 0) {
     console.log('No new missing terms to insert.');
+    fs.writeFileSync(path.resolve(__dirname, '../glossary-audit-results.json'), JSON.stringify({ missing }, null, 2), 'utf8');
     return;
   }
   const updatedGlossary = insertTemplates(glossaryText, toInsert);
   fs.writeFileSync(GLOSSARY_PATH, updatedGlossary, 'utf8');
+  fs.writeFileSync(path.resolve(__dirname, '../glossary-audit-results.json'), JSON.stringify({ missing: toInsert }, null, 2), 'utf8');
   console.log(`Inserted ${toInsert.length} missing term templates into GLOSSARY.md under [AUTO-GENERATED: Review and Complete].`);
+  console.log('Missing terms:', toInsert.join(', '));
+  console.log('JSON results written to glossary-audit-results.json');
 }
 
 main();

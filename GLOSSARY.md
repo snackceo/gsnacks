@@ -57,6 +57,8 @@ AppSettings (data model/schema): System-wide configuration object stored in DB. 
 
 auditLogs (data model & state): Records of system events for auditing (e.g., order updates, settings changes). In code, core.auditLogs holds the list of audit log entries for display in admin UI. Each log entry includes an id, type (like "ORDER_CREATED", "SETTINGS_UPDATED"), details, actor, and timestamp.
 
+LedgerEntry (data model): A record of a credit or debit transaction affecting a user's account balance. Each entry includes an id, userId, delta (amount changed), reason (description of the transaction), and timestamp. Used to track all adjustments to user credits, including returns, purchases, and manual admin actions.
+
 auditModel (string state): Selected AI/ML model for inventory audit predictions. Shown in the Analytics dashboard for inventory insights, with a dropdown of available auditModels. Chosen model is used when running an inventory audit (runAudit).
 
 auditModels (array state): List of available audit models (identifiers) for inventory insights. Populated from backend (or empty if none) and shown in the Analytics UI.
