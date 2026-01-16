@@ -59,6 +59,15 @@ const normalizeContainerType = value => {
   return '';
 };
 
+const normalizeSizeUnit = value => {
+  const normalized =
+    typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (['oz', 'fl oz', 'g', 'kg', 'ml', 'l'].includes(normalized)) {
+    return normalized;
+  }
+  return '';
+};
+
 router.get('/health', (req, res) => {
   const apiKey = getGeminiApiKey();
   return res.json({ configured: Boolean(apiKey) });
@@ -222,8 +231,8 @@ router.post('/product-scan', async (req, res) => {
   }
 
   const prompt = `For a product with UPC "${upc || 'unknown'}", extract metadata from this label image.
-Return JSON only: {"name":"", "brand":"", "productType":"", "sizeOz":0, "quantity":0, "nutritionNote":"", "storageZone":"", "storageBin":"", "image":"", "containerType":"plastic|glass|aluminum|", "isEligible":true|false, "message":""}.
-Use empty string or 0 if unknown. "containerType" should be one of plastic, glass, aluminum, or empty. "isEligible" means Michigan 10¢ deposit eligible.`;
+Return JSON only: {"name":"", "brand":"", "productType":"", "sizeOz":0, "sizeUnit":"oz|fl oz|g|kg|ml|l|", "quantity":0, "nutritionNote":"", "storageZone":"", "storageBin":"", "image":"", "containerType":"plastic|glass|aluminum|", "isEligible":true|false, "message":""}.
+Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, ml, l, or empty. "containerType" should be one of plastic, glass, aluminum, or empty. "isEligible" means Michigan 10¢ deposit eligible.`;
 
   try {
     const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
@@ -253,6 +262,7 @@ Use empty string or 0 if unknown. "containerType" should be one of plastic, glas
         brand: '',
         productType: '',
         sizeOz: 0,
+        sizeUnit: '',
         quantity: 0,
         nutritionNote: '',
         storageZone: '',
@@ -277,6 +287,7 @@ Use empty string or 0 if unknown. "containerType" should be one of plastic, glas
         brand: String(parsed.brand || ''),
         productType: String(parsed.productType || ''),
         sizeOz: normalizeNumber(parsed.sizeOz, 0),
+        sizeUnit: normalizeSizeUnit(parsed.sizeUnit),
         quantity: Math.max(0, Math.round(normalizeNumber(parsed.quantity, 0))),
         nutritionNote: String(parsed.nutritionNote || ''),
         storageZone: String(parsed.storageZone || ''),
@@ -293,6 +304,7 @@ Use empty string or 0 if unknown. "containerType" should be one of plastic, glas
       brand: '',
       productType: '',
       sizeOz: 0,
+      sizeUnit: '',
       quantity: 0,
       nutritionNote: '',
       storageZone: '',
@@ -309,6 +321,7 @@ Use empty string or 0 if unknown. "containerType" should be one of plastic, glas
       brand: '',
       productType: '',
       sizeOz: 0,
+      sizeUnit: '',
       quantity: 0,
       nutritionNote: '',
       storageZone: '',

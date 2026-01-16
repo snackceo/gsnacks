@@ -918,6 +918,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       Boolean(result.name) ||
       Boolean(result.brand) ||
       Boolean(result.productType) ||
+      Boolean(result.sizeUnit) ||
       Boolean(result.nutritionNote) ||
       Boolean(result.storageZone) ||
       Boolean(result.storageBin) ||
@@ -926,6 +927,13 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       Number(result.quantity) > 0 ||
       Boolean(result.containerType);
     if (!hasSignal) return;
+    const normalizedSizeUnit =
+      typeof result.sizeUnit === 'string' ? result.sizeUnit.trim().toLowerCase() : '';
+    const resolvedSizeUnit = SIZE_UNIT_OPTIONS.includes(
+      normalizedSizeUnit as SizeUnit
+    )
+      ? (normalizedSizeUnit as SizeUnit)
+      : undefined;
     const normalizedContainerType =
       typeof result.containerType === 'string'
         ? result.containerType.trim().toLowerCase()
@@ -944,6 +952,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       ...prev,
       name: result.name || prev.name,
       sizeOz: Number.isFinite(result.sizeOz) ? result.sizeOz : prev.sizeOz,
+      sizeUnit: resolvedSizeUnit ?? prev.sizeUnit,
       isEligible: result.isEligible,
       containerType: resolvedContainerType ?? prev.containerType
     }));
@@ -961,6 +970,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           ? result.quantity
           : prev.stock,
       sizeOz: Number.isFinite(result.sizeOz) ? result.sizeOz : prev.sizeOz,
+      sizeUnit: resolvedSizeUnit ?? prev.sizeUnit,
       isGlass: resolvedIsGlass ?? prev.isGlass
     }));
   };
