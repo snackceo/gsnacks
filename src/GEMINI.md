@@ -37,9 +37,9 @@ This file documents UI/UX, scanner, and component contract. For all roles, permi
 
 ## Management modes
 - Inventory Mode A:
-  - scan -> /api/upc/scan
-  - if updated: show product + increment confirmation
-  - if unmapped: open UnmappedUpcModal
+  - Flow: scan UPC → scanner closes → Create Product form shows auto-filled values → optional “Re-run AI Analysis” → Create/Cancel returns to scanner.
+  - The Create Product form is the result panel (no separate preview cards).
+  - Photo capture is manual and closes the scanner on capture.
 - Inventory Mode B:
   - scan -> /api/upc/scan
   - do not mutate stock automatically unless explicitly confirmed
