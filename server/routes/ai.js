@@ -68,6 +68,11 @@ const normalizeSizeUnit = value => {
   return '';
 };
 
+const stripBase64ImagePrefix = value =>
+  typeof value === 'string'
+    ? value.replace(/^data:image\/[a-z0-9+.-]+;base64,/i, '')
+    : value;
+
 router.get('/health', (req, res) => {
   const apiKey = getGeminiApiKey();
   return res.json({ configured: Boolean(apiKey) });
@@ -235,6 +240,7 @@ Return JSON only: {"name":"", "brand":"", "productType":"", "category":"", "size
 Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, ml, l, or empty. "containerType" should be one of plastic, glass, aluminum, or empty. "isEligible" means Michigan 10¢ deposit eligible.`;
 
   try {
+    const base64Data = stripBase64ImagePrefix(image);
     const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
     const response = await ai.models.generateContent({
       model: modelSelection.modelName,
@@ -245,7 +251,7 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
             { text: prompt },
             {
               inlineData: {
-                data: image,
+                data: base64Data,
                 mimeType: mimeType || 'image/jpeg'
               }
             }
