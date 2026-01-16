@@ -4038,6 +4038,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         cooldownMs={settings.cooldownMs ?? 1000}
         isOpen={scannerModalOpen}
         onPhotoCaptured={scannerMode === ScannerMode.INVENTORY_CREATE ? handlePhotoCaptured : undefined}
+        closeOnScan={scannerMode === ScannerMode.INVENTORY_CREATE}
       />
     </div>
   );
