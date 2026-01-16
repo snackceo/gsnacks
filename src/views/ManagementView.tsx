@@ -4,10 +4,10 @@ import {
 
 // Type-only imports for TSX type references
 import type {
-    UserStatsSummary,
-    AuditLog,
-    LedgerEntry,
-    AuditLogType,
+  UserStatsSummary,
+  AuditLog,
+  LedgerEntry,
+  AuditLogType,
   User,
   Product,
   Order,
@@ -17,7 +17,8 @@ import type {
   ApprovalRequest,
   ReturnUpcCount,
   ReturnVerification,
-  ReturnSettlement
+  ReturnSettlement,
+  SizeUnit
 } from '../types';
 import { ScannerMode, OrderStatus } from '../types';
 import ManagementDashboard from './management/ManagementDashboard';
@@ -79,6 +80,7 @@ const UPC_CONTAINER_LABELS: Record<UpcContainerType, string> = {
   glass: 'GLASS / BOTTLE',
   plastic: 'PLASTIC / BOTTLE'
 };
+const SIZE_UNIT_OPTIONS: SizeUnit[] = ['oz', 'fl oz', 'g', 'kg', 'ml', 'l'];
 
 interface ManagementViewProps {
   user: User;
@@ -135,6 +137,15 @@ const getTierStyles = (tier: string) => {
 
 const countTotalUpcs = (entries: ReturnUpcCount[]) =>
   entries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+
+const formatSize = (value: number, unit?: SizeUnit) => {
+  if (!value) return 'No size';
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized) || normalized <= 0) return 'No size';
+  const label = unit || 'oz';
+  const decimals = label === 'oz' || label === 'fl oz' ? 1 : 0;
+  return `${normalized.toFixed(decimals)} ${label}`;
+};
 
 const isNewSignupWithBonus = (user: User) => {
   const createdAt = user.createdAt ? new Date(user.createdAt) : null;
@@ -256,9 +267,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     deposit: 0,
     stock: 0,
     sizeOz: 0,
+    sizeUnit: 'oz' as SizeUnit,
     category: 'DRINK',
     brand: '',
     productType: '',
+    nutritionNote: '',
     storageZone: '',
     storageBin: '',
     image: '',
@@ -278,9 +291,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     deposit: 0,
     stock: 0,
     sizeOz: 0,
+    sizeUnit: 'oz' as SizeUnit,
     category: '',
     brand: '',
     productType: '',
+    nutritionNote: '',
     storageZone: '',
     storageBin: '',
     image: '',
@@ -298,6 +313,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     price: 0,
     containerType: 'plastic',
     sizeOz: 0,
+    sizeUnit: 'oz',
     isEligible: true
   });
   const [isUpcLoading, setIsUpcLoading] = useState(false);
@@ -635,6 +651,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       price: Number(entry.price || 0),
       containerType: entry.containerType || 'plastic',
       sizeOz: Number(entry.sizeOz || 0),
+      sizeUnit: entry.sizeUnit || 'oz',
       isEligible: entry.isEligible !== false
     });
   };
@@ -660,6 +677,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       price: 0,
       containerType: 'plastic',
       sizeOz: 0,
+      sizeUnit: 'oz',
       isEligible: true
     });
   };
@@ -684,12 +702,16 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           price: Number(upcDraft.price || 0),
           containerType: upcDraft.containerType,
           sizeOz: Number(upcDraft.sizeOz || 0),
+          sizeUnit: upcDraft.sizeUnit,
           isEligible: upcDraft.isEligible
         })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Failed to save UPC');
-      const saved: UpcItem = data.upcItem;
+      const saved: UpcItem = {
+        ...data.upcItem,
+        sizeUnit: data.upcItem?.sizeUnit || upcDraft.sizeUnit
+      };
       setUpcItems(prev => {
         const next = prev.filter(item => item.upc !== saved.upc);
         return [saved, ...next];
@@ -703,6 +725,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         price: 0,
         containerType: 'plastic',
         sizeOz: 0,
+        sizeUnit: 'oz',
         isEligible: true
       });
     } catch (e: any) {
@@ -852,30 +875,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
-  const readFileAsDataUrl = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-
-  const handleLabelPhotoChange = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setLabelScanError(null);
-    setLabelScanResult(null);
-    setLabelScanMime(file.type || null);
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      setLabelScanPhoto(dataUrl);
-    } catch {
-      setLabelScanError('Unable to read the photo.');
-    }
-  };
-
   const applyLabelScanToDrafts = (result: ProductScanResult) => {
     const hasSignal =
       Boolean(result.name) ||
@@ -899,19 +898,19 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }));
   };
 
-  const runLabelScan = async () => {
+  const runLabelScan = async (photo = labelScanPhoto, mime = labelScanMime) => {
     if (!scannedUpcForCreation) {
       setLabelScanError('Scan a product UPC first.');
       return;
     }
-    if (!labelScanPhoto) {
-      setLabelScanError('Upload a label photo to scan.');
+    if (!photo) {
+      setLabelScanError('Capture a label photo in the scanner.');
       return;
     }
 
     setIsLabelScanning(true);
     setLabelScanError(null);
-    const result = await analyzeProductScan(labelScanPhoto, labelScanMime || undefined);
+    const result = await analyzeProductScan(photo, mime || undefined);
     setLabelScanResult(result);
     applyLabelScanToDrafts(result);
     if (result.message && !result.name) {
@@ -935,9 +934,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           deposit: upcDraft.isEligible ? 0.10 : 0.00,
           stock: Number(newProduct.stock),
           sizeOz: Number(newProduct.sizeOz),
+          sizeUnit: newProduct.sizeUnit,
           category: newProduct.category,
           brand: newProduct.brand,
           productType: newProduct.productType,
+          nutritionNote: newProduct.nutritionNote,
           storageZone: newProduct.storageZone,
           storageBin: newProduct.storageBin,
           image: newProduct.image,
@@ -948,7 +949,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Create failed');
 
-      const created: Product = data.product;
+      const created: Product = {
+        ...data.product,
+        sizeUnit: data.product?.sizeUnit || newProduct.sizeUnit,
+        nutritionNote: data.product?.nutritionNote || newProduct.nutritionNote
+      };
       setProducts(prev => [created, ...prev]);
 
       // Link UPC to SKU if scanned
@@ -969,6 +974,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             body: JSON.stringify({
               name: upcDraft.name,
               sizeOz: upcDraft.sizeOz,
+              sizeUnit: upcDraft.sizeUnit,
               isEligible: upcDraft.isEligible,
               containerType: upcDraft.containerType
             })
@@ -986,9 +992,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         deposit: 0, // Will be auto-calculated
         stock: 0,
         sizeOz: 0,
+        sizeUnit: 'oz',
         category: 'DRINK',
         brand: '',
         productType: '',
+        nutritionNote: '',
         storageZone: '',
         storageBin: '',
         image: '',
@@ -1046,7 +1054,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const handlePhotoCaptured = useCallback((photoDataUrl: string, mime: string) => {
     setLabelScanPhoto(photoDataUrl);
     setLabelScanMime(mime);
-  }, [setLabelScanPhoto, setLabelScanMime]);
+    void runLabelScan(photoDataUrl, mime);
+  }, [runLabelScan]);
 
   const handleScannerScan = useCallback(async (upc: string) => {
     if (scannerMode === ScannerMode.INVENTORY_CREATE) {
@@ -1081,9 +1090,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       deposit: product.deposit,
       stock: product.stock,
       sizeOz: product.sizeOz,
+      sizeUnit: product.sizeUnit || 'oz',
       category: product.category,
       brand: product.brand || '',
       productType: product.productType || '',
+      nutritionNote: product.nutritionNote || '',
       storageZone: product.storageZone || '',
       storageBin: product.storageBin || '',
       image: product.image,
@@ -1105,6 +1116,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     const deposit = Number(editDraft.deposit);
     const stock = Number(editDraft.stock);
     const sizeOz = Number(editDraft.sizeOz);
+    const sizeUnit = editDraft.sizeUnit;
 
     if (!name) {
       setEditError('Name is required.');
@@ -1123,9 +1135,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     if (deposit !== editingProduct.deposit) updates.deposit = deposit;
     if (stock !== editingProduct.stock) updates.stock = stock;
     if (sizeOz !== editingProduct.sizeOz) updates.sizeOz = sizeOz;
+    if (sizeUnit !== editingProduct.sizeUnit) updates.sizeUnit = sizeUnit;
     if (editDraft.category !== editingProduct.category) updates.category = editDraft.category;
     if (editDraft.brand !== editingProduct.brand) updates.brand = editDraft.brand;
     if (editDraft.productType !== editingProduct.productType) updates.productType = editDraft.productType;
+    if (editDraft.nutritionNote !== editingProduct.nutritionNote) updates.nutritionNote = editDraft.nutritionNote;
     if (editDraft.storageZone !== editingProduct.storageZone) updates.storageZone = editDraft.storageZone;
     if (editDraft.storageBin !== editingProduct.storageBin) updates.storageBin = editDraft.storageBin;
     if (editDraft.image !== editingProduct.image) updates.image = editDraft.image;
@@ -1148,7 +1162,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Update failed');
 
-      const updated: Product = data.product;
+      const updated: Product = {
+        ...data.product,
+        sizeUnit: data.product?.sizeUnit || editDraft.sizeUnit,
+        nutritionNote: data.product?.nutritionNote || editDraft.nutritionNote
+      };
       setProducts(prev => prev.map(p => (p.id === updated.id ? updated : p)));
       setEditingProduct(null);
     } catch (e: any) {
@@ -1170,7 +1188,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Restock failed');
 
-      const updated: Product = data.product;
+      const updated: Product = {
+        ...data.product,
+        sizeUnit: data.product?.sizeUnit || (products.find(p => p.id === id)?.sizeUnit ?? 'oz'),
+        nutritionNote: data.product?.nutritionNote || products.find(p => p.id === id)?.nutritionNote
+      };
       setProducts(prev => prev.map(p => (p.id === id ? updated : p)));
     } catch {
       // silent in UI for now
@@ -2971,10 +2993,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      Product Creation
+                      Guided Product Intake
                     </p>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-2">
-                      Create new products with AI assistance.
+                      Scan UPCs and capture label photos in the scanner so AI can prefill details for verification.
                     </p>
                   </div>
 
@@ -3000,23 +3022,21 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   )}
 
                   <div className="flex flex-col md:flex-row gap-4 items-center">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleLabelPhotoChange}
-                      className="flex-1 text-[11px] text-slate-400 file:mr-4 file:py-3 file:px-4 file:rounded-2xl file:border-0 file:bg-white/10 file:text-white file:text-[10px] file:font-black file:uppercase file:tracking-widest"
-                    />
+                    <div className="flex-1 text-[10px] text-slate-500 uppercase tracking-widest">
+                      Step 1: Scan the UPC. Step 2: Tap <span className="text-white">Photo</span> in the scanner to
+                      capture brand, size, and nutrition panels. Step 3: Review and edit below before creating.
+                    </div>
                     <button
                       onClick={runLabelScan}
                       disabled={isLabelScanning || !labelScanPhoto || !scannedUpcForCreation}
-                      className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {isLabelScanning ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
                         <ScanLine className="w-4 h-4" />
                       )}
-                      Analyze Product Details with AI
+                      Re-run AI Analysis
                     </button>
                   </div>
 
@@ -3039,10 +3059,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                           </p>
                         </div>
                         <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                          <p className="text-slate-500 font-bold">Size (oz)</p>
+                          <p className="text-slate-500 font-bold">Size</p>
                           <p className="text-white font-semibold mt-2">
                             {labelScanResult?.sizeOz
-                              ? Number(labelScanResult.sizeOz).toFixed(1)
+                              ? formatSize(labelScanResult.sizeOz, upcDraft.sizeUnit)
                               : '—'}
                           </p>
                         </div>
@@ -3071,23 +3091,21 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       {labelScanResult.message}
                     </div>
                   )}
-                </div>
+                  <div className="pt-6 border-t border-white/5 space-y-6">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      Create Product
+                    </p>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">
+                      Storage zone/bin describe where the item sits (e.g., Fridge / Shelf A).
+                    </p>
 
-                <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                    Create Product
-                  </p>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest">
-                    Storage zone/bin describe where the item sits (e.g., Fridge / Shelf A).
-                  </p>
+                    {createError && (
+                      <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                        {createError}
+                      </div>
+                    )}
 
-                  {createError && (
-                    <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
-                      {createError}
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
                       <span>SKU</span>
                       <input
@@ -3135,19 +3153,37 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         onChange={e => setNewProduct({ ...newProduct, stock: Number(e.target.value) })}
                       />
                     </label>
-                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      <span>Size (oz)</span>
-                      <input
-                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                        placeholder="0"
-                        type="number"
-                        step="0.1"
-                        value={newProduct.sizeOz}
-                        onChange={e =>
-                          setNewProduct({ ...newProduct, sizeOz: Number(e.target.value) })
-                        }
-                      />
-                    </label>
+                      <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                        <span>Size</span>
+                        <div className="flex gap-2">
+                          <input
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="0"
+                            type="number"
+                            step="0.1"
+                            value={newProduct.sizeOz}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, sizeOz: Number(e.target.value) })
+                            }
+                          />
+                          <select
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                            value={newProduct.sizeUnit}
+                            onChange={e =>
+                              setNewProduct({
+                                ...newProduct,
+                                sizeUnit: e.target.value as SizeUnit
+                              })
+                            }
+                          >
+                            {SIZE_UNIT_OPTIONS.map(option => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </label>
                     <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
                       <span>Brand</span>
                       <input
@@ -3165,6 +3201,17 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         value={newProduct.productType}
                         onChange={e =>
                           setNewProduct({ ...newProduct, productType: e.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
+                      <span>Nutrition Note (Customer Info)</span>
+                      <textarea
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full min-h-[96px]"
+                        placeholder="e.g. 12g protein • 220 calories • contains peanuts"
+                        value={newProduct.nutritionNote}
+                        onChange={e =>
+                          setNewProduct({ ...newProduct, nutritionNote: e.target.value })
                         }
                       />
                     </label>
@@ -3227,6 +3274,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     Create
                   </button>
                 </div>
+                </div>
 
                 <div className="grid grid-cols-1 gap-6">
                   {products.map(p => (
@@ -3238,7 +3286,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         <p className="text-white font-black">{p.name}</p>
                         <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest mt-1">
                           SKU: {p.sku || p.id} • Stock: {p.stock} •{' '}
-                          {p.sizeOz ? `${Number(p.sizeOz).toFixed(1)} oz` : 'No size'} • $
+                          {formatSize(p.sizeOz, p.sizeUnit)} • $
                           {Number(p.price || 0).toFixed(2)}
                         </p>
                         <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest mt-1">
@@ -3357,9 +3405,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         {activeModule === 'upc' && (
           <div className="space-y-6">
             <div>
-                          <h2 className="text-xl font-black uppercase text-white tracking-widest">
-                            UPC Registry Maintenance
-                          </h2>              <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
+              <h2 className="text-xl font-black uppercase text-white tracking-widest">
+                UPC Registry Maintenance
+              </h2>
+              <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
                 Manage UPC codes, product metadata, and Michigan deposit eligibility.
               </p>
             </div>
@@ -3456,16 +3505,31 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 </div>
                 <div>
                   <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">
-                    Size (oz)
+                    Size
                   </label>
-                  <input
-                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                    placeholder="12"
-                    type="number"
-                    step="0.1"
-                    value={upcDraft.sizeOz}
-                    onChange={e => setUpcDraft({ ...upcDraft, sizeOz: Number(e.target.value) })}
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                      placeholder="12"
+                      type="number"
+                      step="0.1"
+                      value={upcDraft.sizeOz}
+                      onChange={e => setUpcDraft({ ...upcDraft, sizeOz: Number(e.target.value) })}
+                    />
+                    <select
+                      className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                      value={upcDraft.sizeUnit}
+                      onChange={e =>
+                        setUpcDraft({ ...upcDraft, sizeUnit: e.target.value as SizeUnit })
+                      }
+                    >
+                      {SIZE_UNIT_OPTIONS.map(option => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">
@@ -3551,7 +3615,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                             {item.name || 'Unnamed'} • Deposit $
                             {Number(item.depositValue || 0).toFixed(2)} • Price $
                             {Number(item.price || 0).toFixed(2)} •{' '}
-                            {item.sizeOz ? `${Number(item.sizeOz).toFixed(1)} oz` : 'No size'} •{' '}
+                            {formatSize(item.sizeOz, item.sizeUnit)} •{' '}
                             {UPC_CONTAINER_LABELS[item.containerType || 'plastic']} •{' '}
                             {item.isEligible ? 'ELIGIBLE' : 'INELIGIBLE'}
                           </p>
@@ -3615,6 +3679,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 value={editDraft.productType}
                 onChange={e => setEditDraft({ ...editDraft, productType: e.target.value })}
               />
+              <textarea
+                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white md:col-span-2 min-h-[96px]"
+                placeholder="Nutrition note (Customer Info)"
+                value={editDraft.nutritionNote}
+                onChange={e => setEditDraft({ ...editDraft, nutritionNote: e.target.value })}
+              />
               <input
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                 placeholder="Storage Zone"
@@ -3663,19 +3733,37 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   })
                 }
               />
-              <input
-                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                placeholder="Size (oz)"
-                type="number"
-                step="0.1"
-                value={editDraft.sizeOz}
-                onChange={e =>
-                  setEditDraft({
-                    ...editDraft,
-                    sizeOz: Number(e.target.value)
-                  })
-                }
-              />
+              <div className="flex gap-2">
+                <input
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                  placeholder="Size"
+                  type="number"
+                  step="0.1"
+                  value={editDraft.sizeOz}
+                  onChange={e =>
+                    setEditDraft({
+                      ...editDraft,
+                      sizeOz: Number(e.target.value)
+                    })
+                  }
+                />
+                <select
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  value={editDraft.sizeUnit}
+                  onChange={e =>
+                    setEditDraft({
+                      ...editDraft,
+                      sizeUnit: e.target.value as SizeUnit
+                    })
+                  }
+                >
+                  {SIZE_UNIT_OPTIONS.map(option => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="flex items-center gap-3 bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white">
                 <input
                   id="edit-is-glass"
@@ -3822,9 +3910,18 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           products={products}
           isAnalyzing={isLabelScanning}
           onClose={() => setUnmappedUpcModalOpen(false)}
-          onAnalyze={runLabelScan}
+          onAnalyze={() => {
+            setScannerMode(ScannerMode.INVENTORY_CREATE);
+            setScannerModalOpen(true);
+          }}
           onCreateProduct={async productData => {
             setNewProduct(prev => ({ ...prev, ...productData }));
+            setUpcDraft(prev => ({
+              ...prev,
+              name: productData.name,
+              sizeOz: productData.sizeOz,
+              sizeUnit: productData.sizeUnit
+            }));
             const newProd = await apiCreateProduct();
             if (newProd) {
               await apiLinkUpc(unmappedUpcPayload.upc, newProd.id);
