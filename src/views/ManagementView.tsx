@@ -340,6 +340,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [newProduct, setNewProduct] = useState({ ...DEFAULT_NEW_PRODUCT });
   const [labelScanPhoto, setLabelScanPhoto] = useState<string | null>(null);
   const [labelScanMime, setLabelScanMime] = useState<string | null>(null);
+  const [lastValidLabelPhoto, setLastValidLabelPhoto] = useState<string | null>(null);
+  const [lastValidLabelMime, setLastValidLabelMime] = useState<string | null>(null);
   const [labelScanResult, setLabelScanResult] = useState<ProductScanResult | null>(
     null
   );
@@ -1119,6 +1121,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setScannedUpcForCreation('');
     setLabelScanPhoto(null);
     setLabelScanMime(null);
+    setLastValidLabelPhoto(null);
+    setLastValidLabelMime(null);
     setLabelScanResult(null);
     setLabelScanError(null);
     setCreateError(null);
@@ -1295,9 +1299,28 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
     setLabelScanPhoto(photoDataUrl);
     setLabelScanMime(typeof mime === 'string' ? mime : null);
+    setLastValidLabelPhoto(photoDataUrl);
+    setLastValidLabelMime(typeof mime === 'string' ? mime : null);
     void runLabelScan(photoDataUrl, typeof mime === 'string' ? mime : undefined);
     setScannerModalOpen(false);
   }, [runLabelScan, setScannerModalOpen]);
+
+  const handleRerunLabelScan = useCallback(() => {
+    const fallbackPhoto = labelScanPhoto ?? lastValidLabelPhoto;
+    const fallbackMime =
+      labelScanPhoto != null ? labelScanMime : lastValidLabelMime;
+    if (!fallbackPhoto) {
+      setLabelScanError('No saved label photo available.');
+      return;
+    }
+    void runLabelScan(fallbackPhoto, fallbackMime ?? undefined);
+  }, [
+    labelScanPhoto,
+    labelScanMime,
+    lastValidLabelPhoto,
+    lastValidLabelMime,
+    runLabelScan
+  ]);
 
   const handleScannerScan = useCallback(async (upc: string) => {
     if (scannerMode === ScannerMode.INVENTORY_CREATE) {
@@ -3469,8 +3492,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                           )}
                         </div>
                         <button
-                          onClick={runLabelScan}
-                          disabled={isLabelScanning || !labelScanPhoto || !scannedUpcForCreation}
+                          onClick={handleRerunLabelScan}
+                          disabled={
+                            isLabelScanning ||
+                            (!labelScanPhoto && !lastValidLabelPhoto) ||
+                            !scannedUpcForCreation
+                          }
                           className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           {isLabelScanning ? (
