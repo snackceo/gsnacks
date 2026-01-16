@@ -229,12 +229,12 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     setScannerError(null);
 
     if (typeof window === 'undefined') {
-      setScannerError('Scanner unavailable in this environment.');
+      setScannerError('Scanner unavailable.');
       return;
     }
 
     if (!('BarcodeDetector' in window)) {
-      setScannerError('Barcode detection not supported on this device/browser.');
+      setScannerError('Scanner not supported.');
       return;
     }
 
@@ -345,7 +345,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
       rafRef.current = requestAnimationFrame(loop);
     } catch {
-      setScannerError('Camera access denied or unavailable.');
+      setScannerError('Camera blocked. Enable permissions.');
       setIsScanning(false);
     }
   }, [acceptScan, stopScanner, validateUpc]);
@@ -413,6 +413,11 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
             >
               <RefreshCw className="w-3 h-3" /> {manualStart ? 'Start' : 'Retry'}
             </button>
+            {scannerError === 'Camera blocked. Enable permissions.' && (
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                Enable camera permissions, then retry.
+              </p>
+            )}
           </div>
         )}
       </div>
