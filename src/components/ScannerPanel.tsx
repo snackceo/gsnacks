@@ -413,7 +413,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
             >
               <RefreshCw className="w-3 h-3" /> {manualStart ? 'Start' : 'Retry'}
             </button>
-            {scannerError === 'Camera blocked. Enable permissions.' && (
+            {scannerError && (
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
                 Enable camera permissions, then retry.
               </p>
