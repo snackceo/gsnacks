@@ -1081,10 +1081,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   };
 
   const runLabelScan = async (photo = labelScanPhoto, mime = labelScanMime) => {
-    if (!scannedUpcForCreation) {
-      setLabelScanError('Scan a product UPC first.');
-      return;
-    }
     if (!photo) {
       setLabelScanError('Capture a label photo in the scanner.');
       return;
@@ -1097,6 +1093,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     if (!isValidPhotoDataUrl(photo)) {
       console.error('Invalid photo data for label scan.', { photo });
       setLabelScanError(INVALID_PHOTO_MESSAGE);
+      return;
+    }
+
+    setLabelScanPhoto(photo);
+    setLabelScanMime(typeof mime === 'string' ? mime : null);
+
+    if (!scannedUpcForCreation) {
+      setLabelScanError('Scan a product UPC to analyze the saved label photo.');
       return;
     }
 
@@ -1301,6 +1305,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setLabelScanMime(typeof mime === 'string' ? mime : null);
     setLastValidLabelPhoto(photoDataUrl);
     setLastValidLabelMime(typeof mime === 'string' ? mime : null);
+    setLabelScanResult(null);
     void runLabelScan(photoDataUrl, typeof mime === 'string' ? mime : undefined);
     setScannerModalOpen(false);
   }, [runLabelScan, setScannerModalOpen]);
@@ -1319,6 +1324,24 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     labelScanMime,
     lastValidLabelPhoto,
     lastValidLabelMime,
+    runLabelScan
+  ]);
+
+  useEffect(() => {
+    if (
+      scannedUpcForCreation &&
+      labelScanPhoto &&
+      !labelScanResult &&
+      !isLabelScanning
+    ) {
+      void runLabelScan(labelScanPhoto, labelScanMime ?? undefined);
+    }
+  }, [
+    scannedUpcForCreation,
+    labelScanPhoto,
+    labelScanMime,
+    labelScanResult,
+    isLabelScanning,
     runLabelScan
   ]);
 
@@ -3470,8 +3493,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
                   <div className="flex flex-col md:flex-row gap-4 items-center">
                     <div className="flex-1 text-[10px] text-slate-500 uppercase tracking-widest">
-                      Step 1: Scan the UPC. Step 2: Tap <span className="text-white">Photo</span> in the scanner to
-                      capture brand, size, and nutrition panels. Step 3: Review and edit below before creating.
+                      Step 1: Tap <span className="text-white">Photo</span> in the scanner to capture brand, size, and
+                      nutrition panels. Step 2: Scan the UPC to run AI analysis. Step 3: Review and edit below before
+                      creating.
                     </div>
                   </div>
 
