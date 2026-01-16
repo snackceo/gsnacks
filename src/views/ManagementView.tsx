@@ -49,9 +49,9 @@ import {
   UserCheck,
   XCircle,
   ScanLine,
-  Camera,
   X
 } from 'lucide-react';
+import InlineScanner from '../components/InlineScanner';
 import ScannerModal from '../components/ScannerModal';
 import UnmappedUpcModal from '../components/UnmappedUpcModal';
 import { UnmappedUpcData } from '../types';
@@ -231,6 +231,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [scannedUpcForCreation, setScannedUpcForCreation] = useState<string>('');
   const [unmappedUpcModalOpen, setUnmappedUpcModalOpen] = useState(false);
   const [unmappedUpcPayload, setUnmappedUpcPayload] = useState<UnmappedUpcData | null>(null);
+  const isInlineInventoryScanner = activeModule === 'inventory' && inventoryMode === 'A';
 
   // Return verifications state
   const [returnVerifications, setReturnVerifications] = useState<ReturnVerification[]>([]);
@@ -241,6 +242,16 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const handleModuleSelect = (moduleId: string) => {
     setActiveModule(moduleId);
   };
+
+  useEffect(() => {
+    if (!isInlineInventoryScanner) return;
+    if (scannerMode !== ScannerMode.INVENTORY_CREATE) {
+      setScannerMode(ScannerMode.INVENTORY_CREATE);
+    }
+    if (scannerModalOpen) {
+      setScannerModalOpen(false);
+    }
+  }, [isInlineInventoryScanner, scannerMode, scannerModalOpen]);
 
   useEffect(() => {
     if (!settingsDirty) {
@@ -989,8 +1000,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const handleCancelCreate = useCallback(() => {
     resetCreateForm();
     setScannerMode(ScannerMode.INVENTORY_CREATE);
-    setScannerModalOpen(true);
-  }, [resetCreateForm]);
+    setScannerModalOpen(!isInlineInventoryScanner);
+  }, [isInlineInventoryScanner, resetCreateForm]);
 
   const apiCreateProduct = async () => {
     setCreateError(null);
@@ -1095,7 +1106,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
       resetCreateForm();
       setScannerMode(ScannerMode.INVENTORY_CREATE);
-      setScannerModalOpen(true);
+      setScannerModalOpen(!isInlineInventoryScanner);
       return created;
     } catch (e: any) {
       setCreateError(e?.message || 'Create failed');
@@ -3084,28 +3095,19 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 </h2>
 
                 <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      Guided Product Intake
-                    </p>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-2">
-                      Scan UPCs and capture label photos in the scanner so AI can prefill details for verification.
-                    </p>
-                  </div>
+                  <InlineScanner
+                    mode={ScannerMode.INVENTORY_CREATE}
+                    onScan={handleScannerScan}
+                    title="Guided Product Intake"
+                    subtitle="Scan UPCs and capture label photos in the scanner so AI can prefill details for verification."
+                    beepEnabled={settings.beepEnabled ?? true}
+                    cooldownMs={settings.cooldownMs ?? 1000}
+                    onPhotoCaptured={handlePhotoCaptured}
+                    className="bg-black/30 border-white/10"
+                  />
 
-                  <div className="flex gap-4">
-                    <button
-                      onClick={() => {
-                        setScannerMode(ScannerMode.INVENTORY_CREATE);
-                        setScannerModalOpen(true);
-                      }}
-                      className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
-                    >
-                      <ScanLine className="w-4 h-4" /> Scan Product UPC
-                    </button>
-                    <div className="flex-1 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      Scanned UPC: <span className="text-white">{scannedUpcForCreation || 'No UPC scanned'}</span>
-                    </div>
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    Scanned UPC: <span className="text-white">{scannedUpcForCreation || 'No UPC scanned'}</span>
                   </div>
 
                   {labelScanError && (
@@ -4068,7 +4070,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           onClose={() => setUnmappedUpcModalOpen(false)}
           onAnalyze={() => {
             setScannerMode(ScannerMode.INVENTORY_CREATE);
-            setScannerModalOpen(true);
+            setScannerModalOpen(!isInlineInventoryScanner);
           }}
           onCreateProduct={async productData => {
             setNewProduct(prev => ({ ...prev, ...productData }));
