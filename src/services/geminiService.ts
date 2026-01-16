@@ -23,15 +23,21 @@ const fetchWithTimeout = async (url: string, options: any, timeout = 15000) => {
  * Backend should receive RAW base64 (no data URL prefix).
  * If input is "data:image/jpeg;base64,....", strip the prefix.
  */
-const normalizeBase64 = (input: string) => {
-  if (!input) return '';
-  const s = String(input);
+const BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/;
+const DATA_URL_PATTERN = /^data:([a-z]+\/[a-z0-9.+-]+);base64,(.+)$/i;
 
-  if (s.startsWith('data:') && s.includes(',')) {
-    return s.split(',')[1] || '';
+const normalizeBase64 = (input: string) => {
+  if (!input || typeof input !== 'string') return '';
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+
+  const dataUrlMatch = trimmed.match(DATA_URL_PATTERN);
+  if (dataUrlMatch) {
+    const base64Payload = dataUrlMatch[2].trim();
+    return BASE64_PATTERN.test(base64Payload) ? base64Payload : '';
   }
 
-  return s;
+  return BASE64_PATTERN.test(trimmed) ? trimmed : '';
 };
 
 export type BottleScanResult = {
