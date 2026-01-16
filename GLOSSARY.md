@@ -65,6 +65,8 @@ auditModels (array state): List of available audit models (identifiers) for inve
 
 auditModelsError (string state): Error message if loading audit models fails.
 
+Authoritative Rule (documentation rule): A statement marked as authoritative in internal docs (README/GEMINI) that defines the binding behavior. When in conflict, implementations must follow the authoritative rule.
+
 authRequired (middleware/guard): Backend middleware that requires a valid login session (checks for JWT cookie). Returns 401 if not logged in.
 
 authorizedAmount (number field): In Order, dollar amount authorized on payment (Stripe). This is the portion of the order cost that was authorized (e.g. via card hold) but not yet captured.
@@ -73,17 +75,29 @@ authorizedCreditBalance (number field): In User model, tracks credits that have 
 
 BackendStatusBanner (component): UI banner indicating if the backend API is online. Accepts isOnline (boolean) and an onReconnect handler to attempt reconnection (calls core.syncWithBackend).
 
+Band Application Rule (policy): Distance Fee bands are applied based on absolute trip distance after excluding included miles. This is the authoritative rule described in README and used for calculating banded mileage charges.
+
 beepEnabled (boolean flag): If true, the scanner emits a beep sound on each successful scan. Configurable in settings (defaults to true). Passed into ScannerModal and can be toggled via settings.beepEnabled. (Note: Not stored in AppSettings by default – may be a front-end only toggle.)
+
+Bottle Return Service (service): The overall service offering for Michigan deposit returns, including collection, verification, and settlement (credit or cash per tier rules).
+
+Bronze (UserTier): Second customer tier above Common. Grants limited perks such as Route Fee discounts and points eligibility per tier rules.
 
 CartDrawer (component): Slide-out cart panel for reviewing order items. Props include isOpen, cart (array of items), products, address, acceptedPolicies, isProcessing (loading indicator for checkout), currentUserId, membershipTier, and various handlers. Allows users to edit cart, enter address, accept policies, and choose payment (via onPayCredits or onPayExternal).
 
 cashHandlingFee (fee concept): A $0.02 per-container fee applied only for Cash Settlement of bottle returns. Not charged for credit settlements. This fee is added on cash-out to cover handling costs.
 
+Cash Handling Fee (fee): Human-readable name for the per-container cash settlement fee (see cashHandlingFee). Applies only when payout method is cash.
+
 CashPayout (data model): Database model tracking cash-out payments (likely for bottle return cash settlements). Includes details of cash payouts (e.g., which user/order, amount). Mentioned in backend imports. Enables operators to process and record when customers cash out credits.
+
+Cash Settlement (returns mode): Settlement of bottle returns as cash payout instead of credit. Only allowed for eligible tiers; fees apply per container.
 
 clearCart (function): Empties the shopping cart. Exposed by useNinpoCore as core.clearCart. Used after successful payment (<PaymentSuccess clearCart={core.clearCart} />) to reset cart.
 
 closed (OrderStatus): Final status for an order indicating it’s fully completed/archived. "CLOSED" appears as one of the OrderStatus enum values.
+
+Common (UserTier): Default customer tier. Allows credits to apply to products only; earns points per tier rules.
 
 conditionFlags (array state): In DriverView, an array of flags (strings) describing any issues detected with returned containers’ condition (e.g., contamination or other anomalies). Populated by AI analysis or manual input before submission.
 
@@ -109,11 +123,15 @@ CustomerView (component/view): Front-end view for customers (the main shop inter
 
 data (prefix): In context of code, often refers to variables holding fetched data (e.g., data from res.json()). In this glossary, Data Models refer to structured objects like User, Order, Product, etc., as defined in code.
 
+Delivery Order (order type): An order that includes product delivery (may also include bottle pickup). Charged route-level logistics fees.
+
 DEFAULT_DISTANCE_FEES (constants object): Backend constants defining default distance fee configuration (included miles and tiered rates). Used if no AppSettings override is set.
 
 deliveryFee (deprecated term): Older synonym for routeFee. Appears in legacy code paths (e.g., mapping settings uses doc?.deliveryFee as fallback). Deprecated in favor of Route Fee – UI and receipts should not use “delivery fee”.
 
 detected (ScanEventStatus): Status indicating a UPC was detected by the scanner. Used in DriverView’s scan event log to mark raw detections before validation.
+
+Distance Bands (policy): The tiered mileage ranges used to calculate the Distance Fee (e.g., included miles, band 1, band 2, band 3). Bands apply to absolute trip distance.
 
 distanceBand1MaxMiles (number setting): Maximum miles for distance fee band 1 (after included miles). Default 10.0 miles. Trips up to this distance (beyond included 3.0) incur the band1 rate per mile.
 
@@ -127,6 +145,8 @@ distanceBand3Rate (number setting): Fee per mile for distance beyond band2. Defa
 
 distanceFee (charge concept & field): A mileage-based fee for deliveries/pickups beyond the included threshold. Computed per order based on total distance traveled. Stored in Order (distanceMiles and distanceFee). The first 3.0 miles are free; beyond that, tiered rates apply.
 
+Distance Fee (charge concept): Human-readable term for distanceFee; the route-level mileage fee applied after included miles.
+
 distanceIncludedMiles (number setting): The distance threshold (in miles) included at no extra charge. Default 3.0 miles. Beyond this distance, the Distance Fee kicks in.
 
 DriverView (component/view): Interface for drivers (and owners acting as drivers) to manage order fulfillment and returns pickup. Displays assigned orders, allows scanning of returns (verification) and marking orders as delivered. Props include currentUser, orders, and updateOrder.
@@ -139,7 +159,13 @@ duplicatesCount (number state): In DriverView, tracks how many duplicate UPC sca
 
 duplicate_prompt (ScanEventStatus): Status indicating a scanned UPC was a duplicate and the system prompted the driver to confirm adding it. Ensures drivers acknowledge counting an item twice.
 
+Doc Map (documentation section): README section that maps key internal documents (README, GLOSSARY, GEMINI docs) to their purposes. Used for onboarding and navigation.
+
+Tech Stack (documentation section): README section listing core infrastructure and services (database, payments, media, etc.).
+
 eligible (ScanEventStatus): Status in scan log meaning a scanned UPC was recognized as an eligible container (valid MI 10¢ deposit) and presumably added to the count.
+
+Forbidden synonyms (rule): Disallowed terms in UI/receipts (e.g., “delivery fee”, “pickup fee”, “processing fee”, “bottle fee”, “return fee”). Must use glossary-approved terminology.
 
 estimatedReturnCredit (number field): In Order, the system’s estimate of the return credit (in dollars) the customer will receive for bottle returns on that order. Calculated when order is placed, based on returned UPCs * $0.10 (minus fees if cash-out). It’s an estimate shown to user; actual credit may differ if counts change.
 
@@ -163,9 +189,13 @@ fetchUsers (function): Retrieves the list of all users (for admin view). Populat
 
 GLASS_HANDLING_SURCHARGE (fee concept): A $0.02 per-container surcharge applied for glass containers in Cash Settlement. Stacks with the base cash handling fee, meaning each glass bottle costs $0.04 extra in total when cashed out (2¢ general + 2¢ glass) as allowed by law.
 
+Glass Handling Surcharge (fee): Human-readable name for the per-glass-container cash settlement surcharge (see GLASS_HANDLING_SURCHARGE).
+
 GOOGLE_PAY (PaymentMethod string): Payment via Google Pay. One of the accepted gateway types for external checkout. If selected, the backend creates a payment session for Google Pay (similar to Stripe).
 
 GREEN (UserTier): Special future tier denoting an eco-friendly or subscription tier. Currently not active (marked as “future”). Green tier rules: flat $1 Route Fee and no Distance Fee; credits can apply to Route Fee since distance fee is always $0. Note: This tier is in code for calculations but not yet accessible (allowPlatinumTier/Green might gate it).
+
+Green Tier (UserTier): Documentation-facing name for GREEN. Future tier with flat Route Fee and no Distance Fee.
 
 handleCreditsPayment (function): Front-end handler for processing payment via credits. In App, it sends a request to /api/payments/credits and applies the response (updates credit balance, clears cart on success). Passed as onPayCredits prop to CartDrawer.
 
@@ -273,6 +303,8 @@ onRemoveItem (prop): Handler to remove an item from the cart by product ID. Pass
 
 onRequestRefund (prop): Placeholder prop in CustomerView intended to initiate a refund request for an order. Currently passed an empty function (() => {}) in App, indicating the feature exists conceptually but is not yet implemented (likely for customers to request order refunds).
 
+one unified vocabulary (documentation rule): Requirement that code, UI, and docs use the exact glossary terms with no synonyms to prevent drift.
+
 onScan (prop): Core callback in ScannerModal triggered when a barcode is scanned and passes all cooldown/validation checks. Provided by parent component (e.g., handleScannerScan in ManagementView or DriverView) to handle the scanned UPC.
 
 onSuccess (prop): Handler called upon successful login in LoginView. In App, this is defined to restore the session (call core.restoreSession() to load user data) and fetch orders, then close the login modal.
@@ -301,6 +333,10 @@ PaymentSuccess (component): View shown when payment succeeds (route /success). R
 
 PaymentMethod (type/enum): Accepted payment methods for orders. Defined as union of 'STRIPE_CARD', 'GOOGLE_PAY', 'CREDITS'. Indicates how the order was or will be paid. This is stored on Order (paymentMethod field).
 
+Payment Rail (concept): The mechanism used to collect payment for any remaining balance (e.g., Stripe for card payments). Distinct from settlement mode.
+
+Pickup-Only Order (order type): An order containing only bottle pickup (returns) with no product delivery. Uses the pickupOnlyMultiplier for route-level fees.
+
 pending (status): See PENDING (OrderStatus): initial status for new orders awaiting authorization. Also PENDING is used for ApprovalRequests that haven’t been processed.
 
 phoneVerified (boolean field): In User, indicates if the user’s phone number has been verified. This is a trust factor for tier promotion (Silver tier requires phone verified). The system might set this true after an OTP verification step (not shown in code snippet, but field exists for future use).
@@ -309,11 +345,17 @@ photoIdVerified (boolean field): In User, indicates if the user’s government p
 
 pickupOnlyMultiplier (number setting): Discount multiplier applied to route-level fees for pickup-only orders (returns without delivery). Default 0.5 (i.e., 50% discount). If an order’s type is RETURNS_PICKUP, routeFee and distanceFee are multiplied by this factor to reduce charges.
 
+Pickup-Only Discount (policy): Route-level discount applied via pickupOnlyMultiplier when an order is pickup-only (returns-only). Applies to Route Fee and Distance Fee.
+
 PLUS (icon): UI icon for adding items. E.g., used on “Add” buttons or the “Create” button (shows a plus sign when not loading).
 
 Point Eligible Tiers: Tiers that earn loyalty points on purchases. Defined by POINT_ELIGIBLE_TIERS = {COMMON, BRONZE, SILVER, GOLD} – notably Platinum is excluded (likely because Platinum might get other perks instead of points). Purchases by eligible tier users convert spending into points at a rate defined in POINT_EARNING_RATES.
 
 Point Earning Rates: Multipliers for loyalty points per tier. In code: COMMON/BRONZE = 1.0×, SILVER = 1.2×, GOLD = 1.5×. E.g., a Gold member earns 1.5 points per $1 of product spend. These rates are used in backend when awarding loyaltyPoints on order completion.
+
+Points Earned vs Wallet Credits (rule): Points are earned only on product subtotal paid outside wallet credits; wallet-covered amounts do not generate points.
+
+Points Storage Rule (rule): Points are stored as integer point-units (e.g., 100 point-units = 1.00 points) to avoid floating-point drift.
 
 Product (data model/interface): Represents an item in the inventory. Fields: id, sku (human-friendly ID), upc (barcode, possibly multiple per product via mapping), name, price, deposit (the container deposit value, typically 0.10 if eligible), stock (quantity in stock), sizeOz, category, image (URL), optional brand, productType, storageZone, storageBin, and isGlass (boolean if container is glass). Products are managed in the Inventory module; sku is shown as the primary identifier in admin UI.
 
@@ -332,6 +374,16 @@ RefundRequested/Refunded (statuses): See OrderStatus – REFUND_REQUESTED means 
 ReturnAiAnalysis (interface): Structure holding AI results for a returns verification photo. Fields: confidence (e.g., how sure the AI is), flags (list of issues detected), summary (text summary of AI’s findings), assessedAt (timestamp). Attached to Order as returnAiAnalysis after processing a return verification image. Helps the admin decide on approving the returns count.
 
 ReturnUpcCount (interface): Object with upc and quantity fields. Used to list how many of each UPC were returned. Appears in Order as returnUpcCounts (customer-declared counts) and verifiedReturnUpcCounts (driver-verified counts).
+
+Route Fee (fee): Human-readable name for the base route-level logistics fee applied per order (see routeFee).
+
+Secret Platinum (UserTier): Documentation-facing name for the hidden PLATINUM tier. Used in docs to limit awareness; internal tier identifier remains PLATINUM.
+
+Settlement Mode (concept): How bottle deposit value is settled (Credit Settlement or Cash Settlement). Distinct from payment rail.
+
+Silver (UserTier): Customer tier above Bronze. Grants broader credit usage and points benefits per tier rules.
+
+Gold (UserTier): Customer tier above Silver. Grants higher discounts and cash settlement eligibility per tier rules.
 
 returnUpcs (array field): In Order, list of UPC codes (strings) that the customer claims to return (e.g., scanned via customer returns flow or manually input in app). verifiedReturnUpcs is the list actually verified by driver or admin.
 
