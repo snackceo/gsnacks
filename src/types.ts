@@ -1,3 +1,6 @@
+/**
+ * See GLOSSARY.md for authoritative definitions of all roles.
+ */
 export enum UserRole {
   CUSTOMER = 'CUSTOMER',
   DRIVER = 'DRIVER',
@@ -9,6 +12,9 @@ export enum UserRole {
   OWNER = 'OWNER'
 }
 
+/**
+ * See GLOSSARY.md for authoritative definitions of all order statuses.
+ */
 export enum OrderStatus {
   PENDING = 'PENDING',
   AUTHORIZED = 'AUTHORIZED',
@@ -24,6 +30,7 @@ export enum OrderStatus {
 
 /**
  * Scanner modes are *intents* for the single ScannerModal.
+ * See GLOSSARY.md for authoritative definitions of all scanner modes.
  * Your UI should decide which mode it opens with, and your handler
  * must enforce what actions are allowed per mode.
  */

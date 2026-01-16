@@ -1,5 +1,11 @@
 # NinpoSnacks Backend – SKU, UPC, Inventory Rules
 
+## Scope
+
+This file documents backend enforcement, data model, and API contract. For all roles, permissions, scanner modes, and domain terms, see [GLOSSARY.md](../GLOSSARY.md). For system philosophy, see [GEMINI.md](../GEMINI.md). For UI/UX, see [src/GEMINI.md](../src/GEMINI.md).
+
+---
+
 ## Data models
 ### Product
 - Must contain:

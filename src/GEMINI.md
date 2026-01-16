@@ -1,5 +1,11 @@
 # NinpoSnacks Frontend – Scanner + SKU UX Contract
 
+## Scope
+
+This file documents UI/UX, scanner, and component contract. For all roles, permissions, scanner modes, and domain terms, see [GLOSSARY.md](../GLOSSARY.md). For system philosophy, see [GEMINI.md](../GEMINI.md). For backend rules, see [server/GEMINI.md](../server/GEMINI.md).
+
+---
+
 ## Identity
 - In operator UI: show SKU (NP-000001) as the primary identifier.
 - Replace any “Product ID” label with “SKU”.

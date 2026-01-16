@@ -1,4 +1,42 @@
 GSnacks Code Glossary
+
+Last updated by: [your name/initials] on 2026-01-16
+
+---
+
+---
+
+## How to Update Terms
+
+All new roles, permissions, scanner modes, feature flags, or special phrases must be defined in this file before being used in code or documentation. If you need a new term, update this glossary first. Do not redefine terms elsewhere.
+
+---
+
+
+## Changelog / Revision History
+
+- 2026-01-16 (YH): Linked glossary to all major docs; established as single source of truth. (why: prevent drift)
+- [Add future changes here.]
+
+_Changelog format: YYYY-MM-DD (initials): What changed. (why/context)_
+
+---
+
+## FAQ / Common Pitfalls
+
+**Q: What’s the difference between SKU and Product ID?**
+A: SKU is the only business identifier for products (format: NP-000001). Product ID (Mongo _id) is for persistence only and never shown to operators.
+
+**Q: Where do I define a new role, permission, or scanner mode?**
+A: Always in this file, before using it in code or other docs.
+
+**Q: Can I use synonyms for terms like Route Fee or Cash Handling Fee?**
+A: No. Use only the exact terms defined here to prevent confusion and drift.
+
+**Q: What if I find a term in code that isn’t in this glossary?**
+A: Add it here first, then update code and docs to reference the glossary.
+
+---
 A-Z Glossary
 
 activeModule (string state): UI section identifier in ManagementView (e.g., "analytics", "orders", "inventory", etc.). Determines which management module is active.
@@ -698,4 +736,84 @@ Environmental Impact: The use of terms like Green Tier implies a future focus on
 
 By grouping these return-specific terms and rules, the developers can keep the logic consistent. For example, if building a reporting feature for total returns, they know to sum verifiedReturnUpcCounts across orders. Or if adjusting fees, they know to look at CASH_HANDLING_FEE_PER_CONTAINER and GLASS_HANDLING_SURCHARGE_PER_CONTAINER constants. It also helps ensure the UI messaging remains correct (never call the deposit refund a “bottle fee” – the spec forbids that term; always use “Cash Handling Fee” etc., which the glossary reinforces).
 
-Conclusion: This comprehensive glossary should serve as a single source of truth for GSnacks code identifiers and their meanings. By standardizing terminology (from roles and modes to flags and data fields) and citing where they appear in the codebase, we avoid duplication and confusion. Developers can refer to this to understand each term’s purpose, usage context, and any interdependencies (e.g., how a setting flag influences a feature, or which domain a term belongs to). Ambiguous or unused terms are called out (e.g., legacy deliveryFee, Mode D, Green tier) so they can be cleaned up or implemented in the future with clear intent. Having this glossary will improve team communication (everyone uses the same words for the same concepts) and make on-boarding new contributors faster, as they can quickly get up to speed on the nomenclature and system intent behind each identifier.
+
+
+## [AUTO-GENERATED: Review and Complete]
+
+App (component): Main React entry point for the frontend application. Handles global state, routing, and passes core props to views and components.
+constants.tsx (utility): Central file for frontend constants (e.g., enums, config values) used throughout the app.
+main.tsx (entry): Frontend entry file that bootstraps the React app and renders App to the DOM.
+types.ts (types): TypeScript type and enum definitions for roles, order statuses, scanner modes, user tiers, and shared interfaces. Authoritative for frontend types.
+GEMINI.md (doc): Frontend contract/spec for scanner, SKU, and UX. Documents UI/UX rules and links to GLOSSARY.md for term definitions.
+
+BackendStatusBanner (component): UI banner showing backend API status. Indicates online/offline and provides reconnect action.
+CartDrawer (component): Slide-out cart panel for reviewing/editing order items, address, policies, and payment. Central to customer checkout flow.
+Header (component): Top navigation bar with login/logout, branding, and links. Appears on all main views.
+LegalFooter (component): Footer with legal notices, copyright, and links. Shown on all pages.
+Navbar (component): Main navigation bar for switching between app sections (e.g., shop, management, driver).
+ScannerModal (component): Shared camera barcode scanner modal. Handles scanning, cooldown, and scan events for all scanner modes.
+ToastStack (component): Renders notification toasts (success, error, info) for user feedback. Consumes core.toasts state.
+UnmappedUpcModal (component): Modal for handling unmapped UPC scans. Allows creating new products or linking UPCs to existing products.
+
+CustomerView (view): Main shop interface for customers. Displays products, orders, and handles cart actions and point redemption.
+DriverVerificationDelivery (view): Driver workflow for verifying bottle returns and delivery. Handles scan events, verification, and payout selection.
+DriverView (view): Driver interface for managing assigned orders, scanning returns, and completing deliveries.
+LoginView (view): Modal for user login. Handles authentication, session restore, and error states.
+ManagementView (view): Admin dashboard for owners. Manages modules (orders, inventory, users, settings, audit logs, approvals).
+PaymentCancel (view): Displays payment cancellation message after failed/aborted checkout.
+PaymentSuccess (view): Displays payment success message and triggers cart clearing after checkout.
+ResetPasswordView (view): Modal for password reset flow. Handles token verification and password update.
+
+geminiService.ts (service): Frontend service for interacting with Gemini AI APIs (e.g., label analysis, issue explanation).
+useNinpoCore.ts (hook): Custom React hook providing core app state and actions (products, orders, users, settings, etc.).
+audioUtils.ts (utility): Utility functions for audio playback and feedback (e.g., scanner beep).
+
+index.js (server): Main backend entry point. Sets up Express server, routes, and middleware.
+GEMINI.md (server doc): Backend contract/spec for SKU, UPC, inventory, and API rules. Authoritative for backend logic.
+
+ApprovalRequest.js (model): Mongoose model for approval requests (refunds, credit adjustments, membership upgrades).
+AppSettings.js (model): Mongoose model for system-wide configuration and feature flags.
+AuditLog.js (model): Mongoose model for audit log entries (login, logout, order, product, settings changes).
+CashPayout.js (model): Mongoose model for cash payout records for bottle returns.
+Counter.js (model): Mongoose model for tracking counters (e.g., order numbers, scan sessions).
+InventoryAudit.js (model): Mongoose model for inventory audit records and AI analysis results.
+LedgerEntry.js (model): Mongoose model for credit balance changes per user.
+Order.js (model): Mongoose model for customer orders (products, returns, payments, statuses).
+Product.js (model): Mongoose model for inventory products (sku, upc, name, price, deposit, stock).
+ReturnSettlement.js (model): Mongoose model for settled bottle return payouts.
+ReturnVerification.js (model): Mongoose model for driver-submitted return verifications.
+ScanSession.js (model): Mongoose model for scan session metadata (events, counts, timestamps).
+UpcItem.js (model): Mongoose model for UPC registry entries (barcode, eligibility, product mapping).
+User.js (model): Mongoose model for user accounts (role, tier, credits, verification).
+
+ai.js (route): Express route for AI-related endpoints (label analysis, issue explanation).
+approvals.js (route): Express route for approval request management (refunds, credit adjustments).
+audit-logs.js (route): Express route for audit log retrieval and creation.
+auth.js (route): Express route for authentication (login, logout, session).
+distance.js (route): Express route for distance calculation and fee logic.
+health.js (route): Express route for health checks and status.
+inventory-audit.js (route): Express route for inventory audit actions and AI analysis.
+orders.js (route): Express route for order management (create, update, assign, deliver).
+payments.js (route): Express route for payment processing (Stripe, credits, Google Pay).
+products.js (route): Express route for product management (create, update, list).
+returns.js (route): Express route for bottle returns (scan, verify, settle).
+scan-sessions.js (route): Express route for scan session metadata logging.
+settings.js (route): Express route for system settings management.
+stripe.js (route): Express route for Stripe payment integration.
+upc.js (route): Express route for UPC registry management.
+uploads.js (route): Express route for file uploads (images, documents).
+users.js (route): Express route for user management (profile, stats, tier).
+
+connect.js (db): MongoDB connection utility for backend database.
+
+audit.js (utility): Backend utility for audit log creation and management.
+distance.js (utility): Backend utility for distance calculations (miles, bands, fees).
+helpers.js (utility): Backend utility functions for common tasks.
+sku.js (utility): Backend utility for SKU generation and validation.
+helpers.test.js (test): Backend test file for helpers.js functions.
+
+cleanupAbandonedOrders.js (script): Backend script to clean up abandoned orders.
+create-owner.js (script): Backend script to bootstrap an initial owner account.
+findAbandonedAuthorizations.js (script): Backend script to find abandoned payment authorizations.
+
+helpers.test.js (test): Backend test file for helpers.js functions.

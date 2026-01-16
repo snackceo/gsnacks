@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "glossary:audit": "node scripts/glossary-audit.cjs"
   },
   "dependencies": {
     "@google/genai": "^1.34.0",
+    "glob": "^13.0.0",
     "lucide-react": "^0.460.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

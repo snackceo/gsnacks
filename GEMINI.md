@@ -1,5 +1,11 @@
 # NinpoSnacks — GEMINI System Contract (Authoritative)
 
+## Scope
+
+This file defines the system philosophy, contract, and non-negotiable rules for all AI-assisted and future development. For all roles, permissions, scanner modes, and domain terms, see [GLOSSARY.md](GLOSSARY.md). Backend and UI contracts are detailed in [server/GEMINI.md](server/GEMINI.md) and [src/GEMINI.md](src/GEMINI.md).
+
+---
+
 > This file is the **source-of-truth contract** for AI-assisted changes and future development.
 > If code behavior conflicts with this document, the code is wrong.
 

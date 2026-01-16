@@ -4,8 +4,38 @@
 > **Visibility:** Not customer-facing
 > **Purpose:** This document explains *how the system is intended to run*, including business rationale, tier rules, and exact payment math. This is an authoritative reference and should be treated as a contract.
 
+
+## Doc Map
+
+| Doc | Purpose |
+|-----|---------|
+| [README.md](README.md) | Project overview, tech, usage, doc map |
+| [GLOSSARY.md](GLOSSARY.md) | Canonical definitions for all terms |
+| [GEMINI.md](GEMINI.md) | System philosophy, contract, and rules |
+| [server/GEMINI.md](server/GEMINI.md) | Backend enforcement, data model, API contract |
+| [src/GEMINI.md](src/GEMINI.md) | UI/UX, scanner, and component contract |
+
 ---
 
+## Tech Stack
+
+- MongoDB (database)
+- Stripe (payments)
+- Cloudinary (media)
+- (Potential) Socket.io (realtime)
+- (Potential) Twilio (SMS/phone)
+
+---
+
+## Usage & Project Purpose
+
+NinpoSnacks is a delivery-first snack business with integrated Michigan 10¢ bottle return service. This system manages product delivery, deposit returns, and wallet credits, with strict backend authority for all financial and inventory operations. See [GEMINI.md](GEMINI.md) for system contract and [GLOSSARY.md](GLOSSARY.md) for all term definitions.
+
+---
+
+## Glossary
+
+All roles, permissions, scanner modes, and flags are defined in [GLOSSARY.md](GLOSSARY.md). Do not redefine terms here.
 ## 1. Naming Standard (Do Not Deviate)
 
 This document uses **one unified vocabulary**. Code, admin UI, receipts, and support scripts must use these exact terms.
@@ -26,7 +56,7 @@ This document uses **one unified vocabulary**. Code, admin UI, receipts, and sup
 
 #### A) Route Fees *(route-level, never per-container)*
 
-* **Route Fee**: base fee for dispatching and operating a vehicle (applies once per order)
+* **Route Fee**: see [GLOSSARY.md](GLOSSARY.md)
 * **Distance Fee**: incremental mileage charge after the included threshold (applies once per order)
 
 #### B) Cash Settlement Fees *(per-container, cash-out only)*
@@ -80,21 +110,7 @@ The *only* time container value is reduced is when a customer **explicitly choos
 
 ### 4.1 Route Fee (Standardized Naming)
 
-There is **one base fee for dispatching and operating a vehicle**, regardless of what is happening on that route.
-
-**Locked term:** **Route Fee**
-
-The Route Fee **always includes product delivery** when a delivery occurs.
-
-* The Route Fee applies to:
-
-  * Product delivery
-  * Bottle return pickup
-  * Combined product delivery + bottle pickup
-* The Route Fee is charged **once per order**
-* There is no separate base “delivery fee” or “pickup fee”
-
-> Rationale: the primary cost is moving the vehicle, not the specific action performed.
+For the definition and rationale of "Route Fee", see [GLOSSARY.md](GLOSSARY.md).
 
 ---
 
@@ -243,7 +259,7 @@ These requirements are **operational gating** rules and may be enforced in the a
 
 ### 5.3 Route Fee Discounts by Tier (Promotional)
 
-Tiers may receive discounts on the **Route Fee only**.
+Tiers may receive discounts on the **Route Fee only** (see [GLOSSARY.md](GLOSSARY.md) for tier definitions).
 
 Discounts:
 

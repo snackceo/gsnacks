@@ -9,6 +9,7 @@ import {
   Flashlight,
   FlashlightOff
 } from 'lucide-react';
+// See GLOSSARY.md for authoritative definitions of all scanner modes.
 import { ScannerMode } from '../types';
 
 interface ScannerModalProps {

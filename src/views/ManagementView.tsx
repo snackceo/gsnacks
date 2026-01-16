@@ -1664,6 +1664,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
                         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-600 space-y-1">
                           <div className="flex items-center justify-between md:justify-end md:gap-3">
+                            {/* See GLOSSARY.md for Route Fee definition */}
                             <span className="md:hidden">Route Fee:</span>
                             <span className="text-slate-300">
                               Route Fee: ${Number(o.routeFee || o.deliveryFee || 0).toFixed(2)}
@@ -2759,6 +2760,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         })
                       }
                     />
+                    {/* See GLOSSARY.md for Route Fee and Platinum tier definitions */}
                     Free Route Fee for Platinum tier
                   </label>
                 </div>
