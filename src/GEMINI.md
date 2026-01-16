@@ -25,6 +25,8 @@ This file documents UI/UX, scanner, and component contract. For all roles, permi
      - show toast “Same UPC — tap to add again”
      - optionally show a small “Tap to force add” affordance.
 2) After each scan, show a result panel:
+   - The Create Product form itself (auto-filled) is the result panel.
+   - Do not show separate preview cards or a duplicate result panel.
    - UPC
    - Product name (if mapped)
    - SKU
