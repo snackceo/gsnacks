@@ -418,12 +418,35 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
   const chartData = useMemo(() => {
     return (orders || [])
-      .filter((o: any) => o && (o as any).id)
+      .filter((o: any) => o)
       .slice(0, 15)
-      .map((o: any) => ({
-        name: String(o.id).slice(-4),
-        revenue: Number(o.total || 0)
-      }))
+      .map((o: any) => {
+        const idCandidate = o?.id ?? o?._id ?? o?.orderId;
+        const id = typeof idCandidate === 'string' ? idCandidate : String(idCandidate || '');
+        const label =
+          id.trim() ||
+          (o?.createdAt
+            ? new Date(o.createdAt).toLocaleDateString()
+            : 'UNKNOWN');
+        const revenueValue =
+          o?.total ??
+          o?.totalAmount ??
+          o?.amount ??
+          o?.totalCents ??
+          o?.totalAmountCents ??
+          0;
+        const revenueNumber = Number(revenueValue);
+        const hasCents = o?.totalCents != null || o?.totalAmountCents != null;
+        const revenue = Number.isFinite(revenueNumber)
+          ? hasCents
+            ? revenueNumber / 100
+            : revenueNumber
+          : 0;
+        return {
+          name: label.slice(-10),
+          revenue
+        };
+      })
       .reverse();
   }, [orders]);
 

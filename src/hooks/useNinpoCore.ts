@@ -115,6 +115,67 @@ const coerceBool = (v: any, fallback: boolean) => {
   return Boolean(v);
 };
 
+const resolveOrdersPayload = (data: any) => {
+  if (Array.isArray(data?.orders)) return data.orders;
+  if (Array.isArray(data?.data?.orders)) return data.data.orders;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.results)) return data.results;
+  if (Array.isArray(data)) return data;
+  return [];
+};
+
+const normalizeOrderTotal = (order: any) => {
+  const direct =
+    order?.total ??
+    order?.totalAmount ??
+    order?.amount ??
+    order?.totalDollars ??
+    order?.totalUSD ??
+    order?.totalValue;
+  if (direct !== undefined && direct !== null) {
+    const numeric = Number(direct);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+
+  const cents =
+    order?.totalCents ??
+    order?.totalAmountCents ??
+    order?.amountCents ??
+    order?.amount_in_cents;
+  if (cents !== undefined && cents !== null) {
+    const numeric = Number(cents);
+    if (Number.isFinite(numeric)) return numeric / 100;
+  }
+
+  return 0;
+};
+
+const normalizeOrders = (rawOrders: any[]) => {
+  const normalized = rawOrders
+    .map(order => {
+      const idCandidate = order?.id ?? order?._id ?? order?.orderId;
+      const id = typeof idCandidate === 'string' ? idCandidate : String(idCandidate || '');
+      const trimmedId = id.trim();
+      if (!trimmedId) return null;
+      return {
+        ...order,
+        id: trimmedId,
+        total: normalizeOrderTotal(order)
+      } as Order;
+    })
+    .filter((order): order is Order => Boolean(order));
+
+  if (normalized.length !== rawOrders.length) {
+    console.warn('Orders payload contained entries without IDs.', {
+      received: rawOrders.length,
+      normalized: normalized.length
+    });
+  }
+
+  return normalized;
+};
+
 /**
  * Legacy mapping:
  * old: scanningModesEnabled = { A,B,C,D }
@@ -482,12 +543,25 @@ export const useNinpoCore = () => {
       });
 
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to load orders');
+      if (!res.ok) {
+        console.error('Orders fetch failed.', {
+          status: res.status,
+          statusText: res.statusText,
+          data
+        });
+        throw new Error(data?.error || 'Failed to load orders');
+      }
 
-      const list = Array.isArray(data?.orders) ? data.orders : [];
+      const rawOrders = resolveOrdersPayload(data);
+      if (!Array.isArray(rawOrders)) {
+        console.warn('Orders response did not include a list payload.', data);
+      }
+
+      const list = normalizeOrders(rawOrders);
       setOrders(list);
-      return list as Order[];
+      return list;
     } catch (e: any) {
+      console.error('Orders fetch error.', e);
       addToast(e?.message ?? 'Orders feed offline', 'warning');
       return [];
     }
