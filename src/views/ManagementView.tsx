@@ -3382,18 +3382,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       Step 1: Scan the UPC. Step 2: Tap <span className="text-white">Photo</span> in the scanner to
                       capture brand, size, and nutrition panels. Step 3: Review and edit below before creating.
                     </div>
-                    <button
-                      onClick={runLabelScan}
-                      disabled={isLabelScanning || !labelScanPhoto || !scannedUpcForCreation}
-                      className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      {isLabelScanning ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <ScanLine className="w-4 h-4" />
-                      )}
-                      Re-run AI Analysis
-                    </button>
                   </div>
 
                   {labelScanPhoto && (
@@ -3405,40 +3393,42 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                           className="w-full h-full object-cover"
                         />
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px] text-slate-300 uppercase tracking-widest">
-                        <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                          <p className="text-slate-500 font-bold">Quantity</p>
-                          <p className="text-white font-semibold mt-2">
-                            {labelScanResult?.quantity
-                              ? Number(labelScanResult.quantity).toFixed(0)
-                              : '—'}
-                          </p>
+                      {!scannedUpcForCreation && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px] text-slate-300 uppercase tracking-widest">
+                          <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                            <p className="text-slate-500 font-bold">Quantity</p>
+                            <p className="text-white font-semibold mt-2">
+                              {labelScanResult?.quantity
+                                ? Number(labelScanResult.quantity).toFixed(0)
+                                : '—'}
+                            </p>
+                          </div>
+                          <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                            <p className="text-slate-500 font-bold">Size</p>
+                            <p className="text-white font-semibold mt-2">
+                              {labelScanResult?.sizeOz
+                                ? formatSize(labelScanResult.sizeOz, upcDraft.sizeUnit)
+                                : '—'}
+                            </p>
+                          </div>
+                          <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                            <p className="text-slate-500 font-bold">Name</p>
+                            <p className="text-white font-semibold mt-2">
+                              {labelScanResult?.name || '—'}
+                            </p>
+                          </div>
+                          <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                            <p className="text-slate-500 font-bold">Eligibility</p>
+                            <p className="text-white font-semibold mt-2">
+                              {labelScanResult
+                                ? labelScanResult.isEligible
+                                  ? 'ELIGIBLE'
+                                  : 'INELIGIBLE'
+                                : '—'}
+                            </p>
+                          </div>
                         </div>
-                        <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                          <p className="text-slate-500 font-bold">Size</p>
-                          <p className="text-white font-semibold mt-2">
-                            {labelScanResult?.sizeOz
-                              ? formatSize(labelScanResult.sizeOz, upcDraft.sizeUnit)
-                              : '—'}
-                          </p>
-                        </div>
-                        <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                          <p className="text-slate-500 font-bold">Name</p>
-                          <p className="text-white font-semibold mt-2">
-                            {labelScanResult?.name || '—'}
-                          </p>
-                        </div>
-                        <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                          <p className="text-slate-500 font-bold">Eligibility</p>
-                          <p className="text-white font-semibold mt-2">
-                            {labelScanResult
-                              ? labelScanResult.isEligible
-                                ? 'ELIGIBLE'
-                                : 'INELIGIBLE'
-                              : '—'}
-                          </p>
-                        </div>
-                      </div>
+                      )}
                     </div>
                   )}
 
@@ -3449,12 +3439,28 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   )}
                   {scannedUpcForCreation ? (
                     <div className="pt-6 border-t border-white/5 space-y-6">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                        Create Product
-                      </p>
-                      <p className="text-[10px] text-slate-500 uppercase tracking-widest">
-                        Storage zone/bin describe where the item sits (e.g., Fridge / Shelf A).
-                      </p>
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                            Create Product
+                          </p>
+                          <p className="text-[10px] text-slate-500 uppercase tracking-widest">
+                            Storage zone/bin describe where the item sits (e.g., Fridge / Shelf A).
+                          </p>
+                        </div>
+                        <button
+                          onClick={runLabelScan}
+                          disabled={isLabelScanning || !labelScanPhoto || !scannedUpcForCreation}
+                          className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {isLabelScanning ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <ScanLine className="w-4 h-4" />
+                          )}
+                          Re-run AI Analysis
+                        </button>
+                      </div>
 
                       {createError && (
                         <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
