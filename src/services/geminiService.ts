@@ -42,8 +42,15 @@ export type BottleScanResult = {
 
 export type ProductScanResult = {
   name: string;
+  brand?: string;
+  productType?: string;
   sizeOz: number;
   quantity: number;
+  nutritionNote?: string;
+  storageZone?: string;
+  storageBin?: string;
+  image?: string;
+  containerType?: string;
   isEligible: boolean;
   message?: string;
 };
@@ -120,6 +127,13 @@ export const analyzeProductScan = async (
       sizeOz: 0,
       quantity: 0,
       isEligible: false,
+      brand: '',
+      productType: '',
+      nutritionNote: '',
+      storageZone: '',
+      storageBin: '',
+      image: '',
+      containerType: '',
       message: 'No image data provided.'
     };
   }
@@ -149,6 +163,13 @@ export const analyzeProductScan = async (
         sizeOz: 0,
         quantity: 0,
         isEligible: false,
+        brand: '',
+        productType: '',
+        nutritionNote: '',
+        storageZone: '',
+        storageBin: '',
+        image: '',
+        containerType: '',
         message: detail || 'Product scan unavailable.'
       };
     }
@@ -159,6 +180,13 @@ export const analyzeProductScan = async (
       sizeOz: Number(data?.sizeOz || 0),
       quantity: Number(data?.quantity || 0),
       isEligible: Boolean(data?.isEligible),
+      brand: typeof data?.brand === 'string' ? data.brand : '',
+      productType: typeof data?.productType === 'string' ? data.productType : '',
+      nutritionNote: typeof data?.nutritionNote === 'string' ? data.nutritionNote : '',
+      storageZone: typeof data?.storageZone === 'string' ? data.storageZone : '',
+      storageBin: typeof data?.storageBin === 'string' ? data.storageBin : '',
+      image: typeof data?.image === 'string' ? data.image : '',
+      containerType: typeof data?.containerType === 'string' ? data.containerType : '',
       message: typeof data?.message === 'string' ? data.message : undefined
     };
   } catch {
@@ -167,6 +195,13 @@ export const analyzeProductScan = async (
       sizeOz: 0,
       quantity: 0,
       isEligible: false,
+      brand: '',
+      productType: '',
+      nutritionNote: '',
+      storageZone: '',
+      storageBin: '',
+      image: '',
+      containerType: '',
       message: 'Product scan unavailable.'
     };
   }

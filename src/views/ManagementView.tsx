@@ -904,23 +904,52 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const applyLabelScanToDrafts = (result: ProductScanResult) => {
     const hasSignal =
       Boolean(result.name) ||
+      Boolean(result.brand) ||
+      Boolean(result.productType) ||
+      Boolean(result.nutritionNote) ||
+      Boolean(result.storageZone) ||
+      Boolean(result.storageBin) ||
+      Boolean(result.image) ||
       Number(result.sizeOz) > 0 ||
-      Number(result.quantity) > 0;
+      Number(result.quantity) > 0 ||
+      Boolean(result.containerType);
     if (!hasSignal) return;
+    const normalizedContainerType =
+      typeof result.containerType === 'string'
+        ? result.containerType.trim().toLowerCase()
+        : '';
+    const resolvedContainerType =
+      normalizedContainerType === 'plastic' ||
+      normalizedContainerType === 'glass' ||
+      normalizedContainerType === 'aluminum'
+        ? (normalizedContainerType as UpcContainerType)
+        : undefined;
+    const resolvedIsGlass =
+      resolvedContainerType !== undefined
+        ? resolvedContainerType === 'glass'
+        : undefined;
     setUpcDraft(prev => ({
       ...prev,
       name: result.name || prev.name,
       sizeOz: Number.isFinite(result.sizeOz) ? result.sizeOz : prev.sizeOz,
-      isEligible: result.isEligible
+      isEligible: result.isEligible,
+      containerType: resolvedContainerType ?? prev.containerType
     }));
     setNewProduct(prev => ({
       ...prev,
       name: result.name || prev.name,
+      brand: result.brand || prev.brand,
+      productType: result.productType || prev.productType,
+      nutritionNote: result.nutritionNote || prev.nutritionNote,
+      storageZone: result.storageZone || prev.storageZone,
+      storageBin: result.storageBin || prev.storageBin,
+      image: result.image || prev.image,
       stock:
         Number.isFinite(result.quantity) && result.quantity > 0
           ? result.quantity
           : prev.stock,
-      sizeOz: Number.isFinite(result.sizeOz) ? result.sizeOz : prev.sizeOz
+      sizeOz: Number.isFinite(result.sizeOz) ? result.sizeOz : prev.sizeOz,
+      isGlass: resolvedIsGlass ?? prev.isGlass
     }));
   };
 
