@@ -1,7 +1,12 @@
 export enum UserRole {
   CUSTOMER = 'CUSTOMER',
-  OWNER = 'OWNER',
-  DRIVER = 'DRIVER'
+  DRIVER = 'DRIVER',
+
+  // Preferred name going forward (what you called “admin”)
+  ADMIN = 'ADMIN',
+
+  // Backwards-compat: existing systems may still return OWNER
+  OWNER = 'OWNER'
 }
 
 export enum OrderStatus {
@@ -15,6 +20,26 @@ export enum OrderStatus {
   REFUND_REQUESTED = 'REFUND_REQUESTED',
   REFUNDED = 'REFUNDED',
   CLOSED = 'CLOSED'
+}
+
+/**
+ * Scanner modes are *intents* for the single ScannerModal.
+ * Your UI should decide which mode it opens with, and your handler
+ * must enforce what actions are allowed per mode.
+ */
+export enum ScannerMode {
+  // Admin (inventory)
+  INVENTORY_CREATE = 'INVENTORY_CREATE',
+  INVENTORY_AUDIT = 'INVENTORY_AUDIT',
+
+  // Admin (UPC registry)
+  UPC_LOOKUP = 'UPC_LOOKUP',
+
+  // Driver verification
+  DRIVER_VERIFY_CONTAINERS = 'DRIVER_VERIFY_CONTAINERS',
+
+  // Customer return scanning
+  CUSTOMER_RETURN_SCAN = 'CUSTOMER_RETURN_SCAN'
 }
 
 export type PaymentMethod = 'STRIPE_CARD' | 'GOOGLE_PAY' | 'CREDITS';
@@ -116,17 +141,23 @@ export interface Order {
   driverId?: string;
   items: { productId: string; quantity: number }[];
   total: number;
+
   orderType?: 'DELIVERY_PURCHASE' | 'RETURNS_PICKUP';
   routeFee?: number;
   distanceMiles?: number;
   distanceFee?: number;
+
   creditAuthorizedCents?: number;
   creditAppliedCents?: number;
+
   estimatedReturnCreditGross?: number;
   estimatedReturnCredit: number;
+
   verifiedReturnCreditGross?: number;
   verifiedReturnCredit?: number;
+
   returnPayoutMethod?: 'CREDIT' | 'CASH';
+
   returnUpcs?: string[];
   verifiedReturnUpcs?: string[];
   returnUpcCounts?: ReturnUpcCount[];
@@ -140,12 +171,15 @@ export interface Order {
   address: string;
   status: OrderStatus;
   createdAt: string;
+
   paidAt?: string;
   deliveredAt?: string;
   refundRequestedAt?: string;
+
   verificationPhoto?: string;
   returnPhoto?: string;
   returnAiAnalysis?: ReturnAiAnalysis;
+
   gpsCoords?: { lat: number; lng: number };
 }
 
@@ -159,30 +193,44 @@ export interface AppSettings {
   distanceBand1Rate: number;
   distanceBand2Rate: number;
   distanceBand3Rate: number;
+
   hubLat: number | null;
   hubLng: number | null;
+
   maintenanceMode: boolean;
   requirePhotoForRefunds: boolean;
   allowGuestCheckout: boolean;
   showAdvancedInventoryInsights: boolean;
+
   allowPlatinumTier: boolean;
   platinumFreeDelivery: boolean;
+
   storageZones: string[];
   productTypes: string[];
+
+  /**
+   * Replaces legacy A/B/C/D.
+   * These are UI feature flags for which scanning experiences are enabled.
+   */
   scanningModesEnabled: {
-    A: boolean;
-    B: boolean;
-    C: boolean;
-    D: boolean;
+    inventoryCreate: boolean;
+    inventoryAudit: boolean;
+    upcLookup: boolean;
+    driverVerifyContainers: boolean;
+    customerReturnScan: boolean;
   };
+
   defaultIncrement: number;
   cooldownMs: number;
+
+  // IMPORTANT: your UI references this; it must exist.
+  beepEnabled: boolean;
+
   requireSkuForScanning: boolean;
   shelfGroupingEnabled: boolean;
 }
 
 export type ApprovalType = 'REFUND' | 'CREDIT_ADJUSTMENT' | 'MEMBERSHIP_UPGRADE';
-
 export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export interface ApprovalRequest {
@@ -219,4 +267,35 @@ export interface AuditLog {
   actorId: string;
   details: string;
   createdAt: string;
+}
+
+export interface ReturnVerification {
+  id: string;
+  orderId: string;
+  driverId: string;
+  customerId: string;
+
+  scans?: { upc: string; timestamp: string }[];
+
+  recognizedCount: number;
+  unrecognizedCount: number;
+  duplicatesCount?: number;
+
+  conditionFlags?: string[];
+
+  submittedAt: string;
+
+  status: 'SUBMITTED' | 'REVIEWED' | 'APPROVED' | 'REJECTED';
+  reviewNotes?: string;
+}
+
+export interface ReturnSettlement {
+  id: string;
+  verificationId: string;
+  finalAcceptedCount: number;
+  creditAmount: number;
+  cashAmount: number;
+  feesApplied: number;
+  settledAt: string;
+  settledBy: string;
 }

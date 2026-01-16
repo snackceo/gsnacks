@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Order, OrderStatus, ReturnUpcCount, User, UserRole } from '../types';
+import { Order, OrderStatus, ReturnUpcCount, User, UserRole, ScannerMode } from '../types';
 import { analyzeBottleScan, explainDriverIssue } from '../services/geminiService';
 import {
   Camera,
@@ -114,6 +114,13 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     message: string;
   } | null>(null);
 
+  // Return verification state
+  const [verificationScans, setVerificationScans] = useState<{ upc: string; timestamp: string }[]>([]);
+  const [recognizedCount, setRecognizedCount] = useState(0);
+  const [unrecognizedCount, setUnrecognizedCount] = useState(0);
+  const [duplicatesCount, setDuplicatesCount] = useState(0);
+  const [conditionFlags, setConditionFlags] = useState<string[]>([]);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -124,7 +131,8 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const scanSessionStartedAtRef = useRef<string>('');
 
   const [driverMode, setDriverMode] = useState<'C' | 'D'>('C');
-  const [scannerMode, setScannerMode] = useState<'C' | 'D'>('C');
+  const [scannerMode, setScannerMode] = useState<ScannerMode>(ScannerMode.DRIVER_VERIFY_CONTAINERS);
+  const [workflowMode, setWorkflowMode] = useState<'verification' | 'delivery'>('delivery');
 
   const handleAccept = (orderId: string) => {
     if (!orderId) return;
@@ -477,13 +485,64 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     }
   };
 
+  const addVerificationScan = async (upcRaw: string, source: 'scanner' | 'manual' = 'manual') => {
+    const upc = String(upcRaw || '').replace(/\s+/g, '').trim();
+    if (!upc) return;
+
+    // Check for duplicates
+    const isDuplicate = verificationScans.some(scan => scan.upc === upc);
+    if (isDuplicate) {
+      setDuplicatesCount(prev => prev + 1);
+      playScannerTone(440, 120, 0.2);
+      setScannerError('Duplicate scan detected');
+      return;
+    }
+
+    // Check if UPC is recognized
+    try {
+      const response = await fetch(
+        `${BACKEND_URL}/api/upc/eligibility?upc=${encodeURIComponent(upc)}`
+      );
+      const isRecognized = response.ok;
+
+      if (isRecognized) {
+        setRecognizedCount(prev => prev + 1);
+        setScannerError('Recognized container');
+        playScannerTone(980, 120, 0.2);
+      } else {
+        setUnrecognizedCount(prev => prev + 1);
+        setScannerError('Unrecognized container');
+        playScannerTone(220, 240, 0.25);
+      }
+
+      // Add to scans list
+      setVerificationScans(prev => [...prev, {
+        upc,
+        timestamp: new Date().toISOString()
+      }]);
+
+    } catch {
+      // On error, treat as unrecognized
+      setUnrecognizedCount(prev => prev + 1);
+      setScannerError('Unable to verify container');
+      playScannerTone(220, 240, 0.25);
+
+      setVerificationScans(prev => [...prev, {
+        upc,
+        timestamp: new Date().toISOString()
+      }]);
+    }
+  };
+
   const handleScannerScan = async (upc: string, qty = 1) => {
-    if (scannerMode === 'C') {
+    if (scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS) {
+      await addVerificationScan(upc, 'scanner');
+    } else {
+      // Original logic for other modes
       for (let i = 0; i < qty; i++) {
         await addUpc(upc, 'scanner');
       }
     }
-    // For Mode D, will be implemented later
   };
 
   const confirmDuplicateScan = () => {
@@ -506,6 +565,53 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setVerifiedReturnUpcs([]);
     setScannerError(null);
     setPendingDuplicateScan(null);
+  };
+
+  const submitVerification = async () => {
+    if (!activeOrder) return;
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/returns/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          orderId: activeOrder.id,
+          driverId: currentUser?.username || currentUser?.id || 'DRIVER',
+          customerId: activeOrder.customerId,
+          scans: verificationScans,
+          recognizedCount,
+          unrecognizedCount,
+          duplicatesCount,
+          conditionFlags
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to submit verification');
+      }
+
+      // Reset verification state
+      setVerificationScans([]);
+      setRecognizedCount(0);
+      setUnrecognizedCount(0);
+      setDuplicatesCount(0);
+      setConditionFlags([]);
+      setScannerError(null);
+
+      setDriverNotice({ tone: 'success', message: 'Verification submitted for review' });
+    } catch (error) {
+      setDriverNotice({ tone: 'error', message: 'Failed to submit verification' });
+    }
+  };
+
+  const clearVerification = () => {
+    setVerificationScans([]);
+    setRecognizedCount(0);
+    setUnrecognizedCount(0);
+    setDuplicatesCount(0);
+    setConditionFlags([]);
+    setScannerError(null);
   };
 
   const sendScanSessionMetadata = async (stage: 'pre_capture' | 'post_capture') => {
@@ -930,6 +1036,25 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
         </button>
       </div>
 
+      <div className="flex gap-4">
+        <button
+          onClick={() => setWorkflowMode('delivery')}
+          className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
+            workflowMode === 'delivery' ? 'bg-ninpo-lime text-ninpo-black' : 'bg-white/5 text-white'
+          }`}
+        >
+          Delivery Workflow
+        </button>
+        <button
+          onClick={() => setWorkflowMode('verification')}
+          className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
+            workflowMode === 'verification' ? 'bg-ninpo-lime text-ninpo-black' : 'bg-white/5 text-white'
+          }`}
+        >
+          Container Verification
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="space-y-6">
           <h3 className="text-white font-black uppercase text-xs tracking-widest flex items-center gap-3">
@@ -1055,43 +1180,104 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               )}
 
               <div>
-                <p className="uppercase tracking-widest opacity-60">Verify Container Returns</p>
-                <p className="text-[10px] uppercase tracking-widest text-slate-600 mt-2">
-                  Scan eligible Michigan 10¢ deposit containers. Containers must be empty and clean.
-                </p>
-                <div className="mt-3 flex flex-col gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
-                      <input
-                        value={manualUpc}
-                        onChange={e => setManualUpc(e.target.value)}
-                        inputMode="numeric"
-                        className="w-full bg-transparent outline-none text-white font-black text-sm"
-                        placeholder="Enter UPC (8–14 digits)"
-                      />
-                    </div>
-                    <button
-                      onClick={() => addUpc(manualUpc, 'manual')}
-                      className="px-4 py-3 bg-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
-                    >
-                      <Plus className="w-4 h-4" /> Add
-                    </button>
-                    <button
-                      onClick={() => {
-                        setScannerMode('C');
-                        setScannerOpen(true);
-                      }}
-                      className="px-4 py-3 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
-                    >
-                      <ScanLine className="w-4 h-4" /> Scan
-                    </button>
-                  </div>
+                {workflowMode === 'verification' ? (
+                  <>
+                    <p className="uppercase tracking-widest opacity-60">Container Verification</p>
+                    <p className="text-[10px] uppercase tracking-widest text-slate-600 mt-2">
+                      Scan all containers to count recognized vs unrecognized items. Submit for admin review.
+                    </p>
+                    <div className="mt-3 flex flex-col gap-3">
+                      <button
+                        onClick={() => {
+                          setScannerMode(ScannerMode.DRIVER_VERIFY_CONTAINERS);
+                          setScannerOpen(true);
+                        }}
+                        className="px-4 py-3 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                      >
+                        <ScanLine className="w-4 h-4" /> Start Verification Scan
+                      </button>
 
-                  {scannerError && (
-                    <div className="text-[11px] text-ninpo-red bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl px-4 py-3">
-                      {scannerError}
+                      {scannerError && (
+                        <div className={`text-[11px] bg-white/5 border border-white/10 rounded-2xl px-4 py-3 ${
+                          scannerError === 'Recognized container' ? 'text-ninpo-lime' :
+                          scannerError === 'Unrecognized container' ? 'text-yellow-400' :
+                          'text-slate-400'
+                        }`}>
+                          {scannerError}
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-white/5 border border-white/10 rounded-2xl p-3 text-center">
+                          <p className="text-[10px] uppercase tracking-widest text-slate-500">Recognized</p>
+                          <p className="text-xl font-black text-ninpo-lime">{recognizedCount}</p>
+                        </div>
+                        <div className="bg-white/5 border border-white/10 rounded-2xl p-3 text-center">
+                          <p className="text-[10px] uppercase tracking-widest text-slate-500">Unrecognized</p>
+                          <p className="text-xl font-black text-yellow-400">{unrecognizedCount}</p>
+                        </div>
+                        <div className="bg-white/5 border border-white/10 rounded-2xl p-3 text-center">
+                          <p className="text-[10px] uppercase tracking-widest text-slate-500">Duplicates</p>
+                          <p className="text-xl font-black text-slate-400">{duplicatesCount}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3">
+                        <button
+                          onClick={submitVerification}
+                          disabled={verificationScans.length === 0}
+                          className="flex-1 px-4 py-3 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                        >
+                          Submit for Review
+                        </button>
+                        <button
+                          onClick={clearVerification}
+                          className="px-4 py-3 bg-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"
+                        >
+                          Clear
+                        </button>
+                      </div>
                     </div>
-                  )}
+                  </>
+                ) : (
+                  <>
+                    <p className="uppercase tracking-widest opacity-60">Verify Container Returns</p>
+                    <p className="text-[10px] uppercase tracking-widest text-slate-600 mt-2">
+                      Scan eligible Michigan 10¢ deposit containers. Containers must be empty and clean.
+                    </p>
+                    <div className="mt-3 flex flex-col gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                          <input
+                            value={manualUpc}
+                            onChange={e => setManualUpc(e.target.value)}
+                            inputMode="numeric"
+                            className="w-full bg-transparent outline-none text-white font-black text-sm"
+                            placeholder="Enter UPC (8–14 digits)"
+                          />
+                        </div>
+                        <button
+                          onClick={() => addUpc(manualUpc, 'manual')}
+                          className="px-4 py-3 bg-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                        >
+                          <Plus className="w-4 h-4" /> Add
+                        </button>
+                        <button
+                          onClick={() => {
+                            setScannerMode(ScannerMode.DRIVER_VERIFY_CONTAINERS);
+                            setScannerOpen(true);
+                          }}
+                          className="px-4 py-3 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                        >
+                          <ScanLine className="w-4 h-4" /> Scan
+                        </button>
+                      </div>
+
+                      {scannerError && (
+                        <div className="text-[11px] text-ninpo-red bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl px-4 py-3">
+                          {scannerError}
+                        </div>
+                      )}
 
                   {pendingDuplicateScan && (
                     <div className="text-[11px] text-white bg-white/5 border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between gap-4">
@@ -1191,7 +1377,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                       Choose return value payout
                     </button>
                   )}
-                </div>
+                )}
               </div>
 
               {!isReturnOnly && (
@@ -1583,8 +1769,8 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
             mode={scannerMode}
             onScan={handleScannerScan}
             onClose={() => setScannerOpen(false)}
-            title={scannerMode === 'C' ? 'Returns Intake' : 'Pick/Pack Orders'}
-            subtitle={scannerMode === 'C' ? 'Scan UPCs for container returns' : 'Scan products for order fulfillment'}
+            title={scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS ? 'Verify Returns' : 'Pick/Pack Orders'}
+            subtitle={scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS ? 'Scan UPCs for container returns' : 'Scan products for order fulfillment'}
             beepEnabled={true}
             cooldownMs={1200}
           />

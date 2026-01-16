@@ -259,6 +259,8 @@ function App() {
                   fetchUserStats={core.fetchUserStats}
                   fetchApprovals={core.fetchApprovals}
                   fetchAuditLogs={core.fetchAuditLogs}
+                  fetchReturnVerifications={core.fetchReturnVerifications}
+                  settleReturnVerification={core.settleReturnVerification}
                 />
               ) : (
                 <Navigate to="/" replace />

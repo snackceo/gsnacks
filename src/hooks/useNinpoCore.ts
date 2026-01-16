@@ -7,7 +7,9 @@ import {
   AppSettings,
   ApprovalRequest,
   AuditLog,
-  UserStatsSummary
+  UserStatsSummary,
+  ReturnVerification,
+  ReturnSettlement
 } from '../types';
 import { MOCK_PRODUCTS } from '../constants';
 
@@ -81,40 +83,108 @@ const defaultSettings: AppSettings = {
   platinumFreeDelivery: false,
   storageZones: [],
   productTypes: [],
+
+  // renamed: replaces legacy A/B/C/D
   scanningModesEnabled: {
-    A: true,
-    B: true,
-    C: true,
-    D: true
+    inventoryCreate: true,
+    inventoryAudit: true,
+    upcLookup: true,
+    driverVerifyContainers: true,
+    customerReturnScan: true
   },
+
   defaultIncrement: 1,
   cooldownMs: 1000,
+
+  // required by UI
+  beepEnabled: true,
+
   requireSkuForScanning: false,
   shelfGroupingEnabled: false
 };
 
-const parseOptionalNumber = (
-  value: number | null | undefined,
-  fallback: number | null
-) => {
+const parseOptionalNumber = (value: number | null | undefined, fallback: number | null) => {
   if (value === null || value === undefined) return fallback;
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
   return number;
 };
 
+const coerceBool = (v: any, fallback: boolean) => {
+  if (v === undefined || v === null) return fallback;
+  return Boolean(v);
+};
+
+/**
+ * Legacy mapping:
+ * old: scanningModesEnabled = { A,B,C,D }
+ * new: scanningModesEnabled = {
+ *   inventoryCreate, inventoryAudit, upcLookup, driverVerifyContainers, customerReturnScan
+ * }
+ *
+ * Mapping choice (deterministic):
+ *   A -> inventoryCreate
+ *   B -> upcLookup
+ *   C -> driverVerifyContainers
+ *   D -> inventoryAudit
+ *
+ * customerReturnScan defaults true unless explicitly present in new schema
+ */
+const normalizeScanningModes = (raw: any) => {
+  const fallback = defaultSettings.scanningModesEnabled as any;
+
+  if (!raw || typeof raw !== 'object') return fallback;
+
+  // If it already has the new keys, respect them.
+  const hasNewKeys =
+    'inventoryCreate' in raw ||
+    'inventoryAudit' in raw ||
+    'upcLookup' in raw ||
+    'driverVerifyContainers' in raw ||
+    'customerReturnScan' in raw;
+
+  if (hasNewKeys) {
+    return {
+      inventoryCreate: coerceBool(raw.inventoryCreate, fallback.inventoryCreate),
+      inventoryAudit: coerceBool(raw.inventoryAudit, fallback.inventoryAudit),
+      upcLookup: coerceBool(raw.upcLookup, fallback.upcLookup),
+      driverVerifyContainers: coerceBool(
+        raw.driverVerifyContainers,
+        fallback.driverVerifyContainers
+      ),
+      customerReturnScan: coerceBool(raw.customerReturnScan, fallback.customerReturnScan)
+    };
+  }
+
+  // Otherwise assume legacy A/B/C/D.
+  return {
+    inventoryCreate: coerceBool(raw.A, fallback.inventoryCreate),
+    upcLookup: coerceBool(raw.B, fallback.upcLookup),
+    driverVerifyContainers: coerceBool(raw.C, fallback.driverVerifyContainers),
+    inventoryAudit: coerceBool(raw.D, fallback.inventoryAudit),
+
+    // legacy didn’t have this; default it on
+    customerReturnScan: fallback.customerReturnScan
+  };
+};
+
 const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
-  const data = raw ?? {};
+  const data: any = raw ?? {};
+
   const legacyDeliveryFee = Number((data as { deliveryFee?: number }).deliveryFee);
-  const resolvedLegacyRouteFee = Number.isFinite(legacyDeliveryFee) ? legacyDeliveryFee : undefined;
+  const resolvedLegacyRouteFee = Number.isFinite(legacyDeliveryFee)
+    ? legacyDeliveryFee
+    : undefined;
+
+  const normalizedScanningModes = normalizeScanningModes(data.scanningModesEnabled);
+
   return {
     ...defaultSettings,
     ...data,
+
     routeFee: Number(data.routeFee ?? resolvedLegacyRouteFee ?? defaultSettings.routeFee),
     referralBonus: Number(data.referralBonus ?? defaultSettings.referralBonus),
-    pickupOnlyMultiplier: Number(
-      data.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier
-    ),
+    pickupOnlyMultiplier: Number(data.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier),
     distanceIncludedMiles: Number(
       data.distanceIncludedMiles ?? defaultSettings.distanceIncludedMiles
     ),
@@ -124,49 +194,45 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     distanceBand2MaxMiles: Number(
       data.distanceBand2MaxMiles ?? defaultSettings.distanceBand2MaxMiles
     ),
-    distanceBand1Rate: Number(
-      data.distanceBand1Rate ?? defaultSettings.distanceBand1Rate
-    ),
-    distanceBand2Rate: Number(
-      data.distanceBand2Rate ?? defaultSettings.distanceBand2Rate
-    ),
-    distanceBand3Rate: Number(
-      data.distanceBand3Rate ?? defaultSettings.distanceBand3Rate
-    ),
+    distanceBand1Rate: Number(data.distanceBand1Rate ?? defaultSettings.distanceBand1Rate),
+    distanceBand2Rate: Number(data.distanceBand2Rate ?? defaultSettings.distanceBand2Rate),
+    distanceBand3Rate: Number(data.distanceBand3Rate ?? defaultSettings.distanceBand3Rate),
+
     hubLat: parseOptionalNumber(data.hubLat, defaultSettings.hubLat),
     hubLng: parseOptionalNumber(data.hubLng, defaultSettings.hubLng),
-    maintenanceMode: Boolean(
-      data.maintenanceMode ?? defaultSettings.maintenanceMode
-    ),
+
+    maintenanceMode: Boolean(data.maintenanceMode ?? defaultSettings.maintenanceMode),
     requirePhotoForRefunds: Boolean(
       data.requirePhotoForRefunds ?? defaultSettings.requirePhotoForRefunds
     ),
-    allowGuestCheckout: Boolean(
-      data.allowGuestCheckout ?? defaultSettings.allowGuestCheckout
-    ),
+    allowGuestCheckout: Boolean(data.allowGuestCheckout ?? defaultSettings.allowGuestCheckout),
     showAdvancedInventoryInsights: Boolean(
       data.showAdvancedInventoryInsights ?? defaultSettings.showAdvancedInventoryInsights
     ),
-    allowPlatinumTier: Boolean(
-      data.allowPlatinumTier ?? defaultSettings.allowPlatinumTier
-    ),
+
+    allowPlatinumTier: Boolean(data.allowPlatinumTier ?? defaultSettings.allowPlatinumTier),
     platinumFreeDelivery: Boolean(
       data.platinumFreeDelivery ?? defaultSettings.platinumFreeDelivery
     ),
+
     storageZones: Array.isArray(data.storageZones) ? data.storageZones : defaultSettings.storageZones,
     productTypes: Array.isArray(data.productTypes) ? data.productTypes : defaultSettings.productTypes,
-    scanningModesEnabled: data.scanningModesEnabled && typeof data.scanningModesEnabled === 'object'
-      ? {
-          A: Boolean(data.scanningModesEnabled.A ?? defaultSettings.scanningModesEnabled.A),
-          B: Boolean(data.scanningModesEnabled.B ?? defaultSettings.scanningModesEnabled.B),
-          C: Boolean(data.scanningModesEnabled.C ?? defaultSettings.scanningModesEnabled.C),
-          D: Boolean(data.scanningModesEnabled.D ?? defaultSettings.scanningModesEnabled.D)
-        }
-      : defaultSettings.scanningModesEnabled,
+
+    // normalized to new schema (and legacy-safe)
+    scanningModesEnabled: normalizedScanningModes,
+
     defaultIncrement: Number(data.defaultIncrement ?? defaultSettings.defaultIncrement),
     cooldownMs: Number(data.cooldownMs ?? defaultSettings.cooldownMs),
-    requireSkuForScanning: Boolean(data.requireSkuForScanning ?? defaultSettings.requireSkuForScanning),
-    shelfGroupingEnabled: Boolean(data.shelfGroupingEnabled ?? defaultSettings.shelfGroupingEnabled)
+
+    // keep it always present
+    beepEnabled: Boolean(data.beepEnabled ?? defaultSettings.beepEnabled),
+
+    requireSkuForScanning: Boolean(
+      data.requireSkuForScanning ?? defaultSettings.requireSkuForScanning
+    ),
+    shelfGroupingEnabled: Boolean(
+      data.shelfGroupingEnabled ?? defaultSettings.shelfGroupingEnabled
+    )
   };
 };
 
@@ -208,18 +274,16 @@ export const useNinpoCore = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [returnVerifications, setReturnVerifications] = useState<ReturnVerification[]>([]);
   const [cart, setCart] = useState<{ productId: string; quantity: number }[]>(
     () => readStoredCart()
   );
 
-  const addToast = useCallback(
-    (message: string, type: Toast['type'] = 'info') => {
-      const id = Math.random().toString(36).substring(2, 9);
-      setToasts(prev => [...prev, { id, message, type }]);
-      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
-    },
-    []
-  );
+  const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+  }, []);
 
   const clearCart = useCallback(() => {
     setCart([]);
@@ -464,6 +528,45 @@ export const useNinpoCore = () => {
     return list as AuditLog[];
   }, []);
 
+  const fetchReturnVerifications = useCallback(async () => {
+    const res = await fetch(`${BACKEND_URL}/api/returns/verifications`, {
+      credentials: 'include'
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || 'Failed to load return verifications');
+
+    const list = Array.isArray(data?.verifications) ? data.verifications : [];
+    setReturnVerifications(list);
+    return list as ReturnVerification[];
+  }, []);
+
+  const settleReturnVerification = useCallback(
+    async (
+      verificationId: string,
+      finalAcceptedCount: number,
+      creditAmount: number,
+      cashAmount: number
+    ) => {
+      const res = await fetch(
+        `${BACKEND_URL}/api/returns/verifications/${verificationId}/settle`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ finalAcceptedCount, creditAmount, cashAmount })
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to settle return verification');
+
+      await fetchReturnVerifications();
+      addToast('Return verification settled successfully', 'success');
+    },
+    [fetchReturnVerifications, addToast]
+  );
+
   useEffect(() => {
     const bootstrap = async () => {
       try {
@@ -485,9 +588,7 @@ export const useNinpoCore = () => {
     async (userId: string, amount: number, reason: string) => {
       setUsers(prev =>
         prev.map(u =>
-          u.id === userId
-            ? { ...u, creditBalance: (u.creditBalance || 0) + amount }
-            : u
+          u.id === userId ? { ...u, creditBalance: (u.creditBalance || 0) + amount } : u
         )
       );
 
@@ -531,19 +632,16 @@ export const useNinpoCore = () => {
         }
 
         const statsList = Array.isArray(statsData?.stats) ? statsData.stats : [];
-        const nextStats = statsList.reduce(
-          (acc: Record<string, UserStatsSummary>, stats: any) => {
-            if (!stats?.userId) return acc;
-            acc[stats.userId] = {
-              userId: stats.userId,
-              orderCount: Number(stats.orderCount || 0),
-              totalSpend: Number(stats.totalSpend || 0),
-              lastOrderAt: stats.lastOrderAt ?? null
-            };
-            return acc;
-          },
-          {}
-        );
+        const nextStats = statsList.reduce((acc: Record<string, UserStatsSummary>, stats: any) => {
+          if (!stats?.userId) return acc;
+          acc[stats.userId] = {
+            userId: stats.userId,
+            orderCount: Number(stats.orderCount || 0),
+            totalSpend: Number(stats.totalSpend || 0),
+            lastOrderAt: stats.lastOrderAt ?? null
+          };
+          return acc;
+        }, {});
         setUserStats(nextStats);
       } catch {
         // best-effort stats fetch
@@ -637,9 +735,7 @@ export const useNinpoCore = () => {
         return;
       }
 
-      setOrders(prev =>
-        prev.map(o => (o.id === id ? { ...o, status, ...metadata } : o))
-      );
+      setOrders(prev => prev.map(o => (o.id === id ? { ...o, status, ...metadata } : o)));
 
       try {
         const res = await fetch(`${BACKEND_URL}/api/orders/${id}`, {
@@ -703,6 +799,8 @@ export const useNinpoCore = () => {
 
     fetchOrders,
     fetchApprovals,
-    fetchAuditLogs
+    fetchAuditLogs,
+    fetchReturnVerifications,
+    settleReturnVerification
   };
 };

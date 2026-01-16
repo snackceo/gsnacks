@@ -12,7 +12,10 @@ import {
   AuditLogType,
   UserStatsSummary,
   LedgerEntry,
-  ReturnUpcCount
+  ReturnUpcCount,
+  ScannerMode,
+  ReturnVerification,
+  ReturnSettlement
 } from '../types';
 import {
   Truck,
@@ -85,6 +88,8 @@ interface ManagementViewProps {
   fetchUserStats: (userId: string) => Promise<UserStatsSummary | null>;
   fetchApprovals: () => Promise<ApprovalRequest[]>;
   fetchAuditLogs: () => Promise<AuditLog[]>;
+  fetchReturnVerifications: () => Promise<ReturnVerification[]>;
+  settleReturnVerification: (verificationId: string, finalAcceptedCount: number, creditAmount: number, cashAmount: number) => Promise<void>;
 }
 
 const fmtTime = (iso?: string) => {
@@ -145,7 +150,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   fetchUsers,
   fetchUserStats,
   fetchApprovals,
-  fetchAuditLogs
+  fetchAuditLogs,
+  fetchReturnVerifications,
+  settleReturnVerification
 }) => {
   const [activeModule, setActiveModule] = useState<string>('analytics');
   const [isAuditing, setIsAuditing] = useState(false);
@@ -182,10 +189,16 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [auditUpcInput, setAuditUpcInput] = useState('');
   const [auditError, setAuditError] = useState<string | null>(null);
   const [scannerModalOpen, setScannerModalOpen] = useState(false);
-  const [scannerMode, setScannerMode] = useState<'A' | 'B' | 'C' | 'D' | 'PRODUCT_CREATION' | 'UPC_REGISTRY'>('A');
+  const [scannerMode, setScannerMode] = useState<ScannerMode>(ScannerMode.INVENTORY_CREATE);
   const [scannedUpcForCreation, setScannedUpcForCreation] = useState<string>('');
   const [unmappedUpcModalOpen, setUnmappedUpcModalOpen] = useState(false);
   const [unmappedUpcPayload, setUnmappedUpcPayload] = useState<UnmappedUpcData | null>(null);
+
+  // Return verifications state
+  const [returnVerifications, setReturnVerifications] = useState<ReturnVerification[]>([]);
+  const [isReturnVerificationsLoading, setIsReturnVerificationsLoading] = useState(false);
+  const [returnVerificationsError, setReturnVerificationsError] = useState<string | null>(null);
+  const [settlingVerificationId, setSettlingVerificationId] = useState<string | null>(null);
 
   const handleModuleSelect = (moduleId: string) => {
     setActiveModule(moduleId);
@@ -1010,7 +1023,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   }, [setLabelScanPhoto, setLabelScanMime]);
 
   const handleScannerScan = useCallback(async (upc: string) => {
-    if (scannerMode === 'PRODUCT_CREATION') {
+    if (scannerMode === ScannerMode.INVENTORY_CREATE) {
       // Normalize: digits only
       const normalized = String(upc).replace(/\D/g, '').trim();
       if (!normalized) return;
@@ -1026,18 +1039,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
       return;
     }
-    if (scannerMode === 'A') {
-      await apiScanUpc(upc, 1, false);
-    } else if (scannerMode === 'B') {
-      await handleAuditScan(upc, 1);
-    }
-    // For C and D, will be in DriverView
-    if (scannerMode === 'UPC_REGISTRY') {
+    if (scannerMode === ScannerMode.UPC_LOOKUP) {
       setUpcInput(upc);
       handleUpcLookup(upc);
-      // Keep modal open for UPC_REGISTRY mode
+      // Keep modal open for UPC_LOOKUP mode
     }
-  }, [scannerMode, setScannedUpcForCreation, setUpcInput, setUpcDraft, apiScanUpc, handleAuditScan, handleUpcLookup]);
+  }, [scannerMode, setScannedUpcForCreation, setUpcInput, setUpcDraft, handleUpcLookup]);
 
   const startEditProduct = (product: Product) => {
     setEditError(null);
@@ -1243,6 +1250,33 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     };
   }, [activeModule, fetchUsers, users.length]);
 
+  // Load return verifications when returns module is active
+  useEffect(() => {
+    if (activeModule !== 'returns') return;
+
+    let mounted = true;
+    setIsReturnVerificationsLoading(true);
+    setReturnVerificationsError(null);
+
+    fetchReturnVerifications()
+      .then(verifications => {
+        if (!mounted) return;
+        setReturnVerifications(verifications);
+      })
+      .catch(e => {
+        if (!mounted) return;
+        setReturnVerificationsError(e?.message || 'Failed to load return verifications');
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setIsReturnVerificationsLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [activeModule, fetchReturnVerifications]);
+
   const filteredUsers = useMemo(() => {
     const needle = userFilter.trim().toLowerCase();
     if (!needle) return users;
@@ -1359,6 +1393,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           { id: 'analytics', label: 'Dashboard', icon: BarChart3 },
           { id: 'orders', label: 'Orders', icon: Truck },
           { id: 'approvals', label: 'Auth Hub', icon: ShieldCheck },
+          { id: 'returns', label: 'Return Reviews', icon: PackageCheck },
           { id: 'inventory', label: 'Inventory', icon: Package },
           { id: 'upc', label: 'UPC Registry', icon: ScanLine },
           { id: 'users', label: 'Users', icon: Users },
@@ -2354,6 +2389,96 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         )}
 
         {/* =========================
+            RETURNS
+        ========================= */}
+        {activeModule === 'returns' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-black uppercase text-white tracking-widest">
+                Return Reviews
+              </h2>
+              <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
+                Review driver-submitted container verifications and approve settlements.
+              </p>
+            </div>
+
+            <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                Pending Verifications
+              </p>
+
+              {isReturnVerificationsLoading ? (
+                <div className="text-center py-8">
+                  <p className="text-[10px] uppercase tracking-widest text-slate-500">Loading verifications...</p>
+                </div>
+              ) : returnVerificationsError ? (
+                <div className="bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4 text-[11px] text-ninpo-red">
+                  {returnVerificationsError}
+                </div>
+              ) : returnVerifications.length === 0 ? (
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  No pending verifications to review.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {returnVerifications.map(verification => (
+                    <div key={verification.id} className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-white">
+                            Order {verification.orderId}
+                          </p>
+                          <p className="text-[9px] text-slate-500 uppercase tracking-widest">
+                            Driver: {verification.driverId} • Customer: {verification.customerId}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                            {new Date(verification.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
+                          <p className="text-[9px] uppercase tracking-widest text-slate-500">Recognized</p>
+                          <p className="text-lg font-black text-ninpo-lime">{verification.recognizedCount}</p>
+                        </div>
+                        <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
+                          <p className="text-[9px] uppercase tracking-widest text-slate-500">Unrecognized</p>
+                          <p className="text-lg font-black text-yellow-400">{verification.unrecognizedCount}</p>
+                        </div>
+                        <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
+                          <p className="text-[9px] uppercase tracking-widest text-slate-500">Total Scanned</p>
+                          <p className="text-lg font-black text-white">{verification.totalCount}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => settleReturnVerification(verification.id, verification.recognizedCount, verification.recognizedCount * 0.10, 0)}
+                          disabled={settlingVerificationId === verification.id}
+                          className="flex-1 px-4 py-3 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                        >
+                          {settlingVerificationId === verification.id ? 'Processing...' : 'Approve All Recognized'}
+                        </button>
+                        <button
+                          onClick={() => settleReturnVerification(verification.id, 0, 0, 0)}
+                          disabled={settlingVerificationId === verification.id}
+                          className="px-4 py-3 bg-ninpo-red/10 text-ninpo-red rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                        >
+                          Reject All
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* =========================
             SETTINGS
         ========================= */}
         {activeModule === 'settings' && (
@@ -2773,7 +2898,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   <div className="flex gap-4">
                     <button
                       onClick={() => {
-                        setScannerMode('PRODUCT_CREATION');
+                        setScannerMode(ScannerMode.INVENTORY_CREATE);
                         setScannerModalOpen(true);
                       }}
                       className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
@@ -3051,7 +3176,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         />
                         <button
                           onClick={() => {
-                            setScannerMode('B');
+                            setScannerMode(ScannerMode.INVENTORY_AUDIT);
                             setScannerModalOpen(true);
                           }}
                           className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
@@ -3144,7 +3269,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   <div className="flex gap-2">
                     <button
                       onClick={() => {
-                        setScannerMode('UPC_REGISTRY');
+                        setScannerMode(ScannerMode.UPC_LOOKUP);
                         setScannerModalOpen(true);
                       }}
                       className="px-4 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
@@ -3559,24 +3684,25 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       )}
 
       <ScannerModal
+        mode={scannerMode}
         onScan={handleScannerScan}
         onClose={() => setScannerModalOpen(false)}
         title={
-          scannerMode === 'A' ? 'Add Stock' : 
-          scannerMode === 'PRODUCT_CREATION' ? 'Scan Product' :
-          scannerMode === 'UPC_REGISTRY' ? 'Scan UPC' :
-          'Count Item'
+          scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan Product' :
+          scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC' :
+          scannerMode === ScannerMode.INVENTORY_AUDIT ? 'Count Item' :
+          'Scan'
         }
         subtitle={
-          scannerMode === 'A' ? 'Scan UPC to add stock or create product' : 
-          scannerMode === 'PRODUCT_CREATION' ? 'Scan UPC and capture photo for AI analysis' :
-          scannerMode === 'UPC_REGISTRY' ? 'Scan UPC to lookup or edit registry entry' :
-          'Scan UPC to count inventory'
+          scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan UPC and capture photo for AI analysis' :
+          scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC to lookup or edit registry entry' :
+          scannerMode === ScannerMode.INVENTORY_AUDIT ? 'Scan UPC to count inventory' :
+          'Scan barcode'
         }
         beepEnabled={settings.beepEnabled ?? true}
         cooldownMs={settings.cooldownMs ?? 1000}
         isOpen={scannerModalOpen}
-        onPhotoCaptured={scannerMode === 'PRODUCT_CREATION' ? handlePhotoCaptured : undefined}
+        onPhotoCaptured={scannerMode === ScannerMode.INVENTORY_CREATE ? handlePhotoCaptured : undefined}
       />
     </div>
   );
