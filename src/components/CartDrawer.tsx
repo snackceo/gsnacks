@@ -377,20 +377,46 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
 
   // Estimated deposit credit (preview only)
-  const estimatedReturnCredit = useMemo(() => {
-    if (totalReturnCount === 0) return 0;
-
-    let total = 0;
-    for (const entry of returnUpcs) {
-      const containerType = eligibilityCache[entry.upc]?.containerType;
-      const netValue = containerType === 'glass' ? netGlassCash : netStandardCash;
-      const creditValue = depositValue;
-
-      const valuePerContainer = payoutMethod === 'CASH' ? netValue : creditValue;
-      total += valuePerContainer * entry.quantity;
+  const estimatedReturnBreakdown = useMemo(() => {
+    if (totalReturnCount === 0) {
+      return { gross: 0, handlingFee: 0, glassFee: 0, net: 0 };
     }
-    return total;
-  }, [depositValue, eligibilityCache, netGlassCash, netStandardCash, payoutMethod, returnUpcs, totalReturnCount]);
+
+    let gross = 0;
+    let totalHandlingFee = 0;
+    let totalGlassFee = 0;
+
+    for (const entry of returnUpcs) {
+      const isGlass = eligibilityCache[entry.upc]?.containerType === 'glass';
+      gross += depositValue * entry.quantity;
+      totalHandlingFee += handlingFee * entry.quantity;
+      if (isGlass) {
+        totalGlassFee += glassHandlingFee * entry.quantity;
+      }
+    }
+
+    const net = gross - totalHandlingFee - totalGlassFee;
+    return {
+      gross,
+      handlingFee: totalHandlingFee,
+      glassFee: totalGlassFee,
+      net: Math.max(0, net)
+    };
+  }, [
+    depositValue,
+    eligibilityCache,
+    glassHandlingFee,
+    handlingFee,
+    returnUpcs,
+    totalReturnCount
+  ]);
+
+  const estimatedReturnCredit = useMemo(() => {
+    if (payoutMethod === 'CASH') {
+      return estimatedReturnBreakdown.net;
+    }
+    return estimatedReturnBreakdown.gross;
+  }, [payoutMethod, estimatedReturnBreakdown]);
 
   // Quote (distance/route fees)
   useEffect(() => {
@@ -718,26 +744,55 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 <div className="text-right">
                   <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest">
                     {payoutMethod === 'CASH'
-                      ? 'Estimated Cash Payout (net)'
+                      ? 'Estimated Payout (Net)'
                       : 'Estimated Return Credit'}
                   </p>
-                  <p className="text-ninpo-lime font-black text-lg">{money(estimatedReturnCredit)}</p>
+                  <p className="text-ninpo-lime font-black text-lg">
+                    {money(estimatedReturnCredit)}
+                  </p>
                   <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
                     Estimate only — verified at delivery
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-start gap-2 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-                <Info className="w-3 h-3 text-slate-500 mt-0.5" />
-                <p>
-                  {payoutMethod === 'CASH'
-                    ? `Cash payouts subtract ${money(handlingFee)} per container plus ${money(
-                        glassHandlingFee
-                      )} for glass.`
-                    : 'Credits are issued at the full $0.10 per eligible container.'}
-                </p>
-              </div>
+              {payoutMethod === 'CASH' && estimatedReturnBreakdown.gross > 0 && (
+                <div className="space-y-2 text-[10px] text-slate-500 font-bold uppercase tracking-widest border border-dashed border-white/10 rounded-2xl p-4">
+                  <div className="flex items-center justify-between">
+                    <p>Estimated Return (Gross)</p>
+                    <p className="font-mono text-slate-400">
+                      {money(estimatedReturnBreakdown.gross)}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p>Cash Handling Fee</p>
+                    <p className="font-mono text-slate-400">
+                      - {money(estimatedReturnBreakdown.handlingFee)}
+                    </p>
+                  </div>
+                  {estimatedReturnBreakdown.glassFee > 0 && (
+                    <div className="flex items-center justify-between">
+                      <p>Glass Handling Surcharge</p>
+                      <p className="font-mono text-slate-400">
+                        - {money(estimatedReturnBreakdown.glassFee)}
+                      </p>
+                    </div>
+                  )}
+                  <div className="border-t border-dashed border-white/10 mt-2 pt-2 flex items-center justify-between">
+                    <p>Estimated Payout (Net)</p>
+                    <p className="font-mono text-ninpo-lime">
+                      {money(estimatedReturnBreakdown.net)}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {payoutMethod !== 'CASH' && (
+                <div className="flex items-start gap-2 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                  <Info className="w-3 h-3 text-slate-500 mt-0.5" />
+                  <p>Credits are issued at the full $0.10 per eligible container.</p>
+                </div>
+              )}
 
               {/* UPC list */}
               {returnUpcs.length > 0 && (
@@ -899,18 +954,28 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 </div>
               )}
 
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  {payoutMethod === 'CASH'
-                    ? 'Estimated Cash Payout (net)'
-                    : 'Estimated Return Credit'}
-                </p>
-                <p className="text-ninpo-lime font-black">
-                  {payoutMethod === 'CASH'
-                    ? money(estimatedReturnCredit)
-                    : `- ${money(estimatedReturnCredit)}`}
-                </p>
-              </div>
+              {payoutMethod !== 'CASH' && estimatedReturnCredit > 0 && (
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    Estimated Return Credit
+                  </p>
+                  <p className="text-ninpo-lime font-black">
+                    - {money(estimatedReturnCredit)}
+                  </p>
+                </div>
+              )}
+
+              {payoutMethod === 'CASH' && estimatedReturnCredit > 0 && (
+                 <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    Estimated Cash Payout
+                  </p>
+                  <p className="text-ninpo-lime font-black">
+                    {money(estimatedReturnCredit)}
+                  </p>
+                </div>
+              )}
+
 
               {allowCashPayout && (
                 <div className="rounded-2xl border border-white/10 bg-black/40 px-3 py-2 space-y-2">
