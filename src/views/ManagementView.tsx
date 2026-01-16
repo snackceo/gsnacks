@@ -200,6 +200,25 @@ const sanitizeAiMessage = (message: string | null | undefined) => {
   return trimmed;
 };
 
+const extractBase64FromDataUrl = (photoDataUrl: string) => {
+  if (!photoDataUrl.startsWith('data:') || !photoDataUrl.includes('base64,')) {
+    return '';
+  }
+  const [, base64Data] = photoDataUrl.split(',', 2);
+  return base64Data?.trim() ?? '';
+};
+
+const isLikelyBase64 = (value: string) => /^[A-Za-z0-9+/]+={0,2}$/.test(value);
+
+const isValidPhotoDataUrl = (value: unknown): value is string => {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const base64Data = extractBase64FromDataUrl(trimmed);
+  if (!base64Data) return false;
+  return isLikelyBase64(base64Data);
+};
+
 const ManagementView: React.FC<ManagementViewProps> = ({
   user,
   products,
@@ -1044,10 +1063,19 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setLabelScanError('Capture a label photo in the scanner.');
       return;
     }
+    if (!isValidPhotoDataUrl(photo)) {
+      console.error('Invalid photo data for label scan.', { photo });
+      setLabelScanError('Invalid photo data. Please retake.');
+      return;
+    }
 
     setIsLabelScanning(true);
     setLabelScanError(null);
-    const result = await analyzeProductScan(photo, scannedUpcForCreation, mime || undefined);
+    const result = await analyzeProductScan(
+      photo,
+      scannedUpcForCreation,
+      typeof mime === 'string' ? mime : undefined
+    );
     setLabelScanResult(result);
     applyLabelScanToDrafts(result);
     if (result.message && !result.name) {
@@ -1225,10 +1253,15 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
-  const handlePhotoCaptured = useCallback((photoDataUrl: string, mime: string) => {
+  const handlePhotoCaptured = useCallback((photoDataUrl: unknown, mime: unknown) => {
+    if (!isValidPhotoDataUrl(photoDataUrl)) {
+      console.error('Invalid photo data captured from scanner.', { photoDataUrl });
+      setLabelScanError('Invalid photo data. Please retake.');
+      return;
+    }
     setLabelScanPhoto(photoDataUrl);
-    setLabelScanMime(mime);
-    void runLabelScan(photoDataUrl, mime);
+    setLabelScanMime(typeof mime === 'string' ? mime : null);
+    void runLabelScan(photoDataUrl, typeof mime === 'string' ? mime : undefined);
   }, [runLabelScan]);
 
   const handleScannerScan = useCallback(async (upc: string) => {
