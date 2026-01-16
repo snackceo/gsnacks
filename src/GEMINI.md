@@ -62,6 +62,5 @@ This file documents UI/UX, scanner, and component contract. For all roles, permi
 - Must use the same scan normalization and cooldown rules.
 
 ## Styling/mobile UX
-- Management should not feel like a single endless page on mobile:
-  - module navigation should be sticky (top) or bottom-tabbed
-  - scanner actions should be prominent and consistent across modules
+- Management should use a top horizontal nav on mobile with normal page scroll.
+- Scanner actions should be prominent and consistent across modules.
