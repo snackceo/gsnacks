@@ -79,6 +79,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
   const [isScanning, setIsScanning] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState(false);
   const [manualUpc, setManualUpc] = useState('');
   const [lastDetectedUpc, setLastDetectedUpc] = useState<string | null>(null);
 
@@ -226,6 +227,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const startScanner = useCallback(async () => {
     await stopScanner();
     cancelledRef.current = false;
+    setBlocked(false);
     setScannerError(null);
 
     if (typeof window === 'undefined') {
@@ -347,6 +349,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     } catch {
       setScannerError('Camera blocked. Enable permissions.');
       setIsScanning(false);
+      setBlocked(true);
     }
   }, [acceptScan, stopScanner, validateUpc]);
 
@@ -365,15 +368,17 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   }, [stopScanner]);
 
   useEffect(() => {
-    if (manualStart) {
+    if (manualStart || blocked) {
       void stopScanner();
-      setScannerError(null);
+      if (manualStart) {
+        setScannerError(null);
+      }
       setIsScanning(false);
       return;
     }
 
     void startScanner();
-  }, [manualStart, startScanner, stopScanner]);
+  }, [blocked, manualStart, startScanner, stopScanner]);
 
   const panelClassName = `bg-ninpo-black border border-white/10 rounded-[2.5rem] p-6 shadow-2xl ${className}`.trim();
 

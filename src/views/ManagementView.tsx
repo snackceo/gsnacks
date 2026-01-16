@@ -345,6 +345,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [labelScanResult, setLabelScanResult] = useState<ProductScanResult | null>(
     null
   );
+  const labelScanResultRef = useRef<ProductScanResult | null>(null);
   const [labelScanError, setLabelScanError] = useState<string | null>(null);
   const [isLabelScanning, setIsLabelScanning] = useState(false);
   const sanitizedLabelScanError = useMemo(
@@ -1328,6 +1329,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   ]);
 
   useEffect(() => {
+    labelScanResultRef.current = labelScanResult;
+  }, [labelScanResult]);
+
+  useEffect(() => {
     if (
       scannedUpcForCreation &&
       labelScanPhoto &&
@@ -1360,18 +1365,19 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setUpcDraft(prev => ({ ...prev, upc: normalized }));
 
       // Photo is captured manually via button
+      const currentLabelScanResult = labelScanResultRef.current;
       const labelScanFlags = {
-        name: Boolean(labelScanResult?.name),
-        brand: Boolean(labelScanResult?.brand),
-        productType: Boolean(labelScanResult?.productType),
-        nutritionNote: Boolean(labelScanResult?.nutritionNote),
-        storageZone: Boolean(labelScanResult?.storageZone),
-        storageBin: Boolean(labelScanResult?.storageBin),
-        image: Boolean(labelScanResult?.image),
-        sizeOz: Number(labelScanResult?.sizeOz || 0) > 0,
-        quantity: Number(labelScanResult?.quantity || 0) > 0,
-        containerType: Boolean(labelScanResult?.containerType),
-        isEligible: typeof labelScanResult?.isEligible === 'boolean'
+        name: Boolean(currentLabelScanResult?.name),
+        brand: Boolean(currentLabelScanResult?.brand),
+        productType: Boolean(currentLabelScanResult?.productType),
+        nutritionNote: Boolean(currentLabelScanResult?.nutritionNote),
+        storageZone: Boolean(currentLabelScanResult?.storageZone),
+        storageBin: Boolean(currentLabelScanResult?.storageBin),
+        image: Boolean(currentLabelScanResult?.image),
+        sizeOz: Number(currentLabelScanResult?.sizeOz || 0) > 0,
+        quantity: Number(currentLabelScanResult?.quantity || 0) > 0,
+        containerType: Boolean(currentLabelScanResult?.containerType),
+        isEligible: typeof currentLabelScanResult?.isEligible === 'boolean'
       };
 
       const shouldFillText = (current: string, next?: string, locked = false) => {
@@ -1530,7 +1536,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   }, [
     scannerMode,
-    labelScanResult,
     setScannedUpcForCreation,
     setUpcInput,
     setUpcDraft,
