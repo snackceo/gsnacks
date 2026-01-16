@@ -202,14 +202,14 @@ const sanitizeAiMessage = (message: string | null | undefined) => {
 };
 
 const extractBase64FromDataUrl = (photoDataUrl: string) => {
-  if (!photoDataUrl.startsWith('data:') || !photoDataUrl.includes('base64,')) {
+  if (!photoDataUrl.startsWith('data:') || !photoDataUrl.includes(';base64,')) {
     return '';
   }
   const [, base64Data] = photoDataUrl.split(',', 2);
-  return base64Data?.trim() ?? '';
+  return base64Data?.replace(/\s+/g, '') ?? '';
 };
 
-const isLikelyBase64 = (value: string) => /^[A-Za-z0-9+/]+={0,2}$/.test(value);
+const isLikelyBase64 = (value: string) => /^[A-Za-z0-9+/_-]+={0,2}$/.test(value);
 
 const isValidPhotoDataUrl = (value: unknown): value is string => {
   if (typeof value !== 'string') return false;

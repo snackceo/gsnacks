@@ -23,7 +23,7 @@ const fetchWithTimeout = async (url: string, options: any, timeout = 15000) => {
  * Backend should receive RAW base64 (no data URL prefix).
  * If input is "data:image/jpeg;base64,....", strip the prefix.
  */
-const BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/;
+const BASE64_PATTERN = /^[A-Za-z0-9+/_-]+={0,2}$/;
 const DATA_URL_PATTERN = /^data:([a-z]+\/[a-z0-9.+-]+);base64,(.+)$/i;
 
 const normalizeBase64 = (input: string) => {
@@ -33,11 +33,20 @@ const normalizeBase64 = (input: string) => {
 
   const dataUrlMatch = trimmed.match(DATA_URL_PATTERN);
   if (dataUrlMatch) {
-    const base64Payload = dataUrlMatch[2].trim();
-    return BASE64_PATTERN.test(base64Payload) ? base64Payload : '';
+    const base64Payload = dataUrlMatch[2].replace(/\s+/g, '');
+    if (!BASE64_PATTERN.test(base64Payload)) {
+      console.warn('Rejected base64 payload length:', base64Payload.length);
+      return '';
+    }
+    return base64Payload;
   }
 
-  return BASE64_PATTERN.test(trimmed) ? trimmed : '';
+  const normalized = trimmed.replace(/\s+/g, '');
+  if (!BASE64_PATTERN.test(normalized)) {
+    console.warn('Rejected base64 payload length:', normalized.length);
+    return '';
+  }
+  return normalized;
 };
 
 export type BottleScanResult = {
