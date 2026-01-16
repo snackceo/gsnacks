@@ -73,6 +73,8 @@ authorizedCreditBalance (number field): In User model, tracks credits that have 
 
 BackendStatusBanner (component): UI banner indicating if the backend API is online. Accepts isOnline (boolean) and an onReconnect handler to attempt reconnection (calls core.syncWithBackend).
 
+Band Application Rule (policy): Distance Fee bands are applied based on absolute trip distance after excluding included miles. This is the authoritative rule described in README and used for calculating banded mileage charges.
+
 beepEnabled (boolean flag): If true, the scanner emits a beep sound on each successful scan. Configurable in settings (defaults to true). Passed into ScannerModal and can be toggled via settings.beepEnabled. (Note: Not stored in AppSettings by default – may be a front-end only toggle.)
 
 CartDrawer (component): Slide-out cart panel for reviewing order items. Props include isOpen, cart (array of items), products, address, acceptedPolicies, isProcessing (loading indicator for checkout), currentUserId, membershipTier, and various handlers. Allows users to edit cart, enter address, accept policies, and choose payment (via onPayCredits or onPayExternal).
@@ -115,6 +117,8 @@ deliveryFee (deprecated term): Older synonym for routeFee. Appears in legacy cod
 
 detected (ScanEventStatus): Status indicating a UPC was detected by the scanner. Used in DriverView’s scan event log to mark raw detections before validation.
 
+Distance Bands (policy): The tiered mileage ranges used to calculate the Distance Fee (e.g., included miles, band 1, band 2, band 3). Bands apply to absolute trip distance.
+
 distanceBand1MaxMiles (number setting): Maximum miles for distance fee band 1 (after included miles). Default 10.0 miles. Trips up to this distance (beyond included 3.0) incur the band1 rate per mile.
 
 distanceBand1Rate (number setting): Fee per mile for band 1 distances. Default $0.50/mile. Applied for distance > included miles up to band1 max.
@@ -138,6 +142,10 @@ DRIVER_VERIFY_CONTAINERS (ScannerMode enum): Scanner mode for verifying returned
 duplicatesCount (number state): In DriverView, tracks how many duplicate UPC scans occurred during a return verification session. Duplicates require special handling (the UI prompts to confirm adding duplicates).
 
 duplicate_prompt (ScanEventStatus): Status indicating a scanned UPC was a duplicate and the system prompted the driver to confirm adding it. Ensures drivers acknowledge counting an item twice.
+
+Doc Map (documentation section): README section that maps key internal documents (README, GLOSSARY, GEMINI docs) to their purposes. Used for onboarding and navigation.
+
+Tech Stack (documentation section): README section listing core infrastructure and services (database, payments, media, etc.).
 
 eligible (ScanEventStatus): Status in scan log meaning a scanned UPC was recognized as an eligible container (valid MI 10¢ deposit) and presumably added to the count.
 
@@ -239,6 +247,8 @@ mapUser (function): Backend helper to shape a User document into JSON for fronte
 
 membershipTier (string field): The user’s current membership tier (COMMON, BRONZE, SILVER, GOLD, PLATINUM, GREEN). Tiers gate certain benefits (credits usage, cash-out eligibility, discounts). Platinum is a hidden tier (invite-only) and Green is future. Tier can auto-promote based on ordersCompleted and verifications (Common→Bronze→Silver→Gold).
 
+Secret Platinum (term): Documentation-facing name for the hidden PLATINUM tier. Used in docs to limit awareness; internal tier identifier remains PLATINUM.
+
 metadata (general): Throughout the code, “metadata” refers to supplemental info often stored as object fields. E.g., updateOrder(id, status, metadata?) where metadata can include assignments (driverId etc.). Also, some backend APIs return data in { ok, ... } wrappers and might include metadata about errors or operations.
 
 MI-Eligible Container (concept): A container that qualifies for Michigan’s $0.10 deposit refund. Only these generate return credits. The system filters scanned UPCs by an internal list of eligible items (isEligible flag on UPC records).
@@ -273,6 +283,8 @@ onRemoveItem (prop): Handler to remove an item from the cart by product ID. Pass
 
 onRequestRefund (prop): Placeholder prop in CustomerView intended to initiate a refund request for an order. Currently passed an empty function (() => {}) in App, indicating the feature exists conceptually but is not yet implemented (likely for customers to request order refunds).
 
+one unified vocabulary (documentation rule): Requirement that code, UI, and docs use the exact glossary terms with no synonyms to prevent drift.
+
 onScan (prop): Core callback in ScannerModal triggered when a barcode is scanned and passes all cooldown/validation checks. Provided by parent component (e.g., handleScannerScan in ManagementView or DriverView) to handle the scanned UPC.
 
 onSuccess (prop): Handler called upon successful login in LoginView. In App, this is defined to restore the session (call core.restoreSession() to load user data) and fetch orders, then close the login modal.
@@ -301,6 +313,10 @@ PaymentSuccess (component): View shown when payment succeeds (route /success). R
 
 PaymentMethod (type/enum): Accepted payment methods for orders. Defined as union of 'STRIPE_CARD', 'GOOGLE_PAY', 'CREDITS'. Indicates how the order was or will be paid. This is stored on Order (paymentMethod field).
 
+Payment Rail (concept): The mechanism used to collect payment for any remaining balance (e.g., Stripe for card payments). Distinct from settlement mode.
+
+Settlement Mode (concept): How bottle deposit value is settled (Credit Settlement or Cash Settlement). Distinct from payment rail.
+
 pending (status): See PENDING (OrderStatus): initial status for new orders awaiting authorization. Also PENDING is used for ApprovalRequests that haven’t been processed.
 
 phoneVerified (boolean field): In User, indicates if the user’s phone number has been verified. This is a trust factor for tier promotion (Silver tier requires phone verified). The system might set this true after an OTP verification step (not shown in code snippet, but field exists for future use).
@@ -308,6 +324,8 @@ phoneVerified (boolean field): In User, indicates if the user’s phone number h
 photoIdVerified (boolean field): In User, indicates if the user’s government photo ID has been verified. Required for Gold tier (users must upload ID). Also used to auto-promote tier: if ordersCompleted >= 15 and photoIdVerified, user qualifies for Gold.
 
 pickupOnlyMultiplier (number setting): Discount multiplier applied to route-level fees for pickup-only orders (returns without delivery). Default 0.5 (i.e., 50% discount). If an order’s type is RETURNS_PICKUP, routeFee and distanceFee are multiplied by this factor to reduce charges.
+
+Pickup-Only Discount (policy): Route-level discount applied via pickupOnlyMultiplier when an order is pickup-only (returns-only). Applies to Route Fee and Distance Fee.
 
 PLUS (icon): UI icon for adding items. E.g., used on “Add” buttons or the “Create” button (shows a plus sign when not loading).
 

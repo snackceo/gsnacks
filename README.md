@@ -122,19 +122,19 @@ For orders that include **pickup only** (no delivery):
 * The **Distance Fee** still applies (if triggered)
 * A **Pickup-Only Discount** may be applied via configuration using a multiplier
 
-**Configuration:** `pickup_only_multiplier` (default **0.5**)
+**Configuration:** `pickupOnlyMultiplier` (default **0.5**)
 
 #### Authoritative Rule
 
-When `pickup_only_multiplier` is enabled for a Pickup-Only Order, the multiplier applies to **all route-level logistics charges**, including:
+When `pickupOnlyMultiplier` is enabled for a Pickup-Only Order, the multiplier applies to **all route-level logistics charges**, including:
 
 * Route Fee
 * Distance Fee
 
 In other words:
 
-* `effective_route_fee = base_route_fee × pickup_only_multiplier`
-* `effective_distance_fee = base_distance_fee × pickup_only_multiplier`
+* `effective_route_fee = base_route_fee × pickupOnlyMultiplier`
+* `effective_distance_fee = base_distance_fee × pickupOnlyMultiplier`
 
 This is a **route-level discount**, not a container-based fee.
 
@@ -287,7 +287,7 @@ Discount math (authoritative):
 * 🔐 Invite-only / hand-selected by owner
 * ✅ All Gold requirements
 * ✅ Verified loyalty, trust, or in-person relationship
-* Hidden tier (not shown publicly)
+* Hidden tier (not shown publicly). Internal tier identifier is `PLATINUM`, but docs use “Secret Platinum” to limit awareness.
 
 Platinum may receive operator-controlled waivers via management settings, including:
 
