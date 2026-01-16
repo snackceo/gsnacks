@@ -1,5 +1,5 @@
 import React from 'react';
-import { UpcItem, Product, UpcContainerType } from '../../types';
+import { UpcItem, Product, UpcContainerType, SizeUnit } from '../../types';
 
 interface ManagementUpcRegistryProps {
   upcItems: UpcItem[];
@@ -29,36 +29,215 @@ interface ManagementUpcRegistryProps {
   UPC_CONTAINER_LABELS: Record<UpcContainerType, string>;
 }
 
-const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = ({
-  upcItems,
-  setUpcItems,
-  upcInput,
-  setUpcInput,
-  upcDraft,
-  setUpcDraft,
-  upcFilter,
-  setUpcFilter,
-  isUpcLoading,
-  isUpcSaving,
-  upcError,
-  apiLoadUpcItems,
-  handleUpcLookup,
-  apiSaveUpc,
-  apiDeleteUpc,
-  apiLinkUpc,
-  filteredUpcItems,
-  loadUpcDraft,
-  products,
-  unmappedUpcModalOpen,
-  setUnmappedUpcModalOpen,
-  unmappedUpcPayload,
-  setUnmappedUpcPayload,
-  ScannerModal,
-  UPC_CONTAINER_LABELS
-}) => {
+const fmtTime = (iso?: string) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString();
+};
+
+const formatSize = (value: number, unit?: SizeUnit) => {
+  if (!value) return 'No size';
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized) || normalized <= 0) return 'No size';
+  const label = unit || 'oz';
+  const decimals = label === 'oz' || label === 'fl oz' ? 1 : 0;
+  return `${normalized.toFixed(decimals)} ${label}`;
+};
+
+const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
+  const {
+    upcItems,
+    upcInput,
+    setUpcInput,
+    upcDraft,
+    upcFilter,
+    setUpcFilter,
+    isUpcLoading,
+    upcError,
+    apiLoadUpcItems,
+    handleUpcLookup,
+    filteredUpcItems,
+    loadUpcDraft,
+    UPC_CONTAINER_LABELS
+  } = props;
   return (
     <div className="space-y-6">
-      {/* ...existing UPC registry JSX from ManagementView.tsx... */}
+      <div>
+        <h2 className="text-xl font-black uppercase text-white tracking-widest">
+          UPC Registry Maintenance
+        </h2>
+        <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
+          View UPC codes, product metadata, and Michigan deposit eligibility.
+        </p>
+      </div>
+
+      <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+          UPC Lookup & View
+        </p>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          Registry updates are managed through inventory create/edit flows.
+        </p>
+
+        {upcError && (
+          <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+            {upcError}
+          </div>
+        )}
+
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex-1">
+            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">
+              UPC Code
+            </label>
+            <input
+              className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+              placeholder="Enter UPC to lookup"
+              value={upcInput}
+              onChange={e => setUpcInput(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600">
+              Actions
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={handleUpcLookup}
+                disabled={!upcInput.trim()}
+                className="px-4 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Lookup
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">
+              Product Name
+            </label>
+            <input
+              className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full opacity-70"
+              placeholder="No selection"
+              value={upcDraft.name || ''}
+              readOnly
+              disabled
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">
+              Price ($)
+            </label>
+            <input
+              className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full opacity-70"
+              placeholder="0.00"
+              value={upcDraft.price ? Number(upcDraft.price).toFixed(2) : ''}
+              readOnly
+              disabled
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">
+              Size
+            </label>
+            <input
+              className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full opacity-70"
+              placeholder="No size"
+              value={formatSize(Number(upcDraft.sizeOz || 0), upcDraft.sizeUnit)}
+              readOnly
+              disabled
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">
+              Container Type
+            </label>
+            <input
+              className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full opacity-70"
+              placeholder="Unknown"
+              value={
+                upcDraft.containerType
+                  ? UPC_CONTAINER_LABELS[upcDraft.containerType]
+                  : ''
+              }
+              readOnly
+              disabled
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+              <input type="checkbox" checked={upcDraft.isEligible} readOnly disabled />
+              Eligible for Michigan Deposit Refund
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+            Registered UPCs
+          </p>
+          <div className="flex gap-3">
+            <input
+              className="bg-black/40 border border-white/10 rounded-2xl p-3 text-xs text-white"
+              placeholder="Filter by UPC or name"
+              value={upcFilter}
+              onChange={e => setUpcFilter(e.target.value)}
+            />
+            <button
+              onClick={apiLoadUpcItems}
+              disabled={isUpcLoading}
+              className="px-5 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+            >
+              {isUpcLoading ? 'Loading...' : 'Refresh'}
+            </button>
+          </div>
+        </div>
+
+        {isUpcLoading ? (
+          <p className="text-xs text-slate-500">Loading UPC entries...</p>
+        ) : filteredUpcItems.length === 0 ? (
+          <p className="text-xs text-slate-500">
+            {upcItems.length === 0
+              ? 'No UPC entries yet. Add UPCs via inventory create/edit.'
+              : 'No UPC entries match this filter.'}
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {filteredUpcItems.map(item => (
+              <button
+                key={item.upc}
+                onClick={() => {
+                  setUpcInput(item.upc);
+                  loadUpcDraft(item);
+                }}
+                className="w-full text-left p-4 rounded-2xl border border-white/5 bg-black/40 hover:bg-white/5 transition-all"
+              >
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                  <div>
+                    <p className="text-white text-sm font-black">{item.upc}</p>
+                    <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                      {item.name || 'Unnamed'} • Deposit $
+                      {Number(item.depositValue || 0).toFixed(2)} • Price $
+                      {Number(item.price || 0).toFixed(2)} •{' '}
+                      {formatSize(item.sizeOz, item.sizeUnit)} •{' '}
+                      {UPC_CONTAINER_LABELS[item.containerType || 'plastic']} •{' '}
+                      {item.isEligible ? 'ELIGIBLE' : 'INELIGIBLE'}
+                    </p>
+                  </div>
+                  <p className="text-[10px] uppercase tracking-widest text-slate-600">
+                    Updated {fmtTime(item.updatedAt)}
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
