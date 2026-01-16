@@ -1285,7 +1285,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setLabelScanPhoto(photoDataUrl);
     setLabelScanMime(typeof mime === 'string' ? mime : null);
     void runLabelScan(photoDataUrl, typeof mime === 'string' ? mime : undefined);
-  }, [runLabelScan]);
+    setScannerModalOpen(false);
+  }, [runLabelScan, setScannerModalOpen]);
 
   const handleScannerScan = useCallback(async (upc: string) => {
     if (scannerMode === ScannerMode.INVENTORY_CREATE) {
@@ -4156,7 +4157,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         cooldownMs={settings.cooldownMs ?? 1000}
         isOpen={scannerModalOpen}
         onPhotoCaptured={scannerMode === ScannerMode.INVENTORY_CREATE ? handlePhotoCaptured : undefined}
-        closeOnScan={scannerMode === ScannerMode.INVENTORY_CREATE}
+        closeOnScan={false}
         manualStart={scannerMode === ScannerMode.INVENTORY_CREATE}
       />
       </div>
