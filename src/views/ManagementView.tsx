@@ -1179,12 +1179,173 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
       // Set authoritative creation UPC
       setScannedUpcForCreation(normalized);
+      upcLastScannedRef.current = normalized;
 
       // Keep existing fields in sync for registry/inventory UI
       setUpcInput(normalized);
       setUpcDraft(prev => ({ ...prev, upc: normalized }));
 
       // Photo is captured manually via button
+      const labelScanFlags = {
+        name: Boolean(labelScanResult?.name),
+        brand: Boolean(labelScanResult?.brand),
+        productType: Boolean(labelScanResult?.productType),
+        nutritionNote: Boolean(labelScanResult?.nutritionNote),
+        storageZone: Boolean(labelScanResult?.storageZone),
+        storageBin: Boolean(labelScanResult?.storageBin),
+        image: Boolean(labelScanResult?.image),
+        sizeOz: Number(labelScanResult?.sizeOz || 0) > 0,
+        quantity: Number(labelScanResult?.quantity || 0) > 0,
+        containerType: Boolean(labelScanResult?.containerType),
+        isEligible: typeof labelScanResult?.isEligible === 'boolean'
+      };
+
+      const shouldFillText = (current: string, next?: string, locked = false) => {
+        if (locked) return current;
+        const trimmed = current.trim();
+        if (trimmed) return current;
+        return next ? next : current;
+      };
+
+      const shouldFillNumber = (current: number, next?: number, locked = false) => {
+        if (locked) return current;
+        if (Number.isFinite(current) && current > 0) return current;
+        if (Number.isFinite(next) && Number(next) > 0) return Number(next);
+        return current;
+      };
+
+      const applyLookupDrafts = (
+        lookupData: {
+          name?: string;
+          price?: number;
+          sizeOz?: number;
+          containerType?: UpcContainerType;
+          isEligible?: boolean;
+          depositValue?: number;
+        },
+        productData?: Partial<Product>
+      ) => {
+        setUpcDraft(prev => ({
+          ...prev,
+          name: shouldFillText(prev.name, lookupData.name, labelScanFlags.name),
+          price: shouldFillNumber(prev.price, lookupData.price, false),
+          sizeOz: shouldFillNumber(prev.sizeOz, lookupData.sizeOz, labelScanFlags.sizeOz),
+          containerType: labelScanFlags.containerType
+            ? prev.containerType
+            : lookupData.containerType || prev.containerType,
+          isEligible: labelScanFlags.isEligible
+            ? prev.isEligible
+            : lookupData.isEligible ?? prev.isEligible,
+          depositValue:
+            Number.isFinite(prev.depositValue) && prev.depositValue > 0
+              ? prev.depositValue
+              : Number.isFinite(lookupData.depositValue)
+              ? Number(lookupData.depositValue)
+              : prev.depositValue
+        }));
+
+        if (!productData && !lookupData) return;
+
+        setNewProduct(prev => {
+          const resolvedContainerType = lookupData.containerType;
+          const resolvedIsGlass =
+            resolvedContainerType === 'glass' ? true : resolvedContainerType ? false : undefined;
+          return {
+            ...prev,
+            name: shouldFillText(
+              prev.name,
+              productData?.name || lookupData.name,
+              labelScanFlags.name
+            ),
+            brand: shouldFillText(prev.brand, productData?.brand, labelScanFlags.brand),
+            productType: shouldFillText(
+              prev.productType,
+              productData?.productType,
+              labelScanFlags.productType
+            ),
+            nutritionNote: shouldFillText(
+              prev.nutritionNote,
+              productData?.nutritionNote,
+              labelScanFlags.nutritionNote
+            ),
+            storageZone: shouldFillText(
+              prev.storageZone,
+              productData?.storageZone,
+              labelScanFlags.storageZone
+            ),
+            storageBin: shouldFillText(
+              prev.storageBin,
+              productData?.storageBin,
+              labelScanFlags.storageBin
+            ),
+            image: shouldFillText(prev.image, productData?.image, labelScanFlags.image),
+            stock: shouldFillNumber(
+              prev.stock,
+              productData?.stock,
+              labelScanFlags.quantity
+            ),
+            price: shouldFillNumber(prev.price, productData?.price, false),
+            sizeOz: shouldFillNumber(
+              prev.sizeOz,
+              productData?.sizeOz || lookupData.sizeOz,
+              labelScanFlags.sizeOz
+            ),
+            isGlass:
+              resolvedIsGlass === undefined || labelScanFlags.containerType
+                ? prev.isGlass
+                : prev.isGlass || resolvedIsGlass
+          };
+        });
+      };
+
+      try {
+        const scanRes = await fetch(`${BACKEND_URL}/api/upc/scan`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ upc: normalized, qty: 1, resolveOnly: true })
+        });
+        const scanData = await scanRes.json().catch(() => ({}));
+        if (!scanRes.ok) throw new Error(scanData?.error || 'UPC lookup failed');
+
+        if (upcLastScannedRef.current !== normalized) return;
+
+        const upcEntry = scanData?.upcEntry;
+        const resolvedProduct = scanData?.product;
+        const mappedLookup = upcEntry
+          ? {
+              name: upcEntry?.name,
+              price: Number(upcEntry?.price || 0),
+              sizeOz: Number(upcEntry?.sizeOz || 0),
+              containerType: upcEntry?.containerType,
+              isEligible: upcEntry?.isEligible !== false,
+              depositValue: Number(upcEntry?.depositValue || 0)
+            }
+          : undefined;
+
+        if (mappedLookup || resolvedProduct) {
+          applyLookupDrafts(mappedLookup || {}, resolvedProduct || undefined);
+          return;
+        }
+
+        const eligibilityRes = await fetch(
+          `${BACKEND_URL}/api/upc/eligibility?upc=${encodeURIComponent(normalized)}`
+        );
+        if (!eligibilityRes.ok) return;
+        const eligibilityData = await eligibilityRes.json().catch(() => ({}));
+        if (upcLastScannedRef.current !== normalized) return;
+
+        applyLookupDrafts({
+          name: eligibilityData?.name,
+          price: Number(eligibilityData?.price || 0),
+          sizeOz: Number(eligibilityData?.sizeOz || 0),
+          containerType: eligibilityData?.containerType,
+          isEligible: eligibilityData?.eligible !== false,
+          depositValue: Number(eligibilityData?.depositValue || 0)
+        });
+      } catch (err) {
+        console.error('UPC lookup failed:', err);
+      }
 
       return;
     }
@@ -1193,7 +1354,15 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       handleUpcLookup(upc);
       // Keep modal open for UPC_LOOKUP mode
     }
-  }, [scannerMode, setScannedUpcForCreation, setUpcInput, setUpcDraft, handleUpcLookup]);
+  }, [
+    scannerMode,
+    labelScanResult,
+    setScannedUpcForCreation,
+    setUpcInput,
+    setUpcDraft,
+    setNewProduct,
+    handleUpcLookup
+  ]);
 
   const startEditProduct = (product: Product) => {
     setEditError(null);
