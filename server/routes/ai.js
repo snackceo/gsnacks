@@ -231,7 +231,7 @@ router.post('/product-scan', async (req, res) => {
   }
 
   const prompt = `For a product with UPC "${upc || 'unknown'}", extract metadata from this label image.
-Return JSON only: {"name":"", "brand":"", "productType":"", "sizeOz":0, "sizeUnit":"oz|fl oz|g|kg|ml|l|", "quantity":0, "nutritionNote":"", "storageZone":"", "storageBin":"", "image":"", "containerType":"plastic|glass|aluminum|", "isEligible":true|false, "message":""}.
+Return JSON only: {"name":"", "brand":"", "productType":"", "category":"", "sizeOz":0, "sizeUnit":"oz|fl oz|g|kg|ml|l|", "quantity":0, "nutritionNote":"", "storageZone":"", "storageBin":"", "image":"", "containerType":"plastic|glass|aluminum|", "isEligible":true|false, "message":""}.
 Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, ml, l, or empty. "containerType" should be one of plastic, glass, aluminum, or empty. "isEligible" means Michigan 10¢ deposit eligible.`;
 
   try {
@@ -261,6 +261,7 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
         name: '',
         brand: '',
         productType: '',
+        category: '',
         sizeOz: 0,
         sizeUnit: '',
         quantity: 0,
@@ -286,6 +287,7 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
         name: String(parsed.name || ''),
         brand: String(parsed.brand || ''),
         productType: String(parsed.productType || ''),
+        category: String(parsed.category || ''),
         sizeOz: normalizeNumber(parsed.sizeOz, 0),
         sizeUnit: normalizeSizeUnit(parsed.sizeUnit),
         quantity: Math.max(0, Math.round(normalizeNumber(parsed.quantity, 0))),
@@ -303,6 +305,7 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
       name: '',
       brand: '',
       productType: '',
+      category: '',
       sizeOz: 0,
       sizeUnit: '',
       quantity: 0,
@@ -320,6 +323,7 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
       name: '',
       brand: '',
       productType: '',
+      category: '',
       sizeOz: 0,
       sizeUnit: '',
       quantity: 0,
