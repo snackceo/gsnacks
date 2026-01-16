@@ -977,6 +977,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       Boolean(result.brand) ||
       Boolean(result.productType) ||
       Boolean(result.sizeUnit) ||
+      Boolean(result.category) ||
       Boolean(result.nutritionNote) ||
       Boolean(result.storageZone) ||
       Boolean(result.storageBin) ||
@@ -1019,6 +1020,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       name: result.name || prev.name,
       brand: result.brand || prev.brand,
       productType: result.productType || prev.productType,
+      category: result.category || prev.category,
       nutritionNote: result.nutritionNote || prev.nutritionNote,
       storageZone: result.storageZone || prev.storageZone,
       storageBin: result.storageBin || prev.storageBin,
