@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { XCircle, Plus, Search, ScanLine, Loader2 } from 'lucide-react';
-import { UnmappedUpcData } from '../types';
+import { UnmappedUpcData, SizeUnit } from '../types';
 
 interface UnmappedUpcModalProps {
   data: UnmappedUpcData;
@@ -10,7 +10,9 @@ interface UnmappedUpcModalProps {
     deposit: number;
     stock: number;
     sizeOz: number;
+    sizeUnit: SizeUnit;
     category: string;
+    nutritionNote: string;
   }) => void;
   onAttachToExisting: (productId: string) => void;
   onClose: () => void;
@@ -35,7 +37,9 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
     deposit: 0,
     stock: 1,
     sizeOz: 0,
-    category: 'DRINK'
+    sizeUnit: 'oz' as SizeUnit,
+    category: 'DRINK',
+    nutritionNote: ''
   });
   const [attachSearch, setAttachSearch] = useState('');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
@@ -48,10 +52,14 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
         price: data.price || prev.price,
         deposit: data.deposit || prev.deposit,
         sizeOz: data.sizeOz || prev.sizeOz,
-        category: data.category || prev.category
+        sizeUnit: prev.sizeUnit,
+        category: data.category || prev.category,
+        nutritionNote: prev.nutritionNote
       }));
     }
   }, [data]);
+
+  const sizeUnitOptions: SizeUnit[] = ['oz', 'fl oz', 'g', 'kg', 'ml', 'l'];
 
   const filteredProducts = products.filter(
     p =>
@@ -158,15 +166,30 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
                 />
               </label>
               <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                <span>Size (oz)</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  placeholder="12.0"
-                  value={createForm.sizeOz}
-                  onChange={e => setCreateForm({ ...createForm, sizeOz: Number(e.target.value) })}
-                />
+                <span>Size</span>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                    placeholder="12.0"
+                    value={createForm.sizeOz}
+                    onChange={e => setCreateForm({ ...createForm, sizeOz: Number(e.target.value) })}
+                  />
+                  <select
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                    value={createForm.sizeUnit}
+                    onChange={e =>
+                      setCreateForm({ ...createForm, sizeUnit: e.target.value as SizeUnit })
+                    }
+                  >
+                    {sizeUnitOptions.map(option => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </label>
               <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
                 <span>Category</span>
@@ -180,6 +203,17 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
                   <option value="OTHER">Other</option>
                 </select>
               </label>
+              <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
+                <span>Nutrition Note (Customer Info)</span>
+                <textarea
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white min-h-[96px]"
+                  placeholder="e.g. 12g protein • 220 calories • contains peanuts"
+                  value={createForm.nutritionNote}
+                  onChange={e =>
+                    setCreateForm({ ...createForm, nutritionNote: e.target.value })
+                  }
+                />
+              </label>
             </div>
             <button
               onClick={onAnalyze}
@@ -187,7 +221,7 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
               className="w-full py-4 bg-white/10 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3"
             >
               {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />}
-              Analyze Label Photo (Optional)
+              Open Scanner for AI Capture (Optional)
             </button>
             <button
               onClick={handleCreate}

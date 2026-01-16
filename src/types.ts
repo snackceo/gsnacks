@@ -98,14 +98,18 @@ export interface Product {
   deposit: number;
   stock: number;
   sizeOz: number;
+  sizeUnit?: SizeUnit;
   category: string;
   image: string;
   brand?: string;
   productType?: string;
+  nutritionNote?: string;
   storageZone?: string;
   storageBin?: string;
   isGlass: boolean;
 }
+
+export type SizeUnit = 'oz' | 'fl oz' | 'g' | 'kg' | 'ml' | 'l';
 
 export type UpcContainerType = 'aluminum' | 'glass' | 'plastic';
 
@@ -116,6 +120,7 @@ export interface UpcItem {
   price: number;
   containerType: UpcContainerType;
   sizeOz: number;
+  sizeUnit?: SizeUnit;
   isEligible: boolean;
   createdAt?: string;
   updatedAt?: string;

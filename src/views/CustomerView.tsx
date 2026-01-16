@@ -189,6 +189,14 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                       <Leaf className="w-3 h-3 text-ninpo-lime" />
                     </div>
                   )}
+                  {p.nutritionNote && (
+                    <div
+                      className="absolute top-4 left-4 bg-ninpo-black/60 backdrop-blur-md border border-white/10 p-2 rounded-xl"
+                      title={p.nutritionNote}
+                    >
+                      <Info className="w-3 h-3 text-ninpo-lime" />
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2 mb-10 px-1">
