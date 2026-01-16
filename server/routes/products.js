@@ -115,6 +115,10 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
       'stock',
       'sizeOz',
       'category',
+      'brand',
+      'productType',
+      'storageZone',
+      'storageBin',
       'image',
       'isGlass'
     ];

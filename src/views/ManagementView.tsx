@@ -257,6 +257,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     stock: 0,
     sizeOz: 0,
     category: 'DRINK',
+    brand: '',
+    productType: '',
+    storageZone: '',
+    storageBin: '',
     image: '',
     isGlass: false
   });
@@ -275,6 +279,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     stock: 0,
     sizeOz: 0,
     category: '',
+    brand: '',
+    productType: '',
+    storageZone: '',
+    storageBin: '',
     image: '',
     isGlass: false
   });
@@ -928,6 +936,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           stock: Number(newProduct.stock),
           sizeOz: Number(newProduct.sizeOz),
           category: newProduct.category,
+          brand: newProduct.brand,
+          productType: newProduct.productType,
+          storageZone: newProduct.storageZone,
+          storageBin: newProduct.storageBin,
           image: newProduct.image,
           isGlass: !!newProduct.isGlass
         })
@@ -975,6 +987,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         stock: 0,
         sizeOz: 0,
         category: 'DRINK',
+        brand: '',
+        productType: '',
+        storageZone: '',
+        storageBin: '',
         image: '',
         isGlass: false
       });
@@ -1066,6 +1082,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       stock: product.stock,
       sizeOz: product.sizeOz,
       category: product.category,
+      brand: product.brand || '',
+      productType: product.productType || '',
+      storageZone: product.storageZone || '',
+      storageBin: product.storageBin || '',
       image: product.image,
       isGlass: product.isGlass
     });
@@ -1104,6 +1124,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     if (stock !== editingProduct.stock) updates.stock = stock;
     if (sizeOz !== editingProduct.sizeOz) updates.sizeOz = sizeOz;
     if (editDraft.category !== editingProduct.category) updates.category = editDraft.category;
+    if (editDraft.brand !== editingProduct.brand) updates.brand = editDraft.brand;
+    if (editDraft.productType !== editingProduct.productType) updates.productType = editDraft.productType;
+    if (editDraft.storageZone !== editingProduct.storageZone) updates.storageZone = editDraft.storageZone;
+    if (editDraft.storageBin !== editingProduct.storageBin) updates.storageBin = editDraft.storageBin;
     if (editDraft.image !== editingProduct.image) updates.image = editDraft.image;
     if (editDraft.isGlass !== editingProduct.isGlass) updates.isGlass = editDraft.isGlass;
 
@@ -3053,6 +3077,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
                     Create Product
                   </p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-widest">
+                    Storage zone/bin describe where the item sits (e.g., Fridge / Shelf A).
+                  </p>
 
                   {createError && (
                     <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
@@ -3118,6 +3145,48 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         value={newProduct.sizeOz}
                         onChange={e =>
                           setNewProduct({ ...newProduct, sizeOz: Number(e.target.value) })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Brand</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="Brand"
+                        value={newProduct.brand}
+                        onChange={e => setNewProduct({ ...newProduct, brand: e.target.value })}
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Product Type</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="Type"
+                        value={newProduct.productType}
+                        onChange={e =>
+                          setNewProduct({ ...newProduct, productType: e.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Storage Zone</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="Zone"
+                        value={newProduct.storageZone}
+                        onChange={e =>
+                          setNewProduct({ ...newProduct, storageZone: e.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Storage Bin</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="Bin"
+                        value={newProduct.storageBin}
+                        onChange={e =>
+                          setNewProduct({ ...newProduct, storageBin: e.target.value })
                         }
                       />
                     </label>
@@ -3516,6 +3585,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
               <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mt-2">
                 ID: {editingProduct.id}
               </p>
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-2">
+                Storage zone/bin = item location (e.g., Fridge / Shelf A).
+              </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3530,6 +3602,30 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 placeholder="Category"
                 value={editDraft.category}
                 onChange={e => setEditDraft({ ...editDraft, category: e.target.value })}
+              />
+              <input
+                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                placeholder="Brand"
+                value={editDraft.brand}
+                onChange={e => setEditDraft({ ...editDraft, brand: e.target.value })}
+              />
+              <input
+                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                placeholder="Product Type"
+                value={editDraft.productType}
+                onChange={e => setEditDraft({ ...editDraft, productType: e.target.value })}
+              />
+              <input
+                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                placeholder="Storage Zone"
+                value={editDraft.storageZone}
+                onChange={e => setEditDraft({ ...editDraft, storageZone: e.target.value })}
+              />
+              <input
+                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                placeholder="Storage Bin"
+                value={editDraft.storageBin}
+                onChange={e => setEditDraft({ ...editDraft, storageBin: e.target.value })}
               />
               <input
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"

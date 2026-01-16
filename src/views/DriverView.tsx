@@ -131,7 +131,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const scanSessionIdRef = useRef<string>('');
   const scanSessionStartedAtRef = useRef<string>('');
 
-  const [driverMode, setDriverMode] = useState<'C' | 'D'>('C');
+  const [driverMode, setDriverMode] = useState<'RETURNS_INTAKE' | 'PICK_PACK'>('RETURNS_INTAKE');
   const [scannerMode, setScannerMode] = useState<ScannerMode>(ScannerMode.DRIVER_VERIFY_CONTAINERS);
   const [workflowMode, setWorkflowMode] = useState<'verification' | 'delivery'>('delivery');
 
@@ -1020,20 +1020,20 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
       <div className="flex gap-4">
         <button
-          onClick={() => setDriverMode('C')}
+          onClick={() => setDriverMode('RETURNS_INTAKE')}
           className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
-            driverMode === 'C' ? 'bg-ninpo-lime text-ninpo-black' : 'bg-white/5 text-white'
+            driverMode === 'RETURNS_INTAKE' ? 'bg-ninpo-lime text-ninpo-black' : 'bg-white/5 text-white'
           }`}
         >
-          Mode C (Returns Intake)
+          Returns Intake
         </button>
         <button
-          onClick={() => setDriverMode('D')}
+          onClick={() => setDriverMode('PICK_PACK')}
           className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
-            driverMode === 'D' ? 'bg-ninpo-lime text-ninpo-black' : 'bg-white/5 text-white'
+            driverMode === 'PICK_PACK' ? 'bg-ninpo-lime text-ninpo-black' : 'bg-white/5 text-white'
           }`}
         >
-          Mode D (Pick/Pack Orders)
+          Pick/Pack Orders
         </button>
       </div>
 
