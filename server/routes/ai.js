@@ -249,6 +249,11 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
   try {
     const base64Data = stripBase64ImagePrefix(image);
     const imageData = typeof base64Data === 'string' ? base64Data : '';
+    if (!imageData || imageData.length < 32) {
+      return res
+        .status(400)
+        .json({ message: 'Invalid photo data. Please retake.' });
+    }
     console.info('Gemini product image data:', {
       type: typeof imageData,
       length: imageData.length
