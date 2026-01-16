@@ -82,6 +82,15 @@ const UPC_CONTAINER_LABELS: Record<UpcContainerType, string> = {
 };
 const SIZE_UNIT_OPTIONS: SizeUnit[] = ['oz', 'fl oz', 'g', 'kg', 'ml', 'l'];
 
+const INVENTORY_SORT_OPTIONS = [
+  { value: 'alpha', label: 'Alphabetical (A-Z)', type: 'text', accessor: (product: Product) => product.name },
+  { value: 'price', label: 'Price', type: 'number', accessor: (product: Product) => product.price },
+  { value: 'brand', label: 'Brand (A-Z)', type: 'text', accessor: (product: Product) => product.brand },
+  { value: 'type', label: 'Product Type', type: 'text', accessor: (product: Product) => product.productType },
+  { value: 'storage-zone', label: 'Storage Zone', type: 'text', accessor: (product: Product) => product.storageZone },
+  { value: 'storage-bin', label: 'Storage Bin', type: 'text', accessor: (product: Product) => product.storageBin }
+] as const;
+
 interface ManagementViewProps {
   user: User;
   products: Product[];
@@ -284,6 +293,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   );
   const [labelScanError, setLabelScanError] = useState<string | null>(null);
   const [isLabelScanning, setIsLabelScanning] = useState(false);
+  type InventorySort = typeof INVENTORY_SORT_OPTIONS[number]['value'];
+
+  const [inventorySort, setInventorySort] = useState<InventorySort>('alpha');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editDraft, setEditDraft] = useState({
     name: '',
@@ -338,6 +350,26 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const filteredApprovals = useMemo(() => {
     return approvals.filter(approval => approval.status === approvalFilter);
   }, [approvals, approvalFilter]);
+
+  const sortedProducts = useMemo(() => {
+    const list = [...products];
+    const activeSort = INVENTORY_SORT_OPTIONS.find(option => option.value === inventorySort);
+    if (!activeSort) return list;
+
+    list.sort((a, b) => {
+      const aValue = activeSort.accessor(a);
+      const bValue = activeSort.accessor(b);
+
+      if (activeSort.type === 'number') {
+        return Number(aValue || 0) - Number(bValue || 0);
+      }
+
+      const normalize = (value: string | number | undefined) => String(value || '').toLowerCase();
+      return normalize(aValue).localeCompare(normalize(bValue));
+    });
+
+    return list;
+  }, [products, inventorySort]);
 
   const upcLastScannedRef = useRef<string>('');
   const upcItemsRef = useRef<UpcItem[]>([]);
@@ -898,6 +930,13 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }));
   };
 
+  const resetLabelScanState = () => {
+    setLabelScanPhoto(null);
+    setLabelScanMime(null);
+    setLabelScanResult(null);
+    setLabelScanError(null);
+  };
+
   const runLabelScan = async (photo = labelScanPhoto, mime = labelScanMime) => {
     if (!scannedUpcForCreation) {
       setLabelScanError('Scan a product UPC first.');
@@ -910,7 +949,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
     setIsLabelScanning(true);
     setLabelScanError(null);
-    const result = await analyzeProductScan(photo, mime || undefined);
+    const result = await analyzeProductScan(photo, scannedUpcForCreation, mime || undefined);
     setLabelScanResult(result);
     applyLabelScanToDrafts(result);
     if (result.message && !result.name) {
@@ -1003,6 +1042,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         isGlass: false
       });
       setScannedUpcForCreation('');
+      resetLabelScanState();
       return created;
     } catch (e: any) {
       setCreateError(e?.message || 'Create failed');
@@ -3091,193 +3131,235 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       {labelScanResult.message}
                     </div>
                   )}
-                  <div className="pt-6 border-t border-white/5 space-y-6">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      Create Product
-                    </p>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">
-                      Storage zone/bin describe where the item sits (e.g., Fridge / Shelf A).
-                    </p>
+                  {scannedUpcForCreation ? (
+                    <div className="pt-6 border-t border-white/5 space-y-6">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                        Create Product
+                      </p>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-widest">
+                        Storage zone/bin describe where the item sits (e.g., Fridge / Shelf A).
+                      </p>
 
-                    {createError && (
-                      <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
-                        {createError}
-                      </div>
-                    )}
+                      {createError && (
+                        <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                          {createError}
+                        </div>
+                      )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      <span>SKU</span>
-                      <input
-                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full disabled:opacity-50"
-                        placeholder="Auto-generated on creation"
-                        value=""
-                        disabled
-                      />
-                    </label>
-                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      <span>Name</span>
-                      <input
-                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                        placeholder="Product name"
-                        value={newProduct.name}
-                        onChange={e => setNewProduct({ ...newProduct, name: e.target.value })}
-                      />
-                    </label>
-                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      <span>Price</span>
-                      <input
-                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                        placeholder="0.00"
-                        type="number"
-                        value={newProduct.price}
-                        onChange={e => setNewProduct({ ...newProduct, price: Number(e.target.value) })}
-                      />
-                    </label>
-                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      <span>Deposit</span>
-                      <input
-                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                        placeholder="Auto-calculated"
-                        value={upcDraft.isEligible ? "0.10" : "0.00"}
-                        disabled
-                      />
-                    </label>
-                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      <span>Stock</span>
-                      <input
-                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                        placeholder="0"
-                        type="number"
-                        value={newProduct.stock}
-                        onChange={e => setNewProduct({ ...newProduct, stock: Number(e.target.value) })}
-                      />
-                    </label>
-                      <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                        <span>Size</span>
-                        <div className="flex gap-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>SKU</span>
+                          <input
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full disabled:opacity-50"
+                            placeholder="Auto-generated on creation"
+                            value=""
+                            disabled
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Name</span>
+                          <input
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="Product name"
+                            value={newProduct.name}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, name: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Price</span>
+                          <input
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="0.00"
+                            type="number"
+                            value={newProduct.price}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, price: Number(e.target.value) })
+                            }
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Deposit</span>
+                          <input
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="Auto-calculated"
+                            value={upcDraft.isEligible ? '0.10' : '0.00'}
+                            disabled
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Stock</span>
                           <input
                             className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
                             placeholder="0"
                             type="number"
-                            step="0.1"
-                            value={newProduct.sizeOz}
+                            value={newProduct.stock}
                             onChange={e =>
-                              setNewProduct({ ...newProduct, sizeOz: Number(e.target.value) })
+                              setNewProduct({ ...newProduct, stock: Number(e.target.value) })
                             }
                           />
-                          <select
-                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                            value={newProduct.sizeUnit}
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Size</span>
+                          <div className="flex gap-2">
+                            <input
+                              className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                              placeholder="0"
+                              type="number"
+                              step="0.1"
+                              value={newProduct.sizeOz}
+                              onChange={e =>
+                                setNewProduct({ ...newProduct, sizeOz: Number(e.target.value) })
+                              }
+                            />
+                            <select
+                              className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                              value={newProduct.sizeUnit}
+                              onChange={e =>
+                                setNewProduct({
+                                  ...newProduct,
+                                  sizeUnit: e.target.value as SizeUnit
+                                })
+                              }
+                            >
+                              {SIZE_UNIT_OPTIONS.map(option => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Brand</span>
+                          <input
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="Brand"
+                            value={newProduct.brand}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, brand: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Product Type</span>
+                          <input
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="Type"
+                            value={newProduct.productType}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, productType: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
+                          <span>Nutrition Note (Customer Info)</span>
+                          <textarea
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full min-h-[96px]"
+                            placeholder="e.g. 12g protein • 220 calories • contains peanuts"
+                            value={newProduct.nutritionNote}
                             onChange={e =>
                               setNewProduct({
                                 ...newProduct,
-                                sizeUnit: e.target.value as SizeUnit
+                                nutritionNote: e.target.value
                               })
                             }
-                          >
-                            {SIZE_UNIT_OPTIONS.map(option => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </label>
-                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      <span>Brand</span>
-                      <input
-                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                        placeholder="Brand"
-                        value={newProduct.brand}
-                        onChange={e => setNewProduct({ ...newProduct, brand: e.target.value })}
-                      />
-                    </label>
-                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      <span>Product Type</span>
-                      <input
-                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                        placeholder="Type"
-                        value={newProduct.productType}
-                        onChange={e =>
-                          setNewProduct({ ...newProduct, productType: e.target.value })
-                        }
-                      />
-                    </label>
-                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
-                      <span>Nutrition Note (Customer Info)</span>
-                      <textarea
-                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full min-h-[96px]"
-                        placeholder="e.g. 12g protein • 220 calories • contains peanuts"
-                        value={newProduct.nutritionNote}
-                        onChange={e =>
-                          setNewProduct({ ...newProduct, nutritionNote: e.target.value })
-                        }
-                      />
-                    </label>
-                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      <span>Storage Zone</span>
-                      <input
-                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                        placeholder="Zone"
-                        value={newProduct.storageZone}
-                        onChange={e =>
-                          setNewProduct({ ...newProduct, storageZone: e.target.value })
-                        }
-                      />
-                    </label>
-                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      <span>Storage Bin</span>
-                      <input
-                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                        placeholder="Bin"
-                        value={newProduct.storageBin}
-                        onChange={e =>
-                          setNewProduct({ ...newProduct, storageBin: e.target.value })
-                        }
-                      />
-                    </label>
-                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
-                      <span>Image URL</span>
-                      <input
-                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                        placeholder="https://"
-                        value={newProduct.image}
-                        onChange={e => setNewProduct({ ...newProduct, image: e.target.value })}
-                      />
-                    </label>
-                  </div>
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Storage Zone</span>
+                          <input
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="Zone"
+                            value={newProduct.storageZone}
+                            onChange={e =>
+                              setNewProduct({
+                                ...newProduct,
+                                storageZone: e.target.value
+                              })
+                            }
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Storage Bin</span>
+                          <input
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="Bin"
+                            value={newProduct.storageBin}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, storageBin: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
+                          <span>Image URL</span>
+                          <input
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="https://"
+                            value={newProduct.image}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, image: e.target.value })
+                            }
+                          />
+                        </label>
+                      </div>
 
-                  <div className="md:col-span-2">
-                    <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      <input
-                        type="checkbox"
-                        checked={upcDraft.isEligible}
-                        onChange={e =>
-                          setUpcDraft({ ...upcDraft, isEligible: e.target.checked })
-                        }
-                      />
-                      Eligible for Michigan Deposit Refund
-                    </label>
-                  </div>
+                      <div className="md:col-span-2">
+                        <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                          <input
+                            type="checkbox"
+                            checked={upcDraft.isEligible}
+                            onChange={e =>
+                              setUpcDraft({ ...upcDraft, isEligible: e.target.checked })
+                            }
+                          />
+                          Eligible for Michigan Deposit Refund
+                        </label>
+                      </div>
 
-                  <button
-                    onClick={apiCreateProduct}
-                    disabled={isCreating}
-                    className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.01] transition-all shadow-neon"
-                  >
-                    {isCreating ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <Plus className="w-5 h-5" />
-                    )}
-                    Create
-                  </button>
+                      <button
+                        onClick={apiCreateProduct}
+                        disabled={isCreating}
+                        className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.01] transition-all shadow-neon"
+                      >
+                        {isCreating ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                          <Plus className="w-5 h-5" />
+                        )}
+                        Create
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="pt-6 border-t border-white/5 text-[10px] text-slate-500 uppercase tracking-widest">
+                      Scan a UPC to open the product details before creating.
+                    </div>
+                  )}
                 </div>
+
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    Inventory List
+                  </p>
+                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    <span>Sort</span>
+                    <select
+                      value={inventorySort}
+                      onChange={e => setInventorySort(e.target.value as InventorySort)}
+                      className="bg-black/40 border border-white/10 rounded-2xl px-4 py-2 text-sm text-white"
+                    >
+                      {INVENTORY_SORT_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
 
                 <div className="grid grid-cols-1 gap-6">
-                  {products.map(p => (
+                  {sortedProducts.map(p => (
                     <div
                       key={p.id}
                       className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
