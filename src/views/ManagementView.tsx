@@ -81,6 +81,23 @@ const UPC_CONTAINER_LABELS: Record<UpcContainerType, string> = {
   plastic: 'PLASTIC / BOTTLE'
 };
 const SIZE_UNIT_OPTIONS: SizeUnit[] = ['oz', 'fl oz', 'g', 'kg', 'ml', 'l'];
+const DEFAULT_NEW_PRODUCT = {
+  id: '',
+  name: '',
+  price: 0,
+  deposit: 0,
+  stock: 0,
+  sizeOz: 0,
+  sizeUnit: 'oz' as SizeUnit,
+  category: 'DRINK',
+  brand: '',
+  productType: '',
+  nutritionNote: '',
+  storageZone: '',
+  storageBin: '',
+  image: '',
+  isGlass: false
+};
 
 interface ManagementViewProps {
   user: User;
@@ -260,23 +277,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   // Inventory create form
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [newProduct, setNewProduct] = useState({
-    id: '',
-    name: '',
-    price: 0,
-    deposit: 0,
-    stock: 0,
-    sizeOz: 0,
-    sizeUnit: 'oz' as SizeUnit,
-    category: 'DRINK',
-    brand: '',
-    productType: '',
-    nutritionNote: '',
-    storageZone: '',
-    storageBin: '',
-    image: '',
-    isGlass: false
-  });
+  const [newProduct, setNewProduct] = useState({ ...DEFAULT_NEW_PRODUCT });
   const [labelScanPhoto, setLabelScanPhoto] = useState<string | null>(null);
   const [labelScanMime, setLabelScanMime] = useState<string | null>(null);
   const [labelScanResult, setLabelScanResult] = useState<ProductScanResult | null>(
@@ -975,6 +976,22 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   };
 
   // ---- Inventory API ----
+  const resetCreateForm = useCallback(() => {
+    setNewProduct({ ...DEFAULT_NEW_PRODUCT });
+    setScannedUpcForCreation('');
+    setLabelScanPhoto(null);
+    setLabelScanMime(null);
+    setLabelScanResult(null);
+    setLabelScanError(null);
+    setCreateError(null);
+  }, []);
+
+  const handleCancelCreate = useCallback(() => {
+    resetCreateForm();
+    setScannerMode(ScannerMode.INVENTORY_CREATE);
+    setScannerModalOpen(true);
+  }, [resetCreateForm]);
+
   const apiCreateProduct = async () => {
     setCreateError(null);
     setIsCreating(true);
@@ -1040,28 +1057,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         }
       }
 
-      setNewProduct({
-        id: '',
-        name: '',
-        price: 0,
-        deposit: 0, // Will be auto-calculated
-        stock: 0,
-        sizeOz: 0,
-        sizeUnit: 'oz',
-        category: 'DRINK',
-        brand: '',
-        productType: '',
-        nutritionNote: '',
-        storageZone: '',
-        storageBin: '',
-        image: '',
-        isGlass: false
-      });
-      setScannedUpcForCreation('');
-      setLabelScanPhoto(null);
-      setLabelScanMime(null);
-      setLabelScanResult(null);
-      setLabelScanError(null);
+      resetCreateForm();
+      setScannerMode(ScannerMode.INVENTORY_CREATE);
+      setScannerModalOpen(true);
       return created;
     } catch (e: any) {
       setCreateError(e?.message || 'Create failed');
@@ -3337,18 +3335,28 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         </label>
                       </div>
 
-                      <button
-                        onClick={apiCreateProduct}
-                        disabled={isCreating}
-                        className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.01] transition-all shadow-neon"
-                      >
-                        {isCreating ? (
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                        ) : (
-                          <Plus className="w-5 h-5" />
-                        )}
-                        Create
-                      </button>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={handleCancelCreate}
+                          className="w-full py-5 bg-black/40 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 border border-white/10 hover:border-white/30 transition-all"
+                        >
+                          <X className="w-5 h-5" />
+                          Cancel
+                        </button>
+                        <button
+                          onClick={apiCreateProduct}
+                          disabled={isCreating}
+                          className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.01] transition-all shadow-neon"
+                        >
+                          {isCreating ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                          ) : (
+                            <Plus className="w-5 h-5" />
+                          )}
+                          Create
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="pt-6 border-t border-white/5 text-[10px] text-slate-500 uppercase tracking-widest">
