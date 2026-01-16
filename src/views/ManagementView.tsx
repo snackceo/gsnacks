@@ -22,10 +22,8 @@ import type {
 import { ScannerMode, OrderStatus } from '../types';
 import ManagementDashboard from './management/ManagementDashboard';
 import ManagementOrders from './management/ManagementOrders';
-import ManagementApprovals from './management/ManagementApprovals';
 import ManagementUsers from './management/ManagementUsers';
 import ManagementAuditLogs from './management/ManagementAuditLogs';
-import ManagementReturns from './management/ManagementReturns';
 import ManagementInventory from './management/ManagementInventory';
 import ManagementUpcRegistry from './management/ManagementUpcRegistry';
 import ManagementSettings from './management/ManagementSettings';
@@ -415,7 +413,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   }, [activeModule, fetchAuditLogs]);
 
   useEffect(() => {
-    if (activeModule !== 'approvals') return;
+    if (activeModule !== 'reviews') return;
     fetchApprovals().catch(() => {});
   }, [activeModule, fetchApprovals]);
 
@@ -1262,9 +1260,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     };
   }, [activeModule, fetchUsers, users.length]);
 
-  // Load return verifications when returns module is active
+  // Load return verifications when reviews module is active
   useEffect(() => {
-    if (activeModule !== 'returns') return;
+    if (activeModule !== 'reviews') return;
 
     let mounted = true;
     setIsReturnVerificationsLoading(true);
@@ -1404,8 +1402,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         {[
           { id: 'analytics', label: 'Dashboard', icon: BarChart3 },
           { id: 'orders', label: 'Orders', icon: Truck },
-          { id: 'approvals', label: 'Auth Hub', icon: ShieldCheck },
-          { id: 'returns', label: 'Return Reviews', icon: PackageCheck },
+          { id: 'reviews', label: 'Reviews', icon: ShieldCheck },
           { id: 'inventory', label: 'Inventory', icon: Package },
           { id: 'upc', label: 'UPC Registry', icon: ScanLine },
           { id: 'users', label: 'Users', icon: Users },
@@ -1459,20 +1456,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             canCancel={canCancel}
           />
         )}
-        {activeModule === 'approvals' && (
-          <ManagementApprovals
-            approvals={approvals}
-            approvalFilter={approvalFilter}
-            setApprovalFilter={setApprovalFilter}
-            filteredApprovals={filteredApprovals}
-            handleApprove={handleApprove}
-            handleReject={handleReject}
-            selectedApproval={selectedApproval}
-            setSelectedApproval={setSelectedApproval}
-            previewPhoto={previewPhoto}
-            setPreviewPhoto={setPreviewPhoto}
-          />
-        )}
         {activeModule === 'users' && (
           <ManagementUsers
             users={users}
@@ -1512,15 +1495,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             isAuditLogsLoading={isAuditLogsLoading}
             auditLogsError={auditLogsError}
             handleDownloadAuditCsv={handleDownloadAuditCsv}
-          />
-        )}
-        {activeModule === 'returns' && (
-          <ManagementReturns
-            returnVerifications={returnVerifications}
-            isReturnVerificationsLoading={isReturnVerificationsLoading}
-            returnVerificationsError={returnVerificationsError}
-            settlingVerificationId={settlingVerificationId}
-            settleReturnVerification={settleReturnVerification}
           />
         )}
         {activeModule === 'inventory' && (
@@ -1931,12 +1905,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         )}
 
         {/* =========================
-            APPROVALS
+            REVIEWS
         ========================= */}
-        {activeModule === 'approvals' && (
+        {activeModule === 'reviews' && (
           <div className="space-y-6">
             <h2 className="text-xl font-black uppercase text-white tracking-widest">
-              Authentication Hub
+              Auth Hub Reviews
             </h2>
 
             <div className="space-y-4">
@@ -2473,9 +2447,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         )}
 
         {/* =========================
-            RETURNS
+            RETURN REVIEWS
         ========================= */}
-        {activeModule === 'returns' && (
+        {activeModule === 'reviews' && (
           <div className="space-y-6">
             <div>
               <h2 className="text-xl font-black uppercase text-white tracking-widest">

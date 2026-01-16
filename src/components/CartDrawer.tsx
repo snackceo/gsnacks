@@ -475,6 +475,10 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   }, [cart, products]);
 
   const subtotal = useMemo(() => lineItems.reduce((sum, li) => sum + li.lineTotal, 0), [lineItems]);
+  const depositTotal = useMemo(
+    () => lineItems.reduce((sum, li) => sum + Number(li.product.deposit || 0) * li.quantity, 0),
+    [lineItems]
+  );
   const quoteSubtotal = Number.isFinite(quote?.subtotal) ? Number(quote?.subtotal) : subtotal;
 
   const quoteDistanceMiles = Number.isFinite(quote?.distanceMiles) ? Number(quote?.distanceMiles) : 0;
@@ -869,6 +873,15 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 </p>
                 <p className="text-white font-black">{money(quoteSubtotal)}</p>
               </div>
+
+              {depositTotal > 0 && (
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    MI 10¢ deposit (included)
+                  </p>
+                  <p className="text-white font-black">{money(depositTotal)}</p>
+                </div>
+              )}
 
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
