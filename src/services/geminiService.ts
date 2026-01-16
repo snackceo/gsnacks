@@ -45,6 +45,7 @@ export type ProductScanResult = {
   brand?: string;
   productType?: string;
   sizeOz: number;
+  sizeUnit?: string;
   quantity: number;
   nutritionNote?: string;
   storageZone?: string;
@@ -129,6 +130,7 @@ export const analyzeProductScan = async (
       isEligible: false,
       brand: '',
       productType: '',
+      sizeUnit: '',
       nutritionNote: '',
       storageZone: '',
       storageBin: '',
@@ -165,6 +167,7 @@ export const analyzeProductScan = async (
         isEligible: false,
         brand: '',
         productType: '',
+        sizeUnit: '',
         nutritionNote: '',
         storageZone: '',
         storageBin: '',
@@ -182,6 +185,7 @@ export const analyzeProductScan = async (
       isEligible: Boolean(data?.isEligible),
       brand: typeof data?.brand === 'string' ? data.brand : '',
       productType: typeof data?.productType === 'string' ? data.productType : '',
+      sizeUnit: typeof data?.sizeUnit === 'string' ? data.sizeUnit : '',
       nutritionNote: typeof data?.nutritionNote === 'string' ? data.nutritionNote : '',
       storageZone: typeof data?.storageZone === 'string' ? data.storageZone : '',
       storageBin: typeof data?.storageBin === 'string' ? data.storageBin : '',
@@ -197,6 +201,7 @@ export const analyzeProductScan = async (
       isEligible: false,
       brand: '',
       productType: '',
+      sizeUnit: '',
       nutritionNote: '',
       storageZone: '',
       storageBin: '',
