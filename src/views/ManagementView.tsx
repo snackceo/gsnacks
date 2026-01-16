@@ -82,6 +82,7 @@ const UPC_CONTAINER_LABELS: Record<UpcContainerType, string> = {
 };
 const SIZE_UNIT_OPTIONS: SizeUnit[] = ['oz', 'fl oz', 'g', 'kg', 'ml', 'l'];
 const AI_ANALYSIS_FALLBACK_MESSAGE = 'AI analysis failed. Please retake the photo.';
+const INVALID_PHOTO_MESSAGE = 'Invalid photo data. Please retake.';
 const DEFAULT_NEW_PRODUCT = {
   id: '',
   name: '',
@@ -1088,7 +1089,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
     if (!isValidPhotoDataUrl(photo)) {
       console.error('Invalid photo data for label scan.', { photo });
-      setLabelScanError('Invalid photo data. Please retake.');
+      setLabelScanError(INVALID_PHOTO_MESSAGE);
       return;
     }
 
@@ -1279,7 +1280,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const handlePhotoCaptured = useCallback((photoDataUrl: unknown, mime: unknown) => {
     if (!isValidPhotoDataUrl(photoDataUrl)) {
       console.error('Invalid photo data captured from scanner.', { photoDataUrl });
-      setLabelScanError('Invalid photo data. Please retake.');
+      setLabelScanError(INVALID_PHOTO_MESSAGE);
       return;
     }
     setLabelScanPhoto(photoDataUrl);
