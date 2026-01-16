@@ -3417,59 +3417,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     </div>
                   </div>
 
-                  {labelScanPhoto && (
-                    <div className="grid grid-cols-1 md:grid-cols-[160px_1fr] gap-4 items-start">
-                      <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40">
-                        <img
-                          src={labelScanPhoto}
-                          alt="Label preview"
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      {!scannedUpcForCreation && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px] text-slate-300 uppercase tracking-widest">
-                          <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                            <p className="text-slate-500 font-bold">Quantity</p>
-                            <p className="text-white font-semibold mt-2">
-                              {labelScanResult?.quantity
-                                ? Number(labelScanResult.quantity).toFixed(0)
-                                : '—'}
-                            </p>
-                          </div>
-                          <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                            <p className="text-slate-500 font-bold">Size</p>
-                            <p className="text-white font-semibold mt-2">
-                              {labelScanResult?.sizeOz
-                                ? formatSize(labelScanResult.sizeOz, upcDraft.sizeUnit)
-                                : '—'}
-                            </p>
-                          </div>
-                          <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                            <p className="text-slate-500 font-bold">Name</p>
-                            <p className="text-white font-semibold mt-2">
-                              {labelScanResult?.name || '—'}
-                            </p>
-                          </div>
-                          <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                            <p className="text-slate-500 font-bold">Eligibility</p>
-                            <p className="text-white font-semibold mt-2">
-                              {labelScanResult
-                                ? labelScanResult.isEligible
-                                  ? 'ELIGIBLE'
-                                  : 'INELIGIBLE'
-                                : '—'}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {sanitizedLabelScanMessage && (
-                    <div className="text-[11px] text-slate-500 uppercase tracking-widest">
-                      {sanitizedLabelScanMessage}
-                    </div>
-                  )}
                   {scannedUpcForCreation ? (
                     <div className="pt-6 border-t border-white/5 space-y-6">
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -3480,6 +3427,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                           <p className="text-[10px] text-slate-500 uppercase tracking-widest">
                             Storage zone/bin describe where the item sits (e.g., Fridge / Shelf A).
                           </p>
+                          {sanitizedLabelScanMessage && (
+                            <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-2">
+                              {sanitizedLabelScanMessage}
+                            </p>
+                          )}
                         </div>
                         <button
                           onClick={runLabelScan}
