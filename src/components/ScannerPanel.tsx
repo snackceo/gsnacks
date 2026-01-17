@@ -98,6 +98,8 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     return MODE_LABELS[mode] ?? String(mode);
   }, [mode]);
 
+  const canCapturePhoto = Boolean(onPhotoCaptured);
+
   useEffect(() => {
     onScanRef.current = onScan;
     onCloseRef.current = onClose;
@@ -472,14 +474,16 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
       <div className="mt-5 space-y-4">
         <div className="flex gap-2">
-          <button
-            onClick={takePhoto}
-            disabled={!isScanning || !onPhotoCaptured}
-            className="px-4 py-4 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={!onPhotoCaptured ? 'Photo capture not enabled for this mode' : 'Capture photo'}
-          >
-            <Camera className="w-4 h-4" /> Photo
-          </button>
+          {canCapturePhoto ? (
+            <button
+              onClick={takePhoto}
+              disabled={!isScanning}
+              className="px-4 py-4 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Capture photo"
+            >
+              <Camera className="w-4 h-4" /> Photo
+            </button>
+          ) : null}
 
           <button
             onClick={() => void toggleTorch()}
