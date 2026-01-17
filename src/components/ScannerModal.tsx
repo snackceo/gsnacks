@@ -65,7 +65,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
             onPhotoCaptured={onPhotoCaptured}
             closeOnScan={closeOnScan}
             manualStart={manualStart}
-            className={`relative w-full max-h-[55vh] ${bottomSheetContent ? 'rounded-b-none' : ''}`}
+            className={`relative w-full max-h-[42vh] ${bottomSheetContent ? 'rounded-b-none' : ''}`}
           />
         </div>
         <div className="flex-1" />
