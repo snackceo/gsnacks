@@ -68,6 +68,7 @@ import {
   getAvailableAuditModels,
   getOperationsSummary
 } from '../services/geminiService';
+import { useNinpoCore } from '../hooks/useNinpoCore';
 
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -260,6 +261,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   fetchReturnVerifications,
   settleReturnVerification
 }) => {
+  const { addToast } = useNinpoCore();
   const [activeModule, setActiveModule] = useState<string>('analytics');
   const [isAuditing, setIsAuditing] = useState(false);
   const [aiInsights, setAiInsights] = useState<string | null>(null);
@@ -297,6 +299,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [scannerModalOpen, setScannerModalOpen] = useState(false);
   const [scannerMode, setScannerMode] = useState<ScannerMode>(ScannerMode.INVENTORY_CREATE);
   const [scannedUpcForCreation, setScannedUpcForCreation] = useState<string>('');
+  const [lastBlockedUpc, setLastBlockedUpc] = useState<string | null>(null);
+  const [lastBlockedReason, setLastBlockedReason] = useState<'cooldown' | 'duplicate' | null>(null);
   const [unmappedUpcModalOpen, setUnmappedUpcModalOpen] = useState(false);
   const [unmappedUpcPayload, setUnmappedUpcPayload] = useState<UnmappedUpcData | null>(null);
 
@@ -1307,6 +1311,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   );
 
   const handleScannerScan = useCallback(async (upc: string) => {
+    setLastBlockedUpc(null);
+    setLastBlockedReason(null);
     if (scannerMode === ScannerMode.INVENTORY_CREATE) {
       // Normalize: digits only
       const normalized = String(upc).replace(/\D/g, '').trim();
@@ -3341,9 +3347,21 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         <ScanLine className="w-4 h-4" />
                         Scan
                       </button>
+                      {lastBlockedUpc && lastBlockedReason === 'duplicate' && (
+                        <button
+                          onClick={() => handleScannerScan(lastBlockedUpc)}
+                          className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-white/10"
+                        >
+                          Add anyway
+                        </button>
+                      )}
                       {scannerModalOpen && scannerMode === ScannerMode.INVENTORY_CREATE && (
                         <button
-                          onClick={() => setScannerModalOpen(false)}
+                          onClick={() => {
+                            setScannerModalOpen(false);
+                            setLastBlockedUpc(null);
+                            setLastBlockedReason(null);
+                          }}
                           className="px-4 py-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
                         >
                           <X className="w-4 h-4" />
@@ -4085,7 +4103,21 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       <ScannerModal
         mode={scannerMode}
         onScan={handleScannerScan}
-        onClose={() => setScannerModalOpen(false)}
+        onClose={() => {
+          setScannerModalOpen(false);
+          setLastBlockedUpc(null);
+          setLastBlockedReason(null);
+        }}
+        onCooldown={(upc, reason) => {
+          addToast('Same UPC — tap to add again', 'info');
+          if (reason === 'duplicate') {
+            setLastBlockedUpc(upc);
+            setLastBlockedReason(reason);
+          } else {
+            setLastBlockedUpc(null);
+            setLastBlockedReason(reason);
+          }
+        }}
         title={
           scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan Product' :
           scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC' :

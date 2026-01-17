@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Product, ReturnUpcCount, UserTier, ScannerMode } from '../types';
 import ScannerModal from './ScannerModal'; // adjust path if your ScannerModal lives elsewhere
+import { useNinpoCore } from '../hooks/useNinpoCore';
 
 interface CartItem {
   productId: string;
@@ -104,6 +105,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   onPayCredits,
   onPayExternal
 }) => {
+  const { addToast } = useNinpoCore();
   // ----------------------------
   // Container returns (Customer scanner)
   // ----------------------------
@@ -111,6 +113,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const [manualUpc, setManualUpc] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [lastBlockedUpc, setLastBlockedUpc] = useState<string | null>(null);
+  const [lastBlockedReason, setLastBlockedReason] = useState<'cooldown' | 'duplicate' | null>(null);
 
   const [hasEligibilityCache, setHasEligibilityCache] = useState(false);
   const [eligibilityCache, setEligibilityCache] = useState<UpcEligibilityCache>({});
@@ -251,6 +255,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
     setScannerError(null);
     setManualUpc('');
+    setLastBlockedUpc(null);
+    setLastBlockedReason(null);
   };
 
   const incrementUpc = (upc: string) => {
@@ -548,6 +554,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const closeScanner = () => {
     setScannerOpen(false);
+    setLastBlockedUpc(null);
+    setLastBlockedReason(null);
   };
 
   // Close scanner when drawer closes
@@ -555,6 +563,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     if (!isOpen) {
       setScannerOpen(false);
       setScannerError(null);
+      setLastBlockedUpc(null);
+      setLastBlockedReason(null);
     }
   }, [isOpen]);
 
@@ -692,6 +702,14 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                   >
                     <ScanLine className="w-4 h-4" /> Scan
                   </button>
+                  {lastBlockedUpc && lastBlockedReason === 'duplicate' && (
+                    <button
+                      onClick={() => addUpc(lastBlockedUpc, 'scanner')}
+                      className="px-4 py-3 rounded-2xl bg-white/10 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Add anyway
+                    </button>
+                  )}
 
                   <button
                     onClick={clearUpcs}
@@ -1090,6 +1108,16 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
         cooldownMs={900}
         beepEnabled={true}
         onClose={closeScanner}
+        onCooldown={(upc, reason) => {
+          addToast('Same UPC — tap to add again', 'info');
+          if (reason === 'duplicate') {
+            setLastBlockedUpc(upc);
+            setLastBlockedReason(reason);
+          } else {
+            setLastBlockedUpc(null);
+            setLastBlockedReason(reason);
+          }
+        }}
         onScan={(upc) => addUpc(upc, 'scanner')}
         // onPhotoCaptured can be wired to AI later; kept optional to avoid breaking checkout
       />

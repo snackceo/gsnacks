@@ -7,6 +7,7 @@ import ScannerPanel from './ScannerPanel';
 interface ScannerModalProps {
   mode?: ScannerMode;
   onScan: (upc: string) => void;
+  onCooldown?: (upc: string, reason: 'cooldown' | 'duplicate') => void;
   onClose: () => void;
   title: string;
   subtitle: string;
@@ -31,6 +32,7 @@ interface ScannerModalProps {
 const ScannerModal: React.FC<ScannerModalProps> = ({
   mode,
   onScan,
+  onCooldown,
   onClose,
   title,
   subtitle,
@@ -49,6 +51,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
       <ScannerPanel
         mode={mode}
         onScan={onScan}
+        onCooldown={onCooldown}
         onClose={onClose}
         showClose
         title={title}
