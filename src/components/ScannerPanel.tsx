@@ -423,7 +423,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     void startScanner();
   }, [blocked, manualStart, startScanner, stopScanner]);
 
-  const panelClassName = `bg-ninpo-black border border-white/10 rounded-[2.5rem] p-6 shadow-2xl ${className}`.trim();
+  const panelClassName = `bg-ninpo-black border border-white/10 rounded-[2.5rem] p-6 shadow-2xl flex flex-col h-full ${className}`.trim();
 
   return (
     <div className={panelClassName}>
@@ -445,7 +445,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         ) : null}
       </div>
 
-      <div className="mt-5 rounded-3xl overflow-hidden border border-white/10 bg-black/40 aspect-video flex items-center justify-center relative">
+      <div className="mt-5 flex-1 min-h-0 rounded-3xl overflow-hidden border border-white/10 bg-black/40 flex items-center justify-center relative">
         <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
 
         {!isScanning && (
