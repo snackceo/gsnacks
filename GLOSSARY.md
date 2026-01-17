@@ -203,8 +203,6 @@ id (as in various interfaces): Generally a unique identifier string. For example
 
 ineligible (ScanEventStatus): Indicates a scanned UPC was recognized but is not eligible for Michigan deposit (e.g., out-of-state container). Logged in scan events so the driver knows it won’t count for credit.
 
-inventoryMode (string state): In ManagementView, toggles between inventory management modes "A" and "B". Mode A = normal stock management; Mode B = audit (count without auto-updating stock). UI buttons allow switching Mode A/Mode B.
-
 inventory create scan (workflow): Inventory Mode A scanner flow for unmapped UPCs. The scanner captures a UPC, optionally captures a label photo for AI analysis, and then closes after the scan/photo to return the operator to the Create Product form.
 
 isAuditing (boolean state): Indicates an inventory audit is currently running (to disable repeated clicks and show a loader). Set true when runAudit is in progress.
@@ -399,9 +397,9 @@ ScannerModal (component): Reusable camera barcode scanner modal. Accepts props: 
 
 Scanner UX System (domain/system): The shared scanning experience across Management, Driver, and Customer flows, including ScannerModal behavior, cooldown rules, scan normalization, and OFF lookup integration.
 
-ScannerMode (enum/type): Defines the context for scanning. Modes include INVENTORY_CREATE (Mode A – add new product via scan), INVENTORY_AUDIT (Mode B – scan for inventory count without auto-add), UPC_LOOKUP (scan to populate UPC field in registry), DRIVER_VERIFY_CONTAINERS (Mode C – returns verification scan), and possibly a fulfillment mode for drivers (Mode D, scanning products for order packing, referenced as the else in DriverView scanner title “Pick/Pack Orders”). These modes determine the ScannerModal behavior (e.g., whether it can capture photos, what text it shows, and what the onScan does).
+ScannerMode (enum/type): Defines the context for scanning. Modes include INVENTORY_CREATE (Mode A – add new product via scan), UPC_LOOKUP (scan to populate UPC field in registry), DRIVER_VERIFY_CONTAINERS (Mode C – returns verification scan), and CUSTOMER_RETURN_SCAN (customer return scan list). These modes determine the ScannerModal behavior (e.g., whether it can capture photos, what text it shows, and what the onScan does).
 
-scanningModesEnabled (settings object): Feature toggles for enabling/disabling certain scanning modes in the UI. Properties for Mode A, B, C, D (as A: boolean, B: boolean, C: boolean, D: boolean). If a mode is disabled (false), the corresponding function (inventory creation, audit, driver verify, etc.) might be hidden or inactive. By default, likely A, B, C are true and D might be false (since Mode D is optional/experimental). Note: Not currently saved via settings endpoints (no backend handling in settings.js), so this may be a placeholder for future use.
+scanningModesEnabled (settings object): Feature toggles for enabling/disabling certain scanning modes in the UI. Properties include inventoryCreate, upcLookup, driverVerifyContainers, and customerReturnScan. If a mode is disabled (false), the corresponding function might be hidden or inactive. Note: Not currently saved via settings endpoints (no backend handling in settings.js), so this may be a placeholder for future use.
 
 setIsCartOpen, setIsLoginViewOpen, setScannerModalOpen etc. (functions): State setters for toggling UI. Examples: setIsCartOpen(true) opens the cart; setIsLoginViewOpen(false) closes the login modal after login; setScannerModalOpen(true) opens the scanner modal. These correspond to boolean state vars in App or ManagementView.
 
@@ -485,8 +483,8 @@ Approval Workflow: Owners must approve certain actions via the Auth Hub. For ins
 
 Scanner Modes & Settings Flags
 
-Scanner Modes (A, B, C, D): Four modes standardized across the app. Mode A (Inventory Create) allows scanning a product’s UPC to create or increment stock (auto-update inventory). Mode B (Inventory Audit) uses scanning to count inventory without auto-incrementing stock (for audit and reconciliation). Mode C (Driver Verify Returns) is used by drivers to scan returned containers for eligibility and count (with duplicate confirmation prompts). Mode D (Driver Fulfillment, optional) would be scanning products during order packing to verify the right items (not fully implemented, but planned as “validate items in order by UPC”).
-These modes are enabled/disabled via scanningModesEnabled flags in settings (A, B, C on by default; D can be toggled if supported). The unified ScannerModal component adapts its UI and callbacks based on the mode.
+Scanner Modes (A, C, D): Standardized scanner intents across the app. Mode A (Inventory Create) allows scanning a product’s UPC to create or increment stock (auto-update inventory). Mode C (Driver Verify Returns) is used by drivers to scan returned containers for eligibility and count (with duplicate confirmation prompts). Mode D (Driver Fulfillment, optional) would be scanning products during order packing to verify the right items (not fully implemented, but planned as “validate items in order by UPC”).
+These modes are enabled/disabled via scanningModesEnabled flags in settings (inventoryCreate, upcLookup, driverVerifyContainers, customerReturnScan). The unified ScannerModal component adapts its UI and callbacks based on the mode.
 
 AppSettings Flags: Several Boolean toggles control features:
 – maintenanceMode: if true, presumably puts the system in maintenance (e.g., prevent new orders). Could trigger a banner or block ordering (not explicitly shown in UI code but stored in settings).
@@ -517,10 +515,8 @@ App Level State: The main App component holds critical UI state:
 
 ManagementView State: The admin dashboard (ManagementView) manages many UI states:
 – activeModule (string): which section is active (analytics, orders, approvals, inventory, etc.). Controls conditional rendering of each module’s JSX.
-– inventoryMode (string 'A' or 'B'): toggles between Inventory Mode A and B within the inventory module. This, combined with activeModule, determines which inventory UI (creation vs audit) is shown.
 – Inventory A states: e.g., newProduct (object for the form when creating a product for unmapped UPC), upcDraft (draft info for a new UPC entry), isCreating (loading state for creating a product). These manage the form in “Product Creation” panel.
-– Inventory B states: likely include counters or logs for audit scans, but not explicitly shown. Possibly something like auditScanResults or reuse of scanner events.
-– scannerModalOpen (bool): controls the ScannerModal in management. True when scanning for either inventory mode or UPC lookup. Paired with scannerMode to specify context (INVENTORY_CREATE, INVENTORY_AUDIT, UPC_LOOKUP).
+– scannerModalOpen (bool): controls the ScannerModal in management. True when scanning for inventory creation or UPC lookup. Paired with scannerMode to specify context (INVENTORY_CREATE, UPC_LOOKUP).
 – scannerMode (ScannerMode or string): as above, holds which scanning mode is active.
 – selectedApproval (object | null): when an approval request (refund/adjustment) is selected in Auth Hub, this holds its details (to show in a panel with info like photoProof if any).
 – previewPhoto (string | null): used when an approval’s photoProof is clicked to enlarge/preview the image. Likely triggers a lightbox or new window. (We see setPreviewPhoto(selectedApproval.photoProof!) which implies a state to hold a photo for preview).
@@ -660,7 +656,7 @@ This domain covers everything about products, stock levels, and scanning for inv
 
 Product Catalog: Managed by owners through the Inventory module. Each Product has attributes like name, price, stock, etc.. Operators can create new products (via UnmappedUpcModal when a new UPC is scanned), edit details (not explicitly shown but presumably via a form), and delete products (AuditLogType PRODUCT_DELETED exists). Products have SKU codes which should be used consistently as external references.
 
-Stock Management: Mode A scanning automates stock updates. Scanning a known UPC in Inventory Mode A could instantly increment the stock of that product (the design suggests /api/upc/scan is called to update stock). The code enforces not exceeding available stock when adding to cart on the customer side – this means stock is tracked in real time. Mode B (Audit) allows scanning items without updating stock, instead logging counts for later reconciliation. Possibly, after an audit, a report or automatic stock adjustment might occur (maybe via the Run Audit button which could use AI to suggest adjustments).
+Stock Management: Mode A scanning automates stock updates. Scanning a known UPC in Inventory Mode A could instantly increment the stock of that product (the design suggests /api/upc/scan is called to update stock). The code enforces not exceeding available stock when adding to cart on the customer side – this means stock is tracked in real time. Inventory audit reports (Run Audit) are analytics-driven and do not rely on a dedicated scan mode.
 
 UPC Registry (Whitelist): The system has a master list of UPCs (UpcItem) indicating if a barcode is known and eligible. Inventory domain includes maintaining this list: adding new UPC entries, marking eligibility. For example, when the operator buys a new product not in system, they would scan it in UPC Lookup mode, then either attach to an existing product or create a new one. The UnmappedUpcModal is central to this flow – it ensures no UPC goes unaccounted.
 Having a separate UPC registry decouples product from barcode, allowing multiple barcodes per product or barcodes that aren’t yet linked to a product (like a bottle that is eligible for return but the product isn’t sold by the store).
@@ -673,7 +669,7 @@ Data Model relations: Product data is used in orders (line items reference produ
 
 Deprecated/Legacy: The term “inventory receiving” might have been used (i.e., scanning incoming stock shipments) – Mode A essentially covers that. In code, they consistently call it Inventory Management Mode A. There's mention of avoiding it feeling like an “endless page” on mobile – implying the UI is segmented for usability.
 
-In summary, Inventory domain terms ensure clear communication around products and stock. For example, understanding Mode A vs Mode B scanning prevents confusion when training staff or debugging scanning issues. Also, the concept of a UPC registry (whitelist) is crucial for the bottle return system to know what is eligible; by documenting isEligible, developers avoid misusing it (it specifically means Michigan-deposit-eligible container, not just any product eligibility).
+In summary, Inventory domain terms ensure clear communication around products and stock. For example, understanding Mode A scanning prevents confusion when training staff or debugging scanning issues. Also, the concept of a UPC registry (whitelist) is crucial for the bottle return system to know what is eligible; by documenting isEligible, developers avoid misusing it (it specifically means Michigan-deposit-eligible container, not just any product eligibility).
 
 Orders Domain (Order Processing & Fulfillment)
 

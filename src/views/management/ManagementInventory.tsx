@@ -4,16 +4,6 @@ import { Product, UpcItem } from '../../types';
 interface ManagementInventoryProps {
   products: Product[];
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
-  inventoryMode: 'A' | 'B';
-  setInventoryMode: (mode: 'A' | 'B') => void;
-  selectedLocation: string;
-  setSelectedLocation: (location: string) => void;
-  auditId: string;
-  auditCounts: Record<string, number>;
-  auditUpcInput: string;
-  setAuditUpcInput: (input: string) => void;
-  auditError: string | null;
-  handleAuditScan: (upc: string, qty?: number) => void;
   scannerMode: any;
   setScannerMode: (mode: any) => void;
   scannerModalOpen: boolean;
@@ -43,47 +33,7 @@ interface ManagementInventoryProps {
   apiUpdateProduct: () => void;
 }
 
-const ManagementInventory: React.FC<ManagementInventoryProps> = ({
-  products,
-  setProducts,
-  inventoryMode,
-  setInventoryMode,
-  selectedLocation,
-  setSelectedLocation,
-  auditId,
-  auditCounts,
-  auditUpcInput,
-  setAuditUpcInput,
-  auditError,
-  handleAuditScan,
-  scannerMode,
-  setScannerMode,
-  scannerModalOpen,
-  setScannerModalOpen,
-  scannedUpcForCreation,
-  setScannedUpcForCreation,
-  upcDraft,
-  setUpcDraft,
-  newProduct,
-  setNewProduct,
-  createError,
-  setCreateError,
-  isCreating,
-  setIsCreating,
-  apiCreateProduct,
-  startEditProduct,
-  apiRestockPlus10,
-  apiDeleteProduct,
-  editingProduct,
-  setEditingProduct,
-  editDraft,
-  setEditDraft,
-  editError,
-  setEditError,
-  isSavingEdit,
-  setIsSavingEdit,
-  apiUpdateProduct
-}) => {
+const ManagementInventory: React.FC<ManagementInventoryProps> = () => {
   return (
     <div className="space-y-6">
       {/* ...existing inventory JSX from ManagementView.tsx... */}

@@ -87,7 +87,6 @@ const defaultSettings: AppSettings = {
   // renamed: replaces legacy A/B/C/D
   scanningModesEnabled: {
     inventoryCreate: true,
-    inventoryAudit: true,
     upcLookup: true,
     driverVerifyContainers: true,
     customerReturnScan: true
@@ -180,14 +179,13 @@ const normalizeOrders = (rawOrders: any[]) => {
  * Legacy mapping:
  * old: scanningModesEnabled = { A,B,C,D }
  * new: scanningModesEnabled = {
- *   inventoryCreate, inventoryAudit, upcLookup, driverVerifyContainers, customerReturnScan
+ *   inventoryCreate, upcLookup, driverVerifyContainers, customerReturnScan
  * }
  *
  * Mapping choice (deterministic):
  *   A -> inventoryCreate
  *   B -> upcLookup
  *   C -> driverVerifyContainers
- *   D -> inventoryAudit
  *
  * customerReturnScan defaults true unless explicitly present in new schema
  */
@@ -199,7 +197,6 @@ const normalizeScanningModes = (raw: any) => {
   // If it already has the new keys, respect them.
   const hasNewKeys =
     'inventoryCreate' in raw ||
-    'inventoryAudit' in raw ||
     'upcLookup' in raw ||
     'driverVerifyContainers' in raw ||
     'customerReturnScan' in raw;
@@ -207,7 +204,6 @@ const normalizeScanningModes = (raw: any) => {
   if (hasNewKeys) {
     return {
       inventoryCreate: coerceBool(raw.inventoryCreate, fallback.inventoryCreate),
-      inventoryAudit: coerceBool(raw.inventoryAudit, fallback.inventoryAudit),
       upcLookup: coerceBool(raw.upcLookup, fallback.upcLookup),
       driverVerifyContainers: coerceBool(
         raw.driverVerifyContainers,
@@ -222,7 +218,6 @@ const normalizeScanningModes = (raw: any) => {
     inventoryCreate: coerceBool(raw.A, fallback.inventoryCreate),
     upcLookup: coerceBool(raw.B, fallback.upcLookup),
     driverVerifyContainers: coerceBool(raw.C, fallback.driverVerifyContainers),
-    inventoryAudit: coerceBool(raw.D, fallback.inventoryAudit),
 
     // legacy didn’t have this; default it on
     customerReturnScan: fallback.customerReturnScan

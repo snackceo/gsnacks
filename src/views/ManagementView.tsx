@@ -308,12 +308,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [auditModelsError, setAuditModelsError] = useState<string | null>(null);
   const [opsSummary, setOpsSummary] = useState('');
   const [isOpsSummaryLoading, setIsOpsSummaryLoading] = useState(false);
-  const [inventoryMode, setInventoryMode] = useState<'A' | 'B'>('A');
-  const [selectedLocation, setSelectedLocation] = useState<string>('');
-  const [auditId, setAuditId] = useState<string>('current-audit');
-  const [auditCounts, setAuditCounts] = useState<Record<string, number>>({});
-  const [auditUpcInput, setAuditUpcInput] = useState('');
-  const [auditError, setAuditError] = useState<string | null>(null);
   const [scannerModalOpen, setScannerModalOpen] = useState(false);
   const [scannerMode, setScannerMode] = useState<ScannerMode>(ScannerMode.INVENTORY_CREATE);
   const [scannedUpcForCreation, setScannedUpcForCreation] = useState<string>('');
@@ -1151,45 +1145,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
-  // Load audit counts when location changes
-  useEffect(() => {
-    if (selectedLocation && auditId) {
-      fetch(`${BACKEND_URL}/api/inventory-audit?auditId=${auditId}&location=${selectedLocation}`, {
-        credentials: 'include'
-      })
-        .then(res => res.json())
-        .then(data => setAuditCounts(data.counts || {}))
-        .catch(() => setAuditCounts({}));
-    } else {
-      setAuditCounts({});
-    }
-  }, [selectedLocation, auditId]);
-
-  const handleAuditScan = async (upc: string, qty = 1) => {
-    const data = await apiScanUpc(upc, qty, true); 
-
-    if (data && data.product) {
-      const product = data.product;
-      const newCount = (auditCounts[product.id] || 0) + qty;
-      setAuditCounts(prev => ({ ...prev, [product.id]: newCount }));
-      // Save to backend
-      try {
-        await fetch(`${BACKEND_URL}/api/inventory-audit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ auditId, location: selectedLocation, productId: product.id, countedQuantity: newCount })
-        });
-      } catch (err) {
-        console.error('Failed to save audit count');
-      }
-      setAuditUpcInput('');
-      setAuditError(null);
-    } else {
-      setAuditError('Product not found for UPC');
-    }
-  };
-
   const shouldFillText = (current: string, next?: string) => {
     const trimmed = current.trim();
     if (trimmed) return current;
@@ -1930,16 +1885,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           <ManagementInventory
             products={products}
             setProducts={setProducts}
-            inventoryMode={inventoryMode}
-            setInventoryMode={setInventoryMode}
-            selectedLocation={selectedLocation}
-            setSelectedLocation={setSelectedLocation}
-            auditId={auditId}
-            auditCounts={auditCounts}
-            auditUpcInput={auditUpcInput}
-            setAuditUpcInput={setAuditUpcInput}
-            auditError={auditError}
-            handleAuditScan={handleAuditScan}
             scannerMode={scannerMode}
             setScannerMode={setScannerMode}
             scannerModalOpen={scannerModalOpen}
@@ -3338,27 +3283,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         ========================= */}
         {activeModule === 'inventory' && (
           <div className="space-y-6">
-            <div className="flex gap-4">
-              <button
-                onClick={() => setInventoryMode('A')}
-                className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
-                  inventoryMode === 'A' ? 'bg-ninpo-lime text-ninpo-black' : 'bg-white/5 text-white'
-                }`}
-              >
-                Mode A (Management)
-              </button>
-              <button
-                onClick={() => setInventoryMode('B')}
-                className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
-                  inventoryMode === 'B' ? 'bg-ninpo-lime text-ninpo-black' : 'bg-white/5 text-white'
-                }`}
-              >
-                Mode B (Audit)
-              </button>
-            </div>
-
-            {inventoryMode === 'A' && (
-              <>
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <h2 className="text-xl font-black uppercase text-white tracking-widest">
                     Inventory Management
@@ -3787,84 +3711,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     </div>
                   ))}
                 </div>
-              </>
-            )}
 
-            {inventoryMode === 'B' && (
-              <div className="space-y-6">
-                <h2 className="text-xl font-black uppercase text-white tracking-widest">
-                  Inventory Count/Audit
-                </h2>
-
-                <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
-                  <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                    <span>Select Location</span>
-                    <select
-                      value={selectedLocation}
-                      onChange={e => setSelectedLocation(e.target.value)}
-                      className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                    >
-                      <option value="">Select Location</option>
-                      {[...new Set(products.map(p => p.storageZone).filter(Boolean))].map(zone => (
-                        <option key={zone} value={zone}>{zone}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  {selectedLocation && (
-                    <>
-                      <div className="flex flex-col md:flex-row gap-4">
-                        <input
-                          className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white flex-1"
-                          placeholder="Scan or enter UPC"
-                          value={auditUpcInput}
-                          onChange={e => setAuditUpcInput(e.target.value)}
-                        />
-                        <button
-                          onClick={() => {
-                            setScannerMode(ScannerMode.INVENTORY_AUDIT);
-                            setScannerModalOpen(true);
-                          }}
-                          className="px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
-                        >
-                          <ScanLine className="w-4 h-4" /> Scan
-                        </button>
-                        <button
-                          onClick={() => handleAuditScan(auditUpcInput.trim(), 1)}
-                          className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
-                        >
-                          Count Item
-                        </button>
-                      </div>
-
-                      {auditError && (
-                        <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
-                          {auditError}
-                        </div>
-                      )}
-
-                      <div className="space-y-4">
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                          Counted Items at {selectedLocation}
-                        </h3>
-                        {Object.entries(auditCounts).map(([productId, count]) => {
-                          const product = products.find(p => p.id === productId);
-                          return (
-                            <div key={productId} className="bg-black/30 rounded-2xl p-4 border border-white/5 flex justify-between">
-                              <span className="text-white font-semibold">{product?.name || 'Unknown'}</span>
-                              <span className="text-slate-400">Count: {count}</span>
-                            </div>
-                          );
-                        })}
-                        {Object.keys(auditCounts).length === 0 && (
-                          <p className="text-slate-500 text-[10px] uppercase tracking-widest">No items counted yet.</p>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
 
           </div>
         )}
@@ -4189,13 +4036,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         title={
           scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan Product' :
           scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC' :
-          scannerMode === ScannerMode.INVENTORY_AUDIT ? 'Count Item' :
           'Scan'
         }
         subtitle={
           scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan UPC to auto-fill product details' :
           scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC to lookup or edit registry entry' :
-          scannerMode === ScannerMode.INVENTORY_AUDIT ? 'Scan UPC to count inventory' :
           'Scan barcode'
         }
         beepEnabled={settings.beepEnabled ?? true}

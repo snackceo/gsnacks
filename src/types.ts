@@ -37,8 +37,6 @@ export enum OrderStatus {
 export enum ScannerMode {
   // Admin (inventory)
   INVENTORY_CREATE = 'INVENTORY_CREATE',
-  INVENTORY_AUDIT = 'INVENTORY_AUDIT',
-
   // Admin (UPC registry)
   UPC_LOOKUP = 'UPC_LOOKUP',
 
@@ -226,7 +224,6 @@ export interface AppSettings {
    */
   scanningModesEnabled: {
     inventoryCreate: boolean;
-    inventoryAudit: boolean;
     upcLookup: boolean;
     driverVerifyContainers: boolean;
     customerReturnScan: boolean;
