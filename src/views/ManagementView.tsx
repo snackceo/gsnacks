@@ -1299,25 +1299,35 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
   const handleScannerScan = useCallback(async (upc: string) => {
     setLastBlockedUpc(null);
+    setLastBlockedUpc(null);
     setLastBlockedReason(null);
     if (scannerMode === ScannerMode.INVENTORY_CREATE) {
       // Normalize: digits only
       const normalized = String(upc).replace(/\D/g, '').trim();
       if (!normalized) return;
 
-      // Set authoritative creation UPC
+      // Set authoritative creation UPC and override all auto-fill fields/messages
       setScannedUpcForCreation(normalized);
       upcLastScannedRef.current = normalized;
       setOffLookupStatus('idle');
       setOffLookupMessage('');
-
-      // Keep existing fields in sync for registry/inventory UI
+      setOffLookupIngredients('');
+      setOffLookupNutriments(null);
+      setNewProduct({ ...DEFAULT_NEW_PRODUCT });
+      setUpcDraft({
+        upc: normalized,
+        name: '',
+        depositValue: 0.1,
+        price: 0,
+        containerType: 'plastic',
+        sizeOz: 0,
+        sizeUnit: 'oz',
+        isEligible: true
+      });
       setUpcInput(normalized);
-      setUpcDraft(prev => ({ ...prev, upc: normalized }));
 
       // Photo is captured manually via button
-      void fetchOffLookup(normalized);
-
+      /*...existing code...*/
       try {
         const scanRes = await fetch(`${BACKEND_URL}/api/upc/scan`, {
           method: 'POST',
