@@ -267,6 +267,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [opsSummary, setOpsSummary] = useState('');
   const [isOpsSummaryLoading, setIsOpsSummaryLoading] = useState(false);
   const [inventoryMode, setInventoryMode] = useState<'A' | 'B'>('A');
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<string>('');
   const [auditId, setAuditId] = useState<string>('current-audit');
   const [auditCounts, setAuditCounts] = useState<Record<string, number>>({});
@@ -3472,16 +3473,42 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 </h2>
 
                 <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
-                  <InlineScanner
-                    mode={ScannerMode.INVENTORY_CREATE}
-                    onScan={handleScannerScan}
-                    title="Guided Product Intake"
-                    subtitle="Scan UPCs and capture label photos in the scanner so AI can prefill details for verification."
-                    beepEnabled={settings.beepEnabled ?? true}
-                    cooldownMs={settings.cooldownMs ?? 1000}
-                    onPhotoCaptured={handlePhotoCaptured}
-                    className="bg-black/30 border-white/10"
-                  />
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                      Scanner controls
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setIsScannerOpen(true)}
+                        className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-neon"
+                      >
+                        <ScanLine className="w-4 h-4" />
+                        Scan
+                      </button>
+                      {isScannerOpen && (
+                        <button
+                          onClick={() => setIsScannerOpen(false)}
+                          className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                        >
+                          <X className="w-4 h-4" />
+                          Close
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {isScannerOpen && (
+                    <InlineScanner
+                      mode={ScannerMode.INVENTORY_CREATE}
+                      onScan={handleScannerScan}
+                      title="Guided Product Intake"
+                      subtitle="Scan UPCs and capture label photos in the scanner so AI can prefill details for verification."
+                      beepEnabled={settings.beepEnabled ?? true}
+                      cooldownMs={settings.cooldownMs ?? 1000}
+                      onPhotoCaptured={handlePhotoCaptured}
+                      className="bg-black/30 border-white/10"
+                    />
+                  )}
 
                   <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
                     Scanned UPC: <span className="text-white">{scannedUpcForCreation || 'No UPC scanned'}</span>
