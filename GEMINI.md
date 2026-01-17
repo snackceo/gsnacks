@@ -108,6 +108,7 @@ Result panel requirement:
 
 * The **Create Product form** is the required result panel after scans that lead to product creation.
 * Preview cards are **not** used; all edits happen directly in the form.
+* In Inventory Mode A, the result panel is a bottom sheet that stays open while the camera remains active.
 
 ### 3.2 Scanner Modes
 
@@ -172,10 +173,11 @@ Automatic creation without operator intent is forbidden.
   * `POST /api/upc/scan`
 * Behavior:
 
-  * mapped UPC → increment Product.stock
-  * unmapped UPC → return `action: unmapped`
+* mapped UPC → increment Product.stock
+* unmapped UPC → return `action: unmapped`
 * Inventory scanning keeps the scanner open after a UPC scan.
 * Inventory scanning closes the scanner only after photo capture completes.
+* The post-scan bottom sheet Create Product form is the single result panel during continuous scanning.
 
 ### 5.2 Inventory Audits
 
