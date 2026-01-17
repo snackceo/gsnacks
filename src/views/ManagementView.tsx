@@ -1313,7 +1313,18 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setOffLookupMessage('');
       setOffLookupIngredients('');
       setOffLookupNutriments(null);
-      setUpcDraft(prev => ({ ...prev, upc: normalized }));
+      // Clear only auto-fill fields before new lookup
+      setUpcDraft(prev => ({
+        ...prev,
+        upc: normalized,
+        name: '',
+        price: 0,
+        depositValue: 0.1,
+        containerType: 'plastic',
+        sizeOz: 0,
+        sizeUnit: 'oz',
+        isEligible: true
+      }));
       setUpcInput(normalized);
 
       // Trigger auto-fill from OFF lookup
