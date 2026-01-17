@@ -86,6 +86,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
   const [isScanning, setIsScanning] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [scannerHint, setScannerHint] = useState<string | null>(null);
   const [blocked, setBlocked] = useState(false);
   const [manualUpc, setManualUpc] = useState('');
   const [lastDetectedUpc, setLastDetectedUpc] = useState<string | null>(null);
@@ -250,6 +251,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     cancelledRef.current = false;
     setBlocked(false);
     setScannerError(null);
+    setScannerHint(null);
 
     if (typeof window === 'undefined') {
       setScannerError('Scanner unavailable.');
@@ -288,7 +290,17 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+        try {
+          await videoRef.current.play();
+        } catch {
+          setScannerError('Camera failed to start. Tap Retry.');
+          setScannerHint('On mobile Chrome, tap once to grant permission or retry after allowing camera access.');
+          setIsScanning(false);
+          stream.getTracks().forEach(t => t.stop());
+          streamRef.current = null;
+          videoTrackRef.current = null;
+          return;
+        }
       }
 
       setIsScanning(true);
@@ -393,6 +405,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
       void stopScanner();
       if (manualStart) {
         setScannerError(null);
+        setScannerHint(null);
       }
       setIsScanning(false);
       return;
@@ -443,6 +456,9 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
                 Enable camera permissions, then retry.
               </p>
+            )}
+            {scannerHint && (
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{scannerHint}</p>
             )}
           </div>
         )}
