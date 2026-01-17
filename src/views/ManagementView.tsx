@@ -3406,11 +3406,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         Lookup OFF
                       </button>
                       <button
-                        onClick={() => {
-                          setScannedUpcForCreation('');
-                          setOffLookupMessage('');
-                          setOffLookupStatus('idle');
-                        }}
+                        onClick={() => handleManualUpcChange('')}
                         className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
                       >
                         <ScanLine className="w-4 h-4" />
