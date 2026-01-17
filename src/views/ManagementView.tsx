@@ -4134,7 +4134,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         cooldownMs={settings.cooldownMs ?? 1000}
         isOpen={scannerModalOpen}
         closeOnScan={false}
-        manualStart={scannerMode === ScannerMode.INVENTORY_CREATE}
       />
       </div>
     </div>
