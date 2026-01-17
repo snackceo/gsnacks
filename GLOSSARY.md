@@ -79,6 +79,8 @@ Band Application Rule (policy): Distance Fee bands are applied based on absolute
 
 beepEnabled (boolean flag): If true, the scanner emits a beep sound on each successful scan. Configurable in settings (defaults to true). Passed into ScannerModal and can be toggled via settings.beepEnabled. (Note: Not stored in AppSettings by default – may be a front-end only toggle.)
 
+Bottle Return Service (domain/system): The end-to-end Michigan 10¢ deposit return offering, covering return intake, eligibility checks, verification, and settlement. This is the canonical name for returns operations.
+
 CartDrawer (component): Slide-out cart panel for reviewing order items. Props include isOpen, cart (array of items), products, address, acceptedPolicies, isProcessing (loading indicator for checkout), currentUserId, membershipTier, and various handlers. Allows users to edit cart, enter address, accept policies, and choose payment (via onPayCredits or onPayExternal).
 
 cashHandlingFee (fee concept): A $0.02 per-container fee applied only for Cash Settlement of bottle returns. Not charged for credit settlements. This fee is added on cash-out to cover handling costs.
@@ -105,11 +107,15 @@ creditBalance (number field): In User, the wallet credit balance (in dollars) av
 
 Credit Settlement (returns mode): Settlement of bottle returns as store credit (default behavior). In this mode, the total deposit value is added to the user’s creditBalance (no fees deducted) and can offset future purchases.
 
+Credit Ledger System (domain/system): The credit balance and ledger domain that tracks creditBalance and LedgerEntry records for customer credits and adjustments.
+
 CREDIT_ADJUSTMENT (ApprovalType): Type of admin approval request representing a manual credit balance change for a user. For example, giving a goodwill credit or correcting a balance requires owner approval.
 
 CUSTOMER (UserRole): Regular end-user role with no special privileges. Customers can browse products, place orders, and initiate returns, but cannot access management or driver views.
 
 CustomerView (component/view): Front-end view for customers (the main shop interface). Displays products and the user’s own orders. Props include products, orders, currentUser, and handlers like openLogin (to prompt login), addToCart, onRedeemPoints etc..
+
+User & Role System (domain/system): The domain governing user identities, roles (CUSTOMER/DRIVER/OWNER), and view access (CustomerView, DriverView, ManagementView).
 
 data (prefix): In context of code, often refers to variables holding fetched data (e.g., data from res.json()). In this glossary, Data Models refer to structured objects like User, Order, Product, etc., as defined in code.
 
@@ -293,6 +299,10 @@ one unified vocabulary (documentation rule): Requirement that code, UI, and docs
 
 onScan (prop): Core callback in ScannerModal triggered when a barcode is scanned and passes all cooldown/validation checks. Provided by parent component (e.g., handleScannerScan in ManagementView or DriverView) to handle the scanned UPC.
 
+Open Food Facts (OFF): External product data source used to look up product metadata by barcode. The system calls OFF through a backend proxy endpoint for barcode lookups.
+
+OFF lookup (workflow): Management-side product lookup flow that calls the OFF API via /api/upc/off/:code, maps the response, and pre-fills Create Product fields. Results are advisory and must remain editable before saving.
+
 onSuccess (prop): Handler called upon successful login in LoginView. In App, this is defined to restore the session (call core.restoreSession() to load user data) and fetch orders, then close the login modal.
 
 onPhotoCaptured (prop): Callback provided to ScannerModal to handle an image capture from the camera. Only used in modes where a photo is needed (e.g., INVENTORY_CREATE mode for AI image analysis). When set, the scanner’s “capture photo” button becomes active and invokes this with a JPEG data URL and MIME type.
@@ -307,6 +317,8 @@ Order (data model/interface): Represents a customer order. Key fields include id
 
 OrderStatus (enum): Possible states of an order’s lifecycle. Values: PENDING (awaiting authorization), AUTHORIZED (payment authorized, not captured), PAID (payment captured, ready for processing), ASSIGNED (driver assigned), PICKED_UP (items picked up by driver), ARRIVING (driver en route to customer), DELIVERED (completed delivery/return), REFUND_REQUESTED (customer requested a refund), REFUNDED (order refunded), CLOSED (order closed/finalized). The app transitions orders through these statuses accordingly.
 
+Order & Logistics Fee System (domain/system): The domain covering Order status, Route Fee, Distance Fee, pickup-only multiplier, and related logistics calculations.
+
 OWNER (UserRole): Role for the business owner or operator. Has full admin privileges. Only Owners can access the ManagementView (admin dashboard) and perform actions like adjusting settings, viewing all users, etc. The backend restricts many routes to owner only (via ownerRequired middleware).
 
 ownerRequired (middleware/guard): Backend check that allows access only if the logged-in user’s username is in the configured owner list. It effectively restricts certain API routes to Owner role. The list of owner usernames is set via env (OWNER_USERNAMES or OWNER_USERNAME). If a user has role OWNER but isn’t on the list, this guard denies access (ensures only specific accounts can act as owner in production).
@@ -318,6 +330,8 @@ PaymentCancel (component): A simple view shown when a payment is canceled (route
 PaymentSuccess (component): View shown when payment succeeds (route /success). Receives clearCart prop to empty the cart after successful checkout. Likely thanks the user and possibly triggers any follow-up actions (like maybe showing receipt info).
 
 PaymentMethod (type/enum): Accepted payment methods for orders. Defined as union of 'STRIPE_CARD', 'GOOGLE_PAY', 'CREDITS'. Indicates how the order was or will be paid. This is stored on Order (paymentMethod field).
+
+Payments (Stripe) System (domain/system): The payment domain covering Stripe Checkout/authorization/capture, external payment sessions, and payment method handling.
 
 Payment Rail (concept): The mechanism used to collect payment for any remaining balance (e.g., Stripe for card payments). Distinct from settlement mode.
 
@@ -338,6 +352,8 @@ PLUS (icon): UI icon for adding items. E.g., used on “Add” buttons or the �
 Point Eligible Tiers: Tiers that earn loyalty points on purchases. Defined by POINT_ELIGIBLE_TIERS = {COMMON, BRONZE, SILVER, GOLD} – notably Platinum is excluded (likely because Platinum might get other perks instead of points). Purchases by eligible tier users convert spending into points at a rate defined in POINT_EARNING_RATES.
 
 Point Earning Rates: Multipliers for loyalty points per tier. In code: COMMON/BRONZE = 1.0×, SILVER = 1.2×, GOLD = 1.5×. E.g., a Gold member earns 1.5 points per $1 of product spend. These rates are used in backend when awarding loyaltyPoints on order completion.
+
+Loyalty Points System (domain/system): The loyalty points domain that governs loyaltyPoints accumulation, point-earning tiers, and redemption hooks.
 
 Product (data model/interface): Represents an item in the inventory. Fields: id, sku (human-friendly ID), upc (barcode, possibly multiple per product via mapping), name, price, deposit (the container deposit value, typically 0.10 if eligible), stock (quantity in stock), sizeOz, sizeUnit (unit label such as oz, g, ml), category, image (URL), optional brand, productType, nutritionNote (customer-facing nutrition info), storageZone, storageBin, and isGlass (boolean if container is glass). Products are managed in the Inventory module; sku is shown as the primary identifier in admin UI.
 
@@ -380,6 +396,8 @@ runLabelScan (function): Initiates an AI analysis of a manually captured product
 runOpsSummary (function): Likely triggers an operations summary generation (perhaps a PDF or data export for operations). Bound to “Ops Summary” button in Analytics. Not much detail, but it’s disabled when orders list is empty or already loading.
 
 ScannerModal (component): Reusable camera barcode scanner modal. Accepts props: mode (ScannerMode), onScan callback, onClose, title, subtitle, optional beepEnabled, cooldownMs, isOpen, and onPhotoCaptured for modes requiring image. Uses device camera to detect barcodes (EAN-13/8, UPC-A/E) and returns sanitized UPC codes. Implements a scan cooldown (default ~1200ms) to prevent duplicate rapid scans.
+
+Scanner UX System (domain/system): The shared scanning experience across Management, Driver, and Customer flows, including ScannerModal behavior, cooldown rules, scan normalization, and OFF lookup integration.
 
 ScannerMode (enum/type): Defines the context for scanning. Modes include INVENTORY_CREATE (Mode A – add new product via scan), INVENTORY_AUDIT (Mode B – scan for inventory count without auto-add), UPC_LOOKUP (scan to populate UPC field in registry), DRIVER_VERIFY_CONTAINERS (Mode C – returns verification scan), and possibly a fulfillment mode for drivers (Mode D, scanning products for order packing, referenced as the else in DriverView scanner title “Pick/Pack Orders”). These modes determine the ScannerModal behavior (e.g., whether it can capture photos, what text it shows, and what the onScan does).
 
@@ -426,6 +444,8 @@ upc (barcode): A universal product code string. The system uses UPCs to identify
 UpcContainerType (type/enum): Type of material for a container, relevant to recycling: 'aluminum' | 'glass' | 'plastic'. Each UPC in the registry is tagged with one of these. Glass is notable because of the extra surcharge on cash payouts.
 
 UpcItem (data model): Database model for known UPC codes. Fields: upc (code), name (if known product name), depositValue (should be 0.10 if eligible), price (if linked to product price), containerType (aluminum/glass/plastic), sizeOz, sizeUnit (unit label such as oz, g, ml), isEligible (boolean if this UPC qualifies for deposit return). Populated via the UPC Registry module; used when scanning to determine eligibility and for creating product entries.
+
+UpcLookupCache (data model): Cache for Open Food Facts lookups keyed by barcode. Stores the normalized OFF payload with a fetchedAt timestamp to reduce external requests.
 
 UPC Lookup (scanner mode): The use of scanner to populate UPC field in the UPC Registry (Management Mode for whitelist). In code, ScannerMode.UPC_LOOKUP triggers a simple scan that just fills an input, without modifying stock. Title shown as “Scan UPC” in ScannerModal.
 
