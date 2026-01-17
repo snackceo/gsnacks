@@ -73,6 +73,80 @@ const stripBase64ImagePrefix = value =>
     ? value.replace(/^data:image\/[a-z0-9+.-]+;base64,/i, '')
     : value;
 
+const getSearchApiConfig = () => {
+  const apiKey =
+    process.env.GOOGLE_CUSTOM_SEARCH_API_KEY || process.env.GOOGLE_API_KEY || '';
+  const engineId = process.env.GOOGLE_CUSTOM_SEARCH_ENGINE_ID || '';
+
+  if (!apiKey || !engineId) {
+    return {
+      ok: false,
+      error:
+        'Search API key or engine ID not configured. Set GOOGLE_CUSTOM_SEARCH_API_KEY and GOOGLE_CUSTOM_SEARCH_ENGINE_ID.'
+    };
+  }
+
+  return { ok: true, apiKey, engineId };
+};
+
+const normalizeUpc = value =>
+  typeof value === 'string' || typeof value === 'number'
+    ? String(value).replace(/\D/g, '')
+    : '';
+
+const buildSearchQueries = ({ upc, brand, name }) => {
+  const normalizedBrand = typeof brand === 'string' ? brand.trim() : '';
+  const normalizedName = typeof name === 'string' ? name.trim() : '';
+  const label = [normalizedBrand, normalizedName].filter(Boolean).join(' ').trim();
+
+  const queries = [
+    upc ? `UPC ${upc}` : '',
+    label ? `${label} size fl oz` : '',
+    label ? label : ''
+  ].filter(Boolean);
+
+  return Array.from(new Set(queries));
+};
+
+const fetchSearchResults = async (query, apiKey, engineId) => {
+  const url = new URL('https://www.googleapis.com/customsearch/v1');
+  url.searchParams.set('key', apiKey);
+  url.searchParams.set('cx', engineId);
+  url.searchParams.set('q', query);
+  url.searchParams.set('num', '5');
+
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(
+      `Search API request failed (${response.status}): ${detail || 'unknown error'}`
+    );
+  }
+
+  const data = await response.json();
+  const items = Array.isArray(data?.items) ? data.items : [];
+
+  return items.map(item => ({
+    title: String(item?.title || ''),
+    snippet: String(item?.snippet || ''),
+    link: String(item?.link || '')
+  }));
+};
+
+const buildSearchSummary = items => {
+  const lines = items
+    .filter(item => item.title || item.snippet)
+    .slice(0, 8)
+    .map(
+      (item, index) =>
+        `${index + 1}. ${item.title}${item.snippet ? ` — ${item.snippet}` : ''}${
+          item.link ? ` (${item.link})` : ''
+        }`
+    );
+
+  return lines.join('\n');
+};
+
 router.get('/health', (req, res) => {
   const apiKey = getGeminiApiKey();
   return res.json({ configured: Boolean(apiKey) });
@@ -357,6 +431,171 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
       containerType: '',
       isEligible: false,
       message: 'Product scan failed.',
+      error: error?.message || 'Unknown error',
+      model: modelSelection.modelName
+    });
+  }
+});
+
+router.post('/product-lookup', async (req, res) => {
+  const { upc, brand, name, model } = req.body ?? {};
+  const normalizedUpc = normalizeUpc(upc);
+
+  if (!normalizedUpc) {
+    return res.status(400).json({ message: 'UPC is required.' });
+  }
+
+  const searchConfig = getSearchApiConfig();
+  if (!searchConfig.ok) {
+    return res.status(503).json({ message: searchConfig.error });
+  }
+
+  const apiReady = ensureGeminiReady();
+  if (!apiReady.ok) {
+    return res.status(503).json({ message: apiReady.error });
+  }
+
+  const modelSelection = resolveModelName(model);
+  if (!modelSelection.ok) {
+    return res.status(400).json({
+      message: modelSelection.error,
+      allowedModels: modelSelection.allowedModels,
+      defaultModel: modelSelection.defaultModel
+    });
+  }
+
+  const queries = buildSearchQueries({
+    upc: normalizedUpc,
+    brand,
+    name
+  });
+
+  if (!queries.length) {
+    return res.status(400).json({ message: 'Search terms could not be built.' });
+  }
+
+  try {
+    const allResults = [];
+    for (const query of queries) {
+      const results = await fetchSearchResults(
+        query,
+        searchConfig.apiKey,
+        searchConfig.engineId
+      );
+      allResults.push(
+        ...results.map(result => ({
+          ...result,
+          query
+        }))
+      );
+    }
+
+    const deduped = [];
+    const seenLinks = new Set();
+    for (const item of allResults) {
+      if (!item.link || seenLinks.has(item.link)) continue;
+      seenLinks.add(item.link);
+      deduped.push(item);
+    }
+
+    const searchSummary = buildSearchSummary(deduped);
+    if (!searchSummary) {
+      return res.status(502).json({
+        upc: normalizedUpc,
+        name: '',
+        brand: '',
+        productType: '',
+        category: '',
+        sizeOz: 0,
+        sizeUnit: '',
+        quantity: 0,
+        containerType: '',
+        message: 'No search results found.'
+      });
+    }
+
+    const prompt = `You are a product metadata extractor.
+Given the web search snippets for a UPC lookup, return JSON only with the best guess for:
+{"name":"","brand":"","productType":"","category":"","sizeOz":0,"sizeUnit":"oz|fl oz|g|kg|ml|l|","quantity":0,"containerType":"plastic|glass|aluminum|","upc":"","message":""}
+Use empty string or 0 if unknown. Normalize size into sizeOz + sizeUnit when possible.
+UPC hint: "${normalizedUpc}". Photo hints: brand "${brand || ''}", name "${name || ''}".
+Search snippets:
+${searchSummary}`;
+
+    const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
+    const response = await ai.models.generateContent({
+      model: modelSelection.modelName,
+      contents: prompt,
+      generationConfig: { temperature: 0.2 }
+    });
+
+    const rawText = response?.text?.trim?.() ?? '';
+    if (!rawText) {
+      return res.status(502).json({
+        upc: normalizedUpc,
+        name: '',
+        brand: '',
+        productType: '',
+        category: '',
+        sizeOz: 0,
+        sizeUnit: '',
+        quantity: 0,
+        containerType: '',
+        message: 'No extraction response returned.'
+      });
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      parsed = null;
+    }
+
+    if (parsed && typeof parsed === 'object') {
+      return res.json({
+        upc: String(parsed.upc || normalizedUpc),
+        name: String(parsed.name || ''),
+        brand: String(parsed.brand || ''),
+        productType: String(parsed.productType || ''),
+        category: String(parsed.category || ''),
+        sizeOz: normalizeNumber(parsed.sizeOz, 0),
+        sizeUnit: normalizeSizeUnit(parsed.sizeUnit),
+        quantity: Math.max(0, Math.round(normalizeNumber(parsed.quantity, 0))),
+        containerType: normalizeContainerType(parsed.containerType),
+        message: String(parsed.message || ''),
+        searchSummary,
+        sources: deduped.slice(0, 6)
+      });
+    }
+
+    return res.json({
+      upc: normalizedUpc,
+      name: '',
+      brand: '',
+      productType: '',
+      category: '',
+      sizeOz: 0,
+      sizeUnit: '',
+      quantity: 0,
+      containerType: '',
+      message: rawText,
+      searchSummary,
+      sources: deduped.slice(0, 6)
+    });
+  } catch (error) {
+    console.error('Product lookup failed.', error);
+    return res.status(502).json({
+      upc: normalizedUpc,
+      name: '',
+      brand: '',
+      productType: '',
+      category: '',
+      sizeOz: 0,
+      sizeUnit: '',
+      quantity: 0,
+      containerType: '',
+      message: 'Product lookup failed.',
       error: error?.message || 'Unknown error',
       model: modelSelection.modelName
     });
