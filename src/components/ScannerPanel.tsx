@@ -435,14 +435,31 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
             <p className="text-[10px] text-slate-700 font-bold uppercase tracking-widest mt-1">Mode: {modeLabel}</p>
           )}
         </div>
-        {showClose && onClose ? (
+        <div className="flex items-center gap-2">
+          {/* Torch button next to X */}
           <button
-            onClick={onClose}
-            className="p-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
+            onClick={() => void toggleTorch()}
+            disabled={!torchSupported}
+            className={`p-3 rounded-2xl border border-white/10 transition flex items-center justify-center ${
+              torchSupported
+                ? torchOn
+                  ? 'bg-yellow-400 text-black' // yellow when on
+                  : 'bg-white/10 text-white' // default when off
+                : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+            }`}
+            title={torchSupported ? (torchOn ? 'Turn off torch' : 'Turn on torch') : 'Torch not supported'}
           >
-            <X className="w-4 h-4" />
+            {torchOn ? <FlashlightOff className="w-4 h-4" /> : <Flashlight className="w-4 h-4" />} 
           </button>
-        ) : null}
+          {showClose && onClose ? (
+            <button
+              onClick={onClose}
+              className="p-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-5 flex-1 min-h-0 rounded-3xl overflow-hidden border border-white/10 bg-black/40 flex items-center justify-center relative">
@@ -485,39 +502,6 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
               <Camera className="w-4 h-4" /> Photo
             </button>
           ) : null}
-
-          <button
-            onClick={() => void toggleTorch()}
-            disabled={!torchSupported}
-            className={`px-4 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${
-              torchSupported
-                ? torchOn
-                  ? 'bg-yellow-500 text-black'
-                  : 'bg-white/10 text-white'
-                : 'bg-gray-600 text-gray-400 cursor-not-allowed'
-            }`}
-            title={torchSupported ? (torchOn ? 'Turn off torch' : 'Turn on torch') : 'Torch not supported'}
-          >
-            {torchOn ? <FlashlightOff className="w-4 h-4" /> : <Flashlight className="w-4 h-4" />} Torch
-          </button>
-        </div>
-
-        <div className="flex gap-2">
-          <input
-            id="scannerManualUpc"
-            name="scannerManualUpc"
-            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white flex-1"
-            placeholder="Manual UPC entry (8–14 digits)"
-            value={manualUpc}
-            onChange={e => setManualUpc(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleManualScan()}
-          />
-          <button
-            onClick={handleManualScan}
-            className="px-4 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
-          >
-            <ScanLine className="w-4 h-4" /> Submit
-          </button>
         </div>
 
         <div className="flex items-center justify-between">
@@ -538,10 +522,6 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
             {scannerError}
           </div>
         )}
-
-        <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
-          Tip: If the camera is unstable, use manual entry. For best results, hold the barcode steady for a moment.
-        </p>
       </div>
     </div>
   );
