@@ -80,6 +80,14 @@ const UPC_CONTAINER_LABELS: Record<UpcContainerType, string> = {
 };
 const SIZE_UNIT_OPTIONS: SizeUnit[] = ['oz', 'fl oz', 'g', 'kg', 'ml', 'l'];
 const OFF_LOOKUP_FALLBACK_MESSAGE = 'Open Food Facts lookup failed. Please fill details manually.';
+const OFF_NUTRITION_FIELDS: Array<{ key: string; label: string; unit?: string }> = [
+  { key: 'energy-kcal_100g', label: 'Energy', unit: 'kcal' },
+  { key: 'fat_100g', label: 'Fat', unit: 'g' },
+  { key: 'carbohydrates_100g', label: 'Carbohydrates', unit: 'g' },
+  { key: 'proteins_100g', label: 'Protein', unit: 'g' },
+  { key: 'sugars_100g', label: 'Sugars', unit: 'g' },
+  { key: 'salt_100g', label: 'Salt', unit: 'g' }
+];
 const DEFAULT_NEW_PRODUCT = {
   id: '',
   name: '',
@@ -107,6 +115,22 @@ type OffLookupProduct = {
   ingredients?: string;
   nutriments?: Record<string, number | string>;
 };
+
+const formatOffNutrimentValue = (value: number | string | undefined | null, unit?: string) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  const rendered = Number.isFinite(parsed)
+    ? parsed.toLocaleString(undefined, { maximumFractionDigits: 2 })
+    : String(value).trim();
+  const suffix = unit ? ` ${unit}` : '';
+  return `${rendered}${suffix}`;
+};
+
+const getOffNutritionEntries = (nutriments?: OffLookupProduct['nutriments']) =>
+  OFF_NUTRITION_FIELDS.map(({ key, label, unit }) => {
+    const displayValue = formatOffNutrimentValue(nutriments?.[key], unit);
+    return displayValue ? { label, value: displayValue } : null;
+  }).filter((entry): entry is { label: string; value: string } => Boolean(entry));
 
 const parseOffQuantity = (quantity?: string) => {
   if (!quantity) return null;
@@ -153,19 +177,7 @@ const buildNutritionNoteFromOff = (ingredients?: string, nutriments?: OffLookupP
   }
 
   if (nutriments) {
-    const keys: Array<[string, string]> = [
-      ['energy-kcal_100g', 'kcal'],
-      ['fat_100g', 'fat g'],
-      ['sugars_100g', 'sugars g'],
-      ['salt_100g', 'salt g']
-    ];
-    const nutritionBits = keys
-      .map(([key, label]) => {
-        const value = nutriments[key];
-        if (value === undefined || value === null || value === '') return null;
-        return `${label}: ${value}`;
-      })
-      .filter(Boolean);
+    const nutritionBits = getOffNutritionEntries(nutriments).map(entry => `${entry.label}: ${entry.value}`);
     if (nutritionBits.length > 0) {
       parts.push(`Nutrition (per 100g): ${nutritionBits.join(', ')}`);
     }
@@ -395,6 +407,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     'idle' | 'loading' | 'found' | 'not_found' | 'error'
   >('idle');
   const [offLookupMessage, setOffLookupMessage] = useState('');
+  const [offLookupIngredients, setOffLookupIngredients] = useState('');
+  const [offLookupNutriments, setOffLookupNutriments] = useState<
+    OffLookupProduct['nutriments'] | null
+  >(null);
+  const offNutritionEntries = useMemo(
+    () => getOffNutritionEntries(offLookupNutriments || undefined),
+    [offLookupNutriments]
+  );
   const [isUpcLoading, setIsUpcLoading] = useState(false);
   const [isUpcSaving, setIsUpcSaving] = useState(false);
   const [upcError, setUpcError] = useState<string | null>(null);
@@ -1008,6 +1028,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setCreateError(null);
     setOffLookupStatus('idle');
     setOffLookupMessage('');
+    setOffLookupIngredients('');
+    setOffLookupNutriments(null);
   }, []);
 
   const handleCancelCreate = useCallback(() => {
@@ -1256,6 +1278,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         payload.ingredients,
         payload.nutriments
       );
+      setOffLookupIngredients(payload.ingredients || '');
+      setOffLookupNutriments(payload.nutriments || null);
 
       applyLookupDrafts(
         {
@@ -1288,6 +1312,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       offLookupRequestIdRef.current = requestId;
       setOffLookupStatus('loading');
       setOffLookupMessage('Fetching product info…');
+      setOffLookupIngredients('');
+      setOffLookupNutriments(null);
 
       try {
         const res = await fetch(`${BACKEND_URL}/api/upc/off/${normalized}`, {
@@ -1412,6 +1438,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setUpcDraft(prev => ({ ...prev, upc: normalized }));
     setOffLookupStatus('idle');
     setOffLookupMessage('');
+    setOffLookupIngredients('');
+    setOffLookupNutriments(null);
   }, [setScannedUpcForCreation, setUpcInput, setUpcDraft]);
 
   const startEditProduct = (product: Product) => {
@@ -3572,6 +3600,40 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                             }
                           />
                         </label>
+                        {(offLookupIngredients || offNutritionEntries.length > 0) && (
+                          <div className="md:col-span-2 bg-black/30 border border-white/10 rounded-2xl p-4 space-y-4">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                              Open Food Facts (read-only)
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                  Ingredients
+                                </div>
+                                <p className="text-sm text-slate-200 leading-relaxed">
+                                  {offLookupIngredients || 'No ingredients provided.'}
+                                </p>
+                              </div>
+                              <div className="space-y-2">
+                                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                  Nutrition (per 100g)
+                                </div>
+                                {offNutritionEntries.length > 0 ? (
+                                  <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm text-slate-200">
+                                    {offNutritionEntries.map(entry => (
+                                      <div key={entry.label} className="flex items-center justify-between gap-4">
+                                        <dt className="text-slate-400">{entry.label}</dt>
+                                        <dd className="text-slate-200">{entry.value}</dd>
+                                      </div>
+                                    ))}
+                                  </dl>
+                                ) : (
+                                  <p className="text-sm text-slate-200">No nutrition values provided.</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
                           <span>Storage Zone</span>
                           <input
