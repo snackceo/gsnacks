@@ -49,15 +49,16 @@ const buildEligibilityPayload = (entry, depositValue) => {
   return payload;
 };
 
+const normalizeBarcode = value => String(value || '').replace(/\D/g, '');
+const isValidBarcode = value => /^\d{8,14}$/.test(value);
+
 const normalizeUpcList = value => {
   if (!value) return [];
   const list = Array.isArray(value) ? value : [value];
   return list
-    .map(item => String(item || '').trim())
+    .map(item => normalizeBarcode(item))
     .filter(Boolean);
 };
-
-const normalizeBarcode = value => String(value || '').replace(/\D/g, '');
 
 const mapOffProduct = product => {
   const brands = String(product?.brands || '')
@@ -91,8 +92,11 @@ const synchronizeContainerType = (updates) => {
 
 router.get('/eligibility', async (req, res) => {
   try {
-    const upc = String(req.query?.upc || '').trim();
+    const upc = normalizeBarcode(req.query?.upc);
     if (!upc) return res.status(400).json({ error: 'upc is required' });
+    if (!isValidBarcode(upc)) {
+      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
+    }
     const depositValue = await getMichiganDepositValue();
     const entry = await UpcItem.findOne({ upc }).lean();
     res.json(buildEligibilityPayload(entry, depositValue));
@@ -109,6 +113,13 @@ router.post('/eligibility', async (req, res) => {
     const depositValue = await getMichiganDepositValue();
 
     if (upcs.length > 0) {
+      const invalidUpcs = upcs.filter(upc => !isValidBarcode(upc));
+      if (invalidUpcs.length > 0) {
+        return res.status(400).json({
+          error: 'Invalid barcode format',
+          invalidUpcs
+        });
+      }
       const entries = await UpcItem.find({ upc: { $in: upcs } }).lean();
       const entryMap = new Map(entries.map(entry => [entry.upc, entry]));
       const results = upcs.map(upc => ({
@@ -119,8 +130,11 @@ router.post('/eligibility', async (req, res) => {
       return res.json({ results });
     }
 
-    const upc = String(body?.upc || '').trim();
+    const upc = normalizeBarcode(body?.upc);
     if (!upc) return res.status(400).json({ error: 'upc is required' });
+    if (!isValidBarcode(upc)) {
+      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
+    }
 
     const entry = await UpcItem.findOne({ upc }).lean();
     return res.json(buildEligibilityPayload(entry, depositValue));
@@ -134,8 +148,8 @@ router.get('/off/:code', authRequired, ownerRequired, async (req, res) => {
   try {
     const code = normalizeBarcode(req.params.code);
     if (!code) return res.status(400).json({ error: 'code is required' });
-    if (!/^\d{8,14}$/.test(code)) {
-      return res.status(400).json({ error: 'Invalid barcode format' });
+    if (!isValidBarcode(code)) {
+      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: code });
     }
 
     const cached = await UpcLookupCache.findOne({ code }).lean();
@@ -195,8 +209,11 @@ router.get('/off/:code', authRequired, ownerRequired, async (req, res) => {
 
 router.get('/eligibility/:upc', async (req, res) => {
   try {
-    const upc = String(req.params.upc || '').trim();
+    const upc = normalizeBarcode(req.params.upc);
     if (!upc) return res.status(400).json({ error: 'upc is required' });
+    if (!isValidBarcode(upc)) {
+      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
+    }
     const depositValue = await getMichiganDepositValue();
 
     const entry = await UpcItem.findOne({ upc }).lean();
@@ -243,8 +260,11 @@ router.get('/', authRequired, ownerRequired, async (_req, res) => {
 
 router.post('/', authRequired, ownerRequired, async (req, res) => {
   try {
-    const upc = String(req.body?.upc || '').trim();
+    const upc = normalizeBarcode(req.body?.upc);
     if (!upc) return res.status(400).json({ error: 'upc is required' });
+    if (!isValidBarcode(upc)) {
+      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
+    }
     const depositValue = await getMichiganDepositValue();
 
     let updates = {
@@ -293,9 +313,13 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
 router.post('/scan', authRequired, ownerRequired, async (req, res) => {
   try {
     const { upc, qty = 1, resolveOnly } = req.body;
-    if (!upc) return res.status(400).json({ error: 'upc is required' });
+    const normalizedUpc = normalizeBarcode(upc);
+    if (!normalizedUpc) return res.status(400).json({ error: 'upc is required' });
+    if (!isValidBarcode(normalizedUpc)) {
+      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc });
+    }
 
-    const upcEntry = await UpcItem.findOne({ upc }).lean();
+    const upcEntry = await UpcItem.findOne({ upc: normalizedUpc }).lean();
     const Product = (await import('../models/Product.js')).default;
 
     if (upcEntry?.sku) {
@@ -308,7 +332,7 @@ router.post('/scan', authRequired, ownerRequired, async (req, res) => {
       return res.json({ ok: true, action: 'updated', product: updated });
     }
 
-    return res.json({ ok: true, action: 'unmapped', upc, upcEntry });
+    return res.json({ ok: true, action: 'unmapped', upc: normalizedUpc, upcEntry });
   } catch (err) {
     console.error('UPC SCAN ERROR:', err);
     res.status(500).json({ error: 'Failed to apply UPC scan' });
@@ -317,9 +341,13 @@ router.post('/scan', authRequired, ownerRequired, async (req, res) => {
 
 router.post('/link', authRequired, ownerRequired, async (req, res) => {
   try {
-    const { upc, productId } = req.body;
+    const { productId } = req.body;
+    const upc = normalizeBarcode(req.body?.upc);
     if (!upc || !productId) {
       return res.status(400).json({ error: 'upc and productId are required' });
+    }
+    if (!isValidBarcode(upc)) {
+      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
     }
 
     const upcEntry = await UpcItem.findOneAndUpdate(
@@ -337,8 +365,11 @@ router.post('/link', authRequired, ownerRequired, async (req, res) => {
 
 router.patch('/:upc', authRequired, ownerRequired, async (req, res) => {
   try {
-    const upc = String(req.params.upc || '').trim();
+    const upc = normalizeBarcode(req.params.upc);
     if (!upc) return res.status(400).json({ error: 'upc is required' });
+    if (!isValidBarcode(upc)) {
+      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
+    }
     const depositValue = await getMichiganDepositValue();
 
     const updates = {};
@@ -391,8 +422,11 @@ router.patch('/:upc', authRequired, ownerRequired, async (req, res) => {
 
 router.delete('/:upc', authRequired, ownerRequired, async (req, res) => {
   try {
-    const upc = String(req.params.upc || '').trim();
+    const upc = normalizeBarcode(req.params.upc);
     if (!upc) return res.status(400).json({ error: 'upc is required' });
+    if (!isValidBarcode(upc)) {
+      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
+    }
 
     const deleted = await UpcItem.findOneAndDelete({ upc }).lean();
     if (!deleted) return res.status(404).json({ error: 'UPC not found' });
