@@ -71,6 +71,8 @@ const CustomerView: React.FC<CustomerViewProps> = ({
       <div className="flex flex-col xl:flex-row gap-8 items-center justify-between">
         <div className="relative flex-1 w-full lg:max-w-2xl">
           <input
+            id="productSearch"
+            name="productSearch"
             type="text"
             placeholder="Search Logistics Hub..."
             value={searchQuery}

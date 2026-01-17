@@ -504,6 +504,8 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
         <div className="flex gap-2">
           <input
+            id="scannerManualUpc"
+            name="scannerManualUpc"
             className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white flex-1"
             placeholder="Manual UPC entry (8–14 digits)"
             value={manualUpc}

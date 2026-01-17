@@ -92,6 +92,8 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
               UPC Code
             </label>
             <input
+              id="upcLookup"
+              name="upcLookup"
               className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
               placeholder="Enter UPC to lookup"
               value={upcInput}
@@ -120,6 +122,8 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
               Product Name
             </label>
             <input
+              id="upcProductName"
+              name="upcProductName"
               className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full opacity-70"
               placeholder="No selection"
               value={upcDraft.name || ''}
@@ -132,6 +136,8 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
               Price ($)
             </label>
             <input
+              id="upcProductPrice"
+              name="upcProductPrice"
               className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full opacity-70"
               placeholder="0.00"
               value={upcDraft.price ? Number(upcDraft.price).toFixed(2) : ''}
@@ -144,6 +150,8 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
               Size
             </label>
             <input
+              id="upcProductSize"
+              name="upcProductSize"
               className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full opacity-70"
               placeholder="No size"
               value={formatSize(Number(upcDraft.sizeOz || 0), upcDraft.sizeUnit)}
@@ -156,6 +164,8 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
               Container Type
             </label>
             <input
+              id="upcContainerType"
+              name="upcContainerType"
               className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full opacity-70"
               placeholder="Unknown"
               value={
@@ -169,7 +179,14 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
           </div>
           <div className="md:col-span-2">
             <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
-              <input type="checkbox" checked={upcDraft.isEligible} readOnly disabled />
+              <input
+                id="upcIsEligible"
+                name="upcIsEligible"
+                type="checkbox"
+                checked={upcDraft.isEligible}
+                readOnly
+                disabled
+              />
               Eligible for Michigan Deposit Refund
             </label>
           </div>
@@ -183,6 +200,8 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
           </p>
           <div className="flex gap-3">
             <input
+              id="upcFilter"
+              name="upcFilter"
               className="bg-black/40 border border-white/10 rounded-2xl p-3 text-xs text-white"
               placeholder="Filter by UPC or name"
               value={upcFilter}
