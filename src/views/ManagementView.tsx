@@ -1316,6 +1316,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setUpcDraft(prev => ({ ...prev, upc: normalized }));
       setUpcInput(normalized);
 
+      // Trigger auto-fill from OFF lookup
+      void fetchOffLookup(normalized);
+
       // Photo is captured manually via button
       /*...existing code...*/
       try {
