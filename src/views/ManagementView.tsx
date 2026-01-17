@@ -110,11 +110,16 @@ type OffLookupProduct = {
 
 const parseOffQuantity = (quantity?: string) => {
   if (!quantity) return null;
-  const match = String(quantity).match(/([\d.,]+)\s*([a-zA-Z]+(?:\s?[a-zA-Z]+)?)/);
+  const normalized = String(quantity).trim();
+  const multiPackMatch = normalized.match(
+    /(\d+)\s*[x×]\s*([\d.,]+)\s*([a-zA-Z]+(?:\s?[a-zA-Z]+)?)/i
+  );
+  const match = multiPackMatch ?? normalized.match(/([\d.,]+)\s*([a-zA-Z]+(?:\s?[a-zA-Z]+)?)/);
   if (!match) return null;
-  const value = Number(String(match[1]).replace(',', '.'));
-  if (!Number.isFinite(value)) return null;
-  const rawUnit = match[2].toLowerCase().replace(/\./g, '').trim();
+  const packCount = multiPackMatch ? Number(match[1]) : 1;
+  const value = Number(String(match[multiPackMatch ? 2 : 1]).replace(',', '.'));
+  if (!Number.isFinite(value) || !Number.isFinite(packCount) || packCount <= 0) return null;
+  const rawUnit = match[multiPackMatch ? 3 : 2].toLowerCase().replace(/\./g, '').trim();
   const unitMap: Record<string, SizeUnit> = {
     oz: 'oz',
     ounce: 'oz',
@@ -137,7 +142,8 @@ const parseOffQuantity = (quantity?: string) => {
   };
   const normalizedUnit = unitMap[rawUnit] ?? null;
   if (!normalizedUnit) return null;
-  return { size: value, unit: normalizedUnit as SizeUnit };
+  // For multi-pack strings like "6 x 12 oz", interpret as total size (72 oz).
+  return { size: value * packCount, unit: normalizedUnit as SizeUnit };
 };
 
 const buildNutritionNoteFromOff = (ingredients?: string, nutriments?: OffLookupProduct['nutriments']) => {
