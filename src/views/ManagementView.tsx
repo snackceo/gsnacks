@@ -2282,7 +2282,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       {canCancel(o) && (
                         <button
                           onClick={() => handleLogisticsUpdate(o.id, OrderStatus.CLOSED)}
-                          className="md:w-[240px] py-5 bg-ninpo-red/10 text-ninpo-red rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition-all"
+                          className="md:w-[240px] py-5 bg-ninpo-red/10 text-ninpo-red rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
                         >
                           <XCircle className="w-5 h-5" /> Cancel (Restock)
                         </button>
@@ -3354,7 +3354,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       {isScannerOpen && (
                         <button
                           onClick={() => setIsScannerOpen(false)}
-                          className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                          className="px-4 py-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
                         >
                           <X className="w-4 h-4" />
                           Close
@@ -3625,7 +3625,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         <button
                           type="button"
                           onClick={handleCancelCreate}
-                          className="w-full py-5 bg-black/40 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 border border-white/10 hover:border-white/30 transition-all"
+                          className="w-full py-5 bg-ninpo-red/10 text-ninpo-red rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
                         >
                           <X className="w-5 h-5" />
                           Cancel
@@ -3967,7 +3967,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             <div className="flex flex-col md:flex-row gap-3">
               <button
                 onClick={closeEditProduct}
-                className="w-full py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                className="w-full py-4 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
               >
                 Cancel
               </button>
@@ -4024,7 +4024,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 </p>
               </div>
               <button
-                className="px-5 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                className="px-5 py-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
                 onClick={() => setSelectedApproval(null)}
               >
                 Close

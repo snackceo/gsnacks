@@ -75,7 +75,7 @@ const LegalFooter: React.FC = () => {
           </div>
           <button
             onClick={onClose}
-            className="p-3 bg-white/5 rounded-2xl hover:bg-white/10 transition-all text-slate-400"
+            className="p-3 bg-ninpo-red/10 rounded-2xl hover:bg-ninpo-red/20 transition-all text-ninpo-red border border-ninpo-red/20"
           >
             <X className="w-6 h-6" />
           </button>
@@ -88,7 +88,7 @@ const LegalFooter: React.FC = () => {
         <div className="mt-12 pt-8 border-t border-white/5">
           <button
             onClick={onClose}
-            className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl"
+            className="w-full py-5 bg-ninpo-red/10 text-ninpo-red rounded-2xl text-[10px] font-black uppercase tracking-widest border border-ninpo-red/20 hover:bg-ninpo-red/20 transition-all"
           >
             Close
           </button>
