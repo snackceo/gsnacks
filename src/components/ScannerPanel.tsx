@@ -47,6 +47,7 @@ const MODE_LABELS: Record<ScannerMode, string> = {
 const ScannerPanel: React.FC<ScannerPanelProps> = ({
   mode,
   onScan,
+  onCooldown,
   onClose,
   showClose = false,
   title,
