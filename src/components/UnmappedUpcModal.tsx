@@ -122,6 +122,8 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
               <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
                 <span>Product Name</span>
                 <input
+                  id="newProductName"
+                  name="newProductName"
                   className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                   placeholder="e.g. Coca-Cola 12oz"
                   value={createForm.name}
@@ -131,6 +133,8 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
               <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
                 <span>Price ($)</span>
                 <input
+                  id="newProductPrice"
+                  name="newProductPrice"
                   type="number"
                   step="0.01"
                   className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
@@ -142,6 +146,8 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
               <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
                 <span>Deposit ($)</span>
                 <input
+                  id="newProductDeposit"
+                  name="newProductDeposit"
                   type="number"
                   step="0.01"
                   className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
@@ -153,6 +159,8 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
               <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
                 <span>Initial Stock</span>
                 <input
+                  id="newProductStock"
+                  name="newProductStock"
                   type="number"
                   min="0"
                   className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
@@ -165,6 +173,8 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
                 <span>Size</span>
                 <div className="flex gap-2">
                   <input
+                    id="newProductSizeOz"
+                    name="newProductSizeOz"
                     type="number"
                     step="0.1"
                     className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
@@ -227,6 +237,8 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
             <div className="relative">
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-600" />
               <input
+                id="attachProductSearch"
+                name="attachProductSearch"
                 className="w-full bg-black/40 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-sm text-white"
                 placeholder="Search products by name or SKU..."
                 value={attachSearch}

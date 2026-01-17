@@ -732,6 +732,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               {/* Manual entry */}
               <div className="flex gap-2">
                 <input
+                  id="returnManualUpc"
+                  name="returnManualUpc"
                   value={manualUpc}
                   onChange={e => setManualUpc(e.target.value)}
                   placeholder="Enter UPC manually (8–14 digits)"
@@ -865,6 +867,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 Delivery Address
               </p>
               <input
+                id="deliveryAddress"
+                name="deliveryAddress"
                 placeholder="Drop Location..."
                 value={address}
                 onChange={e => onAddressChange(e.target.value)}
@@ -900,6 +904,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
             {/* Policy checkbox */}
             <label className="flex items-center gap-3 text-[10px] font-black uppercase text-slate-500 cursor-pointer select-none">
               <input
+                id="acceptHubProtocol"
+                name="acceptHubProtocol"
                 type="checkbox"
                 checked={acceptedPolicies}
                 onChange={e => onPolicyChange(e.target.checked)}
@@ -1000,6 +1006,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                   <label className="flex items-center justify-between gap-3 text-[10px] font-black uppercase tracking-widest text-slate-300">
                     <span>Receive Return Value as Cash</span>
                     <input
+                      id="useCashPayout"
+                      name="useCashPayout"
                       type="checkbox"
                       checked={useCashPayout}
                       onChange={e => setUseCashPayout(e.target.checked)}

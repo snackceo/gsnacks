@@ -2704,6 +2704,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
               <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
                 <input
+                  id="userFilter"
+                  name="userFilter"
                   value={userFilter}
                   onChange={e => setUserFilter(e.target.value)}
                   placeholder="Filter by username, tier, role..."
@@ -2860,6 +2862,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                             </p>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                               <input
+                                id={`userCreditBalance-${u.id}`}
+                                name={`userCreditBalance-${u.id}`}
                                 type="number"
                                 className="bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
                                 placeholder="Credits"
@@ -2872,6 +2876,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                                 }
                               />
                               <input
+                                id={`userLoyaltyPoints-${u.id}`}
+                                name={`userLoyaltyPoints-${u.id}`}
                                 type="number"
                                 className="bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
                                 placeholder="Points"
@@ -3056,6 +3062,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     Actor
                   </label>
                   <input
+                    id="auditActorFilter"
+                    name="auditActorFilter"
                     className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[11px] text-white"
                     placeholder="Filter by actorId"
                     value={auditActorFilter}
@@ -3243,6 +3251,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 <div className="space-y-4">
                   <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     <input
+                      id="requirePhotoForRefunds"
+                      name="requirePhotoForRefunds"
                       type="checkbox"
                       className="h-4 w-4 accent-ninpo-lime"
                       checked={settingsDraft.requirePhotoForRefunds}
@@ -3267,6 +3277,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       Route Fee
                     </label>
                     <input
+                      id="routeFee"
+                      name="routeFee"
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       step="0.01"
@@ -3283,6 +3295,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       Pickup-Only Multiplier
                     </label>
                     <input
+                      id="pickupOnlyMultiplier"
+                      name="pickupOnlyMultiplier"
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       step="0.01"
@@ -3299,6 +3313,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       Distance Included Miles
                     </label>
                     <input
+                      id="distanceIncludedMiles"
+                      name="distanceIncludedMiles"
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       step="0.1"
@@ -3315,6 +3331,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       Distance Band 1 Max Miles
                     </label>
                     <input
+                      id="distanceBand1MaxMiles"
+                      name="distanceBand1MaxMiles"
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       step="0.1"
@@ -3331,6 +3349,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       Distance Band 2 Max Miles
                     </label>
                     <input
+                      id="distanceBand2MaxMiles"
+                      name="distanceBand2MaxMiles"
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       step="0.1"
@@ -3347,6 +3367,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       Distance Band 1 Rate (per mile)
                     </label>
                     <input
+                      id="distanceBand1Rate"
+                      name="distanceBand1Rate"
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       step="0.01"
@@ -3363,6 +3385,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       Distance Band 2 Rate (per mile)
                     </label>
                     <input
+                      id="distanceBand2Rate"
+                      name="distanceBand2Rate"
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       step="0.01"
@@ -3379,6 +3403,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       Distance Band 3 Rate (per mile)
                     </label>
                     <input
+                      id="distanceBand3Rate"
+                      name="distanceBand3Rate"
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       step="0.01"
@@ -3403,6 +3429,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       Hub Latitude
                     </label>
                     <input
+                      id="hubLat"
+                      name="hubLat"
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       step="0.000001"
@@ -3419,6 +3447,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       Hub Longitude
                     </label>
                     <input
+                      id="hubLng"
+                      name="hubLng"
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       step="0.000001"
@@ -3440,6 +3470,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 <div className="space-y-4">
                   <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     <input
+                      id="allowGuestCheckout"
+                      name="allowGuestCheckout"
                       type="checkbox"
                       className="h-4 w-4 accent-ninpo-lime"
                       checked={settingsDraft.allowGuestCheckout}
@@ -3453,6 +3485,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </label>
                   <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     <input
+                      id="showAdvancedInventoryInsights"
+                      name="showAdvancedInventoryInsights"
                       type="checkbox"
                       className="h-4 w-4 accent-ninpo-lime"
                       checked={settingsDraft.showAdvancedInventoryInsights}
@@ -3474,6 +3508,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 <div className="space-y-4">
                   <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     <input
+                      id="allowPlatinumTier"
+                      name="allowPlatinumTier"
                       type="checkbox"
                       className="h-4 w-4 accent-ninpo-lime"
                       checked={settingsDraft.allowPlatinumTier}
@@ -3487,6 +3523,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </label>
                   <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     <input
+                      id="platinumFreeDelivery"
+                      name="platinumFreeDelivery"
                       type="checkbox"
                       className="h-4 w-4 accent-ninpo-lime"
                       checked={settingsDraft.platinumFreeDelivery}
@@ -3512,6 +3550,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       Default Increment
                     </label>
                     <input
+                      id="defaultIncrement"
+                      name="defaultIncrement"
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       min="1"
@@ -3528,6 +3568,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       Cooldown (ms)
                     </label>
                     <input
+                      id="cooldownMs"
+                      name="cooldownMs"
                       className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                       type="number"
                       min="0"
@@ -3541,6 +3583,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </div>
                   <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     <input
+                      id="requireSkuForScanning"
+                      name="requireSkuForScanning"
                       type="checkbox"
                       className="h-4 w-4 accent-ninpo-lime"
                       checked={settingsDraft.requireSkuForScanning ?? true}
@@ -3554,6 +3598,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   </label>
                   <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     <input
+                      id="shelfGroupingEnabled"
+                      name="shelfGroupingEnabled"
                       type="checkbox"
                       className="h-4 w-4 accent-ninpo-lime"
                       checked={settingsDraft.shelfGroupingEnabled ?? true}
@@ -3644,7 +3690,340 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     </div>
                   </div>
 
-                  {inventoryCreateForm}
+                  <div className="space-y-2">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      Scanned UPC: <span className="text-white">{scannedUpcForCreation || 'No UPC scanned'}</span>
+                    </div>
+                    <div className="flex flex-col md:flex-row md:items-end gap-2">
+                      <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 flex-1">
+                        <span>UPC (editable)</span>
+                        <input
+                          id="scannedUpcForCreation"
+                          name="scannedUpcForCreation"
+                          className="bg-black/40 border border-white/10 rounded-2xl p-3 text-sm text-white w-full"
+                          placeholder="Scan or type UPC"
+                          value={scannedUpcForCreation}
+                          onChange={e => handleManualUpcChange(e.target.value)}
+                        />
+                      </label>
+                      <button
+                        onClick={() => {
+                          if (scannedUpcForCreation) {
+                            void fetchOffLookup(scannedUpcForCreation);
+                          }
+                        }}
+                        disabled={!scannedUpcForCreation || offLookupStatus === 'loading'}
+                        className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {offLookupStatus === 'loading' ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <ScanLine className="w-4 h-4" />
+                        )}
+                        Lookup OFF
+                      </button>
+                      <button
+                        onClick={() => handleManualUpcChange('')}
+                        className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                      >
+                        <X className="w-4 h-4" />
+                        Clear UPC
+                      </button>
+                    </div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Tip: Use Clear UPC to restart without reopening the scanner.
+                    </div>
+                    {offLookupMessage && (
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        {offLookupMessage}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col md:flex-row gap-4 items-center">
+                    <div className="flex-1 text-[10px] text-slate-500 uppercase tracking-widest">
+                      Scan a UPC to auto-fill product details from Open Food Facts, then review and edit before
+                      creating.
+                    </div>
+                  </div>
+
+                  {scannedUpcForCreation ? (
+                    <div className="pt-6 border-t border-white/5 space-y-6">
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                            Create Product
+                          </p>
+                          <p className="text-[10px] text-slate-500 uppercase tracking-widest">
+                            Storage zone/bin describe where the item sits (e.g., Fridge / Shelf A).
+                          </p>
+                        </div>
+                      </div>
+
+                      {createError && (
+                        <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                          {createError}
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>SKU</span>
+                          <input
+                            id="newProductSku"
+                            name="newProductSku"
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full disabled:opacity-50"
+                            placeholder="Auto-generated on creation"
+                            value=""
+                            disabled
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Name</span>
+                          <input
+                            id="newProductName"
+                            name="newProductName"
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="Product name"
+                            value={newProduct.name}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, name: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Price</span>
+                          <input
+                            id="newProductPrice"
+                            name="newProductPrice"
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="0.00"
+                            type="number"
+                            value={newProduct.price}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, price: Number(e.target.value) })
+                            }
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Deposit</span>
+                          <input
+                            id="newProductDeposit"
+                            name="newProductDeposit"
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="Auto-calculated"
+                            value={upcDraft.isEligible ? '0.10' : '0.00'}
+                            disabled
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Stock</span>
+                          <input
+                            id="newProductStock"
+                            name="newProductStock"
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="0"
+                            type="number"
+                            value={newProduct.stock}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, stock: Number(e.target.value) })
+                            }
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Size</span>
+                          <div className="flex gap-2">
+                            <input
+                              id="newProductSizeOz"
+                              name="newProductSizeOz"
+                              className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                              placeholder="0"
+                              type="number"
+                              step="0.1"
+                              value={newProduct.sizeOz}
+                              onChange={e =>
+                                setNewProduct({ ...newProduct, sizeOz: Number(e.target.value) })
+                              }
+                            />
+                            <select
+                              className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                              value={newProduct.sizeUnit}
+                              onChange={e =>
+                                setNewProduct({
+                                  ...newProduct,
+                                  sizeUnit: e.target.value as SizeUnit
+                                })
+                              }
+                            >
+                              {SIZE_UNIT_OPTIONS.map(option => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Brand</span>
+                          <input
+                            id="newProductBrand"
+                            name="newProductBrand"
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="Brand"
+                            value={newProduct.brand}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, brand: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Product Type</span>
+                          <input
+                            id="newProductType"
+                            name="newProductType"
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="Type"
+                            value={newProduct.productType}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, productType: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
+                          <span>Nutrition Note (Customer Info)</span>
+                          <textarea
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full min-h-[96px]"
+                            placeholder="e.g. 12g protein • 220 calories • contains peanuts"
+                            value={newProduct.nutritionNote}
+                            onChange={e =>
+                              setNewProduct({
+                                ...newProduct,
+                                nutritionNote: e.target.value
+                              })
+                            }
+                          />
+                        </label>
+                        {(offLookupIngredients || offNutritionEntries.length > 0) && (
+                          <div className="md:col-span-2 bg-black/30 border border-white/10 rounded-2xl p-4 space-y-4">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                              Open Food Facts (read-only)
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                  Ingredients
+                                </div>
+                                <p className="text-sm text-slate-200 leading-relaxed">
+                                  {offLookupIngredients || 'No ingredients provided.'}
+                                </p>
+                              </div>
+                              <div className="space-y-2">
+                                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                  Nutrition (per 100g)
+                                </div>
+                                {offNutritionEntries.length > 0 ? (
+                                  <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm text-slate-200">
+                                    {offNutritionEntries.map(entry => (
+                                      <div key={entry.label} className="flex items-center justify-between gap-4">
+                                        <dt className="text-slate-400">{entry.label}</dt>
+                                        <dd className="text-slate-200">{entry.value}</dd>
+                                      </div>
+                                    ))}
+                                  </dl>
+                                ) : (
+                                  <p className="text-sm text-slate-200">No nutrition values provided.</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Storage Zone</span>
+                          <input
+                            id="newProductStorageZone"
+                            name="newProductStorageZone"
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="Zone"
+                            value={newProduct.storageZone}
+                            onChange={e =>
+                              setNewProduct({
+                                ...newProduct,
+                                storageZone: e.target.value
+                              })
+                            }
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                          <span>Storage Bin</span>
+                          <input
+                            id="newProductStorageBin"
+                            name="newProductStorageBin"
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="Bin"
+                            value={newProduct.storageBin}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, storageBin: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
+                          <span>Image URL</span>
+                          <input
+                            id="newProductImage"
+                            name="newProductImage"
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                            placeholder="https://"
+                            value={newProduct.image}
+                            onChange={e =>
+                              setNewProduct({ ...newProduct, image: e.target.value })
+                            }
+                          />
+                        </label>
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                          <input
+                            id="newProductIsEligible"
+                            name="newProductIsEligible"
+                            type="checkbox"
+                            checked={upcDraft.isEligible}
+                            onChange={e =>
+                              setUpcDraft({ ...upcDraft, isEligible: e.target.checked })
+                            }
+                          />
+                          Eligible for Michigan Deposit Refund
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={handleCancelCreate}
+                          className="w-full py-5 bg-ninpo-red/10 text-ninpo-red rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
+                        >
+                          <X className="w-5 h-5" />
+                          Cancel
+                        </button>
+                        <button
+                          onClick={apiCreateProduct}
+                          disabled={isCreating}
+                          className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.01] transition-all shadow-neon"
+                        >
+                          {isCreating ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                          ) : (
+                            <Plus className="w-5 h-5" />
+                          )}
+                          Create
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="pt-6 border-t border-white/5 text-[10px] text-slate-500 uppercase tracking-widest">
+                      Scan a UPC to open the product details before creating.
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -3749,24 +4128,32 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <input
+                id="editProductName"
+                name="editProductName"
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                 placeholder="Name"
                 value={editDraft.name}
                 onChange={e => setEditDraft({ ...editDraft, name: e.target.value })}
               />
               <input
+                id="editProductCategory"
+                name="editProductCategory"
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                 placeholder="Category"
                 value={editDraft.category}
                 onChange={e => setEditDraft({ ...editDraft, category: e.target.value })}
               />
               <input
+                id="editProductBrand"
+                name="editProductBrand"
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                 placeholder="Brand"
                 value={editDraft.brand}
                 onChange={e => setEditDraft({ ...editDraft, brand: e.target.value })}
               />
               <input
+                id="editProductType"
+                name="editProductType"
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                 placeholder="Product Type"
                 value={editDraft.productType}
@@ -3779,18 +4166,24 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 onChange={e => setEditDraft({ ...editDraft, nutritionNote: e.target.value })}
               />
               <input
+                id="editProductStorageZone"
+                name="editProductStorageZone"
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                 placeholder="Storage Zone"
                 value={editDraft.storageZone}
                 onChange={e => setEditDraft({ ...editDraft, storageZone: e.target.value })}
               />
               <input
+                id="editProductStorageBin"
+                name="editProductStorageBin"
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                 placeholder="Storage Bin"
                 value={editDraft.storageBin}
                 onChange={e => setEditDraft({ ...editDraft, storageBin: e.target.value })}
               />
               <input
+                id="editProductPrice"
+                name="editProductPrice"
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                 placeholder="Price"
                 type="number"
@@ -3803,6 +4196,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 }
               />
               <input
+                id="editProductDeposit"
+                name="editProductDeposit"
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                 placeholder="Deposit"
                 type="number"
@@ -3815,6 +4210,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 }
               />
               <input
+                id="editProductStock"
+                name="editProductStock"
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                 placeholder="Stock"
                 type="number"
@@ -3828,6 +4225,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
               />
               <div className="flex gap-2">
                 <input
+                  id="editProductSizeOz"
+                  name="editProductSizeOz"
                   className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
                   placeholder="Size"
                   type="number"
@@ -3860,6 +4259,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
               <div className="flex items-center gap-3 bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white">
                 <input
                   id="edit-is-glass"
+                  name="editProductIsGlass"
                   type="checkbox"
                   className="h-4 w-4 accent-ninpo-lime"
                   checked={editDraft.isGlass}
@@ -3870,6 +4270,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 </label>
               </div>
               <input
+                id="editProductImage"
+                name="editProductImage"
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white md:col-span-2"
                 placeholder="Image URL"
                 value={editDraft.image}
