@@ -3570,6 +3570,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     </button>
                   </div>
                 </div>
+              ) : (
+                <div className="pt-6 border-t border-white/5 text-[10px] text-slate-500 uppercase tracking-widest">
+                  Scan a UPC to open the product details before creating.
+                </div>
+              )}
 
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
@@ -3643,9 +3648,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                     </div>
                   ))}
                 </div>
-
-
-          </div>
+              </div>
+            </div>
         )}
 
       </div>
