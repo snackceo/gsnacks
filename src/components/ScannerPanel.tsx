@@ -39,7 +39,6 @@ const normalizeUpc = (raw: string) => raw.replace(/\D/g, '');
 
 const MODE_LABELS: Record<ScannerMode, string> = {
   [ScannerMode.INVENTORY_CREATE]: 'Inventory Create',
-  [ScannerMode.INVENTORY_AUDIT]: 'Inventory Audit',
   [ScannerMode.UPC_LOOKUP]: 'UPC Lookup',
   [ScannerMode.DRIVER_VERIFY_CONTAINERS]: 'Driver Verify Containers',
   [ScannerMode.CUSTOMER_RETURN_SCAN]: 'Customer Return Scan'

@@ -116,7 +116,6 @@ Scanner behavior after a scan is determined by **mode**, not by separate scanner
 Supported modes:
 
 * **Mode A — Inventory Add Stock (Receiving)**
-* **Mode B — Inventory Count / Audit**
 * **Mode C — Returns Intake (Driver / Warehouse)**
 * **Mode D — Pick / Pack Orders (optional, future)**
 
@@ -237,7 +236,7 @@ Routes must be updated when new fields are added.
 
 ### 8.1 Management
 
-* Uses Mode A and Mode B.
+* Uses Mode A.
 * UPC Registry maintenance uses the same scanner.
 * Operators may map UPCs to SKUs and edit deposit metadata.
 
@@ -262,7 +261,7 @@ Use these exact terms:
 
 * SKU (never “Product ID”)
 * UPC Registry (internal; UI label may differ)
-* Scanner Mode A/B/C/D
+* Scanner Mode A/C/D
 * Inventory Audit
 
 Forbidden drift terms:
