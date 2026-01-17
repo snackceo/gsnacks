@@ -6,6 +6,9 @@ const router = express.Router();
 const getGeminiApiKey = () =>
   process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
 
+const getVisionApiKey = () =>
+  process.env.GOOGLE_VISION_API_KEY || process.env.GOOGLE_API_KEY || '';
+
 const DEFAULT_MODELS = ['gemini-2.5-flash'];
 
 const getAllowedModels = () => {
@@ -43,6 +46,14 @@ const ensureGeminiReady = () => {
   const apiKey = getGeminiApiKey();
   if (!apiKey) {
     return { ok: false, error: 'Gemini API key not configured.' };
+  }
+  return { ok: true, apiKey };
+};
+
+const ensureVisionReady = () => {
+  const apiKey = getVisionApiKey();
+  if (!apiKey) {
+    return { ok: false, error: 'Cloud Vision API key not configured.' };
   }
   return { ok: true, apiKey };
 };
@@ -93,6 +104,118 @@ const normalizeUpc = value =>
   typeof value === 'string' || typeof value === 'number'
     ? String(value).replace(/\D/g, '')
     : '';
+
+const normalizeVisionText = text =>
+  typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : '';
+
+const parseLabelText = rawText => {
+  const text = typeof rawText === 'string' ? rawText : '';
+  if (!text) {
+    return {
+      upc: '',
+      brand: '',
+      sizeValue: 0,
+      sizeUnit: '',
+      snippet: ''
+    };
+  }
+
+  const normalizedText = text.replace(/\r/g, '');
+  const lines = normalizedText
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const upcMatches = normalizedText.match(/\b\d{12,14}\b/g) || [];
+  const upcCandidate =
+    upcMatches.find(code => code.length === 12 || code.length === 13) ||
+    upcMatches[0] ||
+    '';
+
+  const sizeMatch = normalizedText.match(
+    /\b(\d+(?:\.\d+)?)\s*(fl\s?oz|oz|ml|l|g|kg)\b/i
+  );
+  const sizeValue = sizeMatch ? Number(sizeMatch[1]) : 0;
+  const sizeUnit = sizeMatch ? normalizeSizeUnit(sizeMatch[2]) : '';
+
+  const bannedTokens = [
+    'nutrition facts',
+    'ingredients',
+    'serving',
+    'calories',
+    'distributed by',
+    'best by',
+    'keep refrigerated',
+    'barcode',
+    'www',
+    'http'
+  ];
+
+  const brandCandidate = lines.find(line => {
+    const lower = line.toLowerCase();
+    if (!/[a-zA-Z]/.test(line)) return false;
+    if (bannedTokens.some(token => lower.includes(token))) return false;
+    if (line.length < 3) return false;
+    const wordCount = line.split(/\s+/).length;
+    if (wordCount > 6) return false;
+    return true;
+  });
+
+  return {
+    upc: normalizeUpc(upcCandidate),
+    brand: brandCandidate || '',
+    sizeValue: Number.isFinite(sizeValue) ? sizeValue : 0,
+    sizeUnit,
+    snippet: normalizeVisionText(normalizedText).slice(0, 280)
+  };
+};
+
+const detectLabelText = async (imageData, mimeType) => {
+  const visionReady = ensureVisionReady();
+  if (!visionReady.ok) {
+    return {
+      ok: false,
+      error: visionReady.error,
+      text: ''
+    };
+  }
+
+  const url = new URL('https://vision.googleapis.com/v1/images:annotate');
+  url.searchParams.set('key', visionReady.apiKey);
+
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      requests: [
+        {
+          image: { content: imageData },
+          features: [{ type: 'TEXT_DETECTION', maxResults: 5 }],
+          imageContext: mimeType
+            ? { languageHints: ['en'], cropHintsParams: { aspectRatios: [] } }
+            : { languageHints: ['en'] }
+        }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    return {
+      ok: false,
+      error: `Vision API request failed (${response.status}): ${
+        detail || 'unknown error'
+      }`,
+      text: ''
+    };
+  }
+
+  const data = await response.json();
+  const annotations = data?.responses?.[0]?.textAnnotations || [];
+  const fullText = annotations?.[0]?.description || '';
+
+  return { ok: true, text: fullText };
+};
 
 const buildSearchQueries = ({ upc, brand, name }) => {
   const normalizedBrand = typeof brand === 'string' ? brand.trim() : '';
@@ -316,18 +439,45 @@ router.post('/product-scan', async (req, res) => {
     });
   }
 
-  const prompt = `For a product with UPC "${upc || 'unknown'}", extract metadata from this label image.
-Return JSON only: {"name":"", "brand":"", "productType":"", "category":"", "sizeOz":0, "sizeUnit":"oz|fl oz|g|kg|ml|l|", "quantity":0, "nutritionNote":"", "storageZone":"", "storageBin":"", "image":"", "containerType":"plastic|glass|aluminum|", "isEligible":true|false, "message":""}.
-Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, ml, l, or empty. "containerType" should be one of plastic, glass, aluminum, or empty. "isEligible" means Michigan 10¢ deposit eligible.`;
+  const base64Data = stripBase64ImagePrefix(image);
+  const imageData = typeof base64Data === 'string' ? base64Data : '';
+  if (!imageData || imageData.length < 32) {
+    return res.status(400).json({ message: 'Invalid photo data. Please retake.' });
+  }
+
+  let visionText = '';
+  let visionParsed = {
+    upc: '',
+    brand: '',
+    sizeValue: 0,
+    sizeUnit: '',
+    snippet: ''
+  };
 
   try {
-    const base64Data = stripBase64ImagePrefix(image);
-    const imageData = typeof base64Data === 'string' ? base64Data : '';
-    if (!imageData || imageData.length < 32) {
-      return res
-        .status(400)
-        .json({ message: 'Invalid photo data. Please retake.' });
+    const visionResult = await detectLabelText(imageData, mimeType);
+    if (visionResult.ok && visionResult.text) {
+      visionText = visionResult.text;
+      visionParsed = parseLabelText(visionText);
+    } else if (!visionResult.ok && visionResult.error) {
+      console.warn('Vision text detection unavailable:', visionResult.error);
     }
+  } catch (error) {
+    console.warn('Vision text detection failed.', error);
+  }
+
+  const resolvedUpc = normalizeUpc(upc) || visionParsed.upc || 'unknown';
+
+  const prompt = `For a product with UPC "${resolvedUpc}", extract metadata from this label image.
+Return JSON only: {"name":"", "brand":"", "productType":"", "category":"", "sizeOz":0, "sizeUnit":"oz|fl oz|g|kg|ml|l|", "quantity":0, "nutritionNote":"", "storageZone":"", "storageBin":"", "image":"", "containerType":"plastic|glass|aluminum|", "isEligible":true|false, "message":""}.
+Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, ml, l, or empty. "containerType" should be one of plastic, glass, aluminum, or empty. "isEligible" means Michigan 10¢ deposit eligible.
+OCR hints from Cloud Vision:
+- UPC: "${visionParsed.upc || ''}"
+- Brand: "${visionParsed.brand || ''}"
+  - Size: "${visionParsed.sizeValue || ''} ${visionParsed.sizeUnit || ''}"
+  - Text snippet: "${visionParsed.snippet || ''}"`;
+
+  try {
     console.info('Gemini product image data:', {
       type: typeof imageData,
       length: imageData.length
@@ -359,8 +509,8 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
         brand: '',
         productType: '',
         category: '',
-        sizeOz: 0,
-        sizeUnit: '',
+        sizeOz: Number(visionParsed.sizeValue || 0),
+        sizeUnit: visionParsed.sizeUnit,
         quantity: 0,
         nutritionNote: '',
         storageZone: '',
@@ -368,7 +518,13 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
         image: '',
         containerType: '',
         isEligible: false,
-        message: 'No analysis response returned.'
+        message: 'No analysis response returned.',
+        visionHints: {
+          upc: visionParsed.upc,
+          brand: visionParsed.brand,
+          sizeValue: visionParsed.sizeValue,
+          sizeUnit: visionParsed.sizeUnit
+        }
       });
     }
 
@@ -380,13 +536,19 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
     }
 
     if (parsed && typeof parsed === 'object') {
+      const fallbackBrand = visionParsed.brand;
+      const fallbackSizeUnit = visionParsed.sizeUnit;
+      const fallbackSizeValue = visionParsed.sizeValue;
       return res.json({
         name: String(parsed.name || ''),
-        brand: String(parsed.brand || ''),
+        brand: String(parsed.brand || fallbackBrand || ''),
         productType: String(parsed.productType || ''),
         category: String(parsed.category || ''),
-        sizeOz: normalizeNumber(parsed.sizeOz, 0),
-        sizeUnit: normalizeSizeUnit(parsed.sizeUnit),
+        sizeOz: normalizeNumber(
+          parsed.sizeOz,
+          Number(fallbackSizeValue || 0)
+        ),
+        sizeUnit: normalizeSizeUnit(parsed.sizeUnit || fallbackSizeUnit),
         quantity: Math.max(0, Math.round(normalizeNumber(parsed.quantity, 0))),
         nutritionNote: String(parsed.nutritionNote || ''),
         storageZone: String(parsed.storageZone || ''),
@@ -394,17 +556,23 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
         image: String(parsed.image || ''),
         containerType: normalizeContainerType(parsed.containerType),
         isEligible: Boolean(parsed.isEligible),
-        message: String(parsed.message || '')
+        message: String(parsed.message || ''),
+        visionHints: {
+          upc: visionParsed.upc,
+          brand: visionParsed.brand,
+          sizeValue: visionParsed.sizeValue,
+          sizeUnit: visionParsed.sizeUnit
+        }
       });
     }
 
     return res.json({
       name: '',
-      brand: '',
+      brand: visionParsed.brand,
       productType: '',
       category: '',
-      sizeOz: 0,
-      sizeUnit: '',
+      sizeOz: Number(visionParsed.sizeValue || 0),
+      sizeUnit: visionParsed.sizeUnit,
       quantity: 0,
       nutritionNote: '',
       storageZone: '',
@@ -412,17 +580,23 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
       image: '',
       containerType: '',
       isEligible: false,
-      message: rawText
+      message: rawText,
+      visionHints: {
+        upc: visionParsed.upc,
+        brand: visionParsed.brand,
+        sizeValue: visionParsed.sizeValue,
+        sizeUnit: visionParsed.sizeUnit
+      }
     });
   } catch (error) {
     console.error('Gemini product scan failed.', error);
     return res.status(502).json({
       name: '',
-      brand: '',
+      brand: visionParsed.brand,
       productType: '',
       category: '',
-      sizeOz: 0,
-      sizeUnit: '',
+      sizeOz: Number(visionParsed.sizeValue || 0),
+      sizeUnit: visionParsed.sizeUnit,
       quantity: 0,
       nutritionNote: '',
       storageZone: '',
@@ -432,7 +606,13 @@ Use empty string or 0 if unknown. "sizeUnit" should be one of oz, fl oz, g, kg, 
       isEligible: false,
       message: 'Product scan failed.',
       error: error?.message || 'Unknown error',
-      model: modelSelection.modelName
+      model: modelSelection.modelName,
+      visionHints: {
+        upc: visionParsed.upc,
+        brand: visionParsed.brand,
+        sizeValue: visionParsed.sizeValue,
+        sizeUnit: visionParsed.sizeUnit
+      }
     });
   }
 });
