@@ -1,4 +1,5 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 
 import UpcItem from '../models/UpcItem.js';
 import UpcLookupCache from '../models/UpcLookupCache.js';
@@ -27,6 +28,47 @@ const OFF_ENDPOINT = 'https://world.openfoodfacts.org/api/v2/product';
 const OFF_USER_AGENT =
   process.env.OFF_USER_AGENT ||
   'NinpoSnacksInventory/1.0 (contact: support@ninposnacks.com)';
+
+const OFF_COOLDOWN_WINDOW_MS = 5 * 60 * 1000;
+const OFF_COOLDOWN_THRESHOLD = 3;
+const OFF_COOLDOWN_MS = 60 * 1000;
+const offCooldownState = {
+  failureCount: 0,
+  lastFailureAt: 0,
+  cooldownUntil: 0
+};
+
+const offLookupLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      error: 'Too many UPC lookup requests. Please try again in a minute.'
+    });
+  }
+});
+
+const recordOffFailure = () => {
+  const now = Date.now();
+  if (now - offCooldownState.lastFailureAt > OFF_COOLDOWN_WINDOW_MS) {
+    offCooldownState.failureCount = 0;
+  }
+  offCooldownState.failureCount += 1;
+  offCooldownState.lastFailureAt = now;
+  if (offCooldownState.failureCount >= OFF_COOLDOWN_THRESHOLD) {
+    offCooldownState.cooldownUntil = now + OFF_COOLDOWN_MS;
+  }
+};
+
+const resetOffFailures = () => {
+  offCooldownState.failureCount = 0;
+  offCooldownState.lastFailureAt = 0;
+  offCooldownState.cooldownUntil = 0;
+};
+
+const isOffCooldownActive = () => Date.now() < offCooldownState.cooldownUntil;
 
 const buildEligibilityPayload = (entry, depositValue) => {
   const containerType =
@@ -144,12 +186,18 @@ router.post('/eligibility', async (req, res) => {
   }
 });
 
-router.get('/off/:code', authRequired, ownerRequired, async (req, res) => {
+router.get('/off/:code', offLookupLimiter, authRequired, ownerRequired, async (req, res) => {
   try {
     const code = normalizeBarcode(req.params.code);
     if (!code) return res.status(400).json({ error: 'code is required' });
     if (!isValidBarcode(code)) {
       return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: code });
+    }
+
+    if (isOffCooldownActive()) {
+      return res.status(503).json({
+        error: 'Open Food Facts lookup temporarily unavailable due to upstream issues.'
+      });
     }
 
     const cached = await UpcLookupCache.findOne({ code }).lean();
@@ -172,6 +220,9 @@ router.get('/off/:code', authRequired, ownerRequired, async (req, res) => {
     }
 
     if (!offResponse.ok) {
+      if (offResponse.status === 429 || offResponse.status >= 500) {
+        recordOffFailure();
+      }
       return res.status(502).json({ error: 'Open Food Facts lookup failed' });
     }
 
@@ -182,6 +233,7 @@ router.get('/off/:code', authRequired, ownerRequired, async (req, res) => {
       console.error('OFF LOOKUP: JSON PARSE ERROR:', jsonError);
       return res.status(502).json({ error: 'Failed to parse Open Food Facts response' });
     }
+    resetOffFailures();
     const found = Boolean(offData?.status === 1 && offData?.product);
     const payload = found
       ? {
