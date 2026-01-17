@@ -1,6 +1,7 @@
 import express from 'express';
 
 import UpcItem from '../models/UpcItem.js';
+import UpcLookupCache from '../models/UpcLookupCache.js';
 import { authRequired, ownerRequired } from '../utils/helpers.js';
 
 const router = express.Router();
@@ -21,6 +22,11 @@ const coerceNumber = value => {
 const MICHIGAN_DEPOSIT_VALUE = 0.1;
 
 const getMichiganDepositValue = async () => MICHIGAN_DEPOSIT_VALUE;
+const OFF_FIELDS = 'code,product_name,brands,quantity,image_url,categories,ingredients_text,nutriments';
+const OFF_ENDPOINT = 'https://world.openfoodfacts.org/api/v2/product';
+const OFF_USER_AGENT =
+  process.env.OFF_USER_AGENT ||
+  'NinpoSnacksInventory/1.0 (contact: support@ninposnacks.com)';
 
 const buildEligibilityPayload = (entry, depositValue) => {
   const containerType =
@@ -49,6 +55,24 @@ const normalizeUpcList = value => {
   return list
     .map(item => String(item || '').trim())
     .filter(Boolean);
+};
+
+const normalizeBarcode = value => String(value || '').replace(/\D/g, '');
+
+const mapOffProduct = product => {
+  const brands = String(product?.brands || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+  return {
+    name: product?.product_name || '',
+    brand: brands[0] || '',
+    imageUrl: product?.image_url || '',
+    quantity: product?.quantity || '',
+    categories: product?.categories || '',
+    ingredients: product?.ingredients_text || '',
+    nutriments: product?.nutriments || {}
+  };
 };
 
 const synchronizeContainerType = (updates) => {
@@ -103,6 +127,63 @@ router.post('/eligibility', async (req, res) => {
   } catch (err) {
     console.error('UPC ELIGIBILITY BULK ERROR:', err);
     return res.status(500).json({ error: 'Failed to check UPC eligibility' });
+  }
+});
+
+router.get('/off/:code', authRequired, ownerRequired, async (req, res) => {
+  try {
+    const code = normalizeBarcode(req.params.code);
+    if (!code) return res.status(400).json({ error: 'upc is required' });
+    if (!/^\d{8,14}$/.test(code)) {
+      return res.status(400).json({ error: 'Invalid barcode format' });
+    }
+
+    const cached = await UpcLookupCache.findOne({ code }).lean();
+    if (cached?.payload) {
+      return res.json({ ok: true, cached: true, ...cached.payload });
+    }
+
+    const url = `${OFF_ENDPOINT}/${encodeURIComponent(code)}?fields=${OFF_FIELDS}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    let offResponse;
+    try {
+      offResponse = await fetch(url, {
+        headers: { 'User-Agent': OFF_USER_AGENT },
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!offResponse.ok) {
+      return res.status(502).json({ error: 'Open Food Facts lookup failed' });
+    }
+
+    const offData = await offResponse.json().catch(() => null);
+    const found = Boolean(offData?.status === 1 && offData?.product);
+    const payload = found
+      ? {
+          found: true,
+          code,
+          product: mapOffProduct(offData.product)
+        }
+      : { found: false, code };
+
+    await UpcLookupCache.findOneAndUpdate(
+      { code },
+      { code, payload, fetchedAt: new Date() },
+      { upsert: true, setDefaultsOnInsert: true }
+    );
+
+    return res.json({ ok: true, ...payload });
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      return res.status(504).json({ error: 'Open Food Facts lookup timed out' });
+    }
+    console.error('OFF LOOKUP ERROR:', err);
+    return res.status(500).json({ error: 'Failed to lookup UPC' });
   }
 });
 

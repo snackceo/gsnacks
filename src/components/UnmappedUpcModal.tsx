@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { XCircle, Plus, Search, ScanLine, Loader2 } from 'lucide-react';
+import { XCircle, Plus, Search } from 'lucide-react';
 import { UnmappedUpcData, SizeUnit } from '../types';
 
 interface UnmappedUpcModalProps {
@@ -16,9 +16,7 @@ interface UnmappedUpcModalProps {
   }) => void;
   onAttachToExisting: (productId: string) => void;
   onClose: () => void;
-  onAnalyze: () => void;
   products: Array<{ id: string; name: string; sku?: string }>;
-  isAnalyzing: boolean;
 }
 
 const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
@@ -26,9 +24,7 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
   onCreateProduct,
   onAttachToExisting,
   onClose,
-  onAnalyze,
-  products,
-  isAnalyzing
+  products
 }) => {
   const [activeTab, setActiveTab] = useState<'create' | 'attach'>('create');
   const [createForm, setCreateForm] = useState({
@@ -215,14 +211,6 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
                 />
               </label>
             </div>
-            <button
-              onClick={onAnalyze}
-              disabled={isAnalyzing}
-              className="w-full py-4 bg-white/10 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3"
-            >
-              {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />}
-              Open Scanner for AI Capture (Optional)
-            </button>
             <button
               onClick={handleCreate}
               disabled={!createForm.name.trim()}

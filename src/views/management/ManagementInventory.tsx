@@ -22,16 +22,6 @@ interface ManagementInventoryProps {
   setScannedUpcForCreation: (upc: string) => void;
   upcDraft: UpcItem;
   setUpcDraft: (draft: UpcItem) => void;
-  labelScanPhoto: string | null;
-  setLabelScanPhoto: (photo: string | null) => void;
-  labelScanMime: string | null;
-  setLabelScanMime: (mime: string | null) => void;
-  labelScanResult: any;
-  setLabelScanResult: (result: any) => void;
-  labelScanError: string | null;
-  setLabelScanError: (error: string | null) => void;
-  isLabelScanning: boolean;
-  setIsLabelScanning: (scanning: boolean) => void;
   newProduct: any;
   setNewProduct: (product: any) => void;
   createError: string | null;
@@ -74,16 +64,6 @@ const ManagementInventory: React.FC<ManagementInventoryProps> = ({
   setScannedUpcForCreation,
   upcDraft,
   setUpcDraft,
-  labelScanPhoto,
-  setLabelScanPhoto,
-  labelScanMime,
-  setLabelScanMime,
-  labelScanResult,
-  setLabelScanResult,
-  labelScanError,
-  setLabelScanError,
-  isLabelScanning,
-  setIsLabelScanning,
   newProduct,
   setNewProduct,
   createError,
