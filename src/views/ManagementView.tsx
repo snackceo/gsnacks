@@ -66,10 +66,8 @@ import {
 } from 'recharts';
 import {
   getAdvancedInventoryInsights,
-  analyzeProductScan,
   getAvailableAuditModels,
-  getOperationsSummary,
-  type ProductScanResult
+  getOperationsSummary
 } from '../services/geminiService';
 
 const BACKEND_URL =
@@ -81,8 +79,7 @@ const UPC_CONTAINER_LABELS: Record<UpcContainerType, string> = {
   plastic: 'PLASTIC / BOTTLE'
 };
 const SIZE_UNIT_OPTIONS: SizeUnit[] = ['oz', 'fl oz', 'g', 'kg', 'ml', 'l'];
-const AI_ANALYSIS_FALLBACK_MESSAGE = 'AI analysis failed. Please retake the photo.';
-const INVALID_PHOTO_MESSAGE = 'Invalid photo data. Please retake.';
+const OFF_LOOKUP_FALLBACK_MESSAGE = 'Open Food Facts lookup failed. Please fill details manually.';
 const DEFAULT_NEW_PRODUCT = {
   id: '',
   name: '',
@@ -99,6 +96,69 @@ const DEFAULT_NEW_PRODUCT = {
   storageBin: '',
   image: '',
   isGlass: false
+};
+
+type OffLookupProduct = {
+  name?: string;
+  brand?: string;
+  imageUrl?: string;
+  quantity?: string;
+  categories?: string;
+  ingredients?: string;
+  nutriments?: Record<string, number | string>;
+};
+
+const parseOffQuantity = (quantity?: string) => {
+  if (!quantity) return null;
+  const match = String(quantity).match(/([\d.,]+)\s*([a-zA-Z]+(?:\s?[a-zA-Z]+)?)/);
+  if (!match) return null;
+  const value = Number(String(match[1]).replace(',', '.'));
+  if (!Number.isFinite(value)) return null;
+  const rawUnit = match[2].toLowerCase().replace(/\./g, '').trim();
+  const normalizedUnit =
+    rawUnit === 'oz' || rawUnit === 'ounce' || rawUnit === 'ounces'
+      ? 'oz'
+      : rawUnit === 'floz' || rawUnit === 'fl oz' || rawUnit === 'fluid oz'
+      ? 'fl oz'
+      : rawUnit === 'g' || rawUnit === 'gram' || rawUnit === 'grams'
+      ? 'g'
+      : rawUnit === 'kg' || rawUnit === 'kilogram' || rawUnit === 'kilograms'
+      ? 'kg'
+      : rawUnit === 'ml' || rawUnit === 'milliliter' || rawUnit === 'milliliters'
+      ? 'ml'
+      : rawUnit === 'l' || rawUnit === 'liter' || rawUnit === 'liters'
+      ? 'l'
+      : null;
+  if (!normalizedUnit) return null;
+  return { size: value, unit: normalizedUnit as SizeUnit };
+};
+
+const buildNutritionNoteFromOff = (ingredients?: string, nutriments?: OffLookupProduct['nutriments']) => {
+  const parts: string[] = [];
+  if (ingredients) {
+    parts.push(`Ingredients: ${ingredients}`);
+  }
+
+  if (nutriments) {
+    const keys: Array<[string, string]> = [
+      ['energy-kcal_100g', 'kcal'],
+      ['fat_100g', 'fat g'],
+      ['sugars_100g', 'sugars g'],
+      ['salt_100g', 'salt g']
+    ];
+    const nutritionBits = keys
+      .map(([key, label]) => {
+        const value = nutriments[key];
+        if (value === undefined || value === null || value === '') return null;
+        return `${label}: ${value}`;
+      })
+      .filter(Boolean);
+    if (nutritionBits.length > 0) {
+      parts.push(`Nutrition (per 100g): ${nutritionBits.join(', ')}`);
+    }
+  }
+
+  return parts.join(' • ');
 };
 
 interface ManagementViewProps {
@@ -171,50 +231,6 @@ const isNewSignupWithBonus = (user: User) => {
   if (!createdAt || Number.isNaN(createdAt.getTime())) return false;
   const ageMs = Date.now() - createdAt.getTime();
   return Number(user.loyaltyPoints || 0) >= 100 && ageMs < 24 * 60 * 60 * 1000;
-};
-
-const isLikelyJsonPayload = (value: string) => {
-  const trimmed = value.trim();
-  if (
-    !(
-      (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-      (trimmed.startsWith('[') && trimmed.endsWith(']'))
-    )
-  ) {
-    return false;
-  }
-  try {
-    JSON.parse(trimmed);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const sanitizeAiMessage = (message: string | null | undefined) => {
-  if (!message) return null;
-  const trimmed = message.trim();
-  const isLargePayload = trimmed.length > 240;
-  if (isLargePayload || isLikelyJsonPayload(trimmed)) {
-    return AI_ANALYSIS_FALLBACK_MESSAGE;
-  }
-  return trimmed;
-};
-
-const extractBase64FromDataUrl = (photoDataUrl: string) => {
-  if (!photoDataUrl.startsWith('data:') || !photoDataUrl.includes(';base64,')) {
-    return '';
-  }
-  const [, base64Data] = photoDataUrl.split(',', 2);
-  return base64Data?.replace(/\s+/g, '') ?? '';
-};
-
-const isValidPhotoDataUrl = (value: unknown): value is string => {
-  if (typeof value !== 'string') return false;
-  const normalized = value.replace(/\s+/g, '');
-  if (!normalized || !normalized.startsWith('data:image/')) return false;
-  const base64Data = extractBase64FromDataUrl(normalized);
-  return Boolean(base64Data);
 };
 
 const ManagementView: React.FC<ManagementViewProps> = ({
@@ -336,24 +352,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [newProduct, setNewProduct] = useState({ ...DEFAULT_NEW_PRODUCT });
-  const [labelScanPhoto, setLabelScanPhoto] = useState<string | null>(null);
-  const [labelScanMime, setLabelScanMime] = useState<string | null>(null);
-  const [lastValidLabelPhoto, setLastValidLabelPhoto] = useState<string | null>(null);
-  const [lastValidLabelMime, setLastValidLabelMime] = useState<string | null>(null);
-  const [labelScanResult, setLabelScanResult] = useState<ProductScanResult | null>(
-    null
-  );
-  const labelScanResultRef = useRef<ProductScanResult | null>(null);
-  const [labelScanError, setLabelScanError] = useState<string | null>(null);
-  const [isLabelScanning, setIsLabelScanning] = useState(false);
-  const sanitizedLabelScanError = useMemo(
-    () => sanitizeAiMessage(labelScanError),
-    [labelScanError]
-  );
-  const sanitizedLabelScanMessage = useMemo(
-    () => sanitizeAiMessage(labelScanResult?.message),
-    [labelScanResult?.message]
-  );
   const [inventorySort, setInventorySort] = useState<
     'alpha' | 'price' | 'brand' | 'type' | 'storage-zone' | 'storage-bin'
   >('alpha');
@@ -389,6 +387,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     sizeUnit: 'oz',
     isEligible: true
   });
+  const [offLookupStatus, setOffLookupStatus] = useState<
+    'idle' | 'loading' | 'found' | 'not_found' | 'error'
+  >('idle');
+  const [offLookupMessage, setOffLookupMessage] = useState('');
   const [isUpcLoading, setIsUpcLoading] = useState(false);
   const [isUpcSaving, setIsUpcSaving] = useState(false);
   const [upcError, setUpcError] = useState<string | null>(null);
@@ -396,27 +398,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     useState<ApprovalRequest['status']>('PENDING');
   const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (
-      labelScanError &&
-      sanitizedLabelScanError === AI_ANALYSIS_FALLBACK_MESSAGE
-    ) {
-      console.error('Label scan error details:', labelScanError);
-    }
-  }, [labelScanError, sanitizedLabelScanError]);
-
-  useEffect(() => {
-    if (
-      labelScanResult?.message &&
-      sanitizedLabelScanMessage === AI_ANALYSIS_FALLBACK_MESSAGE
-    ) {
-      console.error(
-        'Label scan result message details:',
-        labelScanResult.message
-      );
-    }
-  }, [labelScanResult?.message, sanitizedLabelScanMessage]);
 
   const chartData = useMemo(() => {
     return (orders || [])
@@ -483,6 +464,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const upcItemsRef = useRef<UpcItem[]>([]);
   const upcDepositRef = useRef<number>(0.1);
   const upcAudioContextRef = useRef<AudioContext | null>(null);
+  const offLookupRequestIdRef = useRef(0);
 
   const [auditTypeFilter, setAuditTypeFilter] = useState<'ALL' | AuditLogType>('ALL');
   const [auditActorFilter, setAuditActorFilter] = useState('');
@@ -1015,120 +997,13 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
-  const applyLabelScanToDrafts = (result: ProductScanResult) => {
-    const hasSignal =
-      Boolean(result.name) ||
-      Boolean(result.brand) ||
-      Boolean(result.productType) ||
-      Boolean(result.sizeUnit) ||
-      Boolean(result.category) ||
-      Boolean(result.nutritionNote) ||
-      Boolean(result.storageZone) ||
-      Boolean(result.storageBin) ||
-      Boolean(result.image) ||
-      Number(result.sizeOz) > 0 ||
-      Number(result.quantity) > 0 ||
-      Boolean(result.containerType);
-    if (!hasSignal) return;
-    const normalizedSizeUnit =
-      typeof result.sizeUnit === 'string' ? result.sizeUnit.trim().toLowerCase() : '';
-    const resolvedSizeUnit = SIZE_UNIT_OPTIONS.includes(
-      normalizedSizeUnit as SizeUnit
-    )
-      ? (normalizedSizeUnit as SizeUnit)
-      : undefined;
-    const normalizedContainerType =
-      typeof result.containerType === 'string'
-        ? result.containerType.trim().toLowerCase()
-        : '';
-    const resolvedContainerType =
-      normalizedContainerType === 'plastic' ||
-      normalizedContainerType === 'glass' ||
-      normalizedContainerType === 'aluminum'
-        ? (normalizedContainerType as UpcContainerType)
-        : undefined;
-    const resolvedIsGlass =
-      resolvedContainerType !== undefined
-        ? resolvedContainerType === 'glass'
-        : undefined;
-    setUpcDraft(prev => ({
-      ...prev,
-      name: result.name || prev.name,
-      sizeOz: Number.isFinite(result.sizeOz) ? result.sizeOz : prev.sizeOz,
-      sizeUnit: resolvedSizeUnit ?? prev.sizeUnit,
-      isEligible: result.isEligible,
-      containerType: resolvedContainerType ?? prev.containerType
-    }));
-    setNewProduct(prev => ({
-      ...prev,
-      name: result.name || prev.name,
-      brand: result.brand || prev.brand,
-      productType: result.productType || prev.productType,
-      category: result.category || prev.category,
-      nutritionNote: result.nutritionNote || prev.nutritionNote,
-      storageZone: result.storageZone || prev.storageZone,
-      storageBin: result.storageBin || prev.storageBin,
-      image: result.image || prev.image,
-      stock:
-        Number.isFinite(result.quantity) && result.quantity > 0
-          ? result.quantity
-          : prev.stock,
-      sizeOz: Number.isFinite(result.sizeOz) ? result.sizeOz : prev.sizeOz,
-      sizeUnit: resolvedSizeUnit ?? prev.sizeUnit,
-      isGlass: resolvedIsGlass ?? prev.isGlass
-    }));
-  };
-
-  const runLabelScan = async (photo = labelScanPhoto, mime = labelScanMime) => {
-    if (!photo) {
-      setLabelScanError('Capture a label photo in the scanner.');
-      return;
-    }
-    if (typeof photo !== 'string' || !photo.startsWith('data:image/')) {
-      console.error('Invalid photo data for label scan.', { photo });
-      setLabelScanError(INVALID_PHOTO_MESSAGE);
-      return;
-    }
-    if (!isValidPhotoDataUrl(photo)) {
-      console.error('Invalid photo data for label scan.', { photo });
-      setLabelScanError(INVALID_PHOTO_MESSAGE);
-      return;
-    }
-
-    setLabelScanPhoto(photo);
-    setLabelScanMime(typeof mime === 'string' ? mime : null);
-
-    if (!scannedUpcForCreation) {
-      setLabelScanError('Scan a product UPC to analyze the saved label photo.');
-      return;
-    }
-
-    setIsLabelScanning(true);
-    setLabelScanError(null);
-    const result = await analyzeProductScan(
-      photo,
-      scannedUpcForCreation,
-      typeof mime === 'string' ? mime : undefined
-    );
-    setLabelScanResult(result);
-    applyLabelScanToDrafts(result);
-    if (result.message && !result.name) {
-      setLabelScanError(result.message);
-    }
-    setIsLabelScanning(false);
-  };
-
   // ---- Inventory API ----
   const resetCreateForm = useCallback(() => {
     setNewProduct({ ...DEFAULT_NEW_PRODUCT });
     setScannedUpcForCreation('');
-    setLabelScanPhoto(null);
-    setLabelScanMime(null);
-    setLastValidLabelPhoto(null);
-    setLastValidLabelMime(null);
-    setLabelScanResult(null);
-    setLabelScanError(null);
     setCreateError(null);
+    setOffLookupStatus('idle');
+    setOffLookupMessage('');
   }, []);
 
   const handleCancelCreate = useCallback(() => {
@@ -1289,64 +1164,153 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
-  const handlePhotoCaptured = useCallback((photoDataUrl: unknown, mime: unknown) => {
-    if (typeof photoDataUrl !== 'string' || !photoDataUrl.startsWith('data:image/')) {
-      console.error('Invalid photo data captured from scanner.', { photoDataUrl });
-      setLabelScanError(INVALID_PHOTO_MESSAGE);
-      return;
-    }
-    if (!isValidPhotoDataUrl(photoDataUrl)) {
-      console.error('Invalid photo data captured from scanner.', { photoDataUrl });
-      setLabelScanError(INVALID_PHOTO_MESSAGE);
-      return;
-    }
-    setLabelScanPhoto(photoDataUrl);
-    setLabelScanMime(typeof mime === 'string' ? mime : null);
-    setLastValidLabelPhoto(photoDataUrl);
-    setLastValidLabelMime(typeof mime === 'string' ? mime : null);
-    setLabelScanResult(null);
-    void runLabelScan(photoDataUrl, typeof mime === 'string' ? mime : undefined);
-    setScannerModalOpen(false);
-  }, [runLabelScan, setScannerModalOpen]);
+  const shouldFillText = (current: string, next?: string) => {
+    const trimmed = current.trim();
+    if (trimmed) return current;
+    return next ? next : current;
+  };
 
-  const handleRerunLabelScan = useCallback(() => {
-    const fallbackPhoto = labelScanPhoto ?? lastValidLabelPhoto;
-    const fallbackMime =
-      labelScanPhoto != null ? labelScanMime : lastValidLabelMime;
-    if (!fallbackPhoto) {
-      setLabelScanError('No saved label photo available.');
-      return;
-    }
-    void runLabelScan(fallbackPhoto, fallbackMime ?? undefined);
-  }, [
-    labelScanPhoto,
-    labelScanMime,
-    lastValidLabelPhoto,
-    lastValidLabelMime,
-    runLabelScan
-  ]);
+  const shouldFillNumber = (current: number, next?: number) => {
+    if (Number.isFinite(current) && current > 0) return current;
+    if (Number.isFinite(next) && Number(next) > 0) return Number(next);
+    return current;
+  };
 
-  useEffect(() => {
-    labelScanResultRef.current = labelScanResult;
-  }, [labelScanResult]);
+  const applyLookupDrafts = useCallback(
+    (
+      lookupData: {
+        name?: string;
+        price?: number;
+        sizeOz?: number;
+        sizeUnit?: SizeUnit;
+        containerType?: UpcContainerType;
+        isEligible?: boolean;
+        depositValue?: number;
+      },
+      productData?: Partial<Product>
+    ) => {
+      setUpcDraft(prev => ({
+        ...prev,
+        name: shouldFillText(prev.name, lookupData.name),
+        price: shouldFillNumber(prev.price, lookupData.price),
+        sizeOz: shouldFillNumber(prev.sizeOz, lookupData.sizeOz),
+        sizeUnit:
+          !lookupData.sizeUnit ? prev.sizeUnit : lookupData.sizeUnit,
+        containerType: lookupData.containerType || prev.containerType,
+        isEligible: lookupData.isEligible ?? prev.isEligible,
+        depositValue:
+          Number.isFinite(prev.depositValue) && prev.depositValue > 0
+            ? prev.depositValue
+            : Number.isFinite(lookupData.depositValue)
+            ? Number(lookupData.depositValue)
+            : prev.depositValue
+      }));
 
-  useEffect(() => {
-    if (
-      scannedUpcForCreation &&
-      labelScanPhoto &&
-      !labelScanResult &&
-      !isLabelScanning
-    ) {
-      void runLabelScan(labelScanPhoto, labelScanMime ?? undefined);
-    }
-  }, [
-    scannedUpcForCreation,
-    labelScanPhoto,
-    labelScanMime,
-    labelScanResult,
-    isLabelScanning,
-    runLabelScan
-  ]);
+      if (!productData && !lookupData) return;
+
+      setNewProduct(prev => {
+        const resolvedContainerType = lookupData.containerType;
+        const resolvedIsGlass =
+          resolvedContainerType === 'glass' ? true : resolvedContainerType ? false : undefined;
+        return {
+          ...prev,
+          name: shouldFillText(prev.name, productData?.name || lookupData.name),
+          brand: shouldFillText(prev.brand, productData?.brand),
+          productType: shouldFillText(prev.productType, productData?.productType),
+          nutritionNote: shouldFillText(prev.nutritionNote, productData?.nutritionNote),
+          storageZone: shouldFillText(prev.storageZone, productData?.storageZone),
+          storageBin: shouldFillText(prev.storageBin, productData?.storageBin),
+          image: shouldFillText(prev.image, productData?.image),
+          stock: shouldFillNumber(prev.stock, productData?.stock),
+          price: shouldFillNumber(prev.price, productData?.price),
+          sizeOz: shouldFillNumber(
+            prev.sizeOz,
+            productData?.sizeOz || lookupData.sizeOz
+          ),
+          sizeUnit:
+            !lookupData.sizeUnit
+              ? prev.sizeUnit
+              : lookupData.sizeUnit,
+          isGlass:
+            resolvedIsGlass === undefined
+              ? prev.isGlass
+              : prev.isGlass || resolvedIsGlass
+        };
+      });
+    },
+    [setNewProduct, setUpcDraft]
+  );
+
+  const applyOffLookup = useCallback(
+    (payload: OffLookupProduct) => {
+      if (!payload) return;
+      const quantityParsed = parseOffQuantity(payload.quantity);
+      const category = payload.categories
+        ? String(payload.categories).split(',')[0]?.trim()
+        : '';
+      const nutritionNote = buildNutritionNoteFromOff(
+        payload.ingredients,
+        payload.nutriments
+      );
+
+      applyLookupDrafts(
+        {
+          name: payload.name,
+          sizeOz: quantityParsed?.size,
+          sizeUnit: quantityParsed?.unit,
+          price: undefined,
+          depositValue: undefined,
+          isEligible: undefined,
+          containerType: undefined
+        },
+        {
+          name: payload.name || '',
+          brand: payload.brand || '',
+          image: payload.imageUrl || '',
+          productType: category || '',
+          nutritionNote
+        }
+      );
+    },
+    [applyLookupDrafts]
+  );
+
+  const fetchOffLookup = useCallback(
+    async (upc: string) => {
+      const normalized = String(upc || '').replace(/\D/g, '').trim();
+      if (!normalized) return;
+
+      const requestId = offLookupRequestIdRef.current + 1;
+      offLookupRequestIdRef.current = requestId;
+      setOffLookupStatus('loading');
+      setOffLookupMessage('Fetching product info…');
+
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/upc/off/${normalized}`, {
+          credentials: 'include'
+        });
+        const data = await res.json().catch(() => ({}));
+        if (offLookupRequestIdRef.current !== requestId) return;
+
+        if (!res.ok) throw new Error(data?.error || 'Lookup failed');
+
+        if (!data?.found) {
+          setOffLookupStatus('not_found');
+          setOffLookupMessage('Not found in OFF—enter details manually');
+          return;
+        }
+
+        applyOffLookup(data.product);
+        setOffLookupStatus('found');
+        setOffLookupMessage('Auto-filled from Open Food Facts (editable).');
+      } catch (e) {
+        if (offLookupRequestIdRef.current !== requestId) return;
+        setOffLookupStatus('error');
+        setOffLookupMessage(OFF_LOOKUP_FALLBACK_MESSAGE);
+      }
+    },
+    [applyOffLookup]
+  );
 
   const handleScannerScan = useCallback(async (upc: string) => {
     if (scannerMode === ScannerMode.INVENTORY_CREATE) {
@@ -1357,124 +1321,15 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       // Set authoritative creation UPC
       setScannedUpcForCreation(normalized);
       upcLastScannedRef.current = normalized;
+      setOffLookupStatus('idle');
+      setOffLookupMessage('');
 
       // Keep existing fields in sync for registry/inventory UI
       setUpcInput(normalized);
       setUpcDraft(prev => ({ ...prev, upc: normalized }));
 
       // Photo is captured manually via button
-      const currentLabelScanResult = labelScanResultRef.current;
-      const labelScanFlags = {
-        name: Boolean(currentLabelScanResult?.name),
-        brand: Boolean(currentLabelScanResult?.brand),
-        productType: Boolean(currentLabelScanResult?.productType),
-        nutritionNote: Boolean(currentLabelScanResult?.nutritionNote),
-        storageZone: Boolean(currentLabelScanResult?.storageZone),
-        storageBin: Boolean(currentLabelScanResult?.storageBin),
-        image: Boolean(currentLabelScanResult?.image),
-        sizeOz: Number(currentLabelScanResult?.sizeOz || 0) > 0,
-        quantity: Number(currentLabelScanResult?.quantity || 0) > 0,
-        containerType: Boolean(currentLabelScanResult?.containerType),
-        isEligible: typeof currentLabelScanResult?.isEligible === 'boolean'
-      };
-
-      const shouldFillText = (current: string, next?: string, locked = false) => {
-        if (locked) return current;
-        const trimmed = current.trim();
-        if (trimmed) return current;
-        return next ? next : current;
-      };
-
-      const shouldFillNumber = (current: number, next?: number, locked = false) => {
-        if (locked) return current;
-        if (Number.isFinite(current) && current > 0) return current;
-        if (Number.isFinite(next) && Number(next) > 0) return Number(next);
-        return current;
-      };
-
-      const applyLookupDrafts = (
-        lookupData: {
-          name?: string;
-          price?: number;
-          sizeOz?: number;
-          containerType?: UpcContainerType;
-          isEligible?: boolean;
-          depositValue?: number;
-        },
-        productData?: Partial<Product>
-      ) => {
-        setUpcDraft(prev => ({
-          ...prev,
-          name: shouldFillText(prev.name, lookupData.name, labelScanFlags.name),
-          price: shouldFillNumber(prev.price, lookupData.price, false),
-          sizeOz: shouldFillNumber(prev.sizeOz, lookupData.sizeOz, labelScanFlags.sizeOz),
-          containerType: labelScanFlags.containerType
-            ? prev.containerType
-            : lookupData.containerType || prev.containerType,
-          isEligible: labelScanFlags.isEligible
-            ? prev.isEligible
-            : lookupData.isEligible ?? prev.isEligible,
-          depositValue:
-            Number.isFinite(prev.depositValue) && prev.depositValue > 0
-              ? prev.depositValue
-              : Number.isFinite(lookupData.depositValue)
-              ? Number(lookupData.depositValue)
-              : prev.depositValue
-        }));
-
-        if (!productData && !lookupData) return;
-
-        setNewProduct(prev => {
-          const resolvedContainerType = lookupData.containerType;
-          const resolvedIsGlass =
-            resolvedContainerType === 'glass' ? true : resolvedContainerType ? false : undefined;
-          return {
-            ...prev,
-            name: shouldFillText(
-              prev.name,
-              productData?.name || lookupData.name,
-              labelScanFlags.name
-            ),
-            brand: shouldFillText(prev.brand, productData?.brand, labelScanFlags.brand),
-            productType: shouldFillText(
-              prev.productType,
-              productData?.productType,
-              labelScanFlags.productType
-            ),
-            nutritionNote: shouldFillText(
-              prev.nutritionNote,
-              productData?.nutritionNote,
-              labelScanFlags.nutritionNote
-            ),
-            storageZone: shouldFillText(
-              prev.storageZone,
-              productData?.storageZone,
-              labelScanFlags.storageZone
-            ),
-            storageBin: shouldFillText(
-              prev.storageBin,
-              productData?.storageBin,
-              labelScanFlags.storageBin
-            ),
-            image: shouldFillText(prev.image, productData?.image, labelScanFlags.image),
-            stock: shouldFillNumber(
-              prev.stock,
-              productData?.stock,
-              labelScanFlags.quantity
-            ),
-            price: shouldFillNumber(prev.price, productData?.price, false),
-            sizeOz: shouldFillNumber(
-              prev.sizeOz,
-              productData?.sizeOz || lookupData.sizeOz,
-              labelScanFlags.sizeOz
-            ),
-            isGlass:
-              resolvedIsGlass === undefined || labelScanFlags.containerType
-                ? prev.isGlass
-                : prev.isGlass || resolvedIsGlass
-          };
-        });
-      };
+      void fetchOffLookup(normalized);
 
       try {
         const scanRes = await fetch(`${BACKEND_URL}/api/upc/scan`, {
@@ -1534,12 +1389,24 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   }, [
     scannerMode,
+    fetchOffLookup,
     setScannedUpcForCreation,
     setUpcInput,
     setUpcDraft,
     setNewProduct,
-    handleUpcLookup
+    handleUpcLookup,
+    applyLookupDrafts
   ]);
+
+  const handleManualUpcChange = useCallback((value: string) => {
+    const normalized = String(value || '').replace(/\D/g, '').trim();
+    setScannedUpcForCreation(normalized);
+    upcLastScannedRef.current = normalized;
+    setUpcInput(normalized);
+    setUpcDraft(prev => ({ ...prev, upc: normalized }));
+    setOffLookupStatus('idle');
+    setOffLookupMessage('');
+  }, [setScannedUpcForCreation, setUpcInput, setUpcDraft]);
 
   const startEditProduct = (product: Product) => {
     setEditError(null);
@@ -2047,16 +1914,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             setScannedUpcForCreation={setScannedUpcForCreation}
             upcDraft={upcDraft}
             setUpcDraft={setUpcDraft}
-            labelScanPhoto={labelScanPhoto}
-            setLabelScanPhoto={setLabelScanPhoto}
-            labelScanMime={labelScanMime}
-            setLabelScanMime={setLabelScanMime}
-            labelScanResult={labelScanResult}
-            setLabelScanResult={setLabelScanResult}
-            labelScanError={labelScanError}
-            setLabelScanError={setLabelScanError}
-            isLabelScanning={isLabelScanning}
-            setIsLabelScanning={setIsLabelScanning}
             newProduct={newProduct}
             setNewProduct={setNewProduct}
             createError={createError}
@@ -3511,28 +3368,61 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                       mode={ScannerMode.INVENTORY_CREATE}
                       onScan={handleScannerScan}
                       title="Guided Product Intake"
-                      subtitle="Scan UPCs and capture label photos in the scanner so AI can prefill details for verification."
+                      subtitle="Scan UPCs to auto-fill details from Open Food Facts for verification."
                       beepEnabled={settings.beepEnabled ?? true}
                       cooldownMs={settings.cooldownMs ?? 1000}
-                      onPhotoCaptured={handlePhotoCaptured}
                       className="bg-black/30 border-white/10"
                     />
                   )}
 
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                    Scanned UPC: <span className="text-white">{scannedUpcForCreation || 'No UPC scanned'}</span>
-                  </div>
-
-                  {sanitizedLabelScanError && (
-                    <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
-                      {sanitizedLabelScanError}
+                  <div className="space-y-2">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      Scanned UPC: <span className="text-white">{scannedUpcForCreation || 'No UPC scanned'}</span>
                     </div>
-                  )}
+                    <div className="flex flex-col md:flex-row md:items-end gap-2">
+                      <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 flex-1">
+                        <span>UPC (editable)</span>
+                        <input
+                          className="bg-black/40 border border-white/10 rounded-2xl p-3 text-sm text-white w-full"
+                          placeholder="Scan or type UPC"
+                          value={scannedUpcForCreation}
+                          onChange={e => handleManualUpcChange(e.target.value)}
+                        />
+                      </label>
+                      <button
+                        onClick={() => {
+                          if (scannedUpcForCreation) {
+                            void fetchOffLookup(scannedUpcForCreation);
+                          }
+                        }}
+                        disabled={!scannedUpcForCreation || offLookupStatus === 'loading'}
+                        className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {offLookupStatus === 'loading' ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <ScanLine className="w-4 h-4" />
+                        )}
+                        Lookup OFF
+                      </button>
+                      <button
+                        onClick={() => setIsScannerOpen(true)}
+                        className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                      >
+                        <ScanLine className="w-4 h-4" />
+                        Rescan
+                      </button>
+                    </div>
+                    {offLookupMessage && (
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        {offLookupMessage}
+                      </div>
+                    )}
+                  </div>
 
                   <div className="flex flex-col md:flex-row gap-4 items-center">
                     <div className="flex-1 text-[10px] text-slate-500 uppercase tracking-widest">
-                      Step 1: Tap <span className="text-white">Photo</span> in the scanner to capture brand, size, and
-                      nutrition panels. Step 2: Scan the UPC to run AI analysis. Step 3: Review and edit below before
+                      Scan a UPC to auto-fill product details from Open Food Facts, then review and edit before
                       creating.
                     </div>
                   </div>
@@ -3547,28 +3437,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                           <p className="text-[10px] text-slate-500 uppercase tracking-widest">
                             Storage zone/bin describe where the item sits (e.g., Fridge / Shelf A).
                           </p>
-                          {sanitizedLabelScanMessage && (
-                            <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-2">
-                              {sanitizedLabelScanMessage}
-                            </p>
-                          )}
                         </div>
-                        <button
-                          onClick={handleRerunLabelScan}
-                          disabled={
-                            isLabelScanning ||
-                            (!labelScanPhoto && !lastValidLabelPhoto) ||
-                            !scannedUpcForCreation
-                          }
-                          className="px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          {isLabelScanning ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <ScanLine className="w-4 h-4" />
-                          )}
-                          Re-run AI Analysis
-                        </button>
                       </div>
 
                       {createError && (
@@ -4210,12 +4079,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           key={unmappedUpcPayload.upc}
           data={unmappedUpcPayload}
           products={products}
-          isAnalyzing={isLabelScanning}
           onClose={() => setUnmappedUpcModalOpen(false)}
-          onAnalyze={() => {
-            setScannerMode(ScannerMode.INVENTORY_CREATE);
-            setScannerModalOpen(!isInlineInventoryScanner);
-          }}
           onCreateProduct={async productData => {
             setNewProduct(prev => ({ ...prev, ...productData }));
             setUpcDraft(prev => ({
@@ -4248,7 +4112,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           'Scan'
         }
         subtitle={
-          scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan UPC and capture photo for AI analysis' :
+          scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan UPC to auto-fill product details' :
           scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC to lookup or edit registry entry' :
           scannerMode === ScannerMode.INVENTORY_AUDIT ? 'Scan UPC to count inventory' :
           'Scan barcode'
@@ -4256,7 +4120,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         beepEnabled={settings.beepEnabled ?? true}
         cooldownMs={settings.cooldownMs ?? 1000}
         isOpen={scannerModalOpen}
-        onPhotoCaptured={scannerMode === ScannerMode.INVENTORY_CREATE ? handlePhotoCaptured : undefined}
         closeOnScan={false}
         manualStart={scannerMode === ScannerMode.INVENTORY_CREATE}
       />
