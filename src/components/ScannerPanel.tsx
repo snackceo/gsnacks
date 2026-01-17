@@ -294,6 +294,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         videoRef.current.srcObject = stream;
         try {
           await videoRef.current.play();
+          setIsScanning(true);
         } catch {
           setScannerError('Camera failed to start. Tap Retry.');
           setScannerHint('On mobile Chrome, tap once to grant permission or retry after allowing camera access.');
@@ -303,7 +304,6 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
           videoTrackRef.current = null;
           return;
         }
-        setIsScanning(true);
       } else {
         setScannerError('Camera failed to start. Tap Retry.');
         setScannerHint('On mobile Chrome, tap once to grant permission or retry after allowing camera access.');
@@ -449,7 +449,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
             }`}
             title={torchSupported ? (torchOn ? 'Turn off torch' : 'Turn on torch') : 'Torch not supported'}
           >
-            {torchOn ? <FlashlightOff className="w-4 h-4" /> : <Flashlight className="w-4 h-4" />} 
+            {torchOn ? <FlashlightOff className="w-4 h-4" /> : <Flashlight className="w-4 h-4" />}
           </button>
           {showClose && onClose ? (
             <button
@@ -469,7 +469,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
           <div className="absolute text-center px-8 flex flex-col items-center gap-3">
             <Camera className="w-8 h-8 text-slate-600 mx-auto mb-3" />
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-              {scannerError ? 'Scanner unavailable' : manualStart ? 'Press Start to begin scanning' : 'Initializing camera...'}
+              {scannerError ?? (manualStart ? 'Press Start to begin scanning' : 'Initializing camera...')}
             </p>
 
             <button
