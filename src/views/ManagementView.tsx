@@ -3413,6 +3413,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         Clear UPC
                       </button>
                     </div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Tip: Use Clear UPC to restart without reopening the scanner.
+                    </div>
                     {offLookupMessage && (
                       <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                         {offLookupMessage}
