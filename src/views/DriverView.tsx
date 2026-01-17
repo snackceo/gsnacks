@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import ScannerModal from '../components/ScannerModal';
 import DriverVerificationDelivery from './DriverVerificationDelivery';
+import { useNinpoCore } from '../hooks/useNinpoCore';
 
 const BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -79,6 +80,7 @@ function money(n: any) {
 const UPC_ELIGIBILITY_TTL_MS = 1 * 60 * 60 * 1000; // 1 hour
 
 const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrder }) => {
+  const { addToast } = useNinpoCore();
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -97,6 +99,8 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [lastBlockedUpc, setLastBlockedUpc] = useState<string | null>(null);
+  const [lastBlockedReason, setLastBlockedReason] = useState<'cooldown' | 'duplicate' | null>(null);
   const [pendingDuplicateScan, setPendingDuplicateScan] = useState<DuplicateScanPrompt | null>(null);
   const [scanEvents, setScanEvents] = useState<ScanEventLogEntry[]>([]);
   const [quantityEvents, setQuantityEvents] = useState<QuantityChangeLogEntry[]>([]);
@@ -536,6 +540,8 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   };
 
   const handleScannerScan = async (upc: string, qty = 1) => {
+    setLastBlockedUpc(null);
+    setLastBlockedReason(null);
     if (scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS) {
       await addVerificationScan(upc, 'scanner');
     } else {
@@ -1142,10 +1148,35 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
           ))}
         </div>
 
+        {lastBlockedUpc && lastBlockedReason === 'duplicate' && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleScannerScan(lastBlockedUpc)}
+              className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-white/10"
+            >
+              Add anyway
+            </button>
+          </div>
+        )}
+
         <ScannerModal
           mode={scannerMode}
           onScan={handleScannerScan}
-          onClose={() => setScannerOpen(false)}
+          onClose={() => {
+            setScannerOpen(false);
+            setLastBlockedUpc(null);
+            setLastBlockedReason(null);
+          }}
+          onCooldown={(upc, reason) => {
+            addToast('Same UPC — tap to add again', 'info');
+            if (reason === 'duplicate') {
+              setLastBlockedUpc(upc);
+              setLastBlockedReason(reason);
+            } else {
+              setLastBlockedUpc(null);
+              setLastBlockedReason(reason);
+            }
+          }}
           title={driverScannerTitle}
           subtitle={driverScannerSubtitle}
           beepEnabled

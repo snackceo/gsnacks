@@ -14,6 +14,7 @@ import { ScannerMode } from '../types';
 interface ScannerPanelProps {
   mode?: ScannerMode;
   onScan: (upc: string) => void;
+  onCooldown?: (upc: string, reason: 'cooldown' | 'duplicate') => void;
   title: string;
   subtitle: string;
   beepEnabled?: boolean;
@@ -69,6 +70,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const audioContextRef = useRef<AudioContext | null>(null);
   const onScanRef = useRef<ScannerPanelProps['onScan']>(onScan);
   const onCloseRef = useRef<ScannerPanelProps['onClose']>(onClose);
+  const onCooldownRef = useRef<ScannerPanelProps['onCooldown']>(undefined);
   const closeOnScanRef = useRef<boolean>(closeOnScan);
   const beepEnabledRef = useRef<boolean>(beepEnabled);
   const cooldownMsRef = useRef<number>(cooldownMs);
@@ -99,10 +101,11 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   useEffect(() => {
     onScanRef.current = onScan;
     onCloseRef.current = onClose;
+    onCooldownRef.current = onCooldown;
     closeOnScanRef.current = closeOnScan;
     beepEnabledRef.current = beepEnabled;
     cooldownMsRef.current = cooldownMs;
-  }, [beepEnabled, closeOnScan, cooldownMs, onClose, onScan]);
+  }, [beepEnabled, closeOnScan, cooldownMs, onClose, onCooldown, onScan]);
 
   const playBeep = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -135,10 +138,14 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
       const cooldownMsValue = cooldownMsRef.current;
 
       // Global cooldown
-      if (now - lastAcceptAtRef.current < cooldownMsValue) return;
+      if (now - lastAcceptAtRef.current < cooldownMsValue) {
+        onCooldownRef.current?.(upc, 'cooldown');
+        return;
+      }
 
       // Prevent immediately re-accepting the exact same code even if timing jitter occurs
       if (lastAcceptedCodeRef.current === upc && now - lastAcceptAtRef.current < Math.max(600, cooldownMsValue)) {
+        onCooldownRef.current?.(upc, 'duplicate');
         return;
       }
 
