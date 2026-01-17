@@ -3409,7 +3409,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         onClick={() => handleManualUpcChange('')}
                         className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
                       >
-                        <ScanLine className="w-4 h-4" />
+                        <X className="w-4 h-4" />
                         Clear UPC
                       </button>
                     </div>
