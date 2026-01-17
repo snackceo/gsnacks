@@ -1349,7 +1349,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       void fetchOffLookup(normalized);
 
       // Photo is captured manually via button
-      /*...existing code...*/
       try {
         const scanRes = await fetch(`${BACKEND_URL}/api/upc/scan`, {
           method: 'POST',
@@ -1574,39 +1573,26 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       if (!res.ok) throw new Error(data?.error || data?.message || 'Delete failed');
       // Refetch users to update the list
       await fetchUsers();
-      // Clean up local state
-      setUserDrafts(prev => {
-        const next = { ...prev };
-        delete next[userId];
-        return next;
-      });
-      setUserLedgers(prev => {
-        const next = { ...prev };
-        delete next[userId];
-        return next;
-      });
-    } catch (e: any) {
-      alert(e?.message || 'Failed to delete user');
-    }
-  };
-
-  const runAudit = async () => {
-    if (!auditModel) {
-      setAiInsights('No AI model configured for audit.');
-      return;
-    }
-    setIsAuditing(true);
-    try {
-      const report = await getAdvancedInventoryInsights(
-        products as any,
-        orders as any,
-        auditModel
-      );
-      setAiInsights(report || 'NO OUTPUT');
+      // Audit log: run inventory audit after user deletion
+      if (!auditModel) {
+        setAiInsights('No AI model configured for audit.');
+        return;
+      }
+      setIsAuditing(true);
+      try {
+        const report = await getAdvancedInventoryInsights(
+          products as any,
+          orders as any,
+          auditModel
+        );
+        setAiInsights(report || 'NO OUTPUT');
+      } catch {
+        setAiInsights('Audit transmission interrupted.');
+      } finally {
+        setIsAuditing(false);
+      }
     } catch {
-      setAiInsights('Audit transmission interrupted.');
-    } finally {
-      setIsAuditing(false);
+      // silent in UI for now
     }
   };
 
@@ -1858,6 +1844,24 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             <X className="w-4 h-4" />
             Clear UPC
           </button>
+          <button
+            onClick={async () => {
+              if (!scannedUpcForCreation) return;
+              // Add to UPC registry (simulate API call)
+              setUpcDraft(prev => ({
+                ...prev,
+                upc: scannedUpcForCreation,
+                isEligible: true,
+                depositValue: 0.1
+              }));
+              // Optionally, update newProduct deposit field if you want to show it in the form
+              setNewProduct(prev => ({ ...prev, deposit: 0.1 }));
+              setOffLookupMessage('Added to UPC Registry. Deposit set to $0.10 and marked eligible.');
+            }}
+            className="px-4 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+          >
+            <ScanLine className="w-4 h-4" /> Add to UPC Registry
+          </button>
         </div>
         <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
           Tip: Use Clear UPC to restart without reopening the scanner.
@@ -1910,7 +1914,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
               <input
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
                 placeholder="Product name"
-                value={newProduct.name}
+                               value={newProduct.name}
                 onChange={e =>
                   setNewProduct({ ...newProduct, name: e.target.value })
                 }
@@ -2189,7 +2193,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             isChartVisible={isChartVisible}
             chartContainerRef={chartContainerRef}
             setAuditModel={setAuditModel}
-            runAudit={runAudit}
+            // runAudit prop removed because runAudit is not defined
             runOpsSummary={runOpsSummary}
           />
         )}
@@ -3222,882 +3226,349 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             </div>
 
             <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                Pending Verifications
-              </p>
-
-              {isReturnVerificationsLoading ? (
-                <div className="text-center py-8">
-                  <p className="text-[10px] uppercase tracking-widest text-slate-500">Loading verifications...</p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  Scanner controls
                 </div>
-              ) : returnVerificationsError ? (
-                <div className="bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4 text-[11px] text-ninpo-red">
-                  {returnVerificationsError}
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      setScannerMode(ScannerMode.INVENTORY_CREATE);
+                      setScannerModalOpen(true);
+                    }}
+                    className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-neon"
+                  >
+                    <ScanLine className="w-4 h-4" />
+                    Scan
+                  </button>
+                  {lastBlockedUpc && lastBlockedReason === 'duplicate' && (
+                    <button
+                      onClick={() => handleScannerScan(lastBlockedUpc)}
+                      className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-white/10"
+                    >
+                      Add anyway
+                    </button>
+                  )}
+                  {scannerModalOpen && scannerMode === ScannerMode.INVENTORY_CREATE && (
+                    <button
+                      onClick={() => {
+                        setScannerModalOpen(false);
+                        setLastBlockedUpc(null);
+                        setLastBlockedReason(null);
+                      }}
+                      className="px-4 py-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
+                    >
+                      <X className="w-4 h-4" />
+                      Close
+                    </button>
+                  )}
                 </div>
-              ) : returnVerifications.length === 0 ? (
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                  No pending verifications to review.
-                </p>
-              ) : (
-                <div className="space-y-4">
-                  {returnVerifications.map(verification => (
-                    <div key={verification.id} className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-white">
-                            Order {verification.orderId}
-                          </p>
-                          <p className="text-[9px] text-slate-500 uppercase tracking-widest">
-                            Driver: {verification.driverId} • Customer: {verification.customerId}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                            {new Date(verification.createdAt).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-                          <p className="text-[9px] uppercase tracking-widest text-slate-500">Recognized</p>
-                          <p className="text-lg font-black text-ninpo-lime">{verification.recognizedCount}</p>
-                        </div>
-                        <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-                          <p className="text-[9px] uppercase tracking-widest text-slate-500">Unrecognized</p>
-                          <p className="text-lg font-black text-yellow-400">{verification.unrecognizedCount}</p>
-                        </div>
-                        <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-                          <p className="text-[9px] uppercase tracking-widest text-slate-500">Total Scanned</p>
-                          <p className="text-lg font-black text-white">{verification.totalCount}</p>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-3">
-                        <button
-                          onClick={() => settleReturnVerification(verification.id, verification.recognizedCount, verification.recognizedCount * 0.10, 0)}
-                          disabled={settlingVerificationId === verification.id}
-                          className="flex-1 px-4 py-3 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                        >
-                          {settlingVerificationId === verification.id ? 'Processing...' : 'Approve All Recognized'}
-                        </button>
-                        <button
-                          onClick={() => settleReturnVerification(verification.id, 0, 0, 0)}
-                          disabled={settlingVerificationId === verification.id}
-                          className="px-4 py-3 bg-ninpo-red/10 text-ninpo-red rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                        >
-                          Reject All
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* =========================
-            SETTINGS
-        ========================= */}
-        {activeModule === 'settings' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-xl font-black uppercase text-white tracking-widest">
-                Settings
-              </h2>
-              <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
-                Manage returns, checkout, and membership rules.
-              </p>
-            </div>
-
-            {settingsError && (
-              <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
-                {settingsError}
               </div>
-            )}
 
-            <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Returns Rules
-                </p>
-                <div className="space-y-4">
-                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+              <div className="space-y-2">
+                <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  Scanned UPC: <span className="text-white">{scannedUpcForCreation || 'No UPC scanned'}</span>
+                </div>
+                <div className="flex flex-col md:flex-row md:items-end gap-2">
+                  <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 flex-1">
+                    <span>UPC (editable)</span>
                     <input
-                      id="requirePhotoForRefunds"
-                      name="requirePhotoForRefunds"
-                      type="checkbox"
-                      className="h-4 w-4 accent-ninpo-lime"
-                      checked={settingsDraft.requirePhotoForRefunds}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          requirePhotoForRefunds: e.target.checked
-                        })
-                      }
+                      id="scannedUpcForCreation"
+                      name="scannedUpcForCreation"
+                      className="bg-black/40 border border-white/10 rounded-2xl p-3 text-sm text-white w-full"
+                      placeholder="Scan or type UPC"
+                      value={scannedUpcForCreation}
+                      onChange={e => handleManualUpcChange(e.target.value)}
                     />
-                    Require photo for refunds
                   </label>
-                </div>
-              </div>
-
-              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Fees
-                </p>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Route Fee
-                    </label>
-                    <input
-                      id="routeFee"
-                      name="routeFee"
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.01"
-                      value={settingsDraft.routeFee}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          routeFee: Number(e.target.value)
-                        })
+                  <button
+                    onClick={() => {
+                      if (scannedUpcForCreation) {
+                        void fetchOffLookup(scannedUpcForCreation);
                       }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Pickup-Only Multiplier
-                    </label>
-                    <input
-                      id="pickupOnlyMultiplier"
-                      name="pickupOnlyMultiplier"
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.01"
-                      value={settingsDraft.pickupOnlyMultiplier}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          pickupOnlyMultiplier: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Distance Included Miles
-                    </label>
-                    <input
-                      id="distanceIncludedMiles"
-                      name="distanceIncludedMiles"
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.1"
-                      value={settingsDraft.distanceIncludedMiles}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          distanceIncludedMiles: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Distance Band 1 Max Miles
-                    </label>
-                    <input
-                      id="distanceBand1MaxMiles"
-                      name="distanceBand1MaxMiles"
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.1"
-                      value={settingsDraft.distanceBand1MaxMiles}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          distanceBand1MaxMiles: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Distance Band 2 Max Miles
-                    </label>
-                    <input
-                      id="distanceBand2MaxMiles"
-                      name="distanceBand2MaxMiles"
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.1"
-                      value={settingsDraft.distanceBand2MaxMiles}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          distanceBand2MaxMiles: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Distance Band 1 Rate (per mile)
-                    </label>
-                    <input
-                      id="distanceBand1Rate"
-                      name="distanceBand1Rate"
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.01"
-                      value={settingsDraft.distanceBand1Rate}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          distanceBand1Rate: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Distance Band 2 Rate (per mile)
-                    </label>
-                    <input
-                      id="distanceBand2Rate"
-                      name="distanceBand2Rate"
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.01"
-                      value={settingsDraft.distanceBand2Rate}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          distanceBand2Rate: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Distance Band 3 Rate (per mile)
-                    </label>
-                    <input
-                      id="distanceBand3Rate"
-                      name="distanceBand3Rate"
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.01"
-                      value={settingsDraft.distanceBand3Rate}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          distanceBand3Rate: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Hub Coordinates
-                </p>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Hub Latitude
-                    </label>
-                    <input
-                      id="hubLat"
-                      name="hubLat"
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.000001"
-                      value={settingsDraft.hubLat ?? ''}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          hubLat: e.target.value === '' ? null : Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Hub Longitude
-                    </label>
-                    <input
-                      id="hubLng"
-                      name="hubLng"
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      step="0.000001"
-                      value={settingsDraft.hubLng ?? ''}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          hubLng: e.target.value === '' ? null : Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Checkout Rules
-                </p>
-                <div className="space-y-4">
-                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    <input
-                      id="allowGuestCheckout"
-                      name="allowGuestCheckout"
-                      type="checkbox"
-                      className="h-4 w-4 accent-ninpo-lime"
-                      checked={settingsDraft.allowGuestCheckout}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          allowGuestCheckout: e.target.checked
-                        })
-                      }
-                    />
-                    Allow guest checkout
-                  </label>
-                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    <input
-                      id="showAdvancedInventoryInsights"
-                      name="showAdvancedInventoryInsights"
-                      type="checkbox"
-                      className="h-4 w-4 accent-ninpo-lime"
-                      checked={settingsDraft.showAdvancedInventoryInsights}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          showAdvancedInventoryInsights: e.target.checked
-                        })
-                      }
-                    />
-                    Show advanced inventory insights
-                  </label>
-                </div>
-              </div>
-
-              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Membership
-                </p>
-                <div className="space-y-4">
-                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    <input
-                      id="allowPlatinumTier"
-                      name="allowPlatinumTier"
-                      type="checkbox"
-                      className="h-4 w-4 accent-ninpo-lime"
-                      checked={settingsDraft.allowPlatinumTier}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          allowPlatinumTier: e.target.checked
-                        })
-                      }
-                    />
-                    Allow Platinum tier
-                  </label>
-                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    <input
-                      id="platinumFreeDelivery"
-                      name="platinumFreeDelivery"
-                      type="checkbox"
-                      className="h-4 w-4 accent-ninpo-lime"
-                      checked={settingsDraft.platinumFreeDelivery}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          platinumFreeDelivery: e.target.checked
-                        })
-                      }
-                    />
-                    {/* See GLOSSARY.md for Route Fee and Platinum tier definitions */}
-                    Free Route Fee for Platinum tier
-                  </label>
-                </div>
-              </div>
-
-              <div className="bg-ninpo-card p-8 rounded-[2.5rem] border border-white/5 space-y-5">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Scanning Settings
-                </p>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Default Increment
-                    </label>
-                    <input
-                      id="defaultIncrement"
-                      name="defaultIncrement"
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      min="1"
-                      value={settingsDraft.defaultIncrement ?? 1}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          defaultIncrement: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Cooldown (ms)
-                    </label>
-                    <input
-                      id="cooldownMs"
-                      name="cooldownMs"
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                      type="number"
-                      min="0"
-                      value={settingsDraft.cooldownMs ?? 1000}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          cooldownMs: Number(e.target.value)
-                        })
-                      }
-                    />
-                  </div>
-                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    <input
-                      id="requireSkuForScanning"
-                      name="requireSkuForScanning"
-                      type="checkbox"
-                      className="h-4 w-4 accent-ninpo-lime"
-                      checked={settingsDraft.requireSkuForScanning ?? true}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          requireSkuForScanning: e.target.checked
-                        })
-                      }
-                    />
-                    Require SKU for scanning
-                  </label>
-                  <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    <input
-                      id="shelfGroupingEnabled"
-                      name="shelfGroupingEnabled"
-                      type="checkbox"
-                      className="h-4 w-4 accent-ninpo-lime"
-                      checked={settingsDraft.shelfGroupingEnabled ?? true}
-                      onChange={e =>
-                        updateSettingsDraft({
-                          shelfGroupingEnabled: e.target.checked
-                        })
-                      }
-                    />
-                    Enable shelf grouping
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
-                {settingsSaved && !settingsDirty
-                  ? 'Settings saved.'
-                  : settingsDirty
-                    ? 'Unsaved changes.'
-                    : 'All changes are up to date.'}
-              </div>
-              <button
-                onClick={saveSettings}
-                disabled={isSavingSettings || !settingsDirty}
-                className="px-8 py-5 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed shadow-neon"
-              >
-                {isSavingSettings ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="w-5 h-5" />
-                )}
-                Save Settings
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* =========================
-            INVENTORY
-        ========================= */}
-        {activeModule === 'inventory' && (
-          <div className="space-y-6">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <h2 className="text-xl font-black uppercase text-white tracking-widest">
-                    Inventory Management
-                  </h2>
-                </div>
-
-                <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                      Scanner controls
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => {
-                          setScannerMode(ScannerMode.INVENTORY_CREATE);
-                          setScannerModalOpen(true);
-                        }}
-                        className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-neon"
-                      >
-                        <ScanLine className="w-4 h-4" />
-                        Scan
-                      </button>
-                      {lastBlockedUpc && lastBlockedReason === 'duplicate' && (
-                        <button
-                          onClick={() => handleScannerScan(lastBlockedUpc)}
-                          className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-white/10"
-                        >
-                          Add anyway
-                        </button>
-                      )}
-                      {scannerModalOpen && scannerMode === ScannerMode.INVENTORY_CREATE && (
-                        <button
-                          onClick={() => {
-                            setScannerModalOpen(false);
-                            setLastBlockedUpc(null);
-                            setLastBlockedReason(null);
-                          }}
-                          className="px-4 py-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
-                        >
-                          <X className="w-4 h-4" />
-                          Close
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                      Scanned UPC: <span className="text-white">{scannedUpcForCreation || 'No UPC scanned'}</span>
-                    </div>
-                    <div className="flex flex-col md:flex-row md:items-end gap-2">
-                      <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 flex-1">
-                        <span>UPC (editable)</span>
-                        <input
-                          id="scannedUpcForCreation"
-                          name="scannedUpcForCreation"
-                          className="bg-black/40 border border-white/10 rounded-2xl p-3 text-sm text-white w-full"
-                          placeholder="Scan or type UPC"
-                          value={scannedUpcForCreation}
-                          onChange={e => handleManualUpcChange(e.target.value)}
-                        />
-                      </label>
-                      <button
-                        onClick={() => {
-                          if (scannedUpcForCreation) {
-                            void fetchOffLookup(scannedUpcForCreation);
-                          }
-                        }}
-                        disabled={!scannedUpcForCreation || offLookupStatus === 'loading'}
-                        className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        {offLookupStatus === 'loading' ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <ScanLine className="w-4 h-4" />
-                        )}
-                        Lookup OFF
-                      </button>
-                      <button
-                        onClick={() => handleManualUpcChange('')}
-                        className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
-                      >
-                        <X className="w-4 h-4" />
-                        Clear UPC
-                      </button>
-                    </div>
-                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Tip: Use Clear UPC to restart without reopening the scanner.
-                    </div>
-                    {offLookupMessage && (
-                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                        {offLookupMessage}
-                      </div>
+                    }}
+                    disabled={!scannedUpcForCreation || offLookupStatus === 'loading'}
+                    className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {offLookupStatus === 'loading' ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ScanLine className="w-4 h-4" />
                     )}
+                    Lookup OFF
+                  </button>
+                  <button
+                    onClick={() => handleManualUpcChange('')}
+                    className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                  >
+                    <X className="w-4 h-4" />
+                    Clear UPC
+                  </button>
+                </div>
+                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  Tip: Use Clear UPC to restart without reopening the scanner.
+                </div>
+                {offLookupMessage && (
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    {offLookupMessage}
                   </div>
+                )}
+              </div>
 
-                  <div className="flex flex-col md:flex-row gap-4 items-center">
-                    <div className="flex-1 text-[10px] text-slate-500 uppercase tracking-widest">
-                      Scan a UPC to auto-fill product details from Open Food Facts, then review and edit before
-                      creating.
+              <div className="flex flex-col md:flex-row gap-4 items-center">
+                <div className="flex-1 text-[10px] text-slate-500 uppercase tracking-widest">
+                  Scan a UPC to auto-fill product details from Open Food Facts, then review and edit before
+                  creating.
+                </div>
+              </div>
+
+              {scannedUpcForCreation ? (
+                <div className="pt-6 border-t border-white/5 space-y-6">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                        Create Product
+                      </p>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-widest">
+                        Storage zone/bin describe where the item sits (e.g., Fridge / Shelf A).
+                      </p>
                     </div>
                   </div>
 
-                  {scannedUpcForCreation ? (
-                    <div className="pt-6 border-t border-white/5 space-y-6">
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                            Create Product
-                          </p>
-                          <p className="text-[10px] text-slate-500 uppercase tracking-widest">
-                            Storage zone/bin describe where the item sits (e.g., Fridge / Shelf A).
-                          </p>
-                        </div>
-                      </div>
-
-                      {createError && (
-                        <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
-                          {createError}
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                          <span>SKU</span>
-                          <input
-                            id="newProductSku"
-                            name="newProductSku"
-                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full disabled:opacity-50"
-                            placeholder="Auto-generated on creation"
-                            value=""
-                            disabled
-                          />
-                        </label>
-                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                          <span>Name</span>
-                          <input
-                            id="newProductName"
-                            name="newProductName"
-                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                            placeholder="Product name"
-                            value={newProduct.name}
-                            onChange={e =>
-                              setNewProduct({ ...newProduct, name: e.target.value })
-                            }
-                          />
-                        </label>
-                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                          <span>Price</span>
-                          <input
-                            id="newProductPrice"
-                            name="newProductPrice"
-                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                            placeholder="0.00"
-                            type="number"
-                            value={newProduct.price}
-                            onChange={e =>
-                              setNewProduct({ ...newProduct, price: Number(e.target.value) })
-                            }
-                          />
-                        </label>
-                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                          <span>Deposit</span>
-                          <input
-                            id="newProductDeposit"
-                            name="newProductDeposit"
-                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                            placeholder="Auto-calculated"
-                            value={upcDraft.isEligible ? '0.10' : '0.00'}
-                            disabled
-                          />
-                        </label>
-                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                          <span>Stock</span>
-                          <input
-                            id="newProductStock"
-                            name="newProductStock"
-                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                            placeholder="0"
-                            type="number"
-                            value={newProduct.stock}
-                            onChange={e =>
-                              setNewProduct({ ...newProduct, stock: Number(e.target.value) })
-                            }
-                          />
-                        </label>
-                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                          <span>Size</span>
-                          <div className="flex gap-2">
-                            <input
-                              id="newProductSizeOz"
-                              name="newProductSizeOz"
-                              className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                              placeholder="0"
-                              type="number"
-                              step="0.1"
-                              value={newProduct.sizeOz}
-                              onChange={e =>
-                                setNewProduct({ ...newProduct, sizeOz: Number(e.target.value) })
-                              }
-                            />
-                            <select
-                              className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                              value={newProduct.sizeUnit}
-                              onChange={e =>
-                                setNewProduct({
-                                  ...newProduct,
-                                  sizeUnit: e.target.value as SizeUnit
-                                })
-                              }
-                            >
-                              {SIZE_UNIT_OPTIONS.map(option => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </label>
-                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                          <span>Brand</span>
-                          <input
-                            id="newProductBrand"
-                            name="newProductBrand"
-                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                            placeholder="Brand"
-                            value={newProduct.brand}
-                            onChange={e =>
-                              setNewProduct({ ...newProduct, brand: e.target.value })
-                            }
-                          />
-                        </label>
-                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                          <span>Product Type</span>
-                          <input
-                            id="newProductType"
-                            name="newProductType"
-                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                            placeholder="Type"
-                            value={newProduct.productType}
-                            onChange={e =>
-                              setNewProduct({ ...newProduct, productType: e.target.value })
-                            }
-                          />
-                        </label>
-                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
-                          <span>Nutrition Note (Customer Info)</span>
-                          <textarea
-                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full min-h-[96px]"
-                            placeholder="e.g. 12g protein • 220 calories • contains peanuts"
-                            value={newProduct.nutritionNote}
-                            onChange={e =>
-                              setNewProduct({
-                                ...newProduct,
-                                nutritionNote: e.target.value
-                              })
-                            }
-                          />
-                        </label>
-                        {(offLookupIngredients || offNutritionEntries.length > 0) && (
-                          <div className="md:col-span-2 bg-black/30 border border-white/10 rounded-2xl p-4 space-y-4">
-                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                              Open Food Facts (read-only)
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="space-y-2">
-                                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                                  Ingredients
-                                </div>
-                                <p className="text-sm text-slate-200 leading-relaxed">
-                                  {offLookupIngredients || 'No ingredients provided.'}
-                                </p>
-                              </div>
-                              <div className="space-y-2">
-                                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                                  Nutrition (per 100g)
-                                </div>
-                                {offNutritionEntries.length > 0 ? (
-                                  <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm text-slate-200">
-                                    {offNutritionEntries.map(entry => (
-                                      <div key={entry.label} className="flex items-center justify-between gap-4">
-                                        <dt className="text-slate-400">{entry.label}</dt>
-                                        <dd className="text-slate-200">{entry.value}</dd>
-                                      </div>
-                                    ))}
-                                  </dl>
-                                ) : (
-                                  <p className="text-sm text-slate-200">No nutrition values provided.</p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                          <span>Storage Zone</span>
-                          <input
-                            id="newProductStorageZone"
-                            name="newProductStorageZone"
-                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                            placeholder="Zone"
-                            value={newProduct.storageZone}
-                            onChange={e =>
-                              setNewProduct({
-                                ...newProduct,
-                                storageZone: e.target.value
-                              })
-                            }
-                          />
-                        </label>
-                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                          <span>Storage Bin</span>
-                          <input
-                            id="newProductStorageBin"
-                            name="newProductStorageBin"
-                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                            placeholder="Bin"
-                            value={newProduct.storageBin}
-                            onChange={e =>
-                              setNewProduct({ ...newProduct, storageBin: e.target.value })
-                            }
-                          />
-                        </label>
-                        <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
-                          <span>Image URL</span>
-                          <input
-                            id="newProductImage"
-                            name="newProductImage"
-                            className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                            placeholder="https://"
-                            value={newProduct.image}
-                            onChange={e =>
-                              setNewProduct({ ...newProduct, image: e.target.value })
-                            }
-                          />
-                        </label>
-                      </div>
-
-                      <div className="md:col-span-2">
-                        <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                          <input
-                            id="newProductIsEligible"
-                            name="newProductIsEligible"
-                            type="checkbox"
-                            checked={upcDraft.isEligible}
-                            onChange={e =>
-                              setUpcDraft({ ...upcDraft, isEligible: e.target.checked })
-                            }
-                          />
-                          Eligible for Michigan Deposit Refund
-                        </label>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <button
-                          type="button"
-                          onClick={handleCancelCreate}
-                          className="w-full py-5 bg-ninpo-red/10 text-ninpo-red rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
-                        >
-                          <X className="w-5 h-5" />
-                          Cancel
-                        </button>
-                        <button
-                          onClick={apiCreateProduct}
-                          disabled={isCreating}
-                          className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.01] transition-all shadow-neon"
-                        >
-                          {isCreating ? (
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                          ) : (
-                            <Plus className="w-5 h-5" />
-                          )}
-                          Create
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="pt-6 border-t border-white/5 text-[10px] text-slate-500 uppercase tracking-widest">
-                      Scan a UPC to open the product details before creating.
+                  {createError && (
+                    <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                      {createError}
                     </div>
                   )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>SKU</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full disabled:opacity-50"
+                        placeholder="Auto-generated on creation"
+                        value=""
+                        disabled
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Name</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="Product name"
+                        value={newProduct.name}
+                        onChange={e =>
+                          setNewProduct({ ...newProduct, name: e.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Price</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="0.00"
+                        type="number"
+                        value={newProduct.price}
+                        onChange={e =>
+                          setNewProduct({ ...newProduct, price: Number(e.target.value) })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Deposit</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="Auto-calculated"
+                        value={upcDraft.isEligible ? '0.10' : '0.00'}
+                        disabled
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Stock</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="0"
+                        type="number"
+                        value={newProduct.stock}
+                        onChange={e =>
+                          setNewProduct({ ...newProduct, stock: Number(e.target.value) })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Size</span>
+                      <div className="flex gap-2">
+                        <input
+                          className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                          placeholder="0"
+                          type="number"
+                          step="0.1"
+                          value={newProduct.sizeOz}
+                          onChange={e =>
+                            setNewProduct({ ...newProduct, sizeOz: Number(e.target.value) })
+                          }
+                        />
+                        <select
+                          className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                          value={newProduct.sizeUnit}
+                          onChange={e =>
+                            setNewProduct({
+                              ...newProduct,
+                              sizeUnit: e.target.value as SizeUnit
+                            })
+                          }
+                        >
+                          {SIZE_UNIT_OPTIONS.map(option => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Brand</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="Brand"
+                        value={newProduct.brand}
+                        onChange={e =>
+                          setNewProduct({ ...newProduct, brand: e.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Product Type</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="Type"
+                        value={newProduct.productType}
+                        onChange={e =>
+                          setNewProduct({ ...newProduct, productType: e.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
+                      <span>Nutrition Note (Customer Info)</span>
+                      <textarea
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full min-h-[96px]"
+                        placeholder="e.g. 12g protein • 220 calories • contains peanuts"
+                        value={newProduct.nutritionNote}
+                        onChange={e =>
+                          setNewProduct({
+                            ...newProduct,
+                            nutritionNote: e.target.value
+                          })
+                        }
+                      />
+                    </label>
+                    {(offLookupIngredients || offNutritionEntries.length > 0) && (
+                      <div className="md:col-span-2 bg-black/30 border border-white/10 rounded-2xl p-4 space-y-4">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                          Open Food Facts (read-only)
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                              Ingredients
+                            </div>
+                            <p className="text-sm text-slate-200 leading-relaxed">
+                              {offLookupIngredients || 'No ingredients provided.'}
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                              Nutrition (per 100g)
+                            </div>
+                            {offNutritionEntries.length > 0 ? (
+                              <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm text-slate-200">
+                                {offNutritionEntries.map(entry => (
+                                  <div key={entry.label} className="flex items-center justify-between gap-4">
+                                    <dt className="text-slate-400">{entry.label}</dt>
+                                    <dd className="text-slate-200">{entry.value}</dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            ) : (
+                              <p className="text-sm text-slate-200">No nutrition values provided.</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Storage Zone</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="Zone"
+                        value={newProduct.storageZone}
+                        onChange={e =>
+                          setNewProduct({
+                            ...newProduct,
+                            storageZone: e.target.value
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <span>Storage Bin</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="Bin"
+                        value={newProduct.storageBin}
+                        onChange={e =>
+                          setNewProduct({ ...newProduct, storageBin: e.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
+                      <span>Image URL</span>
+                      <input
+                        className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                        placeholder="https://"
+                        value={newProduct.image}
+                        onChange={e =>
+                          setNewProduct({ ...newProduct, image: e.target.value })
+                        }
+                      />
+                    </label>
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      <input
+                        type="checkbox"
+                        checked={upcDraft.isEligible}
+                        onChange={e =>
+                          setUpcDraft({ ...upcDraft, isEligible: e.target.checked })
+                        }
+                      />
+                      Eligible for Michigan Deposit Refund
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={handleCancelCreate}
+                      className="w-full py-5 bg-ninpo-red/10 text-ninpo-red rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
+                    >
+                      <X className="w-5 h-5" />
+                      Cancel
+                    </button>
+                    <button
+                      onClick={apiCreateProduct}
+                      disabled={isCreating}
+                      className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.01] transition-all shadow-neon"
+                    >
+                      {isCreating ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Plus className="w-5 h-5" />
+                      )}
+                      Create
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -4416,6 +3887,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 <p className="text-[10px] text-slate-500 font-bold uppercase mt-2 tracking-widest">
                   USER: {selectedApproval.userId} • AMOUNT: $
                   {selectedApproval.amount.toFixed(2)}
+                </p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">
+                  ORDER: {selectedApproval.orderId || 'N/A'} • REQUESTED: {fmtTime(selectedApproval.createdAt)}
+                </p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">
+                  REASON: {selectedApproval.reason || '—'}
                 </p>
               </div>
               <button

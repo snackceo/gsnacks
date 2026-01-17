@@ -26,43 +26,14 @@ const getHubCoords = async () => {
   return { lat: hubLat, lng: hubLng };
 };
 
-const toRadians = value => (value * Math.PI) / 180;
-
-const haversineMiles = (from, to) => {
-  const earthRadiusMiles = 3958.8;
-  const latDelta = toRadians(to.lat - from.lat);
-  const lngDelta = toRadians(to.lng - from.lng);
-  const lat1 = toRadians(from.lat);
-  const lat2 = toRadians(to.lat);
-
-  const a =
-    Math.sin(latDelta / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(lngDelta / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return earthRadiusMiles * c;
-};
-
-const geocodeAddress = async address => {
-  const query = encodeURIComponent(address);
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${query}`;
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'NinpoSnacksDistanceLookup/1.0 (ops@ninposnacks.com)'
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to reach geocoding service');
+const getMapsApiKey = () => {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    const error = new Error('Google Maps API key is not configured.');
+    error.code = 'MAPS_API_KEY_MISSING';
+    throw error;
   }
-
-  const data = await response.json();
-  if (!Array.isArray(data) || data.length === 0) return null;
-
-  const candidate = data[0];
-  const lat = Number(candidate?.lat);
-  const lng = Number(candidate?.lon);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  return { lat, lng };
+  return apiKey;
 };
 
 const resolveDistanceMiles = async address => {
@@ -74,15 +45,51 @@ const resolveDistanceMiles = async address => {
   }
 
   const hub = await getHubCoords();
+  const apiKey = getMapsApiKey();
 
-  const destination = await geocodeAddress(trimmedAddress);
-  if (!destination) {
-    const error = new Error('Address could not be geocoded.');
-    error.code = 'ADDRESS_NOT_FOUND';
-    throw error;
+  const url = new URL('https://maps.googleapis.com/maps/api/distancematrix/json');
+  url.searchParams.set('origins', `${hub.lat},${hub.lng}`);
+  url.searchParams.set('destinations', trimmedAddress);
+  url.searchParams.set('units', 'imperial');
+  url.searchParams.set('key', apiKey);
+
+  try {
+    const response = await fetch(url.toString());
+    const data = await response.json();
+
+    if (data.status !== 'OK') {
+      const errorMessage = data.error_message || `Distance Matrix API error: ${data.status}`;
+      const error = new Error(errorMessage);
+      if (data.status === 'NOT_FOUND' || data.status === 'ZERO_RESULTS') {
+        error.code = 'ADDRESS_NOT_FOUND';
+      } else {
+        error.code = 'MAPS_API_ERROR';
+      }
+      throw error;
+    }
+
+    const element = data.rows?.[0]?.elements?.[0];
+
+    if (element?.status !== 'OK') {
+      const error = new Error(`Could not determine distance to address: ${element.status}`);
+      error.code = 'ADDRESS_NOT_FOUND';
+      throw error;
+    }
+
+    const distanceMeters = element.distance?.value;
+    if (typeof distanceMeters !== 'number') {
+      throw new Error('Invalid distance value in API response.');
+    }
+
+    // Convert meters to miles
+    const distanceMiles = distanceMeters / 1609.34;
+    return distanceMiles;
+
+  } catch (err) {
+    if (err.code) throw err; // Re-throw errors with specific codes
+    console.error('Google Maps API request failed:', err);
+    throw new Error('Distance lookup failed due to a network or API error.');
   }
-
-  return haversineMiles(hub, destination);
 };
 
 export { resolveDistanceMiles };
