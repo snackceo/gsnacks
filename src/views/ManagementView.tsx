@@ -66,7 +66,8 @@ import {
 import {
   getAdvancedInventoryInsights,
   getAvailableAuditModels,
-  getOperationsSummary
+  getOperationsSummary,
+  getAuditLogSummary
 } from '../services/geminiService';
 import { useNinpoCore } from '../hooks/useNinpoCore';
 
@@ -302,6 +303,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [isAuditLogsLoading, setIsAuditLogsLoading] = useState(false);
   const [auditLogsError, setAuditLogsError] = useState<string | null>(null);
+  const [auditSummary, setAuditSummary] = useState<string | null>(null);
+  const [isAuditSummaryLoading, setIsAuditSummaryLoading] = useState(false);
   const [auditModel, setAuditModel] = useState('');
   const [auditModels, setAuditModels] = useState<string[]>([]);
   const [isAuditModelsLoading, setIsAuditModelsLoading] = useState(false);
@@ -1325,6 +1328,21 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         sizeUnit: 'oz',
         isEligible: true
       }));
+      setNewProduct(prev => ({
+        ...prev,
+        name: '',
+        brand: '',
+        productType: '',
+        nutritionNote: '',
+        storageZone: '',
+        storageBin: '',
+        image: '',
+        stock: 0,
+        price: 0,
+        sizeOz: 0,
+        sizeUnit: 'oz',
+        isGlass: false
+      }));
       setUpcInput(normalized);
 
       // Trigger auto-fill from OFF lookup
@@ -1601,6 +1619,23 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setOpsSummary('Ops summary unavailable.');
     } finally {
       setIsOpsSummaryLoading(false);
+    }
+  };
+
+  const runAuditSummary = async () => {
+    if (!auditModel) {
+      setAuditSummary('No AI model configured for audit.');
+      return;
+    }
+    setIsAuditSummaryLoading(true);
+    setAuditSummary(null);
+    try {
+      const summary = await getAuditLogSummary(filteredAuditLogs, auditModel);
+      setAuditSummary(summary || 'No summary was generated.');
+    } catch (e: any) {
+      setAuditSummary(`An error occurred: ${e.message}`);
+    } finally {
+      setIsAuditSummaryLoading(false);
     }
   };
 
@@ -3041,14 +3076,39 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 </p>
               </div>
 
-              <button
-                onClick={handleDownloadAuditCsv}
-                disabled={filteredAuditLogs.length === 0}
-                className="px-7 py-4 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Download CSV
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={runAuditSummary}
+                  disabled={filteredAuditLogs.length === 0 || isAuditSummaryLoading}
+                  className="px-7 py-4 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-3"
+                >
+                  {isAuditSummaryLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <BrainCircuit className="w-5 h-5" />}
+                  Get AI Summary
+                </button>
+                <button
+                  onClick={handleDownloadAuditCsv}
+                  disabled={filteredAuditLogs.length === 0}
+                  className="px-7 py-4 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Download CSV
+                </button>
+              </div>
             </div>
+
+            {(isAuditSummaryLoading || auditSummary) && (
+              <div className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500">AI Summary</h3>
+                {isAuditSummaryLoading ? (
+                  <div className="flex items-center gap-3 text-slate-400">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Generating summary...</span>
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-200 whitespace-pre-wrap font-mono">{auditSummary}</div>
+                )}
+              </div>
+            )}
+
 
             <div className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

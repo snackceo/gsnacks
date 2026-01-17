@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Order, OrderStatus, ReturnUpcCount, User, UserRole, ScannerMode } from '../types';
-import { analyzeBottleScan, explainDriverIssue } from '../services/geminiService';
+import { explainDriverIssue } from '../services/geminiService';
 import {
   Camera,
   BrainCircuit,
@@ -87,12 +87,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [returnCapturedPhoto, setReturnCapturedPhoto] = useState<string | null>(null);
   const [contaminationConfirmed, setContaminationConfirmed] = useState(false);
-  const [aiCondition, setAiCondition] = useState<{
-    valid: boolean;
-    material: string;
-    message: string;
-  } | null>(null);
-  const [aiConditionStatus, setAiConditionStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+  
 
   const [verifiedReturnUpcs, setVerifiedReturnUpcs] = useState<ReturnUpcCount[]>([]);
   const [manualUpc, setManualUpc] = useState('');
@@ -167,8 +162,6 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
   const resetPhotoState = () => {
     setCapturedPhoto(null);
-    setAiCondition(null);
-    setAiConditionStatus('idle');
   };
 
   const resetReturnPhotoState = () => {
@@ -261,17 +254,6 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     const dataUrl = captureFromVideo();
     if (!dataUrl) return;
     setCapturedPhoto(dataUrl);
-    setAiCondition(null);
-    setAiConditionStatus('loading');
-
-    try {
-      const base64Data = dataUrl.split(',')[1] || dataUrl;
-      const result = await analyzeBottleScan(base64Data);
-      setAiCondition(result);
-      setAiConditionStatus('idle');
-    } catch {
-      setAiConditionStatus('error');
-    }
   };
 
   const takeReturnPhoto = () => {
