@@ -115,20 +115,27 @@ const parseOffQuantity = (quantity?: string) => {
   const value = Number(String(match[1]).replace(',', '.'));
   if (!Number.isFinite(value)) return null;
   const rawUnit = match[2].toLowerCase().replace(/\./g, '').trim();
-  const normalizedUnit =
-    rawUnit === 'oz' || rawUnit === 'ounce' || rawUnit === 'ounces'
-      ? 'oz'
-      : rawUnit === 'floz' || rawUnit === 'fl oz' || rawUnit === 'fluid oz'
-      ? 'fl oz'
-      : rawUnit === 'g' || rawUnit === 'gram' || rawUnit === 'grams'
-      ? 'g'
-      : rawUnit === 'kg' || rawUnit === 'kilogram' || rawUnit === 'kilograms'
-      ? 'kg'
-      : rawUnit === 'ml' || rawUnit === 'milliliter' || rawUnit === 'milliliters'
-      ? 'ml'
-      : rawUnit === 'l' || rawUnit === 'liter' || rawUnit === 'liters'
-      ? 'l'
-      : null;
+  const unitMap: Record<string, SizeUnit> = {
+    oz: 'oz',
+    ounce: 'oz',
+    ounces: 'oz',
+    floz: 'fl oz',
+    'fl oz': 'fl oz',
+    'fluid oz': 'fl oz',
+    g: 'g',
+    gram: 'g',
+    grams: 'g',
+    kg: 'kg',
+    kilogram: 'kg',
+    kilograms: 'kg',
+    ml: 'ml',
+    milliliter: 'ml',
+    milliliters: 'ml',
+    l: 'l',
+    liter: 'l',
+    liters: 'l'
+  };
+  const normalizedUnit = unitMap[rawUnit] ?? null;
   if (!normalizedUnit) return null;
   return { size: value, unit: normalizedUnit as SizeUnit };
 };
@@ -1234,7 +1241,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           isGlass:
             resolvedIsGlass === undefined
               ? prev.isGlass
-              : prev.isGlass || resolvedIsGlass
+              : resolvedIsGlass
         };
       });
     },
