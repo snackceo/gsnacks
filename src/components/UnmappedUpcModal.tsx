@@ -91,7 +91,7 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-3 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"
+            className="p-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
           >
             <XCircle className="w-4 h-4" />
           </button>

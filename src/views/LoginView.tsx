@@ -171,7 +171,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onCancel }) => {
                   <button
                     type="button"
                     onClick={onCancel}
-                    className="text-[10px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors"
+                    className="px-3 py-2 rounded-xl bg-ninpo-red/10 text-ninpo-red border border-ninpo-red/20 text-[10px] font-black uppercase tracking-widest hover:bg-ninpo-red/20 transition"
                   >
                     Cancel
                   </button>

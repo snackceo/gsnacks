@@ -46,7 +46,11 @@ const Header = ({
           </div>
           <button
             type="button"
-            className="sm:hidden ml-auto px-3 py-2 rounded-full bg-white/10 text-white text-[10px] font-black uppercase tracking-widest border border-white/10 hover:bg-white/20 transition"
+            className={`sm:hidden ml-auto px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition ${
+              isMobileMenuOpen
+                ? 'bg-ninpo-red/10 text-ninpo-red border border-ninpo-red/20 hover:bg-ninpo-red/20'
+                : 'bg-white/10 text-white border border-white/10 hover:bg-white/20'
+            }`}
             onClick={(event) => {
               event.stopPropagation();
               setIsMobileMenuOpen((prev) => !prev);

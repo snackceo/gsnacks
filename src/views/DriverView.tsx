@@ -964,7 +964,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                 </div>
                 <button
                   onClick={() => setShowPayoutChoice(false)}
-                  className="p-3 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"
+                  className="p-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1092,7 +1092,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                   currentUser?.role === UserRole.OWNER && (
                     <button
                       onClick={() => handleCancel(o.id)}
-                      className="px-4 py-3 rounded-xl bg-ninpo-red/10 text-ninpo-red border border-ninpo-red/20 text-[9px] font-black uppercase tracking-widest flex items-center gap-2"
+                      className="px-4 py-3 rounded-xl bg-ninpo-red/10 text-ninpo-red border border-ninpo-red/20 text-[9px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-ninpo-red/20 transition"
                       title="Cancel (restocks inventory immediately)"
                     >
                       <XCircle className="w-4 h-4" /> Cancel
