@@ -3336,13 +3336,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   <h2 className="text-xl font-black uppercase text-white tracking-widest">
                     Inventory Management
                   </h2>
-                  <button
-                    onClick={() => setIsScannerOpen(true)}
-                    className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-neon"
-                  >
-                    <ScanLine className="w-4 h-4" />
-                    Open Scanner
-                  </button>
                 </div>
 
                 <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
@@ -3413,11 +3406,15 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                         Lookup OFF
                       </button>
                       <button
-                        onClick={() => setIsScannerOpen(true)}
+                        onClick={() => {
+                          setScannedUpcForCreation('');
+                          setOffLookupMessage('');
+                          setOffLookupStatus('idle');
+                        }}
                         className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
                       >
                         <ScanLine className="w-4 h-4" />
-                        Rescan
+                        Clear UPC
                       </button>
                     </div>
                     {offLookupMessage && (
