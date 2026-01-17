@@ -67,6 +67,11 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const inFlightRef = useRef<boolean>(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
+  const onScanRef = useRef<ScannerPanelProps['onScan']>(onScan);
+  const onCloseRef = useRef<ScannerPanelProps['onClose']>(onClose);
+  const closeOnScanRef = useRef<boolean>(closeOnScan);
+  const beepEnabledRef = useRef<boolean>(beepEnabled);
+  const cooldownMsRef = useRef<number>(cooldownMs);
 
   // Cooldown + stability guards
   const lastAcceptAtRef = useRef<number>(0);
@@ -90,6 +95,14 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     if (!mode) return null;
     return MODE_LABELS[mode] ?? String(mode);
   }, [mode]);
+
+  useEffect(() => {
+    onScanRef.current = onScan;
+    onCloseRef.current = onClose;
+    closeOnScanRef.current = closeOnScan;
+    beepEnabledRef.current = beepEnabled;
+    cooldownMsRef.current = cooldownMs;
+  }, [beepEnabled, closeOnScan, cooldownMs, onClose, onScan]);
 
   const playBeep = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -119,12 +132,13 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const acceptScan = useCallback(
     (upc: string) => {
       const now = Date.now();
+      const cooldownMsValue = cooldownMsRef.current;
 
       // Global cooldown
-      if (now - lastAcceptAtRef.current < cooldownMs) return;
+      if (now - lastAcceptAtRef.current < cooldownMsValue) return;
 
       // Prevent immediately re-accepting the exact same code even if timing jitter occurs
-      if (lastAcceptedCodeRef.current === upc && now - lastAcceptAtRef.current < Math.max(600, cooldownMs)) {
+      if (lastAcceptedCodeRef.current === upc && now - lastAcceptAtRef.current < Math.max(600, cooldownMsValue)) {
         return;
       }
 
@@ -132,14 +146,14 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
       lastAcceptedCodeRef.current = upc;
 
       setLastDetectedUpc(upc);
-      if (beepEnabled) playBeep();
-      onScan(upc);
+      if (beepEnabledRef.current) playBeep();
+      onScanRef.current(upc);
 
-      if (closeOnScan && onClose) {
-        onClose();
+      if (closeOnScanRef.current && onCloseRef.current) {
+        onCloseRef.current();
       }
     },
-    [beepEnabled, cooldownMs, onClose, onScan, playBeep, closeOnScan]
+    [playBeep]
   );
 
   const stopScanner = useCallback(async () => {
