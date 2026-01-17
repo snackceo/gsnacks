@@ -9,13 +9,9 @@ import type {
   User,
   Product,
   Order,
-  UpcContainerType,
-  UpcItem,
   AppSettings,
   ApprovalRequest,
-  ReturnUpcCount,
   ReturnVerification,
-  ReturnSettlement,
   SizeUnit
 } from '../types';
 import { ScannerMode, OrderStatus } from '../types';
@@ -46,137 +42,28 @@ import ScannerModal from '../components/ScannerModal';
 import UnmappedUpcModal from '../components/UnmappedUpcModal';
 import { UnmappedUpcData } from '../types';
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer
-} from 'recharts';
-import {
   getAdvancedInventoryInsights,
   getAvailableAuditModels,
   getOperationsSummary,
   getAuditLogSummary
 } from '../services/geminiService';
 import { useNinpoCore } from '../hooks/useNinpoCore';
-
-const BACKEND_URL =
-  (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
-const SETTINGS_STORAGE_KEY = 'ninpo:settings';
-const UPC_CONTAINER_LABELS: Record<UpcContainerType, string> = {
-  aluminum: 'CAN / ALUMINUM',
-  glass: 'GLASS / BOTTLE',
-  plastic: 'PLASTIC / BOTTLE'
-};
-const SIZE_UNIT_OPTIONS: SizeUnit[] = ['oz', 'fl oz', 'g', 'kg', 'ml', 'l'];
-const OFF_LOOKUP_FALLBACK_MESSAGE = 'Open Food Facts lookup failed. Please fill details manually.';
-const OFF_NUTRITION_FIELDS: Array<{ key: string; label: string; unit?: string }> = [
-  { key: 'energy-kcal_100g', label: 'Energy', unit: 'kcal' },
-  { key: 'fat_100g', label: 'Fat', unit: 'g' },
-  { key: 'carbohydrates_100g', label: 'Carbohydrates', unit: 'g' },
-  { key: 'proteins_100g', label: 'Protein', unit: 'g' },
-  { key: 'sugars_100g', label: 'Sugars', unit: 'g' },
-  { key: 'salt_100g', label: 'Salt', unit: 'g' }
-];
-const DEFAULT_NEW_PRODUCT = {
-  id: '',
-  name: '',
-  price: 0,
-  deposit: 0,
-  stock: 0,
-  sizeOz: 0,
-  sizeUnit: 'oz' as SizeUnit,
-  category: 'DRINK',
-  brand: '',
-  productType: '',
-  nutritionNote: '',
-  storageZone: '',
-  storageBin: '',
-  image: '',
-  isGlass: false
-};
-
-type OffLookupProduct = {
-  name?: string;
-  brand?: string;
-  imageUrl?: string;
-  quantity?: string;
-  categories?: string;
-  ingredients?: string;
-  nutriments?: Record<string, number | string>;
-};
-
-const formatOffNutrimentValue = (value: number | string | undefined | null, unit?: string) => {
-  if (value === undefined || value === null || value === '') return null;
-  const parsed = Number(value);
-  const rendered = Number.isFinite(parsed)
-    ? parsed.toLocaleString(undefined, { maximumFractionDigits: 2 })
-    : String(value).trim();
-  const suffix = unit ? ` ${unit}` : '';
-  return `${rendered}${suffix}`;
-};
-
-const getOffNutritionEntries = (nutriments?: OffLookupProduct['nutriments']) =>
-  OFF_NUTRITION_FIELDS.map(({ key, label, unit }) => {
-    const displayValue = formatOffNutrimentValue(nutriments?.[key], unit);
-    return displayValue ? { label, value: displayValue } : null;
-  }).filter((entry): entry is { label: string; value: string } => Boolean(entry));
-
-const parseOffQuantity = (quantity?: string) => {
-  if (!quantity) return null;
-  const normalized = String(quantity).trim();
-  const multiPackMatch = normalized.match(
-    /(\d+)\s*[x×]\s*([\d.,]+)\s*([a-zA-Z]+(?:\s?[a-zA-Z]+)?)/i
-  );
-  const match = multiPackMatch ?? normalized.match(/([\d.,]+)\s*([a-zA-Z]+(?:\s?[a-zA-Z]+)?)/);
-  if (!match) return null;
-  const packCount = multiPackMatch ? Number(match[1]) : 1;
-  const value = Number(String(match[multiPackMatch ? 2 : 1]).replace(',', '.'));
-  if (!Number.isFinite(value) || !Number.isFinite(packCount) || packCount <= 0) return null;
-  const rawUnit = match[multiPackMatch ? 3 : 2].toLowerCase().replace(/\./g, '').trim();
-  const unitMap: Record<string, SizeUnit> = {
-    oz: 'oz',
-    ounce: 'oz',
-    ounces: 'oz',
-    floz: 'fl oz',
-    'fl oz': 'fl oz',
-    'fluid oz': 'fl oz',
-    g: 'g',
-    gram: 'g',
-    grams: 'g',
-    kg: 'kg',
-    kilogram: 'kg',
-    kilograms: 'kg',
-    ml: 'ml',
-    milliliter: 'ml',
-    milliliters: 'ml',
-    l: 'l',
-    liter: 'l',
-    liters: 'l'
-  };
-  const normalizedUnit = unitMap[rawUnit] ?? null;
-  if (!normalizedUnit) return null;
-  // For multi-pack strings like "6 x 12 oz", interpret as total size (72 oz).
-  return { size: value * packCount, unit: normalizedUnit as SizeUnit };
-};
-
-const buildNutritionNoteFromOff = (ingredients?: string, nutriments?: OffLookupProduct['nutriments']) => {
-  const parts: string[] = [];
-  if (ingredients) {
-    parts.push(`Ingredients: ${ingredients}`);
-  }
-
-  if (nutriments) {
-    const nutritionBits = getOffNutritionEntries(nutriments).map(entry => `${entry.label}: ${entry.value}`);
-    if (nutritionBits.length > 0) {
-      parts.push(`Nutrition (per 100g): ${nutritionBits.join(', ')}`);
-    }
-  }
-
-  return parts.join(' • ');
-};
+import {
+  BACKEND_URL,
+  SETTINGS_STORAGE_KEY,
+  SIZE_UNIT_OPTIONS,
+  UPC_CONTAINER_LABELS
+} from './management/constants';
+import {
+  countTotalUpcs,
+  fmtDelta,
+  fmtTime,
+  formatSize,
+  getTierStyles,
+  isNewSignupWithBonus
+} from './management/utils';
+import { useInventoryCreate } from './management/hooks/useInventoryCreate';
+import { useUpcRegistry } from './management/hooks/useUpcRegistry';
 
 interface ManagementViewProps {
   user: User;
@@ -199,56 +86,6 @@ interface ManagementViewProps {
   fetchReturnVerifications: () => Promise<ReturnVerification[]>;
   settleReturnVerification: (verificationId: string, finalAcceptedCount: number, creditAmount: number, cashAmount: number) => Promise<void>;
 }
-
-const fmtTime = (iso?: string) => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
-};
-
-const fmtDelta = (value: number) => {
-  const normalized = Number(value || 0);
-  const formatted = Math.abs(normalized).toLocaleString(undefined, {
-    maximumFractionDigits: 2
-  });
-  return `${normalized >= 0 ? '+' : '-'}${formatted}`;
-};
-
-const getTierStyles = (tier: string) => {
-  switch (tier) {
-    case 'COMMON':
-      return 'border-slate-500/40 bg-slate-800/30 text-slate-300';
-    case 'SILVER':
-      return 'border-slate-300/40 bg-slate-400/20 text-slate-200';
-    case 'GOLD':
-      return 'border-yellow-400/40 bg-yellow-500/20 text-yellow-200';
-    case 'PLATINUM':
-      return 'border-indigo-400/40 bg-indigo-500/20 text-indigo-200';
-    case 'BRONZE':
-    default:
-      return 'border-amber-500/40 bg-amber-700/30 text-amber-200';
-  }
-};
-
-const countTotalUpcs = (entries: ReturnUpcCount[]) =>
-  entries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
-
-const formatSize = (value: number, unit?: SizeUnit) => {
-  if (!value) return 'No size';
-  const normalized = Number(value);
-  if (!Number.isFinite(normalized) || normalized <= 0) return 'No size';
-  const label = unit || 'oz';
-  const decimals = label === 'oz' || label === 'fl oz' ? 1 : 0;
-  return `${normalized.toFixed(decimals)} ${label}`;
-};
-
-const isNewSignupWithBonus = (user: User) => {
-  const createdAt = user.createdAt ? new Date(user.createdAt) : null;
-  if (!createdAt || Number.isNaN(createdAt.getTime())) return false;
-  const ageMs = Date.now() - createdAt.getTime();
-  return Number(user.loyaltyPoints || 0) >= 100 && ageMs < 24 * 60 * 60 * 1000;
-};
 
 const ManagementView: React.FC<ManagementViewProps> = ({
   user,
@@ -304,7 +141,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [isOpsSummaryLoading, setIsOpsSummaryLoading] = useState(false);
   const [scannerModalOpen, setScannerModalOpen] = useState(false);
   const [scannerMode, setScannerMode] = useState<ScannerMode>(ScannerMode.INVENTORY_CREATE);
-  const [scannedUpcForCreation, setScannedUpcForCreation] = useState<string>('');
   const [lastBlockedUpc, setLastBlockedUpc] = useState<string | null>(null);
   const [lastBlockedReason, setLastBlockedReason] = useState<'cooldown' | 'duplicate' | null>(null);
   const [unmappedUpcModalOpen, setUnmappedUpcModalOpen] = useState(false);
@@ -315,6 +151,64 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [isReturnVerificationsLoading, setIsReturnVerificationsLoading] = useState(false);
   const [returnVerificationsError, setReturnVerificationsError] = useState<string | null>(null);
   const [settlingVerificationId, setSettlingVerificationId] = useState<string | null>(null);
+
+  const upcRegistry = useUpcRegistry({ activeModule });
+
+  const {
+    upcItems,
+    setUpcItems,
+    upcItemsRef,
+    upcInput,
+    setUpcInput,
+    upcFilter,
+    setUpcFilter,
+    upcDraft,
+    setUpcDraft,
+    isUpcLoading,
+    isUpcSaving,
+    upcError,
+    apiLoadUpcItems,
+    handleUpcLookup,
+    apiSaveUpc,
+    apiDeleteUpc,
+    apiLinkUpc,
+    loadUpcDraft,
+    filteredUpcItems,
+    handleUpcScannerScan
+  } = upcRegistry;
+
+  const inventoryCreate = useInventoryCreate({
+    activeModule,
+    scannerMode,
+    setScannerMode,
+    setScannerModalOpen,
+    setProducts,
+    setUpcInput,
+    upcDraft,
+    setUpcDraft,
+    upcItemsRef
+  });
+
+  const {
+    isCreating,
+    setIsCreating,
+    createError,
+    setCreateError,
+    newProduct,
+    setNewProduct,
+    scannedUpcForCreation,
+    setScannedUpcForCreation,
+    offLookupStatus,
+    offLookupMessage,
+    offLookupIngredients,
+    offLookupNutriments,
+    offNutritionEntries,
+    fetchOffLookup,
+    handleManualUpcChange,
+    handleScannerScan: handleInventoryScannerScan,
+    handleCancelCreate,
+    apiCreateProduct
+  } = inventoryCreate;
 
   const handleModuleSelect = (moduleId: string) => {
     setActiveModule(moduleId);
@@ -353,9 +247,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   }, []);
 
   // Inventory create form
-  const [isCreating, setIsCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [newProduct, setNewProduct] = useState({ ...DEFAULT_NEW_PRODUCT });
   const [inventorySort, setInventorySort] = useState<
     'alpha' | 'price' | 'brand' | 'type' | 'storage-zone' | 'storage-bin'
   >('alpha');
@@ -378,34 +269,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   });
   const [editError, setEditError] = useState<string | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
-  const [upcItems, setUpcItems] = useState<UpcItem[]>([]);
-  const [upcInput, setUpcInput] = useState('');
-  const [upcFilter, setUpcFilter] = useState('');
-  const [upcDraft, setUpcDraft] = useState<UpcItem>({
-    upc: '',
-    name: '',
-    depositValue: 0.1,
-    price: 0,
-    containerType: 'plastic',
-    sizeOz: 0,
-    sizeUnit: 'oz',
-    isEligible: true
-  });
-  const [offLookupStatus, setOffLookupStatus] = useState<
-    'idle' | 'loading' | 'found' | 'not_found' | 'error'
-  >('idle');
-  const [offLookupMessage, setOffLookupMessage] = useState('');
-  const [offLookupIngredients, setOffLookupIngredients] = useState('');
-  const [offLookupNutriments, setOffLookupNutriments] = useState<
-    OffLookupProduct['nutriments'] | null
-  >(null);
-  const offNutritionEntries = useMemo(
-    () => getOffNutritionEntries(offLookupNutriments || undefined),
-    [offLookupNutriments]
-  );
-  const [isUpcLoading, setIsUpcLoading] = useState(false);
-  const [isUpcSaving, setIsUpcSaving] = useState(false);
-  const [upcError, setUpcError] = useState<string | null>(null);
   const [approvalFilter, setApprovalFilter] =
     useState<ApprovalRequest['status']>('PENDING');
   const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
@@ -471,12 +334,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     });
     return list;
   }, [products, inventorySort]);
-
-  const upcLastScannedRef = useRef<string>('');
-  const upcItemsRef = useRef<UpcItem[]>([]);
-  const upcDepositRef = useRef<number>(0.1);
-  const upcAudioContextRef = useRef<AudioContext | null>(null);
-  const offLookupRequestIdRef = useRef(0);
 
   const [auditTypeFilter, setAuditTypeFilter] = useState<'ALL' | AuditLogType>('ALL');
   const [auditActorFilter, setAuditActorFilter] = useState('');
@@ -746,8 +603,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         credentials: 'include'
       });
       const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || 'Orders fetch failed');
-        // NOTE:
+      if (!res.ok) throw new Error(data?.error || 'Orders fetch failed');
+      // NOTE:
       // This view receives `orders` from parent state. This button checks connectivity,
       // but does not directly set `orders` here. Your parent core should re-fetch orders
       // on session restore / status updates (which you already have).
@@ -758,666 +615,17 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
-  // ---- UPC Registry Maintenance API (OWNER) ----
-  const apiLoadUpcItems = async () => {
-    setUpcError(null);
-    setIsUpcLoading(true);
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/upc`, {
-        method: 'GET',
-        credentials: 'include'
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to load UPC list');
-      setUpcItems(Array.isArray(data?.upcItems) ? data.upcItems : []);
-    } catch (e: any) {
-      setUpcError(e?.message || 'Failed to load UPC list');
-    } finally {
-      setIsUpcLoading(false);
-    }
-  };
-
-  const loadUpcDraft = (entry: UpcItem) => {
-    setUpcDraft({
-      upc: entry.upc,
-      name: entry.name || '',
-      depositValue: 0.1,
-      price: Number(entry.price || 0),
-      containerType: entry.containerType || 'plastic',
-      sizeOz: Number(entry.sizeOz || 0),
-      sizeUnit: entry.sizeUnit || 'oz',
-      isEligible: entry.isEligible !== false
-    });
-  };
-
-  const handleUpcLookup = (upc?: string) => {
-    const targetUpc = upc || upcInput.trim();
-    if (!targetUpc) {
-      setUpcError('UPC is required.');
-      return;
-    }
-
-    setUpcError(null);
-    const existing = upcItems.find(item => item.upc === targetUpc);
-    if (existing) {
-      loadUpcDraft(existing);
-      return;
-    }
-
-    setUpcDraft({
-      upc: targetUpc,
-      name: '',
-      depositValue: 0.1,
-      price: 0,
-      containerType: 'plastic',
-      sizeOz: 0,
-      sizeUnit: 'oz',
-      isEligible: true
-    });
-  };
-
-  const apiSaveUpc = async () => {
-    if (!upcDraft.upc) {
-      setUpcError('UPC is required.');
-      return;
-    }
-
-    setIsUpcSaving(true);
-    setUpcError(null);
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/upc`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          upc: upcDraft.upc,
-          name: upcDraft.name,
-          depositValue: Number(upcDraft.depositValue || 0),
-          price: Number(upcDraft.price || 0),
-          containerType: upcDraft.containerType,
-          sizeOz: Number(upcDraft.sizeOz || 0),
-          sizeUnit: upcDraft.sizeUnit,
-          isEligible: upcDraft.isEligible
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to save UPC');
-      const saved: UpcItem = {
-        ...data.upcItem,
-        sizeUnit: data.upcItem?.sizeUnit || upcDraft.sizeUnit
-      };
-      setUpcItems(prev => {
-        const next = prev.filter(item => item.upc !== saved.upc);
-        return [saved, ...next];
-      });
-      // Clear inputs after successful save
-      setUpcInput('');
-      setUpcDraft({
-        upc: '',
-        name: '',
-        depositValue: 0.1,
-        price: 0,
-        containerType: 'plastic',
-        sizeOz: 0,
-        sizeUnit: 'oz',
-        isEligible: true
-      });
-    } catch (e: any) {
-      setUpcError(e?.message || 'Failed to save UPC');
-    } finally {
-      setIsUpcSaving(false);
-    }
-  };
-
-  const apiDeleteUpc = async () => {
-    if (!upcDraft.upc) return;
-    setIsUpcSaving(true);
-    setUpcError(null);
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/upc/${upcDraft.upc}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to delete UPC');
-      setUpcItems(prev => prev.filter(item => item.upc !== upcDraft.upc));
-      // Invalidate caches
-      try { localStorage.removeItem('ninpo_upc_eligibility_v1'); } catch {}
-      setUpcDraft({
-        upc: '',
-        name: '',
-        depositValue: 0.1,
-        price: 0,
-        containerType: 'plastic',
-        sizeOz: 0,
-        isEligible: true
-      });
-      setUpcInput('');
-    } catch (e: any) {
-      setUpcError(e?.message || 'Failed to delete UPC');
-    } finally {
-      setIsUpcSaving(false);
-    }
-  };
-
-  const apiLinkUpc = async (upc: string, productId: string) => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/upc/link`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ upc, productId })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Link failed');
-    } catch (e: any) {
-      setUpcError(e?.message || 'Link failed');
-    }
-  };
-
-  useEffect(() => {
-    if (activeModule === 'upc' && upcItems.length === 0 && !isUpcLoading) {
-      apiLoadUpcItems();
-    }
-  }, [activeModule, upcItems.length, isUpcLoading]);
-
-  useEffect(() => {
-    upcItemsRef.current = upcItems;
-  }, [upcItems]);
-
-  const filteredUpcItems = useMemo(() => {
-    const needle = upcFilter.trim().toLowerCase();
-    if (!needle) return upcItems;
-    return upcItems.filter(item => {
-      return (
-        item.upc.toLowerCase().includes(needle) ||
-        (item.name || '').toLowerCase().includes(needle)
-      );
-    });
-  }, [upcFilter, upcItems]);
-
-  const apiScanUpc = async (upc: string, qty = 1, resolveOnly = false) => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/upc/scan`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ upc, qty, resolveOnly })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Scan failed');
-
-      if (data.action === 'unmapped') {
-        const { upc, upcEntry } = data;
-        setUnmappedUpcPayload({
-          upc,
-          name: upcEntry?.name,
-          price: upcEntry?.price,
-          deposit: upcEntry?.depositValue,
-          sizeOz: upcEntry?.sizeOz
-        });
-        setUnmappedUpcModalOpen(true);
-        return data;
-      }
-
-      if (!resolveOnly) {
-        if (data.action === 'updated' && data.product) {
-          const prod: Product = {
-            id: data.product.sku || data.product.frontendId,
-            sku: data.product.sku || undefined,
-            name: data.product.name,
-            price: data.product.price,
-            deposit: data.product.deposit ?? 0,
-            stock: data.product.stock ?? 0,
-            sizeOz: data.product.sizeOz ?? 0,
-            category: data.product.category ?? 'DRINK',
-            image: data.product.image || '',
-            brand: data.product.brand || '',
-            productType: data.product.productType || '',
-            storageZone: data.product.storageZone || '',
-            storageBin: data.product.storageBin || '',
-            isGlass: !!data.product.isGlass
-          };
-          setProducts(prev => prev.map(p => (p.id === prod.id ? prod : p)));
-        }
-
-        if (data.action === 'created' && data.product) {
-          const created: Product = {
-            id: data.product.sku || data.product.frontendId,
-            sku: data.product.sku || undefined,
-            name: data.product.name,
-            price: data.product.price,
-            deposit: data.product.deposit ?? 0,
-            stock: data.product.stock ?? 0,
-            sizeOz: data.product.sizeOz ?? 0,
-            category: data.product.category ?? 'DRINK',
-            image: data.product.image || '',
-            brand: data.product.brand || '',
-            productType: data.product.productType || '',
-            storageZone: data.product.storageZone || '',
-            storageBin: data.product.storageBin || '',
-            isGlass: !!data.product.isGlass
-          };
-          setProducts(prev => [created, ...prev]);
-        }
-      }
-
-      return data;
-    } catch (e: any) {
-      setUpcError(e?.message || 'Scan failed');
-      return null;
-    }
-  };
-
-  // ---- Inventory API ----
-  const resetCreateForm = useCallback(() => {
-    setNewProduct({ ...DEFAULT_NEW_PRODUCT });
-    setScannedUpcForCreation('');
-    setCreateError(null);
-    setOffLookupStatus('idle');
-    setOffLookupMessage('');
-    setOffLookupIngredients('');
-    setOffLookupNutriments(null);
-  }, []);
-
-  const handleCancelCreate = useCallback(() => {
-    resetCreateForm();
-    setScannerMode(ScannerMode.INVENTORY_CREATE);
-    setScannerModalOpen(true);
-  }, [resetCreateForm]);
-
-  const apiCreateProduct = async () => {
-    setCreateError(null);
-    setIsCreating(true);
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/products`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          name: newProduct.name.trim(),
-          price: Number(newProduct.price),
-          deposit: upcDraft.isEligible ? 0.10 : 0.00,
-          stock: Number(newProduct.stock),
-          sizeOz: Number(newProduct.sizeOz),
-          sizeUnit: newProduct.sizeUnit,
-          category: newProduct.category,
-          brand: newProduct.brand,
-          productType: newProduct.productType,
-          nutritionNote: newProduct.nutritionNote,
-          storageZone: newProduct.storageZone,
-          storageBin: newProduct.storageBin,
-          image: newProduct.image,
-          isGlass: !!newProduct.isGlass
-        })
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Create failed');
-
-      const created: Product = {
-        ...data.product,
-        sizeUnit: data.product?.sizeUnit || newProduct.sizeUnit,
-        nutritionNote: data.product?.nutritionNote || newProduct.nutritionNote
-      };
-      setProducts(prev => [created, ...prev]);
-
-      // Link UPC to SKU if scanned
-      if (scannedUpcForCreation) {
-        try {
-          await fetch(`${BACKEND_URL}/api/upc/link`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ upc: scannedUpcForCreation, productId: created.id })
-          });
-
-          const canWriteRegistry = activeModule === 'inventory' && scannerMode === ScannerMode.INVENTORY_CREATE;
-          if (canWriteRegistry) {
-            const sizeOz = Number.isFinite(Number(newProduct.sizeOz))
-              ? Number(newProduct.sizeOz)
-              : Number(upcDraft.sizeOz || 0);
-            const sizeUnit = newProduct.sizeUnit || upcDraft.sizeUnit;
-            const registryPayload = {
-              upc: scannedUpcForCreation,
-              name: upcDraft.name || newProduct.name.trim(),
-              brand: newProduct.brand,
-              productType: newProduct.productType,
-              depositValue: upcDraft.isEligible ? 0.1 : 0,
-              price: Number(newProduct.price),
-              sizeOz,
-              sizeUnit,
-              isEligible: upcDraft.isEligible,
-              containerType: upcDraft.containerType
-            };
-            const registryExists = upcItemsRef.current.some(item => item.upc === scannedUpcForCreation);
-
-            if (!registryExists) {
-              const registryRes = await fetch(`${BACKEND_URL}/api/upc`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(registryPayload)
-              });
-              if (!registryRes.ok && registryRes.status !== 409) {
-                const registryData = await registryRes.json().catch(() => ({}));
-                throw new Error(registryData?.error || 'Failed to create UPC registry entry');
-              }
-            }
-
-            // Update UPC metadata
-            await fetch(`${BACKEND_URL}/api/upc/${scannedUpcForCreation}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({
-                name: registryPayload.name,
-                brand: registryPayload.brand,
-                productType: registryPayload.productType,
-                sizeOz: registryPayload.sizeOz,
-                sizeUnit: registryPayload.sizeUnit,
-                isEligible: registryPayload.isEligible,
-                containerType: registryPayload.containerType
-              })
-            });
-          }
-        } catch (linkError) {
-          console.error('Failed to link UPC:', linkError);
-          // Don't fail the whole creation
-        }
-      }
-
-      resetCreateForm();
-      setScannerMode(ScannerMode.INVENTORY_CREATE);
-      setScannerModalOpen(true);
-      return created;
-    } catch (e: any) {
-      setCreateError(e?.message || 'Create failed');
-      return null;
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const shouldFillText = (current: string, next?: string) => {
-    const trimmed = current.trim();
-    if (trimmed) return current;
-    return next ? next : current;
-  };
-
-  const shouldFillNumber = (current: number, next?: number) => {
-    if (Number.isFinite(current) && current > 0) return current;
-    if (Number.isFinite(next) && Number(next) > 0) return Number(next);
-    return current;
-  };
-
-  const applyLookupDrafts = useCallback(
-    (
-      lookupData: {
-        name?: string;
-        price?: number;
-        sizeOz?: number;
-        sizeUnit?: SizeUnit;
-        containerType?: UpcContainerType;
-        isEligible?: boolean;
-        depositValue?: number;
-      },
-      productData?: Partial<Product>
-    ) => {
-      setUpcDraft(prev => ({
-        ...prev,
-        name: shouldFillText(prev.name, lookupData.name),
-        price: shouldFillNumber(prev.price, lookupData.price),
-        sizeOz: shouldFillNumber(prev.sizeOz, lookupData.sizeOz),
-        sizeUnit:
-          !lookupData.sizeUnit ? prev.sizeUnit : lookupData.sizeUnit,
-        containerType: lookupData.containerType || prev.containerType,
-        isEligible: lookupData.isEligible ?? prev.isEligible,
-        depositValue:
-          Number.isFinite(prev.depositValue) && prev.depositValue > 0
-            ? prev.depositValue
-            : Number.isFinite(lookupData.depositValue)
-            ? Number(lookupData.depositValue)
-            : prev.depositValue
-      }));
-
-      if (!productData && !lookupData) return;
-
-      setNewProduct(prev => {
-        const resolvedContainerType = lookupData.containerType;
-        const resolvedIsGlass =
-          resolvedContainerType === 'glass' ? true : resolvedContainerType ? false : undefined;
-        return {
-          ...prev,
-          name: shouldFillText(prev.name, productData?.name || lookupData.name),
-          brand: shouldFillText(prev.brand, productData?.brand),
-          productType: shouldFillText(prev.productType, productData?.productType),
-          nutritionNote: shouldFillText(prev.nutritionNote, productData?.nutritionNote),
-          storageZone: shouldFillText(prev.storageZone, productData?.storageZone),
-          storageBin: shouldFillText(prev.storageBin, productData?.storageBin),
-          image: shouldFillText(prev.image, productData?.image),
-          stock: shouldFillNumber(prev.stock, productData?.stock),
-          price: shouldFillNumber(prev.price, productData?.price),
-          sizeOz: shouldFillNumber(
-            prev.sizeOz,
-            productData?.sizeOz || lookupData.sizeOz
-          ),
-          sizeUnit:
-            !lookupData.sizeUnit
-              ? prev.sizeUnit
-              : lookupData.sizeUnit,
-          isGlass:
-            resolvedIsGlass === undefined
-              ? prev.isGlass
-              : resolvedIsGlass
-        };
-      });
-    },
-    [setNewProduct, setUpcDraft]
-  );
-
-  const applyOffLookup = useCallback(
-    (payload: OffLookupProduct) => {
-      if (!payload) return;
-      const quantityParsed = parseOffQuantity(payload.quantity);
-      const category = payload.categories
-        ? String(payload.categories).split(',')[0]?.trim()
-        : '';
-      const nutritionNote = buildNutritionNoteFromOff(
-        payload.ingredients,
-        payload.nutriments
-      );
-      setOffLookupIngredients(payload.ingredients || '');
-      setOffLookupNutriments(payload.nutriments || null);
-
-      applyLookupDrafts(
-        {
-          name: payload.name,
-          sizeOz: quantityParsed?.size,
-          sizeUnit: quantityParsed?.unit,
-          price: undefined,
-          depositValue: undefined,
-          isEligible: undefined,
-          containerType: undefined
-        },
-        {
-          name: payload.name || '',
-          brand: payload.brand || '',
-          image: payload.imageUrl || '',
-          productType: category || '',
-          nutritionNote
-        }
-      );
-    },
-    [applyLookupDrafts]
-  );
-
-  const fetchOffLookup = useCallback(
-    async (upc: string) => {
-      const normalized = String(upc || '').replace(/\D/g, '').trim();
-      if (!normalized) return;
-
-      const requestId = offLookupRequestIdRef.current + 1;
-      offLookupRequestIdRef.current = requestId;
-      setOffLookupStatus('loading');
-      setOffLookupMessage('Fetching product info…');
-      setOffLookupIngredients('');
-      setOffLookupNutriments(null);
-
-      try {
-        const res = await fetch(`${BACKEND_URL}/api/upc/off/${normalized}`, {
-          credentials: 'include'
-        });
-        const data = await res.json().catch(() => ({}));
-        if (offLookupRequestIdRef.current !== requestId) return;
-
-        if (!res.ok) throw new Error(data?.error || 'Lookup failed');
-
-        if (!data?.found) {
-          setOffLookupStatus('not_found');
-          setOffLookupMessage('Not found in OFF—enter details manually');
-          return;
-        }
-
-        applyOffLookup(data.product);
-        setOffLookupStatus('found');
-        setOffLookupMessage('Auto-filled from Open Food Facts (editable).');
-      } catch (e) {
-        if (offLookupRequestIdRef.current !== requestId) return;
-        setOffLookupStatus('error');
-        setOffLookupMessage(OFF_LOOKUP_FALLBACK_MESSAGE);
-      }
-    },
-    [applyOffLookup]
-  );
-
   const handleScannerScan = useCallback(async (upc: string) => {
-    setLastBlockedUpc(null);
     setLastBlockedUpc(null);
     setLastBlockedReason(null);
     if (scannerMode === ScannerMode.INVENTORY_CREATE) {
-      // Normalize: digits only
-      const normalized = String(upc).replace(/\D/g, '').trim();
-      if (!normalized) return;
-
-      // Set authoritative creation UPC and override only relevant fields
-      setScannedUpcForCreation(normalized);
-      upcLastScannedRef.current = normalized;
-      setOffLookupStatus('idle');
-      setOffLookupMessage('');
-      setOffLookupIngredients('');
-      setOffLookupNutriments(null);
-      // Clear only auto-fill fields before new lookup
-      setUpcDraft(prev => ({
-        ...prev,
-        upc: normalized,
-        name: '',
-        price: 0,
-        depositValue: 0.1,
-        containerType: 'plastic',
-        sizeOz: 0,
-        sizeUnit: 'oz',
-        isEligible: true
-      }));
-      setNewProduct(prev => ({
-        ...prev,
-        name: '',
-        brand: '',
-        productType: '',
-        nutritionNote: '',
-        storageZone: '',
-        storageBin: '',
-        image: '',
-        stock: 0,
-        price: 0,
-        sizeOz: 0,
-        sizeUnit: 'oz',
-        isGlass: false
-      }));
-      setUpcInput(normalized);
-
-      // Trigger auto-fill from OFF lookup
-      void fetchOffLookup(normalized);
-
-      // Photo is captured manually via button
-      try {
-        const scanRes = await fetch(`${BACKEND_URL}/api/upc/scan`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ upc: normalized, qty: 1, resolveOnly: true })
-        });
-        const scanData = await scanRes.json().catch(() => ({}));
-        if (!scanRes.ok) throw new Error(scanData?.error || 'UPC lookup failed');
-
-        if (upcLastScannedRef.current !== normalized) return;
-
-        const upcEntry = scanData?.upcEntry;
-        const resolvedProduct = scanData?.product;
-        const mappedLookup = upcEntry
-          ? {
-              name: upcEntry?.name,
-              price: Number(upcEntry?.price || 0),
-              sizeOz: Number(upcEntry?.sizeOz || 0),
-              containerType: upcEntry?.containerType,
-              isEligible: upcEntry?.isEligible !== false,
-              depositValue: Number(upcEntry?.depositValue || 0)
-            }
-          : undefined;
-
-        if (mappedLookup || resolvedProduct) {
-          applyLookupDrafts(mappedLookup || {}, resolvedProduct || undefined);
-          return;
-        }
-
-        const eligibilityRes = await fetch(
-          `${BACKEND_URL}/api/upc/eligibility?upc=${encodeURIComponent(normalized)}`
-        );
-        if (!eligibilityRes.ok) return;
-        const eligibilityData = await eligibilityRes.json().catch(() => ({}));
-        if (upcLastScannedRef.current !== normalized) return;
-
-        applyLookupDrafts({
-          name: eligibilityData?.name,
-          price: Number(eligibilityData?.price || 0),
-          sizeOz: Number(eligibilityData?.sizeOz || 0),
-          containerType: eligibilityData?.containerType,
-          isEligible: eligibilityData?.eligible !== false,
-          depositValue: Number(eligibilityData?.depositValue || 0)
-        });
-      } catch (err) {
-        console.error('UPC lookup failed:', err);
-      }
-
+      await handleInventoryScannerScan(upc);
       return;
     }
     if (scannerMode === ScannerMode.UPC_LOOKUP) {
-      setUpcInput(upc);
-      handleUpcLookup(upc);
-      // Keep modal open for UPC_LOOKUP mode
+      handleUpcScannerScan(upc);
     }
-  }, [
-    scannerMode,
-    fetchOffLookup,
-    setScannedUpcForCreation,
-    setUpcInput,
-    setUpcDraft,
-    setNewProduct,
-    handleUpcLookup,
-    applyLookupDrafts
-  ]);
-
-  const handleManualUpcChange = useCallback((value: string) => {
-    const normalized = String(value || '').replace(/\D/g, '').trim();
-    setScannedUpcForCreation(normalized);
-    upcLastScannedRef.current = normalized;
-    setUpcInput(normalized);
-    setUpcDraft(prev => ({ ...prev, upc: normalized }));
-    setOffLookupStatus('idle');
-    setOffLookupMessage('');
-    setOffLookupIngredients('');
-    setOffLookupNutriments(null);
-  }, [setScannedUpcForCreation, setUpcInput, setUpcDraft]);
+  }, [handleInventoryScannerScan, handleUpcScannerScan, scannerMode]);
 
   const startEditProduct = (product: Product) => {
     setEditError(null);
@@ -1792,17 +1000,258 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  const modules = [
-    { id: 'analytics', label: 'Dashboard', icon: BarChart3 },
-    { id: 'orders', label: 'Orders', icon: Truck },
-    { id: 'reviews', label: 'Reviews', icon: ShieldCheck },
-    { id: 'inventory', label: 'Inventory', icon: Package },
-    { id: 'upc', label: 'UPC Registry', icon: ScanLine },
-    { id: 'users', label: 'Users', icon: Users },
-    { id: 'logs', label: 'Audit Logs', icon: Terminal },
-    { id: 'settings', label: 'Settings', icon: Sliders }
-  ];
+  const managementSections = {
+    analytics: {
+      id: 'analytics',
+      label: 'Dashboard',
+      icon: BarChart3,
+      render: () => (
+        <ManagementDashboard
+          auditModel={auditModel}
+          auditModels={auditModels}
+          auditModelsError={auditModelsError}
+          isAuditModelsLoading={isAuditModelsLoading}
+          isAuditing={isAuditing}
+          isOpsSummaryLoading={isOpsSummaryLoading}
+          orders={orders}
+          aiInsights={aiInsights}
+          opsSummary={opsSummary}
+          chartData={chartData}
+          isChartReady={isChartReady}
+          isChartVisible={isChartVisible}
+          chartContainerRef={chartContainerRef}
+          setAuditModel={setAuditModel}
+          // runAudit prop removed because runAudit is not defined
+          runOpsSummary={runOpsSummary}
+        />
+      )
+    },
+    orders: {
+      id: 'orders',
+      label: 'Orders',
+      icon: Truck,
+      render: () => (
+        <ManagementOrders
+          orders={orders}
+          users={users}
+          isRefreshingOrders={isRefreshingOrders}
+          ordersError={ordersError}
+          apiRefreshOrders={apiRefreshOrders}
+          handleLogisticsUpdate={handleLogisticsUpdate}
+          canCancel={canCancel}
+          fmtTime={fmtTime}
+          countTotalUpcs={countTotalUpcs}
+        />
+      )
+    },
+    reviews: {
+      id: 'reviews',
+      label: 'Reviews',
+      icon: ShieldCheck,
+      render: () => (
+        <>
+          <ManagementApprovals
+            approvalFilter={approvalFilter}
+            setApprovalFilter={setApprovalFilter}
+            filteredApprovals={filteredApprovals}
+            handleApprove={handleApprove}
+            handleReject={handleReject}
+            setSelectedApproval={setSelectedApproval}
+            setPreviewPhoto={setPreviewPhoto}
+            fmtTime={fmtTime}
+          />
+          <ManagementReturns
+            scannerMode={scannerMode}
+            setScannerMode={setScannerMode}
+            scannerModalOpen={scannerModalOpen}
+            setScannerModalOpen={setScannerModalOpen}
+            lastBlockedUpc={lastBlockedUpc}
+            lastBlockedReason={lastBlockedReason}
+            handleScannerScan={handleScannerScan}
+            setLastBlockedUpc={setLastBlockedUpc}
+            setLastBlockedReason={setLastBlockedReason}
+            scannedUpcForCreation={scannedUpcForCreation}
+            handleManualUpcChange={handleManualUpcChange}
+            fetchOffLookup={fetchOffLookup}
+            offLookupStatus={offLookupStatus}
+            offLookupMessage={offLookupMessage}
+            createError={createError}
+            newProduct={newProduct}
+            setNewProduct={setNewProduct}
+            upcDraft={upcDraft}
+            setUpcDraft={setUpcDraft}
+            sizeUnitOptions={SIZE_UNIT_OPTIONS}
+            offLookupIngredients={offLookupIngredients}
+            offNutritionEntries={offNutritionEntries}
+            handleCancelCreate={handleCancelCreate}
+            apiCreateProduct={apiCreateProduct}
+            isCreating={isCreating}
+            inventorySort={inventorySort}
+            setInventorySort={setInventorySort}
+            sortedProducts={sortedProducts}
+            startEditProduct={startEditProduct}
+            apiRestockPlus10={apiRestockPlus10}
+            apiDeleteProduct={apiDeleteProduct}
+            formatSize={formatSize}
+          />
+        </>
+      )
+    },
+    inventory: {
+      id: 'inventory',
+      label: 'Inventory',
+      icon: Package,
+      render: () => (
+        <ManagementInventory
+          products={products}
+          setProducts={setProducts}
+          scannerMode={scannerMode}
+          setScannerMode={setScannerMode}
+          scannerModalOpen={scannerModalOpen}
+          setScannerModalOpen={setScannerModalOpen}
+          scannedUpcForCreation={scannedUpcForCreation}
+          setScannedUpcForCreation={setScannedUpcForCreation}
+          upcDraft={upcDraft}
+          setUpcDraft={setUpcDraft}
+          newProduct={newProduct}
+          setNewProduct={setNewProduct}
+          createError={createError}
+          setCreateError={setCreateError}
+          isCreating={isCreating}
+          setIsCreating={setIsCreating}
+          apiCreateProduct={apiCreateProduct}
+          startEditProduct={startEditProduct}
+          apiRestockPlus10={apiRestockPlus10}
+          apiDeleteProduct={apiDeleteProduct}
+          editingProduct={editingProduct}
+          setEditingProduct={setEditingProduct}
+          editDraft={editDraft}
+          setEditDraft={setEditDraft}
+          editError={editError}
+          setEditError={setEditError}
+          isSavingEdit={isSavingEdit}
+          setIsSavingEdit={setIsSavingEdit}
+          apiUpdateProduct={apiUpdateProduct}
+        />
+      )
+    },
+    upc: {
+      id: 'upc',
+      label: 'UPC Registry',
+      icon: ScanLine,
+      render: () => (
+        <ManagementUpcRegistry
+          upcItems={upcItems}
+          setUpcItems={setUpcItems}
+          upcInput={upcInput}
+          setUpcInput={setUpcInput}
+          upcDraft={upcDraft}
+          setUpcDraft={setUpcDraft}
+          upcFilter={upcFilter}
+          setUpcFilter={setUpcFilter}
+          isUpcLoading={isUpcLoading}
+          isUpcSaving={isUpcSaving}
+          upcError={upcError}
+          apiLoadUpcItems={apiLoadUpcItems}
+          handleUpcLookup={handleUpcLookup}
+          apiSaveUpc={apiSaveUpc}
+          apiDeleteUpc={apiDeleteUpc}
+          apiLinkUpc={apiLinkUpc}
+          filteredUpcItems={filteredUpcItems}
+          loadUpcDraft={loadUpcDraft}
+          products={products}
+          unmappedUpcModalOpen={unmappedUpcModalOpen}
+          setUnmappedUpcModalOpen={setUnmappedUpcModalOpen}
+          unmappedUpcPayload={unmappedUpcPayload}
+          setUnmappedUpcPayload={setUnmappedUpcPayload}
+          ScannerModal={null}
+          UPC_CONTAINER_LABELS={UPC_CONTAINER_LABELS}
+        />
+      )
+    },
+    users: {
+      id: 'users',
+      label: 'Users',
+      icon: Users,
+      render: () => (
+        <ManagementUsers
+          currentUser={user}
+          users={users}
+          filteredUsers={filteredUsers}
+          userStats={userStats}
+          userDrafts={userDrafts}
+          expandedUserId={expandedUserId}
+          setExpandedUserId={setExpandedUserId}
+          userLedgers={userLedgers}
+          ledgerLoading={ledgerLoading}
+          ledgerErrors={ledgerErrors}
+          userStatsLoading={userStatsLoading}
+          userFilter={userFilter}
+          setUserFilter={setUserFilter}
+          isUsersLoading={isUsersLoading}
+          usersError={usersError}
+          refreshUsers={refreshUsers}
+          handleUserDraftChange={handleUserDraftChange}
+          fetchUserLedger={fetchUserLedger}
+          toggleUserDetails={toggleUserDetails}
+          saveUserDraft={saveUserDraft}
+          apiDeleteUser={apiDeleteUser}
+          allowPlatinumTier={allowPlatinumTier}
+          fmtTime={fmtTime}
+          fmtDelta={fmtDelta}
+          getTierStyles={getTierStyles}
+          isNewSignupWithBonus={isNewSignupWithBonus}
+        />
+      )
+    },
+    logs: {
+      id: 'logs',
+      label: 'Audit Logs',
+      icon: Terminal,
+      render: () => (
+        <ManagementAuditLogs
+          filteredAuditLogs={filteredAuditLogs}
+          auditTypeFilter={auditTypeFilter}
+          setAuditTypeFilter={setAuditTypeFilter}
+          auditActorFilter={auditActorFilter}
+          setAuditActorFilter={setAuditActorFilter}
+          auditRangeFilter={auditRangeFilter}
+          setAuditRangeFilter={setAuditRangeFilter}
+          auditTypeOptions={auditTypeOptions}
+          isAuditLogsLoading={isAuditLogsLoading}
+          auditLogsError={auditLogsError}
+          handleDownloadAuditCsv={handleDownloadAuditCsv}
+          runAuditSummary={runAuditSummary}
+          auditSummary={auditSummary}
+          isAuditSummaryLoading={isAuditSummaryLoading}
+          fmtTime={fmtTime}
+        />
+      )
+    },
+    settings: {
+      id: 'settings',
+      label: 'Settings',
+      icon: Sliders,
+      render: () => (
+        <ManagementSettings
+          settingsDraft={settingsDraft}
+          setSettingsDraft={setSettingsDraft}
+          settingsDirty={settingsDirty}
+          setSettingsDirty={setSettingsDirty}
+          isSavingSettings={isSavingSettings}
+          setIsSavingSettings={setIsSavingSettings}
+          settingsError={settingsError}
+          setSettingsError={setSettingsError}
+          settingsSaved={settingsSaved}
+          setSettingsSaved={setSettingsSaved}
+          updateSettingsDraft={updateSettingsDraft}
+          saveSettings={saveSettings}
+        />
+      )
+    }
+  } as const;
 
+  const sectionList = Object.values(managementSections);
 
   const inventoryCreateForm = (
     <div className="space-y-6">
@@ -1913,7 +1362,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
               <input
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
                 placeholder="Product name"
-                               value={newProduct.name}
+                value={newProduct.name}
                 onChange={e =>
                   setNewProduct({ ...newProduct, name: e.target.value })
                 }
@@ -2135,622 +1584,413 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     </div>
   );
 
+  const activeSection = managementSections[activeModule as keyof typeof managementSections];
 
   return (
     <div className="overflow-visible md:overflow-y-auto md:h-[calc(100vh-12rem)]">
       <div className="flex flex-col md:flex-row gap-12 animate-in fade-in">
-      <nav className="md:hidden -mx-4 px-4">
-        <div className="flex gap-2 overflow-x-auto whitespace-nowrap pb-2">
-          {modules.map(m => (
+        <nav className="md:hidden -mx-4 px-4">
+          <div className="flex gap-2 overflow-x-auto whitespace-nowrap pb-2">
+            {sectionList.map(section => (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => handleModuleSelect(section.id)}
+                className={`shrink-0 text-left px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-3 ${
+                  activeModule === section.id
+                    ? 'bg-ninpo-lime text-ninpo-black shadow-neon'
+                    : 'hover:bg-white/5 text-slate-500'
+                }`}
+              >
+                <section.icon className="w-4 h-4" /> {section.label}
+              </button>
+            ))}
+          </div>
+        </nav>
+
+        <aside className="hidden md:block w-full md:w-72 space-y-2 md:sticky md:top-6 md:self-start md:shrink-0">
+          {sectionList.map(section => (
             <button
-              key={m.id}
+              key={section.id}
               type="button"
-              onClick={() => handleModuleSelect(m.id)}
-              className={`shrink-0 text-left px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-3 ${
-                activeModule === m.id
+              onClick={() => handleModuleSelect(section.id)}
+              className={`w-full text-left p-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-4 ${
+                activeModule === section.id
                   ? 'bg-ninpo-lime text-ninpo-black shadow-neon'
                   : 'hover:bg-white/5 text-slate-500'
               }`}
             >
-              <m.icon className="w-4 h-4" /> {m.label}
+              <section.icon className="w-5 h-5" /> {section.label}
             </button>
           ))}
+        </aside>
+
+        <div className="flex-1 w-full space-y-8 pb-32">
+          {activeSection?.render()}
         </div>
-      </nav>
 
-      <aside className="hidden md:block w-full md:w-72 space-y-2 md:sticky md:top-6 md:self-start md:shrink-0">
-        {modules.map(m => (
-          <button
-            key={m.id}
-            type="button"
-            onClick={() => handleModuleSelect(m.id)}
-            className={`w-full text-left p-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-4 ${
-              activeModule === m.id
-                ? 'bg-ninpo-lime text-ninpo-black shadow-neon'
-                : 'hover:bg-white/5 text-slate-500'
-            }`}
-          >
-            <m.icon className="w-5 h-5" /> {m.label}
-          </button>
-        ))}
-      </aside>
-
-      <div className="flex-1 w-full space-y-8 pb-32">
-        {activeModule === 'analytics' && (
-          <ManagementDashboard
-            auditModel={auditModel}
-            auditModels={auditModels}
-            auditModelsError={auditModelsError}
-            isAuditModelsLoading={isAuditModelsLoading}
-            isAuditing={isAuditing}
-            isOpsSummaryLoading={isOpsSummaryLoading}
-            orders={orders}
-            aiInsights={aiInsights}
-            opsSummary={opsSummary}
-            chartData={chartData}
-            isChartReady={isChartReady}
-            isChartVisible={isChartVisible}
-            chartContainerRef={chartContainerRef}
-            setAuditModel={setAuditModel}
-            // runAudit prop removed because runAudit is not defined
-            runOpsSummary={runOpsSummary}
-          />
-        )}
-        {activeModule === 'orders' && (
-          <ManagementOrders
-            orders={orders}
-            users={users}
-            isRefreshingOrders={isRefreshingOrders}
-            ordersError={ordersError}
-            apiRefreshOrders={apiRefreshOrders}
-            handleLogisticsUpdate={handleLogisticsUpdate}
-            canCancel={canCancel}
-            fmtTime={fmtTime}
-            countTotalUpcs={countTotalUpcs}
-          />
-        )}
-        {activeModule === 'users' && (
-          <ManagementUsers
-            currentUser={user}
-            users={users}
-            filteredUsers={filteredUsers}
-            userStats={userStats}
-            userDrafts={userDrafts}
-            expandedUserId={expandedUserId}
-            setExpandedUserId={setExpandedUserId}
-            userLedgers={userLedgers}
-            ledgerLoading={ledgerLoading}
-            ledgerErrors={ledgerErrors}
-            userStatsLoading={userStatsLoading}
-            userFilter={userFilter}
-            setUserFilter={setUserFilter}
-            isUsersLoading={isUsersLoading}
-            usersError={usersError}
-            refreshUsers={refreshUsers}
-            handleUserDraftChange={handleUserDraftChange}
-            fetchUserLedger={fetchUserLedger}
-            toggleUserDetails={toggleUserDetails}
-            saveUserDraft={saveUserDraft}
-            apiDeleteUser={apiDeleteUser}
-            allowPlatinumTier={allowPlatinumTier}
-            fmtTime={fmtTime}
-            fmtDelta={fmtDelta}
-            getTierStyles={getTierStyles}
-            isNewSignupWithBonus={isNewSignupWithBonus}
-          />
-        )}
-        {activeModule === 'logs' && (
-          <ManagementAuditLogs
-            filteredAuditLogs={filteredAuditLogs}
-            auditTypeFilter={auditTypeFilter}
-            setAuditTypeFilter={setAuditTypeFilter}
-            auditActorFilter={auditActorFilter}
-            setAuditActorFilter={setAuditActorFilter}
-            auditRangeFilter={auditRangeFilter}
-            setAuditRangeFilter={setAuditRangeFilter}
-            auditTypeOptions={auditTypeOptions}
-            isAuditLogsLoading={isAuditLogsLoading}
-            auditLogsError={auditLogsError}
-            handleDownloadAuditCsv={handleDownloadAuditCsv}
-            runAuditSummary={runAuditSummary}
-            auditSummary={auditSummary}
-            isAuditSummaryLoading={isAuditSummaryLoading}
-            fmtTime={fmtTime}
-          />
-        )}
-        {activeModule === 'inventory' && (
-          <ManagementInventory
-            products={products}
-            setProducts={setProducts}
-            scannerMode={scannerMode}
-            setScannerMode={setScannerMode}
-            scannerModalOpen={scannerModalOpen}
-            setScannerModalOpen={setScannerModalOpen}
-            scannedUpcForCreation={scannedUpcForCreation}
-            setScannedUpcForCreation={setScannedUpcForCreation}
-            upcDraft={upcDraft}
-            setUpcDraft={setUpcDraft}
-            newProduct={newProduct}
-            setNewProduct={setNewProduct}
-            createError={createError}
-            setCreateError={setCreateError}
-            isCreating={isCreating}
-            setIsCreating={setIsCreating}
-            apiCreateProduct={apiCreateProduct}
-            startEditProduct={startEditProduct}
-            apiRestockPlus10={apiRestockPlus10}
-            apiDeleteProduct={apiDeleteProduct}
-            editingProduct={editingProduct}
-            setEditingProduct={setEditingProduct}
-            editDraft={editDraft}
-            setEditDraft={setEditDraft}
-            editError={editError}
-            setEditError={setEditError}
-            isSavingEdit={isSavingEdit}
-            setIsSavingEdit={setIsSavingEdit}
-            apiUpdateProduct={apiUpdateProduct}
-          />
-        )}
-        {activeModule === 'upc' && (
-          <ManagementUpcRegistry
-            upcItems={upcItems}
-            setUpcItems={setUpcItems}
-            upcInput={upcInput}
-            setUpcInput={setUpcInput}
-            upcDraft={upcDraft}
-            setUpcDraft={setUpcDraft}
-            upcFilter={upcFilter}
-            setUpcFilter={setUpcFilter}
-            isUpcLoading={isUpcLoading}
-            isUpcSaving={isUpcSaving}
-            upcError={upcError}
-            apiLoadUpcItems={apiLoadUpcItems}
-            handleUpcLookup={handleUpcLookup}
-            apiSaveUpc={apiSaveUpc}
-            apiDeleteUpc={apiDeleteUpc}
-            apiLinkUpc={apiLinkUpc}
-            filteredUpcItems={filteredUpcItems}
-            loadUpcDraft={loadUpcDraft}
-            products={products}
-            unmappedUpcModalOpen={unmappedUpcModalOpen}
-            setUnmappedUpcModalOpen={setUnmappedUpcModalOpen}
-            unmappedUpcPayload={unmappedUpcPayload}
-            setUnmappedUpcPayload={setUnmappedUpcPayload}
-            ScannerModal={null}
-            UPC_CONTAINER_LABELS={UPC_CONTAINER_LABELS}
-          />
-        )}
-        {activeModule === 'settings' && (
-          <ManagementSettings
-            settingsDraft={settingsDraft}
-            setSettingsDraft={setSettingsDraft}
-            settingsDirty={settingsDirty}
-            setSettingsDirty={setSettingsDirty}
-            isSavingSettings={isSavingSettings}
-            setIsSavingSettings={setIsSavingSettings}
-            settingsError={settingsError}
-            setSettingsError={setSettingsError}
-            settingsSaved={settingsSaved}
-            setSettingsSaved={setSettingsSaved}
-            updateSettingsDraft={updateSettingsDraft}
-            saveSettings={saveSettings}
-          />
-        )}
-
-
-        {activeModule === 'reviews' && (
-          <>
-            <ManagementApprovals
-              approvalFilter={approvalFilter}
-              setApprovalFilter={setApprovalFilter}
-              filteredApprovals={filteredApprovals}
-              handleApprove={handleApprove}
-              handleReject={handleReject}
-              setSelectedApproval={setSelectedApproval}
-              setPreviewPhoto={setPreviewPhoto}
-              fmtTime={fmtTime}
-            />
-            <ManagementReturns
-              scannerMode={scannerMode}
-              setScannerMode={setScannerMode}
-              scannerModalOpen={scannerModalOpen}
-              setScannerModalOpen={setScannerModalOpen}
-              lastBlockedUpc={lastBlockedUpc}
-              lastBlockedReason={lastBlockedReason}
-              handleScannerScan={handleScannerScan}
-              setLastBlockedUpc={setLastBlockedUpc}
-              setLastBlockedReason={setLastBlockedReason}
-              scannedUpcForCreation={scannedUpcForCreation}
-              handleManualUpcChange={handleManualUpcChange}
-              fetchOffLookup={fetchOffLookup}
-              offLookupStatus={offLookupStatus}
-              offLookupMessage={offLookupMessage}
-              createError={createError}
-              newProduct={newProduct}
-              setNewProduct={setNewProduct}
-              upcDraft={upcDraft}
-              setUpcDraft={setUpcDraft}
-              sizeUnitOptions={SIZE_UNIT_OPTIONS}
-              offLookupIngredients={offLookupIngredients}
-              offNutritionEntries={offNutritionEntries}
-              handleCancelCreate={handleCancelCreate}
-              apiCreateProduct={apiCreateProduct}
-              isCreating={isCreating}
-              inventorySort={inventorySort}
-              setInventorySort={setInventorySort}
-              sortedProducts={sortedProducts}
-              startEditProduct={startEditProduct}
-              apiRestockPlus10={apiRestockPlus10}
-              apiDeleteProduct={apiDeleteProduct}
-              formatSize={formatSize}
-            />
-          </>
-        )}
-
-      </div>
-
-      {editingProduct && (
-        <div
-          className="fixed inset-0 z-[14000] flex items-center justify-center p-6 bg-ninpo-black/95 backdrop-blur-xl animate-in fade-in duration-300"
-          onClick={closeEditProduct}
-        >
+        {editingProduct && (
           <div
-            className="w-full max-w-2xl bg-ninpo-card border border-white/10 rounded-[2.5rem] p-8 space-y-6"
-            onClick={e => e.stopPropagation()}
+            className="fixed inset-0 z-[14000] flex items-center justify-center p-6 bg-ninpo-black/95 backdrop-blur-xl animate-in fade-in duration-300"
+            onClick={closeEditProduct}
           >
-            <div>
-              <p className="text-white font-black uppercase tracking-widest text-sm">
-                Edit Product
-              </p>
-              <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mt-2">
-                ID: {editingProduct.id}
-              </p>
-              <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-2">
-                Storage zone/bin = item location (e.g., Fridge / Shelf A).
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <input
-                id="editProductName"
-                name="editProductName"
-                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                placeholder="Name"
-                value={editDraft.name}
-                onChange={e => setEditDraft({ ...editDraft, name: e.target.value })}
-              />
-              <input
-                id="editProductCategory"
-                name="editProductCategory"
-                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                placeholder="Category"
-                value={editDraft.category}
-                onChange={e => setEditDraft({ ...editDraft, category: e.target.value })}
-              />
-              <input
-                id="editProductBrand"
-                name="editProductBrand"
-                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                placeholder="Brand"
-                value={editDraft.brand}
-                onChange={e => setEditDraft({ ...editDraft, brand: e.target.value })}
-              />
-              <input
-                id="editProductType"
-                name="editProductType"
-                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                placeholder="Product Type"
-                value={editDraft.productType}
-                onChange={e => setEditDraft({ ...editDraft, productType: e.target.value })}
-              />
-              <textarea
-                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white md:col-span-2 min-h-[96px]"
-                placeholder="Nutrition note (Customer Info)"
-                value={editDraft.nutritionNote}
-                onChange={e => setEditDraft({ ...editDraft, nutritionNote: e.target.value })}
-              />
-              <input
-                id="editProductStorageZone"
-                name="editProductStorageZone"
-                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                placeholder="Storage Zone"
-                value={editDraft.storageZone}
-                onChange={e => setEditDraft({ ...editDraft, storageZone: e.target.value })}
-              />
-              <input
-                id="editProductStorageBin"
-                name="editProductStorageBin"
-                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                placeholder="Storage Bin"
-                value={editDraft.storageBin}
-                onChange={e => setEditDraft({ ...editDraft, storageBin: e.target.value })}
-              />
-              <input
-                id="editProductPrice"
-                name="editProductPrice"
-                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                placeholder="Price"
-                type="number"
-                value={editDraft.price}
-                onChange={e =>
-                  setEditDraft({
-                    ...editDraft,
-                    price: Number(e.target.value)
-                  })
-                }
-              />
-              <input
-                id="editProductDeposit"
-                name="editProductDeposit"
-                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                placeholder="Deposit"
-                type="number"
-                value={editDraft.deposit}
-                onChange={e =>
-                  setEditDraft({
-                    ...editDraft,
-                    deposit: Number(e.target.value)
-                  })
-                }
-              />
-              <input
-                id="editProductStock"
-                name="editProductStock"
-                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                placeholder="Stock"
-                type="number"
-                value={editDraft.stock}
-                onChange={e =>
-                  setEditDraft({
-                    ...editDraft,
-                    stock: Number(e.target.value)
-                  })
-                }
-              />
-              <div className="flex gap-2">
-                <input
-                  id="editProductSizeOz"
-                  name="editProductSizeOz"
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                  placeholder="Size"
-                  type="number"
-                  step="0.1"
-                  value={editDraft.sizeOz}
-                  onChange={e =>
-                    setEditDraft({
-                      ...editDraft,
-                      sizeOz: Number(e.target.value)
-                    })
-                  }
-                />
-                <select
-                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  value={editDraft.sizeUnit}
-                  onChange={e =>
-                    setEditDraft({
-                      ...editDraft,
-                      sizeUnit: e.target.value as SizeUnit
-                    })
-                  }
-                >
-                  {SIZE_UNIT_OPTIONS.map(option => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-3 bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white">
-                <input
-                  id="edit-is-glass"
-                  name="editProductIsGlass"
-                  type="checkbox"
-                  className="h-4 w-4 accent-ninpo-lime"
-                  checked={editDraft.isGlass}
-                  onChange={e => setEditDraft({ ...editDraft, isGlass: e.target.checked })}
-                />
-                <label htmlFor="edit-is-glass" className="text-[11px] font-bold">
-                  Glass Bottle
-                </label>
-              </div>
-              <input
-                id="editProductImage"
-                name="editProductImage"
-                className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white md:col-span-2"
-                placeholder="Image URL"
-                value={editDraft.image}
-                onChange={e => setEditDraft({ ...editDraft, image: e.target.value })}
-              />
-            </div>
-
-            {editError && (
-              <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
-                {editError}
-              </div>
-            )}
-
-            <div className="flex flex-col md:flex-row gap-3">
-              <button
-                onClick={closeEditProduct}
-                className="w-full py-4 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={apiUpdateProduct}
-                disabled={isSavingEdit}
-                className="w-full py-4 rounded-2xl bg-white/20 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
-              >
-                {isSavingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {previewPhoto && (
-        <div
-          className="fixed inset-0 z-[15000] flex items-center justify-center p-6 bg-ninpo-black/95 backdrop-blur-xl animate-in fade-in duration-300"
-          onClick={() => setPreviewPhoto(null)}
-        >
-          <div
-            className="relative max-w-4xl w-full aspect-video rounded-[3rem] overflow-hidden border border-white/10 shadow-neon bg-black"
-            onClick={e => e.stopPropagation()}
-          >
-            <img src={previewPhoto} className="w-full h-full object-contain" alt="Verification proof" />
-            <button
-              className="absolute top-10 right-10 p-5 bg-white/10 rounded-3xl text-white hover:bg-ninpo-red transition-colors backdrop-blur-md"
-              onClick={() => setPreviewPhoto(null)}
+            <div
+              className="w-full max-w-2xl bg-ninpo-card border border-white/10 rounded-[2.5rem] p-8 space-y-6"
+              onClick={e => e.stopPropagation()}
             >
-              <EyeOff className="w-7 h-7" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {selectedApproval && (
-        <div
-          className="fixed inset-0 z-[14000] flex items-center justify-center p-6 bg-ninpo-black/80 backdrop-blur-xl animate-in fade-in duration-300"
-          onClick={() => setSelectedApproval(null)}
-        >
-          <div
-            className="relative max-w-4xl w-full rounded-[3rem] overflow-hidden border border-white/10 shadow-neon bg-ninpo-card p-8 space-y-6"
-            onClick={event => event.stopPropagation()}
-          >
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <p className="text-white font-black uppercase tracking-widest text-[12px]">
-                  {selectedApproval.type} • {selectedApproval.status}
+                <p className="text-white font-black uppercase tracking-widest text-sm">
+                  Edit Product
                 </p>
-                <p className="text-[10px] text-slate-500 font-bold uppercase mt-2 tracking-widest">
-                  USER: {selectedApproval.userId} • AMOUNT: $
-                  {selectedApproval.amount.toFixed(2)}
+                <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mt-2">
+                  ID: {editingProduct.id}
                 </p>
-                <p className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">
-                  ORDER: {selectedApproval.orderId || 'N/A'} • REQUESTED: {fmtTime(selectedApproval.createdAt)}
-                </p>
-                <p className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">
-                  REASON: {selectedApproval.reason || '—'}
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-2">
+                  Storage zone/bin = item location (e.g., Fridge / Shelf A).
                 </p>
               </div>
-              <button
-                className="px-5 py-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
-                onClick={() => setSelectedApproval(null)}
-              >
-                Close
-              </button>
-            </div>
 
-            <div className="grid gap-4 md:grid-cols-2 text-[11px] text-slate-300 uppercase tracking-widest">
-              <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                <p className="text-slate-500 font-bold">Reason</p>
-                <p className="text-white font-semibold mt-2">{selectedApproval.reason || '—'}</p>
-              </div>
-              <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                <p className="text-slate-500 font-bold">Order ID</p>
-                <p className="text-white font-semibold mt-2">
-                  {selectedApproval.orderId || 'N/A'}
-                </p>
-              </div>
-              <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                <p className="text-slate-500 font-bold">Created</p>
-                <p className="text-white font-semibold mt-2">
-                  {fmtTime(selectedApproval.createdAt)}
-                </p>
-              </div>
-              <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                <p className="text-slate-500 font-bold">Processed</p>
-                <p className="text-white font-semibold mt-2">
-                  {selectedApproval.processedAt ? fmtTime(selectedApproval.processedAt) : '—'}
-                </p>
-              </div>
-            </div>
-
-            {selectedApproval.photoProof && (
-              <div className="space-y-3">
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-                  Photo Proof
-                </p>
-                <button
-                  className="w-full rounded-[2rem] overflow-hidden border border-white/10 bg-black"
-                  onClick={() => setPreviewPhoto(selectedApproval.photoProof!)}
-                >
-                  <img
-                    src={selectedApproval.photoProof}
-                    alt="Approval proof"
-                    className="w-full max-h-[320px] object-cover"
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input
+                  id="editProductName"
+                  name="editProductName"
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Name"
+                  value={editDraft.name}
+                  onChange={e => setEditDraft({ ...editDraft, name: e.target.value })}
+                />
+                <input
+                  id="editProductCategory"
+                  name="editProductCategory"
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Category"
+                  value={editDraft.category}
+                  onChange={e => setEditDraft({ ...editDraft, category: e.target.value })}
+                />
+                <input
+                  id="editProductBrand"
+                  name="editProductBrand"
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Brand"
+                  value={editDraft.brand}
+                  onChange={e => setEditDraft({ ...editDraft, brand: e.target.value })}
+                />
+                <input
+                  id="editProductType"
+                  name="editProductType"
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Product Type"
+                  value={editDraft.productType}
+                  onChange={e => setEditDraft({ ...editDraft, productType: e.target.value })}
+                />
+                <textarea
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white md:col-span-2 min-h-[96px]"
+                  placeholder="Nutrition note (Customer Info)"
+                  value={editDraft.nutritionNote}
+                  onChange={e => setEditDraft({ ...editDraft, nutritionNote: e.target.value })}
+                />
+                <input
+                  id="editProductStorageZone"
+                  name="editProductStorageZone"
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Storage Zone"
+                  value={editDraft.storageZone}
+                  onChange={e => setEditDraft({ ...editDraft, storageZone: e.target.value })}
+                />
+                <input
+                  id="editProductStorageBin"
+                  name="editProductStorageBin"
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Storage Bin"
+                  value={editDraft.storageBin}
+                  onChange={e => setEditDraft({ ...editDraft, storageBin: e.target.value })}
+                />
+                <input
+                  id="editProductPrice"
+                  name="editProductPrice"
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Price"
+                  type="number"
+                  value={editDraft.price}
+                  onChange={e =>
+                    setEditDraft({
+                      ...editDraft,
+                      price: Number(e.target.value)
+                    })
+                  }
+                />
+                <input
+                  id="editProductDeposit"
+                  name="editProductDeposit"
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Deposit"
+                  type="number"
+                  value={editDraft.deposit}
+                  onChange={e =>
+                    setEditDraft({
+                      ...editDraft,
+                      deposit: Number(e.target.value)
+                    })
+                  }
+                />
+                <input
+                  id="editProductStock"
+                  name="editProductStock"
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="Stock"
+                  type="number"
+                  value={editDraft.stock}
+                  onChange={e =>
+                    setEditDraft({
+                      ...editDraft,
+                      stock: Number(e.target.value)
+                    })
+                  }
+                />
+                <div className="flex gap-2">
+                  <input
+                    id="editProductSizeOz"
+                    name="editProductSizeOz"
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
+                    placeholder="Size"
+                    type="number"
+                    step="0.1"
+                    value={editDraft.sizeOz}
+                    onChange={e =>
+                      setEditDraft({
+                        ...editDraft,
+                        sizeOz: Number(e.target.value)
+                      })
+                    }
                   />
+                  <select
+                    className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                    value={editDraft.sizeUnit}
+                    onChange={e =>
+                      setEditDraft({
+                        ...editDraft,
+                        sizeUnit: e.target.value as SizeUnit
+                      })
+                    }
+                  >
+                    {SIZE_UNIT_OPTIONS.map(option => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-3 bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white">
+                  <input
+                    id="edit-is-glass"
+                    name="editProductIsGlass"
+                    type="checkbox"
+                    className="h-4 w-4 accent-ninpo-lime"
+                    checked={editDraft.isGlass}
+                    onChange={e => setEditDraft({ ...editDraft, isGlass: e.target.checked })}
+                  />
+                  <label htmlFor="edit-is-glass" className="text-[11px] font-bold">
+                    Glass Bottle
+                  </label>
+                </div>
+                <input
+                  id="editProductImage"
+                  name="editProductImage"
+                  className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white md:col-span-2"
+                  placeholder="Image URL"
+                  value={editDraft.image}
+                  onChange={e => setEditDraft({ ...editDraft, image: e.target.value })}
+                />
+              </div>
+
+              {editError && (
+                <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
+                  {editError}
+                </div>
+              )}
+
+              <div className="flex flex-col md:flex-row gap-3">
+                <button
+                  onClick={closeEditProduct}
+                  className="w-full py-4 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={apiUpdateProduct}
+                  disabled={isSavingEdit}
+                  className="w-full py-4 rounded-2xl bg-white/20 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                >
+                  {isSavingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  Save
                 </button>
               </div>
-            )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {unmappedUpcModalOpen && unmappedUpcPayload && (
-        <UnmappedUpcModal
-          key={unmappedUpcPayload.upc}
-          data={unmappedUpcPayload}
-          products={products}
-          onClose={() => setUnmappedUpcModalOpen(false)}
-          onCreateProduct={async productData => {
-            setNewProduct(prev => ({ ...prev, ...productData }));
-            setUpcDraft(prev => ({
-              ...prev,
-              name: productData.name,
-              sizeOz: productData.sizeOz,
-              sizeUnit: productData.sizeUnit
-            }));
-            const newProd = await apiCreateProduct();
-            if (newProd) {
-              await apiLinkUpc(unmappedUpcPayload.upc, newProd.id);
-            }
-            setUnmappedUpcModalOpen(false);
-          }}
-          onAttachToExisting={async (productId) => {
-            await apiLinkUpc(unmappedUpcPayload.upc, productId);
-            setUnmappedUpcModalOpen(false);
-          }}
-        />
-      )}
+        {previewPhoto && (
+          <div
+            className="fixed inset-0 z-[15000] flex items-center justify-center p-6 bg-ninpo-black/95 backdrop-blur-xl animate-in fade-in duration-300"
+            onClick={() => setPreviewPhoto(null)}
+          >
+            <div
+              className="relative max-w-4xl w-full aspect-video rounded-[3rem] overflow-hidden border border-white/10 shadow-neon bg-black"
+              onClick={e => e.stopPropagation()}
+            >
+              <img src={previewPhoto} className="w-full h-full object-contain" alt="Verification proof" />
+              <button
+                className="absolute top-10 right-10 p-5 bg-white/10 rounded-3xl text-white hover:bg-ninpo-red transition-colors backdrop-blur-md"
+                onClick={() => setPreviewPhoto(null)}
+              >
+                <EyeOff className="w-7 h-7" />
+              </button>
+            </div>
+          </div>
+        )}
 
-      <ScannerModal
-        mode={scannerMode}
-        onScan={handleScannerScan}
-        onClose={() => {
-          setScannerModalOpen(false);
-          setLastBlockedUpc(null);
-          setLastBlockedReason(null);
-        }}
-        onCooldown={(upc, reason) => {
-          addToast('Same UPC — tap to add again', 'info');
-          if (reason === 'duplicate') {
-            setLastBlockedUpc(upc);
-            setLastBlockedReason(reason);
-          } else {
+        {selectedApproval && (
+          <div
+            className="fixed inset-0 z-[14000] flex items-center justify-center p-6 bg-ninpo-black/80 backdrop-blur-xl animate-in fade-in duration-300"
+            onClick={() => setSelectedApproval(null)}
+          >
+            <div
+              className="relative max-w-4xl w-full rounded-[3rem] overflow-hidden border border-white/10 shadow-neon bg-ninpo-card p-8 space-y-6"
+              onClick={event => event.stopPropagation()}
+            >
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <p className="text-white font-black uppercase tracking-widest text-[12px]">
+                    {selectedApproval.type} • {selectedApproval.status}
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mt-2 tracking-widest">
+                    USER: {selectedApproval.userId} • AMOUNT: $
+                    {selectedApproval.amount.toFixed(2)}
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">
+                    ORDER: {selectedApproval.orderId || 'N/A'} • REQUESTED: {fmtTime(selectedApproval.createdAt)}
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">
+                    REASON: {selectedApproval.reason || '—'}
+                  </p>
+                </div>
+                <button
+                  className="px-5 py-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
+                  onClick={() => setSelectedApproval(null)}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 text-[11px] text-slate-300 uppercase tracking-widest">
+                <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                  <p className="text-slate-500 font-bold">Reason</p>
+                  <p className="text-white font-semibold mt-2">{selectedApproval.reason || '—'}</p>
+                </div>
+                <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                  <p className="text-slate-500 font-bold">Order ID</p>
+                  <p className="text-white font-semibold mt-2">
+                    {selectedApproval.orderId || 'N/A'}
+                  </p>
+                </div>
+                <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                  <p className="text-slate-500 font-bold">Created</p>
+                  <p className="text-white font-semibold mt-2">
+                    {fmtTime(selectedApproval.createdAt)}
+                  </p>
+                </div>
+                <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                  <p className="text-slate-500 font-bold">Processed</p>
+                  <p className="text-white font-semibold mt-2">
+                    {selectedApproval.processedAt ? fmtTime(selectedApproval.processedAt) : '—'}
+                  </p>
+                </div>
+              </div>
+
+              {selectedApproval.photoProof && (
+                <div className="space-y-3">
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                    Photo Proof
+                  </p>
+                  <button
+                    className="w-full rounded-[2rem] overflow-hidden border border-white/10 bg-black"
+                    onClick={() => setPreviewPhoto(selectedApproval.photoProof!)}
+                  >
+                    <img
+                      src={selectedApproval.photoProof}
+                      alt="Approval proof"
+                      className="w-full max-h-[320px] object-cover"
+                    />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {unmappedUpcModalOpen && unmappedUpcPayload && (
+          <UnmappedUpcModal
+            key={unmappedUpcPayload.upc}
+            data={unmappedUpcPayload}
+            products={products}
+            onClose={() => setUnmappedUpcModalOpen(false)}
+            onCreateProduct={async productData => {
+              setNewProduct(prev => ({ ...prev, ...productData }));
+              setUpcDraft(prev => ({
+                ...prev,
+                name: productData.name,
+                sizeOz: productData.sizeOz,
+                sizeUnit: productData.sizeUnit
+              }));
+              const newProd = await apiCreateProduct();
+              if (newProd) {
+                await apiLinkUpc(unmappedUpcPayload.upc, newProd.id);
+              }
+              setUnmappedUpcModalOpen(false);
+            }}
+            onAttachToExisting={async (productId) => {
+              await apiLinkUpc(unmappedUpcPayload.upc, productId);
+              setUnmappedUpcModalOpen(false);
+            }}
+          />
+        )}
+
+        <ScannerModal
+          mode={scannerMode}
+          onScan={handleScannerScan}
+          onClose={() => {
+            setScannerModalOpen(false);
             setLastBlockedUpc(null);
-            setLastBlockedReason(reason);
+            setLastBlockedReason(null);
+          }}
+          onCooldown={(upc, reason) => {
+            addToast('Same UPC — tap to add again', 'info');
+            if (reason === 'duplicate') {
+              setLastBlockedUpc(upc);
+              setLastBlockedReason(reason);
+            } else {
+              setLastBlockedUpc(null);
+              setLastBlockedReason(reason);
+            }
+          }}
+          title={
+            scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan Product' :
+            scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC' :
+            'Scan'
           }
-        }}
-        title={
-          scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan Product' :
-          scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC' :
-          'Scan'
-        }
-        subtitle={
-          scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan UPC to auto-fill product details' :
-          scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC to lookup or edit registry entry' :
-          'Scan barcode'
-        }
-        beepEnabled={settings.beepEnabled ?? true}
-        cooldownMs={settings.cooldownMs ?? 1000}
-        isOpen={scannerModalOpen}
-        bottomSheetContent={
-          scannerMode === ScannerMode.INVENTORY_CREATE ? inventoryCreateForm : null
-        }
-        closeOnScan={false}
-      />
+          subtitle={
+            scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan UPC to auto-fill product details' :
+            scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC to lookup or edit registry entry' :
+            'Scan barcode'
+          }
+          beepEnabled={settings.beepEnabled ?? true}
+          cooldownMs={settings.cooldownMs ?? 1000}
+          isOpen={scannerModalOpen}
+          bottomSheetContent={
+            scannerMode === ScannerMode.INVENTORY_CREATE ? inventoryCreateForm : null
+          }
+          closeOnScan={false}
+        />
       </div>
     </div>
   );
