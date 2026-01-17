@@ -133,7 +133,7 @@ router.post('/eligibility', async (req, res) => {
 router.get('/off/:code', authRequired, ownerRequired, async (req, res) => {
   try {
     const code = normalizeBarcode(req.params.code);
-    if (!code) return res.status(400).json({ error: 'upc is required' });
+    if (!code) return res.status(400).json({ error: 'code is required' });
     if (!/^\d{8,14}$/.test(code)) {
       return res.status(400).json({ error: 'Invalid barcode format' });
     }
@@ -161,7 +161,13 @@ router.get('/off/:code', authRequired, ownerRequired, async (req, res) => {
       return res.status(502).json({ error: 'Open Food Facts lookup failed' });
     }
 
-    const offData = await offResponse.json().catch(() => null);
+    let offData;
+    try {
+      offData = await offResponse.json();
+    } catch (jsonError) {
+      console.error('OFF LOOKUP: JSON PARSE ERROR:', jsonError);
+      return res.status(502).json({ error: 'Failed to parse Open Food Facts response' });
+    }
     const found = Boolean(offData?.status === 1 && offData?.product);
     const payload = found
       ? {
