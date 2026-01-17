@@ -41,9 +41,9 @@ All roles, permissions, scanner modes, and flags are defined in [GLOSSARY.md](GL
 
 ## Inventory Scanner Workflow (UI)
 
-* Inventory scan closes the camera and opens the auto-filled **Create Product** form.
-* The **Create Product** form is the only review panel.
-* Photo capture is manual; re-run analysis uses the last captured photo.
+* Inventory scan keeps the camera open and reveals a bottom sheet **Create Product** form.
+* The **Create Product** form (bottom sheet) is the only result/review panel.
+* Photo capture is manual from the bottom sheet; the camera only closes after photo capture completes.
 
 ## 1. Naming Standard (Do Not Deviate)
 

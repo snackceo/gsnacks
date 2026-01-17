@@ -26,6 +26,7 @@ This file documents UI/UX, scanner, and component contract. For all roles, permi
      - optionally show a small “Tap to force add” affordance.
 2) After each scan, show a result panel:
    - The Create Product form itself (auto-filled) is the result panel.
+   - In Inventory Mode A, the result panel is a bottom sheet that stays open while the camera remains active.
    - Do not show separate preview cards or a duplicate result panel.
    - UPC
    - Product name (if mapped)
@@ -39,9 +40,9 @@ This file documents UI/UX, scanner, and component contract. For all roles, permi
 
 ## Management modes
 - Inventory Mode A:
-  - Flow: scan UPC → show UPC in intake UI → optional photo capture → auto-fill form → create product.
+  - Flow: scan UPC → bottom sheet intake UI shows UPC while camera stays open → optional photo capture → auto-fill form → create product.
   - The Create Product form is the intake UI (no separate preview cards).
-  - Photo capture is optional and happens from the intake UI before create.
+  - Photo capture is optional and happens from the intake UI; camera closes only after capture completes.
 - UPC Whitelist module:
   - scan populates UPC input, then operator saves metadata
   - can also attach sku mapping from this screen
