@@ -187,9 +187,8 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
       }
     } catch {
       // ignore torch failures
-    } finally {
-      setTorchOn(false);
     }
+    setTorchOn(false); // Always reset torch state
 
     if (streamRef.current) {
       try {
@@ -250,6 +249,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
   const startScanner = useCallback(async () => {
     await stopScanner();
+    setTorchOn(false); // Always reset torch state on start
     cancelledRef.current = false;
     setBlocked(false);
     setScannerError(null);
