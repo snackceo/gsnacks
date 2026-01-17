@@ -927,6 +927,13 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     isVerifying ||
     (requiresReturnPhoto && !returnCapturedPhoto) ||
     (contaminationFlagged && !contaminationConfirmed);
+  const driverScannerTitle = scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS
+    ? 'Verify Return Containers'
+    : 'Scan UPCs';
+  const driverScannerSubtitle = scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS
+    ? 'Scan each container to verify returns.'
+    : 'Scan UPCs to add to the return list.';
+
   const completionTitle = !paymentCaptured && !isReturnOnly
     ? 'Capture payment first'
     : contaminationFlagged && !contaminationConfirmed
@@ -1134,6 +1141,18 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
             </div>
           ))}
         </div>
+
+        <ScannerModal
+          mode={scannerMode}
+          onScan={handleScannerScan}
+          onClose={() => setScannerOpen(false)}
+          title={driverScannerTitle}
+          subtitle={driverScannerSubtitle}
+          beepEnabled
+          cooldownMs={1200}
+          isOpen={scannerOpen}
+          closeOnScan={false}
+        />
 
         {activeOrder && (
           <DriverVerificationDelivery
