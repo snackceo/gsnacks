@@ -291,6 +291,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         videoRef.current.srcObject = stream;
         try {
           await videoRef.current.play();
+          setIsScanning(true);
         } catch {
           setScannerError('Camera failed to start. Tap Retry.');
           setScannerHint('On mobile Chrome, tap once to grant permission or retry after allowing camera access.');
@@ -300,9 +301,15 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
           videoTrackRef.current = null;
           return;
         }
+      } else {
+        setScannerError('Camera failed to start. Tap Retry.');
+        setScannerHint('On mobile Chrome, tap once to grant permission or retry after allowing camera access.');
+        setIsScanning(false);
+        stream.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+        videoTrackRef.current = null;
+        return;
       }
-
-      setIsScanning(true);
 
       const detector = new (window as any).BarcodeDetector({
         formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e']
