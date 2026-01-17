@@ -209,15 +209,12 @@ const extractBase64FromDataUrl = (photoDataUrl: string) => {
   return base64Data?.replace(/\s+/g, '') ?? '';
 };
 
-const isLikelyBase64 = (value: string) => /^[A-Za-z0-9+/_-]+={0,2}$/.test(value);
-
 const isValidPhotoDataUrl = (value: unknown): value is string => {
   if (typeof value !== 'string') return false;
-  const trimmed = value.trim();
-  if (!trimmed || !trimmed.startsWith('data:image/')) return false;
-  const base64Data = extractBase64FromDataUrl(trimmed);
-  if (!base64Data) return false;
-  return isLikelyBase64(base64Data);
+  const normalized = value.replace(/\s+/g, '');
+  if (!normalized || !normalized.startsWith('data:image/')) return false;
+  const base64Data = extractBase64FromDataUrl(normalized);
+  return Boolean(base64Data);
 };
 
 const ManagementView: React.FC<ManagementViewProps> = ({
