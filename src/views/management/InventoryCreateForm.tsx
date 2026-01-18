@@ -2,6 +2,7 @@ import React from 'react';
 import { Plus, Loader2, ScanLine, X } from 'lucide-react';
 import { Product, SizeUnit, UpcItem } from '../../types';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
+import { BACKEND_URL } from '../../constants';
 
 interface InventoryCreateFormProps {
   scannedUpcForCreation: string;
@@ -43,6 +44,14 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
 }) => {
   const { addToast } = useNinpoCore();
   const [isAddingUpc, setIsAddingUpc] = React.useState(false);
+
+  React.useEffect(() => {
+    if (createError) {
+      addToast(createError, 'error');
+    }
+    // Only run when createError changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createError]);
 
   return (
     <div className="space-y-6">
@@ -87,7 +96,7 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
             onClick={async () => {
               setIsAddingUpc(true);
               try {
-                const res = await fetch('/api/upc', {
+                const res = await fetch(`${BACKEND_URL}/api/upc`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   credentials: 'include',
@@ -104,15 +113,19 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
                     containerType: upcDraft.containerType
                   })
                 });
+                let data: any = {};
+                try {
+                  data = await res.json();
+                } catch {}
                 if (res.status === 409) {
                   addToast('UPC already in registry', 'error');
                 } else if (!res.ok) {
-                  const data = await res.json().catch(() => ({}));
-                  addToast(data?.error || 'Failed to add to registry', 'error');
-                } else {
-                  addToast('Added to UPC Registry!', 'success');
-                  // Clear current UPC and reset form for next scan
+                  addToast((typeof data === 'object' && data !== null && 'error' in data ? data.error : undefined) || 'Failed to add to registry', 'error');
+                } else if (typeof data === 'object' && data !== null && 'ok' in data && data.ok) {
+                  addToast('Successfully added to registry', 'success');
                   handleManualUpcChange('');
+                } else {
+                  addToast('Unexpected response from server', 'error');
                 }
               } catch (err) {
                 addToast(err?.message || 'Failed to add to registry', 'error');
@@ -132,7 +145,7 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
             {offLookupMessage}
           </div>
         )}
-        {createError && addToast(createError, 'error')}
+        {/* Error toast handled by useEffect, not inline */}
       </div>
 
       <div className="flex flex-col md:flex-row gap-4 items-center">

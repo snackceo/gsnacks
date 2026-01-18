@@ -11,23 +11,8 @@ import {
   ReturnVerification,
   ReturnSettlement
 } from '../types';
-import { MOCK_PRODUCTS } from '../constants';
+import { MOCK_PRODUCTS, BACKEND_URL } from '../constants';
 
-const runtimeBackendUrl = () => {
-  const envUrl = (import.meta as any).env?.VITE_BACKEND_URL;
-  if (envUrl && typeof envUrl === 'string' && envUrl.trim()) return envUrl.trim();
-
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname.toLowerCase();
-    if (host === 'ninposnacks.com' || host.endsWith('.ninposnacks.com')) {
-      return 'https://api.ninposnacks.com';
-    }
-  }
-
-  return 'http://localhost:5000';
-};
-
-const BACKEND_URL = runtimeBackendUrl();
 const allowPlatinumTier = (import.meta as any).env?.VITE_ALLOW_PLATINUM_TIER === 'true';
 const SETTINGS_STORAGE_KEY = 'ninpo:settings';
 const CART_STORAGE_KEY = 'ninpo:cart';

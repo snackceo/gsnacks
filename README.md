@@ -36,7 +36,6 @@ See also: GLOSSARY.md for definitions.
 - Cloudinary (media)
 - (Potential) Socket.io (realtime)
 - (Potential) Twilio (SMS/phone)
-
 ---
 
 ## Usage & Project Purpose
@@ -49,99 +48,34 @@ NinpoSnacks is a delivery-first snack business with integrated Michigan 10¢ bot
 
 All roles, permissions, scanner modes, and flags are defined in [GLOSSARY.md](GLOSSARY.md). Do not redefine terms here.
 
----
-
-## Inventory Scanner Workflow (UI)
-
-* Inventory scan keeps the camera open and reveals a bottom sheet **Create Product** form.
-* The **Create Product** form (bottom sheet) is the only result/review panel.
 * Photo capture is manual from the bottom sheet; the camera only closes after photo capture completes.
 
-## 1. Naming Standard (Do Not Deviate)
-
-This document uses **one unified vocabulary**. Code, admin UI, receipts, and support scripts must use these exact terms.
-
-### 1.1 Core Concepts
-
 * **Bottle Return Service**: the overall service offering for Michigan deposit returns
-* **MI-Eligible Container**: an eligible refundable container under Michigan’s 10¢ deposit program
-* **Settlement Mode**: how container value is settled
-
   * **Credit Settlement** (default)
   * **Cash Settlement** (cash-out)
 * **Payment Rail**: how the customer pays any remaining balance
 
   * **Stripe** (card)
 
-### 1.2 Fees (Two Categories Only)
-
-#### A) Route Fees *(route-level, never per-container)*
-
-* **Route Fee**: see [GLOSSARY.md](GLOSSARY.md)
-* **Distance Fee**: incremental mileage charge after the included threshold (applies once per order)
-
-#### B) Cash Settlement Fees *(per-container, cash-out only)*
-
-* **Cash Handling Fee**: `$0.02 × total_containers`
 * **Glass Handling Surcharge**: `$0.02 × glass_containers`
 
 ### 1.3 Order Types (Receipt / Admin UI)
 
-* **Delivery Order**: product delivery (may also include bottle pickup)
-* **Pickup-Only Order**: bottle pickup with no products
-
-> **Forbidden synonyms** in UI/receipts: delivery fee, pickup fee, processing fee (except “Cash Handling Fee”), bottle fee, return fee.
-
-### 1.4 Pricing Authority (Source of Truth)
-
-**Backend totals are authoritative.** The frontend may display estimates for user experience, but:
-
-* The server must compute the final Route Fee, Distance Fee, tier discounts, and credits applied.
-* Stripe charges must match what is written to the Order record.
-
 If UI estimates disagree with server totals, **the server wins**.
 
 ---
-
-## 2. Business Overview
-
-NinpoSnacks is a **delivery-first snack business** that also operates a **Michigan 10¢ bottle return service** as part of its logistics system.
-
-Bottle returns are **a service**, not a giveaway. The system is designed to:
-
-* Encourage reuse and legal deposit recovery
-* Reduce Stripe/card processing volume via credits
-* Discourage cash handling while still allowing it under strict rules
 
 Cash handling is **exceptional**, not default.
 
 ---
 
 ## 3. Container Value – Legal Baseline (MI-Eligible Containers)
-
-* **Each Michigan-eligible container = $0.10 (by law)**
-* This value is **fixed** and must not be altered
-* No promotions, multipliers, or dynamic pricing apply
-
-The *only* time container value is reduced is when a customer **explicitly chooses cash settlement**, in which case legally permitted service fees apply.
-
----
-
-## 4. Global Logistics Fees (Applies System-Wide)
-
 ### 4.1 Route Fee (Standardized Naming)
 
 For the definition and rationale of "Route Fee", see [GLOSSARY.md](GLOSSARY.md).
-
 ---
-
-### 4.2 Pickup-Only Orders (Reduced Route Rate)
-
 For orders that include **pickup only** (no delivery):
 
-* The **Route Fee** still applies
-* The **Distance Fee** still applies (if triggered)
-* A **Pickup-Only Discount** may be applied via configuration using a multiplier
 
 **Configuration:** `pickupOnlyMultiplier` (default **0.5**)
 
@@ -149,51 +83,19 @@ For orders that include **pickup only** (no delivery):
 
 When `pickupOnlyMultiplier` is enabled for a Pickup-Only Order, the multiplier applies to **all route-level logistics charges**, including:
 
-* Route Fee
-* Distance Fee
-
-In other words:
-
 * `effective_route_fee = base_route_fee × pickupOnlyMultiplier`
 * `effective_distance_fee = base_distance_fee × pickupOnlyMultiplier`
 
-This is a **route-level discount**, not a container-based fee.
-
-> Note: Pickup-Only Orders do not include product delivery. The multiplier exists to reduce the overall logistics charge relative to a Delivery Order.
-
----
-
-### 4.3 Distance Fee (Tiered, Per Mile After Threshold)
-
 Distance is calculated **one-way from operator location to customer address**.
 
-* Distance is measured in **0.1 mile increments** and always **rounded down** to the nearest **0.1 mile**
-
-The first **3.0 miles are included** in the Route Fee.
-
 #### Distance Bands
-
-| Band (absolute distance) | Fee Applied    |
-| ------------------------ | -------------- |
-| 0.0–3.0 miles            | Included       |
-| 4.0–10.0 miles           | $0.50 per mile |
-| 11.0–20.0 miles          | $0.75 per mile |
-| 21.0+ miles              | $1.00 per mile |
 
 #### Band Application Rule (Authoritative)
 
 Distance fee bands are applied based on **absolute trip distance**, after excluding the included threshold (3.0 miles).
-
-> Bands apply based on *absolute distance from origin*, not on “billable miles” after subtraction.
-
-Example:
-
-```
 Distance = 12.8 miles → rounded down to 12.8
 Included miles = 3.0
 Charged miles in 4.0–10.0 band = 7.0 miles
-Charged miles in 11.0–12.8 band = 2.8 miles
-Distance Fee = 7.0×$0.50 + 2.8×$0.75
 ```
 
 Distance fees may be offset or waived based on tier rules.

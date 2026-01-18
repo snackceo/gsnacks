@@ -1,3 +1,15 @@
+## Invariant Rule: Frontend API Calls
+
+All frontend API calls MUST follow these rules:
+
+1. Use `${BACKEND_URL}/api/...` for all API endpoints.
+2. Always include `credentials: 'include'` in fetch options.
+3. Never use relative paths (e.g., `/server`, `/users`, etc.) for API calls.
+4. Never redefine `BACKEND_URL` locally in any file—import it from the shared constant.
+
+**This rule alone prevents 80% of common integration issues.**
+
+See `src/constants.tsx` for the canonical `BACKEND_URL` export and usage examples.
 # Feature Toggles & Experimental Features
 
 **maintenanceMode**: If true, disables all customer-facing endpoints except health.

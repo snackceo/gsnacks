@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { BACKEND_URL } from '../constants';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Cpu, Fingerprint, Binary, UserPlus, LogIn } from 'lucide-react';
 
@@ -7,21 +8,6 @@ interface LoginViewProps {
   onCancel?: () => void;
 }
 
-const runtimeBackendUrl = () => {
-  const envUrl = (import.meta as any).env?.VITE_BACKEND_URL;
-  if (envUrl && typeof envUrl === 'string' && envUrl.trim()) return envUrl.trim();
-
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname.toLowerCase();
-    if (host === 'ninposnacks.com' || host.endsWith('.ninposnacks.com')) {
-      return 'https://api.ninposnacks.com';
-    }
-  }
-
-  return 'http://localhost:5000';
-};
-
-const BACKEND_URL = runtimeBackendUrl();
 
 const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onCancel }) => {
   const navigate = useNavigate();

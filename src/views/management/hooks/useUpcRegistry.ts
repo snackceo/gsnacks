@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { UpcItem } from '../../../types';
-import { BACKEND_URL } from '../constants';
+import { BACKEND_URL } from '../../../constants'; // already correct
 
 const DEFAULT_UPC_DRAFT: UpcItem = {
   upc: '',

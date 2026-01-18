@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
+import { BACKEND_URL } from '../constants';
 import { Order, OrderStatus } from '../types';
 
-const BACKEND_URL =
-  (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
 function money(n: any) {
   const v = Number(n);

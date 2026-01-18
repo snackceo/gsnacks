@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BACKEND_URL } from '../constants';
 import { createPortal } from 'react-dom';
 import { Order, OrderStatus, ReturnUpcCount, User, UserRole, ScannerMode } from '../types';
 import { explainDriverIssue } from '../services/geminiService';
@@ -23,8 +24,6 @@ import ScannerModal from '../components/ScannerModal';
 import DriverVerificationDelivery from './DriverVerificationDelivery';
 import { useNinpoCore } from '../hooks/useNinpoCore';
 
-const BACKEND_URL =
-  (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
 interface DriverViewProps {
   currentUser: User | null;

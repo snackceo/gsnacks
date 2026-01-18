@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Product, ReturnUpcCount, UserTier, ScannerMode } from '../types';
 import ScannerModal from './ScannerModal'; // adjust path if your ScannerModal lives elsewhere
+import { BACKEND_URL } from '../constants'; // already correct
 import { useNinpoCore } from '../hooks/useNinpoCore';
 
 interface CartItem {
@@ -53,8 +54,6 @@ interface CartDrawerProps {
 
 const LS_KEY_UPCS = 'ninpo_return_upcs_v1';
 const LS_KEY_UPC_ELIGIBILITY = 'ninpo_upc_eligibility_v1';
-const BACKEND_URL =
-  (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 const UPC_ELIGIBILITY_TTL_MS = 1 * 60 * 60 * 1000;
 
 // Michigan default deposit

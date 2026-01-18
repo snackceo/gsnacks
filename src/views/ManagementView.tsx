@@ -47,12 +47,8 @@ import {
   getAuditLogSummary
 } from '../services/geminiService';
 import { useNinpoCore } from '../hooks/useNinpoCore';
-import {
-  BACKEND_URL,
-  SETTINGS_STORAGE_KEY,
-  SIZE_UNIT_OPTIONS,
-  UPC_CONTAINER_LABELS
-} from './management/constants';
+import { BACKEND_URL } from '../constants';
+import { SETTINGS_STORAGE_KEY, SIZE_UNIT_OPTIONS, UPC_CONTAINER_LABELS } from './management/constants';
 import {
   countTotalUpcs,
   fmtDelta,

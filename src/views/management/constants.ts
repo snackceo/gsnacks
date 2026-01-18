@@ -1,7 +1,5 @@
 import type { SizeUnit, UpcContainerType } from '../../types';
 
-export const BACKEND_URL =
-  (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 export const SETTINGS_STORAGE_KEY = 'ninpo:settings';
 export const UPC_CONTAINER_LABELS: Record<UpcContainerType, string> = {
   aluminum: 'CAN / ALUMINUM',

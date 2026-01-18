@@ -1,11 +1,8 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import type { Product, SizeUnit, UpcContainerType, UpcItem } from '../../../types';
 import { ScannerMode } from '../../../types';
-import {
-  BACKEND_URL,
-  DEFAULT_NEW_PRODUCT,
-  OFF_LOOKUP_FALLBACK_MESSAGE
-} from '../constants';
+import { BACKEND_URL } from '../../../constants';
+import { DEFAULT_NEW_PRODUCT, OFF_LOOKUP_FALLBACK_MESSAGE } from '../constants';
 import {
   buildNutritionNoteFromOff,
   getOffNutritionEntries,

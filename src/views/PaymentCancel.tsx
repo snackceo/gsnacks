@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
+import { BACKEND_URL } from '../constants';
 import { useSearchParams } from 'react-router-dom';
 
-const BACKEND_URL =
-  (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
 export default function PaymentCancel() {
   const [params] = useSearchParams();

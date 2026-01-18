@@ -1,5 +1,9 @@
 
+
 import { Product } from './types';
+
+export const BACKEND_URL =
+  (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
 export const CATEGORIES = ['ALL', 'SAVORY', 'SWEET', 'DRINK', 'HEALTHY', 'USED GEAR'];
 

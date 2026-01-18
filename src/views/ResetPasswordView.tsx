@@ -1,23 +1,9 @@
 import React from 'react';
+import { BACKEND_URL } from '../constants';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronRight, KeyRound, Mail } from 'lucide-react';
 
-const runtimeBackendUrl = () => {
-  const envUrl = (import.meta as any).env?.VITE_BACKEND_URL;
-  if (envUrl && typeof envUrl === 'string' && envUrl.trim()) return envUrl.trim();
-
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname.toLowerCase();
-    if (host === 'ninposnacks.com' || host.endsWith('.ninposnacks.com')) {
-      return 'https://api.ninposnacks.com';
-    }
-  }
-
-  return 'http://localhost:5000';
-};
-
-const BACKEND_URL = runtimeBackendUrl();
 
 type ResetStatus = 'idle' | 'submitting' | 'success' | 'error';
 
