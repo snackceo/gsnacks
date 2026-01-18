@@ -121,6 +121,10 @@ export const useUpcRegistry = ({ activeModule }: UseUpcRegistryParams) => {
         const next = prev.filter(item => item.upc !== saved.upc);
         return [saved, ...next];
       });
+      // Vibrate device after successful save if supported
+      if (typeof window !== 'undefined' && 'vibrate' in window.navigator) {
+        window.navigator.vibrate(100);
+      }
       // Clear inputs after successful save
       setUpcInput('');
       setUpcDraft(DEFAULT_UPC_DRAFT);
