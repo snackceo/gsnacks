@@ -63,6 +63,7 @@ import {
 } from './management/utils';
 import { useInventoryCreate } from './management/hooks/useInventoryCreate';
 import { useUpcRegistry } from './management/hooks/useUpcRegistry';
+import InventoryCreateForm from './management/InventoryCreateForm';
 
 interface ManagementViewProps {
   user: User;
