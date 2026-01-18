@@ -88,20 +88,16 @@ export const useInventoryCreate = ({
       },
       productData?: Partial<Product>
     ) => {
+      // Always overwrite with new lookup data for scan autofill reliability
       setUpcDraft(prev => ({
         ...prev,
-        name: shouldFillText(prev.name, lookupData.name),
-        price: shouldFillNumber(prev.price, lookupData.price),
-        sizeOz: shouldFillNumber(prev.sizeOz, lookupData.sizeOz),
-        sizeUnit: !lookupData.sizeUnit ? prev.sizeUnit : lookupData.sizeUnit,
-        containerType: lookupData.containerType || prev.containerType,
+        name: lookupData.name ?? '',
+        price: Number(lookupData.price ?? 0),
+        sizeOz: Number(lookupData.sizeOz ?? 0),
+        sizeUnit: lookupData.sizeUnit ?? prev.sizeUnit,
+        containerType: lookupData.containerType ?? prev.containerType,
         isEligible: lookupData.isEligible ?? prev.isEligible,
-        depositValue:
-          Number.isFinite(prev.depositValue) && prev.depositValue > 0
-            ? prev.depositValue
-            : Number.isFinite(lookupData.depositValue)
-            ? Number(lookupData.depositValue)
-            : prev.depositValue
+        depositValue: Number(lookupData.depositValue ?? prev.depositValue ?? 0)
       }));
 
       if (!productData && !lookupData) return;
@@ -112,17 +108,17 @@ export const useInventoryCreate = ({
           resolvedContainerType === 'glass' ? true : resolvedContainerType ? false : undefined;
         return {
           ...prev,
-          name: shouldFillText(prev.name, productData?.name || lookupData.name),
-          brand: shouldFillText(prev.brand, productData?.brand),
-          productType: shouldFillText(prev.productType, productData?.productType),
-          nutritionNote: shouldFillText(prev.nutritionNote, productData?.nutritionNote),
-          storageZone: shouldFillText(prev.storageZone, productData?.storageZone),
-          storageBin: shouldFillText(prev.storageBin, productData?.storageBin),
-          image: shouldFillText(prev.image, productData?.image),
-          stock: shouldFillNumber(prev.stock, productData?.stock),
-          price: shouldFillNumber(prev.price, productData?.price),
-          sizeOz: shouldFillNumber(prev.sizeOz, productData?.sizeOz || lookupData.sizeOz),
-          sizeUnit: !lookupData.sizeUnit ? prev.sizeUnit : lookupData.sizeUnit,
+          name: productData?.name ?? lookupData.name ?? '',
+          brand: productData?.brand ?? '',
+          productType: productData?.productType ?? '',
+          nutritionNote: productData?.nutritionNote ?? '',
+          storageZone: productData?.storageZone ?? '',
+          storageBin: productData?.storageBin ?? '',
+          image: productData?.image ?? '',
+          stock: Number(productData?.stock ?? 0),
+          price: Number(productData?.price ?? 0),
+          sizeOz: Number(productData?.sizeOz ?? lookupData.sizeOz ?? 0),
+          sizeUnit: lookupData.sizeUnit ?? prev.sizeUnit,
           isGlass: resolvedIsGlass === undefined ? prev.isGlass : resolvedIsGlass
         };
       });
