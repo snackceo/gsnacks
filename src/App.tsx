@@ -181,6 +181,7 @@ function App() {
                   o => o.customerId === core.currentUser?.id
                 )}
                 currentUser={core.currentUser}
+                userStats={core.currentUser ? core.userStats[core.currentUser.id] : undefined}
                 openLogin={() => setIsLoginViewOpen(true)}
                 onRequestRefund={() => {}}
                 addToCart={(productId) => {

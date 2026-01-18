@@ -1,11 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { Product, Order, OrderStatus, User, UserTier } from '../types';
-import { Plus, Search, Award, Settings, Leaf, Star, Coins, Zap, Info } from 'lucide-react';
 
 interface CustomerViewProps {
   products: Product[];
   orders: Order[];
   currentUser: User | null;
+  userStats?: UserStatsSummary;
   openLogin: () => void;
   onRequestRefund: (orderId: string) => void;
   addToCart: (id: string) => void;
@@ -13,6 +11,12 @@ interface CustomerViewProps {
   reorderItems: (items: { productId: string; quantity: number }[]) => void;
   onRedeemPoints: (points: number) => void;
 }
+
+import React, { useState, useEffect } from 'react';
+import { Product, Order, OrderStatus, User, UserTier, UserStatsSummary } from '../types';
+import { Plus, Search, Award, Settings, Leaf, Star, Coins, Zap, Info, CheckCircle2, XCircle } from 'lucide-react';
+
+
 
 const CustomerView: React.FC<CustomerViewProps> = ({
   products,
@@ -70,11 +74,51 @@ const CustomerView: React.FC<CustomerViewProps> = ({
   const safeLoyaltyPoints = currentUser?.loyaltyPoints ?? 0;
   const tierLabel = (currentUser?.membershipTier ?? UserTier.COMMON).toString().toUpperCase();
 
-  // Checklist progress logic
-  const ordersCompleted = (currentUser as any)?.ordersCompleted ?? 0;
-  const bottlesReturned = lifetimeBottleReturns ?? 0;
-  const loyaltyPoints = currentUser?.loyaltyPoints ?? 0;
+
+  // Checklist progress logic (backend-aligned)
   const userTier = (currentUser?.membershipTier ?? UserTier.COMMON).toString().toUpperCase();
+  const orderCount = useState?.orderCount ?? 0;
+  const totalSpend = useState?.totalSpend ?? 0;
+  const phoneVerified = !!currentUser?.phoneVerified;
+  const photoIdVerified = !!currentUser?.photoIdVerified;
+
+  // Tier requirements
+  const tierRequirements = [
+    {
+      label: 'Bronze',
+      requirements: [
+        { label: '25 orders', met: orderCount >= 25, value: `${orderCount}/25` },
+        { label: '$250 spent', met: totalSpend >= 250, value: `$${totalSpend.toFixed(2)}/$250.00` },
+        { label: 'Email verified', met: true, value: '✓' }, // always true (implicit)
+      ],
+      achieved: userTier === 'BRONZE' || userTier === 'SILVER' || userTier === 'GOLD' || userTier === 'PLATINUM',
+    },
+    {
+      label: 'Silver',
+      requirements: [
+        { label: '50 orders', met: orderCount >= 50, value: `${orderCount}/50` },
+        { label: '$600 spent', met: totalSpend >= 600, value: `$${totalSpend.toFixed(2)}/$600.00` },
+        { label: 'Phone verified', met: phoneVerified, value: phoneVerified ? '✓' : '✗' },
+      ],
+      achieved: userTier === 'SILVER' || userTier === 'GOLD' || userTier === 'PLATINUM',
+    },
+    {
+      label: 'Gold',
+      requirements: [
+        { label: '100 orders', met: orderCount >= 100, value: `${orderCount}/100` },
+        { label: '$1500 spent', met: totalSpend >= 1500, value: `$${totalSpend.toFixed(2)}/$1500.00` },
+        { label: 'Photo ID verified', met: photoIdVerified, value: photoIdVerified ? '✓' : '✗' },
+      ],
+      achieved: userTier === 'GOLD' || userTier === 'PLATINUM',
+    },
+    {
+      label: 'Platinum',
+      requirements: [
+        { label: 'Owner-assigned', met: userTier === 'PLATINUM', value: userTier === 'PLATINUM' ? '✓' : '✗' },
+      ],
+      achieved: userTier === 'PLATINUM',
+    },
+  ];
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20">
@@ -256,32 +300,27 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                     Tier Progress Checklist
                   </h3>
                 </div>
-                <ul className="space-y-2 text-white text-sm w-full">
-                  <li className="flex items-center gap-2">
-                    <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${ordersCompleted > 0 ? 'bg-ninpo-lime border-ninpo-lime' : 'border-slate-700'}`}>
-                      {ordersCompleted > 0 && <span className="block w-2 h-2 bg-white rounded-full" />}
-                    </span>
-                    Complete your first order
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${bottlesReturned >= 10 ? 'bg-ninpo-lime border-ninpo-lime' : 'border-slate-700'}`}>
-                      {bottlesReturned >= 10 && <span className="block w-2 h-2 bg-white rounded-full" />}
-                    </span>
-                    Return 10 bottles
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${loyaltyPoints >= 100 ? 'bg-ninpo-lime border-ninpo-lime' : 'border-slate-700'}`}>
-                      {loyaltyPoints >= 100 && <span className="block w-2 h-2 bg-white rounded-full" />}
-                    </span>
-                    Earn 100 loyalty points
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${userTier === 'SILVER' || userTier === 'GOLD' || userTier === 'PLATINUM' ? 'bg-ninpo-lime border-ninpo-lime' : 'border-slate-700'}`}>
-                      {(userTier === 'SILVER' || userTier === 'GOLD' || userTier === 'PLATINUM') && <span className="block w-2 h-2 bg-white rounded-full" />}
-                    </span>
-                    Reach Silver tier
-                  </li>
-                  {/* Removed '...more coming soon' for production polish */}
+                <ul className="space-y-4 text-white text-sm w-full">
+                  {tierRequirements.map(tier => (
+                    <li key={tier.label} className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${tier.achieved ? 'bg-ninpo-lime border-ninpo-lime' : 'border-slate-700'}`}>
+                          {tier.achieved ? <CheckCircle2 className="w-3 h-3 text-white" /> : <XCircle className="w-3 h-3 text-slate-700" />}
+                        </span>
+                        <span className="font-bold uppercase tracking-widest text-xs">{tier.label} Tier</span>
+                      </div>
+                      <ul className="ml-6 space-y-1">
+                        {tier.requirements.map(req => (
+                          <li key={req.label} className="flex items-center gap-2 text-xs">
+                            <span className={`w-3 h-3 rounded-full border flex items-center justify-center ${req.met ? 'bg-ninpo-lime border-ninpo-lime' : 'border-slate-700'}`}>
+                              {req.met ? <span className="block w-1.5 h-1.5 bg-white rounded-full" /> : null}
+                            </span>
+                            {req.label} <span className="ml-2 text-slate-400">{req.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  ))}
                 </ul>
                 <p className="text-slate-500 text-xs mt-2 text-center">
                   Track your progress toward higher membership tiers and rewards.
