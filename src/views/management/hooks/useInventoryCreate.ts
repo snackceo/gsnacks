@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import type { Product, SizeUnit, UpcContainerType, UpcItem } from '../../../types';
 import { ScannerMode } from '../../../types';
 import {
@@ -434,15 +434,25 @@ export const useInventoryCreate = ({
       setUpcDraft(prev => ({ ...prev, upc: normalized }));
       setOffLookupStatus('idle');
       setOffLookupMessage('');
-      setOffLookupIngredients('');
-      setOffLookupNutriments(null);
-    },
-    [setUpcDraft, setUpcInput]
-  );
-
-  return {
-    isCreating,
-    setIsCreating,
+          setOffLookupIngredients('');
+          setOffLookupNutriments(null);
+        }, [setScannedUpcForCreation, setUpcDraft, setUpcInput]);
+      
+        const handleAddToUpcRegistry = useCallback(() => {
+          if (!scannedUpcForCreation) return;
+          setUpcDraft(prev => ({
+            ...prev,
+            upc: scannedUpcForCreation,
+            isEligible: true,
+            depositValue: 0.1
+          }));
+          setNewProduct(prev => ({ ...prev, deposit: 0.1 }));
+          setOffLookupMessage('Added to UPC Registry. Deposit set to $0.10 and marked eligible.');
+        }, [scannedUpcForCreation, setUpcDraft, setNewProduct, setOffLookupMessage]);
+      
+        return {
+          isCreating,
+          setIsCreating,
     createError,
     setCreateError,
     newProduct,
@@ -459,6 +469,7 @@ export const useInventoryCreate = ({
     handleManualUpcChange,
     handleScannerScan,
     handleCancelCreate,
-    apiCreateProduct
+    apiCreateProduct,
+    handleAddToUpcRegistry
   };
 };

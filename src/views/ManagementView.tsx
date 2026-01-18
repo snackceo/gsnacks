@@ -208,7 +208,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     handleManualUpcChange,
     handleScannerScan: handleInventoryScannerScan,
     handleCancelCreate,
-    apiCreateProduct
+    apiCreateProduct,
+    handleAddToUpcRegistry
   } = inventoryCreate;
 
   const handleModuleSelect = (moduleId: string) => {
@@ -1294,19 +1295,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             Clear UPC
           </button>
           <button
-            onClick={async () => {
-              if (!scannedUpcForCreation) return;
-              // Add to UPC registry (simulate API call)
-              setUpcDraft(prev => ({
-                ...prev,
-                upc: scannedUpcForCreation,
-                isEligible: true,
-                depositValue: 0.1
-              }));
-              // Optionally, update newProduct deposit field if you want to show it in the form
-              setNewProduct(prev => ({ ...prev, deposit: 0.1 }));
-              setOffLookupMessage('Added to UPC Registry. Deposit set to $0.10 and marked eligible.');
-            }}
+            onClick={handleAddToUpcRegistry}
             className="px-4 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
           >
             <ScanLine className="w-4 h-4" /> Add to UPC Registry
