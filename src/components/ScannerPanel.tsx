@@ -212,14 +212,19 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   }, [torchOn]);
 
   const toggleTorch = useCallback(async () => {
+    if (!torchSupported) {
+      setScannerError('Torch not supported on this device.');
+      return;
+    }
     if (!videoTrackRef.current) return;
     try {
       await videoTrackRef.current.applyConstraints({ advanced: [{ torch: !torchOn } as any] });
       setTorchOn(prev => !prev);
-    } catch {
-      // torch not available / permission issue
+    } catch (err) {
+      setScannerError('Failed to toggle torch. Your device or browser may not support this feature.');
+      // Do not restart or stop the camera, just show error
     }
-  }, [torchOn]);
+  }, [torchOn, torchSupported]);
 
   const takePhoto = useCallback(() => {
     if (!videoRef.current || !onPhotoCaptured) return;
