@@ -451,6 +451,7 @@ export const useInventoryCreate = ({
     setScannedUpcForCreation,
     offLookupStatus,
     offLookupMessage,
+    setOffLookupMessage,
     offLookupIngredients,
     offLookupNutriments,
     offNutritionEntries,
