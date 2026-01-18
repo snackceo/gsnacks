@@ -14,7 +14,7 @@ interface Props {
 
 function ToastStack({ toasts }: Props) {
   return (
-    <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[11000] flex flex-col gap-2 w-full max-w-xs px-4 pointer-events-none">
+    <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[11000] flex flex-col gap-2 w-full max-w-xs px-4 pointer-events-none">
       {toasts.map(t => (
         <div
           key={t.id}
