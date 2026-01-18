@@ -43,8 +43,6 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
 }) => {
   const { addToast } = useNinpoCore();
   const [isAddingUpc, setIsAddingUpc] = React.useState(false);
-  const [addUpcError, setAddUpcError] = React.useState<string | null>(null);
-  const [addUpcSuccess, setAddUpcSuccess] = React.useState<string | null>(null);
 
   return (
     <div className="space-y-6">
@@ -88,8 +86,6 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
           <button
             onClick={async () => {
               setIsAddingUpc(true);
-              setAddUpcError(null);
-              setAddUpcSuccess(null);
               try {
                 const res = await fetch('/api/upc', {
                   method: 'POST',
@@ -109,18 +105,16 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
                   })
                 });
                 if (res.status === 409) {
-                  setAddUpcError('UPC already in registry');
                   addToast('UPC already in registry', 'error');
                 } else if (!res.ok) {
                   const data = await res.json().catch(() => ({}));
-                  setAddUpcError(data?.error || 'Failed to add to registry');
                   addToast(data?.error || 'Failed to add to registry', 'error');
                 } else {
-                  setAddUpcSuccess('Added to UPC Registry!');
                   addToast('Added to UPC Registry!', 'success');
+                  // Clear current UPC and reset form for next scan
+                  handleManualUpcChange('');
                 }
-              } catch (err: any) {
-                setAddUpcError(err?.message || 'Failed to add to registry');
+              } catch (err) {
                 addToast(err?.message || 'Failed to add to registry', 'error');
               } finally {
                 setIsAddingUpc(false);
@@ -132,8 +126,6 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
             <ScanLine className="w-4 h-4" /> Add to UPC Registry
           </button>
         </div>
-        {addUpcSuccess && addToast(addUpcSuccess, 'success')}
-        {addUpcError && addToast(addUpcError, 'error')}
         {/* Remove inline messages, rely on toast only */}
         {offLookupMessage && (
           <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
