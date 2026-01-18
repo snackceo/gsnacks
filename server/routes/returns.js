@@ -35,7 +35,7 @@ router.post('/verify', authRequired, async (req, res) => {
 });
 
 // Get return verifications (owner/admin)
-router.get('/verifications', ownerRequired, async (req, res) => {
+router.get('/verifications', authRequired, ownerRequired, async (req, res) => {
   try {
     const verifications = await ReturnVerification.find()
       .sort({ submittedAt: -1 })
@@ -49,7 +49,7 @@ router.get('/verifications', ownerRequired, async (req, res) => {
 });
 
 // Approve/reject verification and create settlement (owner/admin)
-router.post('/verifications/:id/settle', ownerRequired, async (req, res) => {
+router.post('/verifications/:id/settle', authRequired, ownerRequired, async (req, res) => {
   try {
     const { id } = req.params;
     const { finalAcceptedCount, creditAmount, cashAmount, feesApplied, status, reviewNotes } = req.body;
@@ -88,7 +88,7 @@ router.post('/verifications/:id/settle', ownerRequired, async (req, res) => {
 });
 
 // Get settlements (owner/admin)
-router.get('/settlements', ownerRequired, async (req, res) => {
+router.get('/settlements', authRequired, ownerRequired, async (req, res) => {
   try {
     const settlements = await ReturnSettlement.find()
       .populate('verificationId')
