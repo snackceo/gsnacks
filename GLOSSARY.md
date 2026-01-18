@@ -1,3 +1,16 @@
+# Feature Toggles & Experimental Features
+
+**maintenanceMode**: If true, disables all customer-facing endpoints except health.
+
+**requirePhotoForRefunds**: If true, customers must upload a photo for refund requests.
+
+**allowGuestCheckout**: If true, allows orders without user registration.
+
+**showAdvancedInventoryInsights**: Enables advanced inventory analytics in admin UI.
+
+**allowPlatinumTier**: Enables Platinum loyalty tier (future/experimental).
+
+**platinumFreeDelivery**: If true, Platinum tier users get free delivery (future/experimental).
 LifetimeProductSpend (numeric, derived): The cumulative dollar amount a user has spent on products only, across all completed orders, excluding Route Fee, Distance Fee, Taxes, Tips, Refunds, and chargebacks. LifetimeProductSpend is used as a primary eligibility metric for tier advancement and retention. It represents a customer’s net economic value, not activity volume. Calculated from completed (PAID / DELIVERED) orders, reduced by refunded product amounts, and does not include credits used, only the underlying product value. Authoritative source is the backend; frontend may display an approximation.
 
 TierDemotion (policy / system behavior): The process by which a user’s membership tier is reduced due to inactivity, spend regression, trust loss, or risk. Demotion occurs one tier at a time and is automatic when policy thresholds are met. The owner may manually demote or freeze a tier at any time. Common demotion triggers include: prolonged inactivity, LifetimeProductSpend falling below a tier’s retention threshold, loss of required verification (phone or photo ID), abuse, fraud, or excessive refunds. Tiers are not permanent entitlements and reflect ongoing trust and economic viability.

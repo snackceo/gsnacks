@@ -1,4 +1,5 @@
 import React from 'react';
+import { ErrorMonitorPanel } from './ErrorMonitorPanel';
 import { BarChart3, ShieldAlert, Loader2, BrainCircuit } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Order } from '../../types';
@@ -160,6 +161,9 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           </div>
         )}
       </div>
+
+      {/* Error Monitor Section */}
+      <ErrorMonitorPanel />
     </div>
   );
 };

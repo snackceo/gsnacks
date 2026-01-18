@@ -4,8 +4,7 @@ const appSettingsSchema = new mongoose.Schema(
   {
     key: { type: String, default: 'default', unique: true },
     routeFee: { type: Number, default: 4.99 },
-    // Legacy alias for routeFee (deprecated).
-    deliveryFee: { type: Number, default: 4.99 },
+    // ...existing code...
     referralBonus: { type: Number, default: 5.0 },
     pickupOnlyMultiplier: { type: Number, default: 0.5 },
     distanceIncludedMiles: { type: Number, default: 3.0 },

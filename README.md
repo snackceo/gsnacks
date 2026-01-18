@@ -1,3 +1,15 @@
+# Feature Toggles & Experimental Features
+
+The following feature toggles and experimental/future features are available in AppSettings (see server/routes/settings.js):
+
+- **maintenanceMode**: If true, disables all customer-facing endpoints except health.
+- **requirePhotoForRefunds**: If true, customers must upload a photo for refund requests.
+- **allowGuestCheckout**: If true, allows orders without user registration.
+- **showAdvancedInventoryInsights**: Enables advanced inventory analytics in admin UI.
+- **allowPlatinumTier**: Enables Platinum loyalty tier (future/experimental).
+- **platinumFreeDelivery**: If true, Platinum tier users get free delivery (future/experimental).
+
+See also: GLOSSARY.md for definitions.
 # NinpoSnacks – Internal Spec: Payments, Bottle Return Service, and Fees
 
 > **Audience:** Operators & Developers only

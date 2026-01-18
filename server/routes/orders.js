@@ -22,6 +22,7 @@ import {
   voidStripeAuthorizationBestEffort
 } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
+import refundsRouter from './refunds.js';
 
 const CASH_HANDLING_FEE_PER_CONTAINER = 0.02;
 const GLASS_HANDLING_SURCHARGE_PER_CONTAINER = 0.02;
@@ -33,6 +34,8 @@ const getReturnFeeConfig = async () => ({
 
 const createOrdersRouter = ({ stripe }) => {
   const router = express.Router();
+
+  router.use('/refunds', refundsRouter);
 
   /* =========================
      ORDERS

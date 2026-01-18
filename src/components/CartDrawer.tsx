@@ -521,12 +521,11 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const subtotalCents = useMemo(() => Math.round(quoteSubtotal * 100), [quoteSubtotal]);
   const estimatedReturnCreditCents = useMemo(() => Math.round(estimatedReturnCredit * 100), [estimatedReturnCredit]);
-  const activeDeliveryFeeCents = Math.round(activeRouteFee * 100);
   const activeDistanceFeeCents = Math.round(activeDistanceFee * 100);
 
   const creditsCoverDelivery = [UserTier.SILVER, UserTier.GOLD, UserTier.PLATINUM, UserTier.GREEN].includes(activeTier);
   const creditEligibleCents = creditsCoverDelivery
-    ? subtotalCents + activeDeliveryFeeCents + activeDistanceFeeCents
+    ? subtotalCents + activeDistanceFeeCents
     : subtotalCents;
 
   const creditAppliedCents =
@@ -535,14 +534,14 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const deliveryCoveredByCredits =
     payoutMethod !== 'CASH' &&
     creditsCoverDelivery &&
-    activeDeliveryFeeCents + activeDistanceFeeCents > 0 &&
+    activeDistanceFeeCents > 0 &&
     estimatedReturnCreditCents > subtotalCents;
 
   const previewTotalAfterCredit = useMemo(() => {
     const totalCents =
-      subtotalCents + activeDeliveryFeeCents + activeDistanceFeeCents - creditAppliedCents;
+      subtotalCents + activeDistanceFeeCents - creditAppliedCents;
     return Math.max(0, totalCents) / 100;
-  }, [subtotalCents, activeDeliveryFeeCents, activeDistanceFeeCents, creditAppliedCents]);
+  }, [subtotalCents, activeDistanceFeeCents, creditAppliedCents]);
 
   // ----------------------------
   // Scanner lifecycle
@@ -904,14 +903,17 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
             {/* Policy checkbox */}
             <label className="flex items-center gap-3 text-[10px] font-black uppercase text-slate-500 cursor-pointer select-none">
               <input
-                id="acceptHubProtocol"
-                name="acceptHubProtocol"
+                id="acceptTerms"
+                name="acceptTerms"
                 type="checkbox"
                 checked={acceptedPolicies}
                 onChange={e => onPolicyChange(e.target.checked)}
                 className="accent-ninpo-lime"
               />
-              Accept Hub Protocol
+              I agree to the
+              <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline text-ninpo-lime ml-1">Terms of Service</a>
+              and
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline text-ninpo-lime ml-1">Privacy Policy</a>
             </label>
 
             <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-[10px] uppercase tracking-widest text-slate-500 space-y-2">
@@ -1055,26 +1057,33 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
           {/* Footer */}
           <div className="p-6 border-t border-white/5 space-y-3">
+
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={handleCreditsClick}
                 disabled={!canCheckoutCredits}
-                className="py-4 bg-white/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-white flex items-center justify-center gap-2 disabled:opacity-40"
+                className="py-4 bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-white flex flex-col items-center justify-center gap-1 disabled:opacity-40"
               >
-                <Zap className="w-3 h-3" /> Credits
+                <span className="flex items-center gap-2">
+                  <Zap className="w-3 h-3" /> Pay with Credits {money(previewTotalAfterCredit)}
+                </span>
+                <span className="text-[9px] font-normal text-slate-400 normal-case mt-1">From your wallet balance. Remaining balance charged to card.</span>
               </button>
 
               <button
                 onClick={() => onPayExternal('STRIPE', returnUpcs, payoutMethod)}
                 disabled={!canCheckoutStripe}
-                className="py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40"
+                className="py-4 bg-ninpo-lime text-ninpo-black rounded-xl text-[10px] font-black uppercase tracking-widest flex flex-col items-center justify-center gap-1 disabled:opacity-40"
               >
-                {isProcessing ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Landmark className="w-3 h-3" />
-                )}
-                Stripe
+                <span className="flex items-center gap-2">
+                  {isProcessing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Landmark className="w-3 h-3" />
+                  )}
+                  Pay with Card {money(previewTotalAfterCredit)}
+                </span>
+                <span className="text-[9px] font-normal text-slate-600 normal-case mt-1">Visa, Mastercard, Google Pay</span>
               </button>
             </div>
 

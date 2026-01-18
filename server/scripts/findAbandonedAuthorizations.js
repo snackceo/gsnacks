@@ -14,7 +14,7 @@ const findAbandonedAuthorizations = async () => {
     }
 
     await mongoose.connect(mongoUri);
-    console.log('Connected to MongoDB.');
+    // ...existing code... (removed test/debug log)
 
     const abandonedOrders = await Order.find({
       status: { $in: ['PENDING', 'AUTHORIZED'] }, // Include 'AUTHORIZED' status
@@ -28,10 +28,11 @@ const findAbandonedAuthorizations = async () => {
     }).lean();
 
     if (abandonedOrders.length === 0) {
-      console.log('No abandoned authorized orders found.');
+      // ...existing code... (removed test/debug log)
     } else {
-      console.log(`Found ${abandonedOrders.length} abandoned authorized orders:`);
+      // ...existing code... (removed test/debug log)
       abandonedOrders.forEach(order => {
+        // ...existing code... (removed test/debug log)
         console.log(
           `Order ID: ${order.orderId}, Customer ID: ${order.customerId}, ` +
           `Authorized Amount: $${(order.amountAuthorizedCents / 100).toFixed(2)}, ` +
@@ -43,7 +44,7 @@ const findAbandonedAuthorizations = async () => {
     console.error('Error finding abandoned authorized orders:', error);
   } finally {
     await mongoose.disconnect();
-    console.log('Disconnected from MongoDB.');
+    // ...existing code... (removed test/debug log)
   }
 };
 

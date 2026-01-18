@@ -195,7 +195,6 @@ export interface Order {
 
 export interface AppSettings {
     dailyReturnLimit: number;
-    deliveryFee: number;
     glassHandlingFeePercent: number;
     michiganDepositValue: number;
     processingFeePercent: number;

@@ -62,7 +62,7 @@ const createStripeRouter = ({ stripe, webhookSecret }) => {
             await order.save({ session: sessionDb });
           });
 
-          console.log(`ORDER AUTHORIZED: ${orderId}`);
+          // ...existing code... (removed test/debug log)
         }
 
         res.json({ received: true });
@@ -94,7 +94,7 @@ const createStripeRouter = ({ stripe, webhookSecret }) => {
             await voidStripeAuthorizationBestEffort(stripe, order);
           });
 
-          console.log(`ORDER EXPIRED/RESTOCKED: ${orderId}`);
+          // ...existing code... (removed test/debug log)
         }
 
         res.json({ received: true });

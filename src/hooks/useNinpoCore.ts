@@ -99,7 +99,14 @@ const defaultSettings: AppSettings = {
   beepEnabled: true,
 
   requireSkuForScanning: false,
-  shelfGroupingEnabled: false
+  shelfGroupingEnabled: false,
+  dailyReturnLimit: 0,
+  glassHandlingFeePercent: 0,
+  michiganDepositValue: 0,
+  processingFeePercent: 0,
+  returnProcessingFeePercent: 0,
+  glassHandlingFeePerContainer: 0,
+  returnHandlingFeePerContainer: 0
 };
 
 const parseOptionalNumber = (value: number | null | undefined, fallback: number | null) => {
@@ -227,18 +234,13 @@ const normalizeScanningModes = (raw: any) => {
 const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
   const data: any = raw ?? {};
 
-  const legacyDeliveryFee = Number((data as { deliveryFee?: number }).deliveryFee);
-  const resolvedLegacyRouteFee = Number.isFinite(legacyDeliveryFee)
-    ? legacyDeliveryFee
-    : undefined;
-
   const normalizedScanningModes = normalizeScanningModes(data.scanningModesEnabled);
 
   return {
     ...defaultSettings,
     ...data,
 
-    routeFee: Number(data.routeFee ?? resolvedLegacyRouteFee ?? defaultSettings.routeFee),
+    routeFee: Number(data.routeFee ?? defaultSettings.routeFee),
     referralBonus: Number(data.referralBonus ?? defaultSettings.referralBonus),
     pickupOnlyMultiplier: Number(data.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier),
     distanceIncludedMiles: Number(
@@ -288,6 +290,25 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     ),
     shelfGroupingEnabled: Boolean(
       data.shelfGroupingEnabled ?? defaultSettings.shelfGroupingEnabled
+    ),
+    dailyReturnLimit: Number(data.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
+    glassHandlingFeePercent: Number(
+      data.glassHandlingFeePercent ?? defaultSettings.glassHandlingFeePercent
+    ),
+    michiganDepositValue: Number(
+      data.michiganDepositValue ?? defaultSettings.michiganDepositValue
+    ),
+    processingFeePercent: Number(
+      data.processingFeePercent ?? defaultSettings.processingFeePercent
+    ),
+    returnProcessingFeePercent: Number(
+      data.returnProcessingFeePercent ?? defaultSettings.returnProcessingFeePercent
+    ),
+    glassHandlingFeePerContainer: Number(
+      data.glassHandlingFeePerContainer ?? defaultSettings.glassHandlingFeePerContainer
+    ),
+    returnHandlingFeePerContainer: Number(
+      data.returnHandlingFeePerContainer ?? defaultSettings.returnHandlingFeePerContainer
     )
   };
 };

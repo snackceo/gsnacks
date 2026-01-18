@@ -20,6 +20,15 @@ const defaultSettings = {
   distanceBand3Rate: 1.0,
   hubLat: null,
   hubLng: null,
+  /**
+   * Feature toggles and experimental/future features:
+   * - maintenanceMode: If true, disables all customer-facing endpoints except health.
+   * - requirePhotoForRefunds: If true, customers must upload a photo for refund requests.
+   * - allowGuestCheckout: If true, allows orders without user registration.
+   * - showAdvancedInventoryInsights: Enables advanced inventory analytics in admin UI.
+   * - allowPlatinumTier: Enables Platinum loyalty tier (future/experimental).
+   * - platinumFreeDelivery: If true, Platinum tier users get free delivery (future/experimental).
+   */
   maintenanceMode: false,
   requirePhotoForRefunds: false,
   allowGuestCheckout: false,
@@ -27,7 +36,7 @@ const defaultSettings = {
   allowPlatinumTier: false,
   platinumFreeDelivery: false,
   dailyReturnLimit: 250,
-  deliveryFee: 4.99,
+  // deliveryFee removed (legacy)
   glassHandlingFeePercent: 0.02,
   michiganDepositValue: 0.1,
   processingFeePercent: 0,
@@ -47,7 +56,7 @@ const numericFields = [
   'distanceBand2Rate',
   'distanceBand3Rate',
   'dailyReturnLimit',
-  'deliveryFee',
+  // 'deliveryFee',
   'glassHandlingFeePercent',
   'michiganDepositValue',
   'processingFeePercent',
@@ -123,7 +132,7 @@ const parseOptionalSettingNumber = value => {
 };
 
 const mapSettings = (doc) => ({
-  routeFee: Number(doc?.routeFee ?? doc?.deliveryFee ?? defaultSettings.routeFee),
+  routeFee: Number(doc?.routeFee ?? defaultSettings.routeFee),
   referralBonus: Number(doc?.referralBonus ?? defaultSettings.referralBonus),
   pickupOnlyMultiplier: Number(doc?.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier),
   distanceIncludedMiles: Number(doc?.distanceIncludedMiles ?? defaultSettings.distanceIncludedMiles),
@@ -141,7 +150,7 @@ const mapSettings = (doc) => ({
   allowPlatinumTier: Boolean(doc?.allowPlatinumTier ?? defaultSettings.allowPlatinumTier),
   platinumFreeDelivery: Boolean(doc?.platinumFreeDelivery ?? defaultSettings.platinumFreeDelivery),
   dailyReturnLimit: Number(doc?.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
-  deliveryFee: Number(doc?.deliveryFee ?? defaultSettings.deliveryFee),
+  // deliveryFee removed (legacy)
   glassHandlingFeePercent: Number(doc?.glassHandlingFeePercent ?? defaultSettings.glassHandlingFeePercent),
   michiganDepositValue: Number(doc?.michiganDepositValue ?? defaultSettings.michiganDepositValue),
   processingFeePercent: Number(doc?.processingFeePercent ?? defaultSettings.processingFeePercent),
@@ -161,18 +170,29 @@ router.get('/', authRequired, ownerRequired, async (_req, res) => {
     if (!existing) {
       return res.json({ ok: true, settings: { ...defaultSettings } });
     }
-
     res.json({ ok: true, settings: mapSettings(existing) });
   } catch (err) {
-    console.error('GET SETTINGS ERROR:', err);
-    res.status(500).json({ error: 'Failed to load settings' });
+    // Improved error handling: log request context for diagnostics
+    console.error('GET SETTINGS ERROR:', {
+      error: err,
+      user: res?.locals?.user || 'unknown',
+      time: new Date().toISOString()
+    });
+    res.status(500).json({
+      error: 'Settings could not be loaded. Please try again later or contact support if the problem persists.'
+    });
   }
 });
 
 const handleFullSettingsUpdate = async (req, res) => {
   try {
     const { updates, error } = parseSettingsInput(req.body, { partial: false });
-    if (error) return res.status(400).json({ error });
+    if (error) {
+      return res.status(400).json({
+        error: error,
+        message: 'Invalid settings update. Please check your input and try again.'
+      });
+    }
 
     const current = await AppSettings.findOne({ key: SETTINGS_KEY }).lean();
     const previous = mapSettings(current || defaultSettings);
@@ -196,8 +216,16 @@ const handleFullSettingsUpdate = async (req, res) => {
 
     res.json({ ok: true, settings: nextSettings });
   } catch (err) {
-    console.error('SAVE SETTINGS ERROR:', err);
-    res.status(500).json({ error: 'Failed to save settings' });
+    // Improved error handling: log request context for diagnostics
+    console.error('SAVE SETTINGS ERROR:', {
+      error: err,
+      user: req?.user || 'unknown',
+      body: req?.body,
+      time: new Date().toISOString()
+    });
+    res.status(500).json({
+      error: 'Settings could not be saved. Please try again later or contact support if the problem persists.'
+    });
   }
 };
 
@@ -208,7 +236,12 @@ router.put('/', authRequired, ownerRequired, handleFullSettingsUpdate);
 router.patch('/', authRequired, ownerRequired, async (req, res) => {
   try {
     const { updates, error } = parseSettingsInput(req.body, { partial: true });
-    if (error) return res.status(400).json({ error });
+    if (error) {
+      return res.status(400).json({
+        error: error,
+        message: 'Invalid settings update. Please check your input and try again.'
+      });
+    }
 
     const existing = await AppSettings.findOne({ key: SETTINGS_KEY }).lean();
     const previous = mapSettings(existing || defaultSettings);
@@ -232,8 +265,16 @@ router.patch('/', authRequired, ownerRequired, async (req, res) => {
 
     res.json({ ok: true, settings: nextSettings });
   } catch (err) {
-    console.error('PATCH SETTINGS ERROR:', err);
-    res.status(500).json({ error: 'Failed to update settings' });
+    // Improved error handling: log request context for diagnostics
+    console.error('PATCH SETTINGS ERROR:', {
+      error: err,
+      user: req?.user || 'unknown',
+      body: req?.body,
+      time: new Date().toISOString()
+    });
+    res.status(500).json({
+      error: 'Settings could not be updated. Please try again later or contact support if the problem persists.'
+    });
   }
 });
 

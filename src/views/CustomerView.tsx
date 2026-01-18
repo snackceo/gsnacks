@@ -281,7 +281,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                     </span>
                     Reach Silver tier
                   </li>
-                  <li className="flex items-center gap-2 opacity-60">• ...more coming soon</li>
+                  {/* Removed '...more coming soon' for production polish */}
                 </ul>
                 <p className="text-slate-500 text-xs mt-2 text-center">
                   Track your progress toward higher membership tiers and rewards.

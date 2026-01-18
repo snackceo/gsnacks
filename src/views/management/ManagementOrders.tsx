@@ -157,7 +157,7 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
                       <div className="flex items-center justify-between md:justify-end md:gap-3">
                         <span className="md:hidden">Route Fee:</span>
                         <span className="text-slate-300">
-                          Route Fee: ${Number(o.routeFee || o.deliveryFee || 0).toFixed(2)}
+                          Route Fee: ${Number(o.routeFee || 0).toFixed(2)}
                         </span>
                       </div>
 

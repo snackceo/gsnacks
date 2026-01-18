@@ -63,7 +63,7 @@ const normalizePayoutMethodForTier = (payoutMethod, tier) => {
 const getRouteFeeConfig = async () => {
   const doc = await AppSettings.findOne({ key: 'default' }).lean();
   return {
-    baseRouteFee: Number(doc?.routeFee ?? doc?.deliveryFee ?? 4.99),
+    baseRouteFee: Number(doc?.routeFee ?? 4.99),
     pickupOnlyMultiplier: Number(doc?.pickupOnlyMultiplier ?? 0.5),
     platinumFreeDelivery: Boolean(doc?.platinumFreeDelivery ?? false)
   };

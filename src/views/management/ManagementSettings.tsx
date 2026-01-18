@@ -56,9 +56,6 @@ const ManagementSettings: React.FC<ManagementSettingsProps> = ({
         <label className="text-sm font-bold text-slate-300">Route Fee
           <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.routeFee} onChange={e => updateSettingsDraft({ routeFee: Number(e.target.value) })} />
         </label>
-        <label className="text-sm font-bold text-slate-300">Delivery Fee
-          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.deliveryFee} onChange={e => updateSettingsDraft({ deliveryFee: Number(e.target.value) })} />
-        </label>
         <label className="text-sm font-bold text-slate-300">Referral Bonus
           <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.referralBonus} onChange={e => updateSettingsDraft({ referralBonus: Number(e.target.value) })} />
         </label>
