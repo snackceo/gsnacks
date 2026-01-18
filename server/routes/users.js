@@ -1,6 +1,9 @@
 // Get user's lifetime bottle returns (sum of all finalAcceptedCount from ReturnSettlement)
+import express from 'express';
 import ReturnVerification from '../models/ReturnVerification.js';
 import ReturnSettlement from '../models/ReturnSettlement.js';
+
+const router = express.Router();
 
 router.get('/:id/bottle-returns', authRequired, async (req, res) => {
   try {
@@ -24,7 +27,6 @@ router.get('/:id/bottle-returns', authRequired, async (req, res) => {
     res.status(500).json({ error: 'Failed to load bottle returns' });
   }
 });
-import express from 'express';
 
 import Order from '../models/Order.js';
 import User from '../models/User.js';
@@ -32,7 +34,7 @@ import LedgerEntry from '../models/LedgerEntry.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { authRequired, ownerRequired } from '../utils/helpers.js';
 
-const router = express.Router();
+
 
 const normalizeTier = (tier) => {
   const normalized = String(tier || '').trim().toUpperCase();
