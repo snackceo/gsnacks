@@ -58,95 +58,88 @@ const ManagementSettings: React.FC<ManagementSettingsProps> = ({
     >
       <h2 className="text-2xl font-black uppercase tracking-widest mb-6 text-ninpo-black">App Settings</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* ...existing input fields for all settings... */}
-        <label className="text-sm font-bold text-slate-300">
-          Route Fee
-          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.routeFee}
-            onChange={e => updateSettingsDraft({ routeFee: Number(e.target.value) })} />
+        {/* Numeric fields */}
+        <label className="text-sm font-bold text-slate-300">Route Fee
+          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.routeFee} onChange={e => updateSettingsDraft({ routeFee: Number(e.target.value) })} />
         </label>
-        <label className="text-sm font-bold text-slate-300">
-          Delivery Fee
-          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.deliveryFee}
-            onChange={e => updateSettingsDraft({ deliveryFee: Number(e.target.value) })} />
+        <label className="text-sm font-bold text-slate-300">Delivery Fee
+          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.deliveryFee} onChange={e => updateSettingsDraft({ deliveryFee: Number(e.target.value) })} />
         </label>
-        <label className="text-sm font-bold text-slate-300">
-          Referral Bonus
-          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.referralBonus}
-            onChange={e => updateSettingsDraft({ referralBonus: Number(e.target.value) })} />
+        <label className="text-sm font-bold text-slate-300">Referral Bonus
+          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.referralBonus} onChange={e => updateSettingsDraft({ referralBonus: Number(e.target.value) })} />
         </label>
-        <label className="text-sm font-bold text-slate-300">
-          Pickup Only Multiplier
-          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.pickupOnlyMultiplier}
-            onChange={e => updateSettingsDraft({ pickupOnlyMultiplier: Number(e.target.value) })} />
+        <label className="text-sm font-bold text-slate-300">Pickup Only Multiplier
+          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.pickupOnlyMultiplier} onChange={e => updateSettingsDraft({ pickupOnlyMultiplier: Number(e.target.value) })} />
         </label>
-        <label className="text-sm font-bold text-slate-300">
-          Distance Included Miles
-          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.distanceIncludedMiles}
-            onChange={e => updateSettingsDraft({ distanceIncludedMiles: Number(e.target.value) })} />
+        <label className="text-sm font-bold text-slate-300">Distance Included Miles
+          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.distanceIncludedMiles} onChange={e => updateSettingsDraft({ distanceIncludedMiles: Number(e.target.value) })} />
         </label>
-        <label className="text-sm font-bold text-slate-300">
-          Distance Band 1 Max Miles
-          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.distanceBand1MaxMiles}
-            onChange={e => updateSettingsDraft({ distanceBand1MaxMiles: Number(e.target.value) })} />
+        <label className="text-sm font-bold text-slate-300">Distance Band 1 Max Miles
+          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.distanceBand1MaxMiles} onChange={e => updateSettingsDraft({ distanceBand1MaxMiles: Number(e.target.value) })} />
         </label>
-        <label className="text-sm font-bold text-slate-300">
-          Distance Band 2 Max Miles
-          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.distanceBand2MaxMiles}
-            onChange={e => updateSettingsDraft({ distanceBand2MaxMiles: Number(e.target.value) })} />
+        <label className="text-sm font-bold text-slate-300">Distance Band 2 Max Miles
+          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.distanceBand2MaxMiles} onChange={e => updateSettingsDraft({ distanceBand2MaxMiles: Number(e.target.value) })} />
         </label>
-        <label className="text-sm font-bold text-slate-300">
-          Distance Band 1 Rate
-          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.distanceBand1Rate}
-            onChange={e => updateSettingsDraft({ distanceBand1Rate: Number(e.target.value) })} />
+        <label className="text-sm font-bold text-slate-300">Distance Band 1 Rate
+          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.distanceBand1Rate} onChange={e => updateSettingsDraft({ distanceBand1Rate: Number(e.target.value) })} />
         </label>
-        <label className="text-sm font-bold text-slate-300">
-          Distance Band 2 Rate
-          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.distanceBand2Rate}
-            onChange={e => updateSettingsDraft({ distanceBand2Rate: Number(e.target.value) })} />
+        <label className="text-sm font-bold text-slate-300">Distance Band 2 Rate
+          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.distanceBand2Rate} onChange={e => updateSettingsDraft({ distanceBand2Rate: Number(e.target.value) })} />
         </label>
-        <label className="text-sm font-bold text-slate-300">
-          Distance Band 3 Rate
-          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.distanceBand3Rate}
-            onChange={e => updateSettingsDraft({ distanceBand3Rate: Number(e.target.value) })} />
+        <label className="text-sm font-bold text-slate-300">Distance Band 3 Rate
+          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.distanceBand3Rate} onChange={e => updateSettingsDraft({ distanceBand3Rate: Number(e.target.value) })} />
         </label>
-        <label className="text-sm font-bold text-slate-300">
-          Hub Latitude
-          <input type="number" step="0.000001" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.hubLat ?? ''}
-            onChange={e => updateSettingsDraft({ hubLat: e.target.value === '' ? null : Number(e.target.value) })} />
+        <label className="text-sm font-bold text-slate-300">Hub Latitude
+          <input type="number" step="0.000001" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.hubLat ?? ''} onChange={e => updateSettingsDraft({ hubLat: e.target.value === '' ? null : Number(e.target.value) })} />
         </label>
-        <label className="text-sm font-bold text-slate-300">
-          Hub Longitude
-          <input type="number" step="0.000001" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.hubLng ?? ''}
-            onChange={e => updateSettingsDraft({ hubLng: e.target.value === '' ? null : Number(e.target.value) })} />
+        <label className="text-sm font-bold text-slate-300">Hub Longitude
+          <input type="number" step="0.000001" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.hubLng ?? ''} onChange={e => updateSettingsDraft({ hubLng: e.target.value === '' ? null : Number(e.target.value) })} />
         </label>
+        <label className="text-sm font-bold text-slate-300">Daily Return Limit
+          <input type="number" step="1" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.dailyReturnLimit} onChange={e => updateSettingsDraft({ dailyReturnLimit: Number(e.target.value) })} />
+        </label>
+        <label className="text-sm font-bold text-slate-300">Glass Handling Fee Percent
+          <input type="number" step="0.0001" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.glassHandlingFeePercent} onChange={e => updateSettingsDraft({ glassHandlingFeePercent: Number(e.target.value) })} />
+        </label>
+        <label className="text-sm font-bold text-slate-300">Michigan Deposit Value
+          <input type="number" step="0.0001" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.michiganDepositValue} onChange={e => updateSettingsDraft({ michiganDepositValue: Number(e.target.value) })} />
+        </label>
+        <label className="text-sm font-bold text-slate-300">Processing Fee Percent
+          <input type="number" step="0.0001" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.processingFeePercent} onChange={e => updateSettingsDraft({ processingFeePercent: Number(e.target.value) })} />
+        </label>
+        <label className="text-sm font-bold text-slate-300">Return Processing Fee Percent
+          <input type="number" step="0.0001" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.returnProcessingFeePercent} onChange={e => updateSettingsDraft({ returnProcessingFeePercent: Number(e.target.value) })} />
+        </label>
+        <label className="text-sm font-bold text-slate-300">Glass Handling Fee Per Container
+          <input type="number" step="0.0001" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.glassHandlingFeePerContainer} onChange={e => updateSettingsDraft({ glassHandlingFeePerContainer: Number(e.target.value) })} />
+        </label>
+        <label className="text-sm font-bold text-slate-300">Return Handling Fee Per Container
+          <input type="number" step="0.0001" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.returnHandlingFeePerContainer} onChange={e => updateSettingsDraft({ returnHandlingFeePerContainer: Number(e.target.value) })} />
+        </label>
+
+        {/* Boolean fields */}
         <label className="flex items-center gap-3 text-sm font-bold text-slate-300">
-          <input type="checkbox" checked={!!settingsDraft.maintenanceMode}
-            onChange={e => updateSettingsDraft({ maintenanceMode: e.target.checked })} />
+          <input type="checkbox" checked={!!settingsDraft.maintenanceMode} onChange={e => updateSettingsDraft({ maintenanceMode: e.target.checked })} />
           Maintenance Mode
         </label>
         <label className="flex items-center gap-3 text-sm font-bold text-slate-300">
-          <input type="checkbox" checked={!!settingsDraft.requirePhotoForRefunds}
-            onChange={e => updateSettingsDraft({ requirePhotoForRefunds: e.target.checked })} />
+          <input type="checkbox" checked={!!settingsDraft.requirePhotoForRefunds} onChange={e => updateSettingsDraft({ requirePhotoForRefunds: e.target.checked })} />
           Require Photo For Refunds
         </label>
         <label className="flex items-center gap-3 text-sm font-bold text-slate-300">
-          <input type="checkbox" checked={!!settingsDraft.allowGuestCheckout}
-            onChange={e => updateSettingsDraft({ allowGuestCheckout: e.target.checked })} />
+          <input type="checkbox" checked={!!settingsDraft.allowGuestCheckout} onChange={e => updateSettingsDraft({ allowGuestCheckout: e.target.checked })} />
           Allow Guest Checkout
         </label>
         <label className="flex items-center gap-3 text-sm font-bold text-slate-300">
-          <input type="checkbox" checked={!!settingsDraft.showAdvancedInventoryInsights}
-            onChange={e => updateSettingsDraft({ showAdvancedInventoryInsights: e.target.checked })} />
+          <input type="checkbox" checked={!!settingsDraft.showAdvancedInventoryInsights} onChange={e => updateSettingsDraft({ showAdvancedInventoryInsights: e.target.checked })} />
           Show Advanced Inventory Insights
         </label>
         <label className="flex items-center gap-3 text-sm font-bold text-slate-300">
-          <input type="checkbox" checked={!!settingsDraft.allowPlatinumTier}
-            onChange={e => updateSettingsDraft({ allowPlatinumTier: e.target.checked })} />
+          <input type="checkbox" checked={!!settingsDraft.allowPlatinumTier} onChange={e => updateSettingsDraft({ allowPlatinumTier: e.target.checked })} />
           Allow Platinum Tier
         </label>
         <label className="flex items-center gap-3 text-sm font-bold text-slate-300">
-          <input type="checkbox" checked={!!settingsDraft.platinumFreeDelivery}
-            onChange={e => updateSettingsDraft({ platinumFreeDelivery: e.target.checked })} />
+          <input type="checkbox" checked={!!settingsDraft.platinumFreeDelivery} onChange={e => updateSettingsDraft({ platinumFreeDelivery: e.target.checked })} />
           Platinum Free Delivery
         </label>
       </div>

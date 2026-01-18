@@ -25,7 +25,15 @@ const defaultSettings = {
   allowGuestCheckout: false,
   showAdvancedInventoryInsights: false,
   allowPlatinumTier: false,
-  platinumFreeDelivery: false
+  platinumFreeDelivery: false,
+  dailyReturnLimit: 250,
+  deliveryFee: 4.99,
+  glassHandlingFeePercent: 0.02,
+  michiganDepositValue: 0.1,
+  processingFeePercent: 0,
+  returnProcessingFeePercent: 0,
+  glassHandlingFeePerContainer: 0.02,
+  returnHandlingFeePerContainer: 0.02
 };
 
 const numericFields = [
@@ -37,7 +45,15 @@ const numericFields = [
   'distanceBand2MaxMiles',
   'distanceBand1Rate',
   'distanceBand2Rate',
-  'distanceBand3Rate'
+  'distanceBand3Rate',
+  'dailyReturnLimit',
+  'deliveryFee',
+  'glassHandlingFeePercent',
+  'michiganDepositValue',
+  'processingFeePercent',
+  'returnProcessingFeePercent',
+  'glassHandlingFeePerContainer',
+  'returnHandlingFeePerContainer'
 ];
 
 const booleanFields = [
@@ -109,39 +125,29 @@ const parseOptionalSettingNumber = value => {
 const mapSettings = (doc) => ({
   routeFee: Number(doc?.routeFee ?? doc?.deliveryFee ?? defaultSettings.routeFee),
   referralBonus: Number(doc?.referralBonus ?? defaultSettings.referralBonus),
-  pickupOnlyMultiplier: Number(
-    doc?.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier
-  ),
-  distanceIncludedMiles: Number(
-    doc?.distanceIncludedMiles ?? defaultSettings.distanceIncludedMiles
-  ),
-  distanceBand1MaxMiles: Number(
-    doc?.distanceBand1MaxMiles ?? defaultSettings.distanceBand1MaxMiles
-  ),
-  distanceBand2MaxMiles: Number(
-    doc?.distanceBand2MaxMiles ?? defaultSettings.distanceBand2MaxMiles
-  ),
+  pickupOnlyMultiplier: Number(doc?.pickupOnlyMultiplier ?? defaultSettings.pickupOnlyMultiplier),
+  distanceIncludedMiles: Number(doc?.distanceIncludedMiles ?? defaultSettings.distanceIncludedMiles),
+  distanceBand1MaxMiles: Number(doc?.distanceBand1MaxMiles ?? defaultSettings.distanceBand1MaxMiles),
+  distanceBand2MaxMiles: Number(doc?.distanceBand2MaxMiles ?? defaultSettings.distanceBand2MaxMiles),
   distanceBand1Rate: Number(doc?.distanceBand1Rate ?? defaultSettings.distanceBand1Rate),
   distanceBand2Rate: Number(doc?.distanceBand2Rate ?? defaultSettings.distanceBand2Rate),
   distanceBand3Rate: Number(doc?.distanceBand3Rate ?? defaultSettings.distanceBand3Rate),
   hubLat: parseOptionalSettingNumber(doc?.hubLat ?? defaultSettings.hubLat),
   hubLng: parseOptionalSettingNumber(doc?.hubLng ?? defaultSettings.hubLng),
   maintenanceMode: Boolean(doc?.maintenanceMode ?? defaultSettings.maintenanceMode),
-  requirePhotoForRefunds: Boolean(
-    doc?.requirePhotoForRefunds ?? defaultSettings.requirePhotoForRefunds
-  ),
-  allowGuestCheckout: Boolean(
-    doc?.allowGuestCheckout ?? defaultSettings.allowGuestCheckout
-  ),
-  showAdvancedInventoryInsights: Boolean(
-    doc?.showAdvancedInventoryInsights ?? defaultSettings.showAdvancedInventoryInsights
-  ),
-  allowPlatinumTier: Boolean(
-    doc?.allowPlatinumTier ?? defaultSettings.allowPlatinumTier
-  ),
-  platinumFreeDelivery: Boolean(
-    doc?.platinumFreeDelivery ?? defaultSettings.platinumFreeDelivery
-  )
+  requirePhotoForRefunds: Boolean(doc?.requirePhotoForRefunds ?? defaultSettings.requirePhotoForRefunds),
+  allowGuestCheckout: Boolean(doc?.allowGuestCheckout ?? defaultSettings.allowGuestCheckout),
+  showAdvancedInventoryInsights: Boolean(doc?.showAdvancedInventoryInsights ?? defaultSettings.showAdvancedInventoryInsights),
+  allowPlatinumTier: Boolean(doc?.allowPlatinumTier ?? defaultSettings.allowPlatinumTier),
+  platinumFreeDelivery: Boolean(doc?.platinumFreeDelivery ?? defaultSettings.platinumFreeDelivery),
+  dailyReturnLimit: Number(doc?.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
+  deliveryFee: Number(doc?.deliveryFee ?? defaultSettings.deliveryFee),
+  glassHandlingFeePercent: Number(doc?.glassHandlingFeePercent ?? defaultSettings.glassHandlingFeePercent),
+  michiganDepositValue: Number(doc?.michiganDepositValue ?? defaultSettings.michiganDepositValue),
+  processingFeePercent: Number(doc?.processingFeePercent ?? defaultSettings.processingFeePercent),
+  returnProcessingFeePercent: Number(doc?.returnProcessingFeePercent ?? defaultSettings.returnProcessingFeePercent),
+  glassHandlingFeePerContainer: Number(doc?.glassHandlingFeePerContainer ?? defaultSettings.glassHandlingFeePerContainer),
+  returnHandlingFeePerContainer: Number(doc?.returnHandlingFeePerContainer ?? defaultSettings.returnHandlingFeePerContainer)
 });
 
 const diffSettings = (before, after) =>
