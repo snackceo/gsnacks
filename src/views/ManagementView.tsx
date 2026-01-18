@@ -200,6 +200,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setScannedUpcForCreation,
     offLookupStatus,
     offLookupMessage,
+    setOffLookupMessage,
     offLookupIngredients,
     offLookupNutriments,
     offNutritionEntries,
