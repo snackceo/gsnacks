@@ -1,3 +1,14 @@
+LifetimeProductSpend (numeric, derived): The cumulative dollar amount a user has spent on products only, across all completed orders, excluding Route Fee, Distance Fee, Taxes, Tips, Refunds, and chargebacks. LifetimeProductSpend is used as a primary eligibility metric for tier advancement and retention. It represents a customer’s net economic value, not activity volume. Calculated from completed (PAID / DELIVERED) orders, reduced by refunded product amounts, and does not include credits used, only the underlying product value. Authoritative source is the backend; frontend may display an approximation.
+
+TierDemotion (policy / system behavior): The process by which a user’s membership tier is reduced due to inactivity, spend regression, trust loss, or risk. Demotion occurs one tier at a time and is automatic when policy thresholds are met. The owner may manually demote or freeze a tier at any time. Common demotion triggers include: prolonged inactivity, LifetimeProductSpend falling below a tier’s retention threshold, loss of required verification (phone or photo ID), abuse, fraud, or excessive refunds. Tiers are not permanent entitlements and reflect ongoing trust and economic viability.
+
+CreditOrigin (enum / concept): Indicates how a credit balance was created, used to enforce payout and usage rules. Defined origins: RETURN — Credits generated from verified bottle/container returns; POINTS — Credits converted from loyalty points; MANUAL — Credits granted by owner adjustment or approval. Only credits with origin RETURN are eligible for cash payout. Credits from POINTS or MANUAL origin are non-withdrawable. All credits, regardless of origin, may be used for purchases according to tier rules. The system must track credit origin to prevent cash-out abuse and ensure regulatory compliance.
+
+GreenProgram (support program, not a tier): A manual support program intended for low-income or unhoused individuals who primarily perform local bottle returns. Assigned manually by the owner, not earned through orders or spend, and does not represent loyalty, trust level, or profitability. Typically limited to short distances within the operator’s local area. Route Fee and Distance Fee may be waived within defined caps. Users in GreenProgram do not earn loyalty points and do not auto-advance to other tiers. GreenProgram status may be revoked or adjusted manually at any time. GreenProgram exists to support accessibility and sustainability goals without compromising the tier system or business margins.
+
+// ...existing code...
+loyaltyPoints (number field): Points accrued by the user for loyalty rewards. In User model and responses. Points are earned per order (the backend calculates based on spend and tier: higher tiers earn more points). 1 point per $1 spent; 100 points = $1 credit. Points are earned only on product spend. Points can be converted to credits, but credits derived from loyalty points are non-withdrawable and exist solely for in-app use (cannot be redeemed for cash payout). See GEMINI.md section 12 for full rules.
+creditBalance (number field): The user’s current wallet credits (in dollars). Used for purchases per tier rules. Only credits from bottle returns are eligible for cash payout; credits from loyalty points or manual adjustments are non-withdrawable. The system must track credit origin (RETURN vs POINTS vs MANUAL) to enforce payout eligibility. See GEMINI.md section 12 for details.
 GSnacks Code Glossary
 
 Last updated by: [your name/initials] on 2026-01-16
@@ -255,7 +266,16 @@ mapOrderForFrontend (function): Backend helper that transforms Order DB data int
 
 mapUser (function): Backend helper to shape a User document into JSON for frontend. Sets id, normalizes missing fields, ensures types (e.g., numbers, booleans). Used when returning user(s) data from APIs.
 
-membershipTier (string field): The user’s current membership tier (COMMON, BRONZE, SILVER, GOLD, PLATINUM, GREEN). Tiers gate certain benefits (credits usage, cash-out eligibility, discounts). Platinum is a hidden tier (invite-only) and Green is future. Tier can auto-promote based on ordersCompleted and verifications (Common→Bronze→Silver→Gold).
+membershipTier (string field): The user’s current membership tier (COMMON, BRONZE, SILVER, GOLD, PLATINUM, GREEN). Tiers gate certain benefits (credits usage, cash-out eligibility, discounts). Platinum is a hidden tier (invite-only) and Green is future. Tier advancement is primarily based on completed orders. Minimum lifetime product spend thresholds exist to ensure fair use and system sustainability. Advancement requirements:
+
+- Bronze: ≥ 25 completed orders, ≥ $250 lifetime product spend, email + address verified
+- Silver: ≥ 50 completed orders, ≥ $600 lifetime product spend, phone verified, all Bronze requirements
+- Gold: ≥ 100 completed orders, ≥ $1,500 lifetime product spend, photo ID verified, full legal name provided, all Silver requirements
+
+Platinum: Owner-assigned only, all Gold requirements, verified loyalty/trust/in-person relationship
+Green: See GreenProgram entry
+
+Tier Demotion & Review: Users may be automatically demoted one tier for inactivity (no completed orders in 180 days), spend decay (lifetime spend falls below 75% of tier minimum), trust regression (loss of phone/ID verification), or abuse/risk flags (excessive refunds, return fraud, chargebacks, owner-flagged risk). The owner may freeze, demote, or revoke tier status at any time for risk management. See GEMINI.md section 11 for full rules.
 
 Secret Platinum (term): Documentation-facing name for the hidden PLATINUM tier. Used in docs to limit awareness; internal tier identifier remains PLATINUM.
 

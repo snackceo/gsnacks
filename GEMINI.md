@@ -1,3 +1,23 @@
+---
+
+## 12. Loyalty Points & Credits (Authoritative)
+
+### Loyalty Points
+
+- Earned on product spend only
+- Rate: 1 point per $1 spent
+- 100 points = $1 credit
+
+### Credits
+
+- Used for purchases per tier rules
+- Only credits originating from bottle returns are eligible for cash payout
+- Credits converted from loyalty points can never be redeemed for cash
+- Credits derived from loyalty points are non-withdrawable and exist solely for in-app use.
+
+### Additional Safety Clause
+
+- The system must track credit origin (RETURN vs POINTS vs MANUAL) to enforce payout eligibility.
 # NinpoSnacks — GEMINI System Contract (Authoritative)
 
 ## Scope
@@ -274,6 +294,7 @@ Forbidden drift terms:
 
 ---
 
+
 ## 10. Enforcement Principle
 
 This file exists to prevent system drift.
@@ -286,3 +307,35 @@ If a future change introduces:
 * silent scan failures
 
 …the change is invalid and must be rejected.
+
+---
+
+## 11. Tier Demotion & Review Rules
+
+### Automatic Demotion Triggers
+
+A user is demoted one tier if any of the following occur:
+
+**Inactivity**
+
+- No completed orders in 180 days
+
+**Spend Decay**
+
+- Lifetime product spend falls below 75% of the tier’s minimum due to refunds or abuse
+
+**Trust Regression**
+
+- Phone verification revoked → cannot remain Silver+
+- ID revoked → cannot remain Gold+
+
+**Abuse / Risk Flags**
+
+- Excessive refunds
+- Return fraud
+- Chargeback patterns
+- Owner-flagged risk
+
+### Manual Review Override
+
+The owner may freeze, demote, or revoke tier status at any time for risk management.

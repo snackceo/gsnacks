@@ -228,41 +228,82 @@ Each tier defines:
 
 ---
 
-### 5.2 Tier Qualification Requirements (Identity & Trust)
 
-Tiers are earned by completing orders and meeting verification requirements.
 
-These requirements are **operational gating** rules and may be enforced in the admin system.
+### 5.2 Tier Qualification Requirements (Final Balanced Version)
+
+Tier advancement is primarily based on completed orders. Minimum lifetime product spend thresholds exist to ensure fair use and system sustainability.
 
 #### Common (Default)
 
-* ✅ Account created
-* ✅ Email, address, and username required
-* ❌ No phone, ID, or full legal name required
+- ✅ Account created
+- ✅ Email, address, and username required
+- ❌ No phone, ID, or full legal name required
+- No minimum spend
 
 #### Bronze
 
-* ✅ 25 completed orders
-* ✅ Verified email
-* ✅ Verified address
-* ✅ Username
-* ❌ No phone or ID required
-* ❌ Full legal name not required
+- ✅ ≥ 25 completed orders
+- ✅ ≥ $250 lifetime product spend
+- ✅ Email + address verified
+- ❌ No phone or ID required
+- ❌ Full legal name not required
+
+*Why $250: $10/order baseline. Blocks micro-order abuse. Still very reachable.*
 
 #### Silver
 
-* ✅ 50 completed orders
-* ✅ All Bronze requirements
-* ✅ Verified phone number
-* ❌ Full legal name not required
-* ❌ ID not required
+- ✅ ≥ 50 completed orders
+- ✅ ≥ $600 lifetime product spend
+- ✅ Phone verified
+- ✅ All Bronze requirements
+
+*Why $600: $12/order average. Small gap from Bronze. Aligns with “regular customer” economics.*
 
 #### Gold
 
-* ✅ 100 completed orders
-* ✅ All Silver requirements
-* ✅ Upload photo ID
-* ✅ Provide full legal name
+- ✅ ≥ 100 completed orders
+- ✅ ≥ $1,500 lifetime product spend
+- ✅ Photo ID verified
+- ✅ Full legal name provided
+- ✅ All Silver requirements
+
+*Why $1,500: $15/order average. This is the minimum that justifies: 30% route discount, cash payout eligibility, higher support cost. Gold remains meaningful but not impossible.*
+
+#### Secret Platinum (Invite Only)
+
+- 🔐 Owner-assigned only
+- ✅ All Gold requirements
+- ✅ Verified loyalty, trust, or in-person relationship
+
+---
+
+### 5.3 Tier Demotion & Review Rules
+
+Tiers are not permanent entitlements. Demotion occurs one tier at a time and is automatic when policy thresholds are met. The owner may manually demote or freeze a tier at any time.
+
+**Demotion triggers include:**
+
+- Prolonged inactivity (no completed orders in 180 days)
+- LifetimeProductSpend falling below a tier’s retention threshold
+- Loss of required verification (phone or photo ID)
+- Abuse, fraud, or excessive refunds
+
+---
+
+### 5.4 Green Program Definition
+
+The Green Program is a manual support program for low-income or unhoused individuals who primarily perform local bottle returns. It is not a tier and does not represent loyalty, trust, or profitability.
+
+**Green Program characteristics:**
+- Assigned manually by the owner
+- Not earned through orders or spend
+- Does not auto-advance to other tiers
+- Route Fee and Distance Fee may be waived within defined caps
+- Users in Green Program do not earn loyalty points
+- Green Program status may be revoked or adjusted manually at any time
+
+Green Program exists to support accessibility and sustainability goals without compromising the tier system or business margins.
 
 ---
 
