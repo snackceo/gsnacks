@@ -35,16 +35,10 @@ const ManagementSettings: React.FC<ManagementSettingsProps> = ({
 
   React.useEffect(() => {
     if (settingsSaved) {
-      addToast({
-        type: 'success',
-        message: 'Settings saved successfully!'
-      });
+      addToast('Settings saved successfully!', 'success');
     }
     if (settingsError) {
-      addToast({
-        type: 'error',
-        message: settingsError
-      });
+      addToast(settingsError, 'error');
     }
   }, [settingsSaved, settingsError, addToast]);
 

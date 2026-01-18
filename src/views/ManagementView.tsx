@@ -550,7 +550,15 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       allowGuestCheckout: Boolean(settingsDraft.allowGuestCheckout),
       showAdvancedInventoryInsights: Boolean(settingsDraft.showAdvancedInventoryInsights),
       allowPlatinumTier: Boolean(settingsDraft.allowPlatinumTier),
-      platinumFreeDelivery: Boolean(settingsDraft.platinumFreeDelivery)
+      platinumFreeDelivery: Boolean(settingsDraft.platinumFreeDelivery),
+      dailyReturnLimit: Number(settingsDraft.dailyReturnLimit || 0),
+      deliveryFee: Number(settingsDraft.deliveryFee || 0),
+      glassHandlingFeePercent: Number(settingsDraft.glassHandlingFeePercent || 0),
+      michiganDepositValue: Number(settingsDraft.michiganDepositValue || 0),
+      processingFeePercent: Number(settingsDraft.processingFeePercent || 0),
+      returnProcessingFeePercent: Number(settingsDraft.returnProcessingFeePercent || 0),
+      glassHandlingFeePerContainer: Number(settingsDraft.glassHandlingFeePerContainer || 0),
+      returnHandlingFeePerContainer: Number(settingsDraft.returnHandlingFeePerContainer || 0)
     };
 
     const persistSettings = (payload: AppSettings) => {
