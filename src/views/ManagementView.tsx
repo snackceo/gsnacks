@@ -1631,7 +1631,27 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           cooldownMs={settings.cooldownMs ?? 1000}
           isOpen={scannerModalOpen}
           bottomSheetContent={
-            scannerMode === ScannerMode.INVENTORY_CREATE ? <InventoryCreateForm /> : null
+            scannerMode === ScannerMode.INVENTORY_CREATE ? (
+              <InventoryCreateForm
+                scannedUpcForCreation={scannedUpcForCreation}
+                handleManualUpcChange={handleManualUpcChange}
+                fetchOffLookup={fetchOffLookup}
+                offLookupStatus={offLookupStatus}
+                handleAddToUpcRegistry={handleAddToUpcRegistry}
+                offLookupMessage={offLookupMessage}
+                createError={createError}
+                newProduct={newProduct}
+                setNewProduct={setNewProduct}
+                upcDraft={upcDraft}
+                setUpcDraft={setUpcDraft}
+                sizeUnitOptions={SIZE_UNIT_OPTIONS}
+                offLookupIngredients={offLookupIngredients}
+                offNutritionEntries={offNutritionEntries}
+                handleCancelCreate={handleCancelCreate}
+                apiCreateProduct={apiCreateProduct}
+                isCreating={isCreating}
+              />
+            ) : null
           }
           closeOnScan={false}
         />
