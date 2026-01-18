@@ -1,16 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Product, Order, OrderStatus, User, UserTier } from '../types';
-import {
-  Plus,
-  Search,
-  Award,
-  Settings,
-  Leaf,
-  Star,
-  Coins,
-  Zap,
-  Info
-} from 'lucide-react';
+import { Plus, Search, Award, Settings, Leaf, Star, Coins, Zap, Info } from 'lucide-react';
 
 interface CustomerViewProps {
   products: Product[];
@@ -30,12 +20,44 @@ const CustomerView: React.FC<CustomerViewProps> = ({
   currentUser,
   openLogin,
   addToCart,
-  onRedeemPoints
+  onRequestRefund,
+  updateUserProfile,
+  reorderItems,
+  onRedeemPoints,
 }) => {
   const [activeCategory, setActiveCategory] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  const [showSettings, setShowSettings] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
 
+
+  // Lifetime bottle returns state
+  const [lifetimeBottleReturns, setLifetimeBottleReturns] = useState<number | null>(null);
+  const [bottleReturnsLoading, setBottleReturnsLoading] = useState(false);
+  const [bottleReturnsError, setBottleReturnsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchBottleReturns = async () => {
+      if (!currentUser) return;
+      setBottleReturnsLoading(true);
+      setBottleReturnsError(null);
+      try {
+        const res = await fetch(`/server/users/${currentUser.id}/bottle-returns`, {
+          credentials: 'include',
+        });
+        if (!res.ok) throw new Error('Failed to fetch');
+        const data = await res.json();
+        setLifetimeBottleReturns(data.lifetimeBottleReturns ?? 0);
+      } catch (err: any) {
+        setBottleReturnsError('Could not load bottle returns');
+        setLifetimeBottleReturns(null);
+      } finally {
+        setBottleReturnsLoading(false);
+      }
+    };
+    fetchBottleReturns();
+  }, [currentUser]);
+
+  // Filtering and derived values
   const filteredProducts = products.filter(
     p =>
       (activeCategory === 'ALL' ||
@@ -43,28 +65,16 @@ const CustomerView: React.FC<CustomerViewProps> = ({
       p.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Safe numeric defaults (prevents toFixed crash when fields are missing)
-  const safeCredits = (currentUser as any)?.creditBalance ?? 0;
-  const safeDailyReturnTotal = (currentUser as any)?.dailyReturnTotal ?? 0;
-  const safeLoyaltyPoints = (currentUser as any)?.loyaltyPoints ?? 0;
-  const normalizedTier = (currentUser?.membershipTier ?? UserTier.COMMON)
-    .toString()
-    .toUpperCase();
-  const tierLabel =
-    normalizedTier === 'NONE'
-      ? 'COMMON'
-      : normalizedTier === 'PLATINUM'
-      ? 'SECRET PLATINUM'
-      : normalizedTier;
-  const redemptionTier = normalizedTier === 'NONE' ? 'COMMON' : normalizedTier;
-  const minRedeemByTier: Record<string, number> = {
-    BRONZE: 500,
-    SILVER: 250,
-    GOLD: 0
-  };
-  const minRedeemPoints = minRedeemByTier[redemptionTier];
-  const canRedeemPoints = Boolean(currentUser) && minRedeemPoints !== undefined;
-  const redemptionOptions = [100, 250, 500, 1000];
+  // Safe numeric defaults
+  const safeCredits = currentUser?.creditBalance ?? 0;
+  const safeLoyaltyPoints = currentUser?.loyaltyPoints ?? 0;
+  const tierLabel = (currentUser?.membershipTier ?? UserTier.COMMON).toString().toUpperCase();
+
+  // Checklist progress logic
+  const ordersCompleted = (currentUser as any)?.ordersCompleted ?? 0;
+  const bottlesReturned = lifetimeBottleReturns ?? 0;
+  const loyaltyPoints = currentUser?.loyaltyPoints ?? 0;
+  const userTier = (currentUser?.membershipTier ?? UserTier.COMMON).toString().toUpperCase();
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20">
@@ -81,74 +91,20 @@ const CustomerView: React.FC<CustomerViewProps> = ({
           />
           <Search className="absolute right-8 top-1/2 -translate-y-1/2 text-slate-800 w-6 h-6" />
         </div>
-
         <div className="flex gap-4">
           {currentUser && (
             <button
-              onClick={() => setShowSettings(!showSettings)}
+              onClick={() => setShowDashboard(!showDashboard)}
               className="px-8 py-5 bg-ninpo-card border border-white/5 rounded-[1.5rem] text-white font-black text-[12px] uppercase tracking-widest flex items-center gap-3 hover:border-ninpo-lime/40 transition-all shadow-lg active:scale-95"
             >
-              <Settings className="w-5 h-5 text-slate-600" /> Dispatch
-              Intelligence
+              <Settings className="w-5 h-5 text-slate-600" /> Dashboard
             </button>
           )}
         </div>
       </div>
-
-      {!showSettings ? (
-        <div className="space-y-12">
-          {orders.filter(
-            o =>
-              o.status !== OrderStatus.DELIVERED &&
-              o.status !== OrderStatus.REFUNDED &&
-              o.status !== OrderStatus.CLOSED
-          ).length > 0 && (
-            <div className="space-y-6">
-              <h3 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.4em] flex items-center gap-3">
-                <Zap className="w-4 h-4 text-ninpo-lime" /> Active Transmissions
-              </h3>
-
-              <div className="flex gap-6 overflow-x-auto no-scrollbar pb-4">
-                {orders
-                  .filter(
-                    o =>
-                      o.status !== OrderStatus.DELIVERED &&
-                      o.status !== OrderStatus.REFUNDED &&
-                      o.status !== OrderStatus.CLOSED
-                  )
-                  .map(o => (
-                    <div
-                      key={o.id}
-                      className="min-w-[300px] bg-ninpo-midnight p-6 rounded-[2rem] border border-white/5 flex flex-col justify-between shadow-xl"
-                    >
-                      <div>
-                        <div className="flex justify-between items-center mb-4">
-                          <span className="text-[9px] font-black text-slate-700 uppercase">
-                            NODE: {o.id}
-                          </span>
-                          <span className="text-[9px] font-black text-ninpo-lime uppercase bg-ninpo-lime/5 px-3 py-1 rounded-full border border-ninpo-lime/20">
-                            {o.status}
-                          </span>
-                        </div>
-                        <p className="text-white font-black text-xs uppercase truncate mb-1">
-                          {o.address}
-                        </p>
-                      </div>
-
-                      <div className="mt-6 flex items-center gap-4 text-[9px] font-black uppercase text-slate-500">
-                        <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-ninpo-lime shadow-neon transition-all duration-1000"
-                            style={{ width: '40%' }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          )}
-
+      {!showDashboard ? (
+        <>
+          {/* Main product/market view */}
           <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4 px-1">
             {['ALL', 'SAVORY', 'SWEET', 'DRINK', 'HEALTHY', 'USED GEAR'].map(
               cat => (
@@ -166,7 +122,6 @@ const CustomerView: React.FC<CustomerViewProps> = ({
               )
             )}
           </div>
-
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-8">
             {filteredProducts.map(p => (
               <div
@@ -200,7 +155,6 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                     </div>
                   )}
                 </div>
-
                 <div className="space-y-2 mb-10 px-1">
                   <h4 className="text-white font-black text-[13px] uppercase group-hover:text-ninpo-lime transition-colors leading-tight">
                     {p.name}
@@ -209,7 +163,6 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                     {p.category}
                   </p>
                 </div>
-
                 <div className="mt-auto flex justify-between items-center px-1">
                   <span className="text-ninpo-lime font-black text-lg tracking-tighter">
                     ${((p.price ?? 0) as number).toFixed(2)}
@@ -225,142 +178,150 @@ const CustomerView: React.FC<CustomerViewProps> = ({
               </div>
             ))}
           </div>
-        </div>
+        </>
       ) : (
-        <div className="max-w-6xl mx-auto space-y-12 animate-in slide-in-bottom">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 bg-ninpo-midnight p-10 rounded-[4rem] border border-white/5 space-y-12">
-              <div className="flex flex-col md:flex-row gap-8 items-center md:items-start">
-                <div className="w-36 h-36 bg-ninpo-black rounded-full border-4 border-white/5 flex items-center justify-center shadow-2xl relative">
-                  <Award
-                    className={`w-16 h-16 ${
-                      currentUser?.membershipTier === UserTier.PLATINUM
-                        ? 'text-slate-200'
-                        : currentUser?.membershipTier === UserTier.GOLD
-                        ? 'text-yellow-400'
-                        : currentUser?.membershipTier === UserTier.SILVER
-                        ? 'text-slate-300'
-                        : currentUser?.membershipTier === UserTier.BRONZE
-                        ? 'text-orange-500'
-                        : 'text-slate-500'
-                    }`}
-                  />
+        <>
+          {/* Dashboard view */}
+          <div className="max-w-6xl mx-auto space-y-12 animate-in slide-in-bottom">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Order History Section */}
+              <div className="bg-ninpo-lime/5 p-8 rounded-[3rem] border border-ninpo-lime/20 space-y-6 flex flex-col items-center justify-center">
+                <div className="flex items-center gap-3 mb-2">
+                  <Coins className="w-5 h-5 text-ninpo-lime" />
+                  <h3 className="text-white font-black uppercase text-[10px] tracking-[0.2em]">
+                    Order History
+                  </h3>
                 </div>
-
-                <div className="space-y-4 pt-2">
-                  <h2 className="text-4xl font-black text-white uppercase tracking-tighter leading-none">
-                    {(currentUser as any)?.name ?? (currentUser as any)?.username ?? 'USER'}
-                  </h2>
-
-                  <div className="inline-flex items-center gap-3 px-6 py-2.5 rounded-full border border-ninpo-lime/20 bg-ninpo-black/50">
-                    <Star className="w-4 h-4 text-ninpo-lime fill-current" />
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em]">
-                      {tierLabel} CLEARANCE
-                    </span>
-                  </div>
+                <div className="bg-ninpo-black/80 p-4 rounded-2xl border border-white/5 shadow-xl w-full max-h-56 overflow-y-auto min-h-[56px]">
+                  {orders === undefined ? (
+                    <span className="text-slate-500 text-lg">Loading...</span>
+                  ) : null}
+                  {orders && orders.length === 0 && (
+                    <span className="text-slate-500 text-sm">No orders found.</span>
+                  )}
+                  {orders && orders.length > 0 && (
+                    <ul className="divide-y divide-ninpo-lime/10">
+                      {orders
+                        .filter(o =>
+                          [OrderStatus.DELIVERED, OrderStatus.REFUNDED, OrderStatus.CLOSED].includes(o.status)
+                        )
+                        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                        .slice(0, 10)
+                        .map(o => (
+                          <li key={o.id} className="py-2 flex flex-col gap-1">
+                            <span className="text-white text-xs font-bold">
+                              {o.address || 'No address'}
+                            </span>
+                            <span className="text-slate-500 text-[10px]">
+                              {new Date(o.createdAt).toLocaleDateString()} &bull; ${o.total?.toFixed(2) ?? '0.00'}
+                            </span>
+                          </li>
+                        ))}
+                    </ul>
+                  )}
                 </div>
+                <p className="text-slate-500 text-xs mt-2 text-center">
+                  Most recent completed, refunded, or closed orders.
+                </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="bg-ninpo-lime/5 p-8 rounded-[3rem] border border-ninpo-lime/20 space-y-6">
-                  <div className="flex items-center gap-3">
-                    <Coins className="w-5 h-5 text-ninpo-lime" />
-                    <h3 className="text-white font-black uppercase text-[10px] tracking-[0.2em]">
-                      Loyalty Node
-                    </h3>
-                  </div>
-
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-ninpo-black/80 p-6 rounded-2xl border border-white/5 shadow-xl">
+              {/* Lifetime Bottle Returns Section */}
+              <div className="bg-ninpo-lime/5 p-8 rounded-[3rem] border border-ninpo-lime/20 space-y-6 flex flex-col items-center justify-center">
+                <div className="flex items-center gap-3 mb-2">
+                  <Leaf className="w-5 h-5 text-ninpo-lime" />
+                  <h3 className="text-white font-black uppercase text-[10px] tracking-[0.2em]">
+                    Bottle Returns (Lifetime)
+                  </h3>
+                </div>
+                <div className="bg-ninpo-black/80 p-6 rounded-2xl border border-white/5 shadow-xl flex justify-center items-center w-full min-h-[56px]">
+                  {bottleReturnsLoading ? (
+                    <span className="text-slate-500 text-lg">Loading...</span>
+                  ) : bottleReturnsError ? (
+                    <span className="text-red-500 text-sm">{bottleReturnsError}</span>
+                  ) : (
                     <span className="text-white font-black text-3xl tracking-tighter">
-                      {safeLoyaltyPoints}
+                      {lifetimeBottleReturns ?? 0}
                     </span>
-
-                    <div className="flex flex-wrap gap-3">
-                      {redemptionOptions.map(points => {
-                        const isBelowTierMinimum =
-                          typeof minRedeemPoints === 'number' && points < minRedeemPoints;
-                        const isDisabled =
-                          !canRedeemPoints || safeLoyaltyPoints < points || isBelowTierMinimum;
-                        const creditValue = (points / 100).toFixed(2);
-                        return (
-                          <button
-                            key={points}
-                            disabled={isDisabled}
-                            onClick={() => onRedeemPoints(points)}
-                            className={`px-5 py-3 rounded-xl text-[9px] font-black uppercase disabled:opacity-20 transition-all active:scale-95 ${
-                              points >= 500
-                                ? 'bg-ninpo-lime text-ninpo-black shadow-neon'
-                                : 'bg-white/10 text-white'
-                            }`}
-                          >
-                            Convert {points} pts (${creditValue})
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">
-                      {!canRedeemPoints
-                        ? 'Points redemption is available for Bronze, Silver, and Gold tiers only.'
-                        : minRedeemPoints > 0
-                        ? `Minimum redemption: ${minRedeemPoints} points.`
-                        : 'No minimum redemption for Gold+ tiers.'}
-                    </p>
-                  </div>
+                  )}
                 </div>
-
-                <div className="bg-white/5 p-8 rounded-[3rem] border border-white/5 space-y-6">
-                  <div className="flex items-center gap-3">
-                    <Leaf className="w-5 h-5 text-ninpo-lime" />
-                    <h3 className="text-white font-black uppercase text-[10px] tracking-[0.2em]">
-                      Eco Influence
-                    </h3>
-                  </div>
-
-                  <div className="bg-ninpo-black/80 p-6 rounded-2xl border border-white/5 shadow-xl flex justify-between items-center">
-                    <span className="text-white font-black text-3xl tracking-tighter">
-                      MI {(safeDailyReturnTotal as number).toFixed(2)}
+                <p className="text-slate-500 text-xs mt-2 text-center">
+                  Total containers returned and verified for deposit credit. Updated after each completed return.
+                </p>
+              </div>
+              {/* Tier Progress Checklist Section */}
+              <div className="bg-ninpo-lime/5 p-8 rounded-[3rem] border border-ninpo-lime/20 space-y-6 flex flex-col items-center justify-center">
+                <div className="flex items-center gap-3 mb-2">
+                  <Star className="w-5 h-5 text-ninpo-lime" />
+                  <h3 className="text-white font-black uppercase text-[10px] tracking-[0.2em]">
+                    Tier Progress Checklist
+                  </h3>
+                </div>
+                <ul className="space-y-2 text-white text-sm w-full">
+                  <li className="flex items-center gap-2">
+                    <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${ordersCompleted > 0 ? 'bg-ninpo-lime border-ninpo-lime' : 'border-slate-700'}`}>
+                      {ordersCompleted > 0 && <span className="block w-2 h-2 bg-white rounded-full" />}
                     </span>
-                    <div className="group relative">
-                      <Info className="w-4 h-4 text-slate-700" />
-                    </div>
-                  </div>
+                    Complete your first order
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${bottlesReturned >= 10 ? 'bg-ninpo-lime border-ninpo-lime' : 'border-slate-700'}`}>
+                      {bottlesReturned >= 10 && <span className="block w-2 h-2 bg-white rounded-full" />}
+                    </span>
+                    Return 10 bottles
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${loyaltyPoints >= 100 ? 'bg-ninpo-lime border-ninpo-lime' : 'border-slate-700'}`}>
+                      {loyaltyPoints >= 100 && <span className="block w-2 h-2 bg-white rounded-full" />}
+                    </span>
+                    Earn 100 loyalty points
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${userTier === 'SILVER' || userTier === 'GOLD' || userTier === 'PLATINUM' ? 'bg-ninpo-lime border-ninpo-lime' : 'border-slate-700'}`}>
+                      {(userTier === 'SILVER' || userTier === 'GOLD' || userTier === 'PLATINUM') && <span className="block w-2 h-2 bg-white rounded-full" />}
+                    </span>
+                    Reach Silver tier
+                  </li>
+                  <li className="flex items-center gap-2 opacity-60">• ...more coming soon</li>
+                </ul>
+                <p className="text-slate-500 text-xs mt-2 text-center">
+                  Track your progress toward higher membership tiers and rewards.
+                </p>
+              </div>
+              {/* Credit Wallet & Loyalty Points Section */}
+              <div className="bg-ninpo-card p-10 rounded-[3rem] border border-white/5 flex flex-col justify-center items-center text-center space-y-8 shadow-2xl relative overflow-hidden group">
+                <div className="w-20 h-20 bg-ninpo-lime/10 rounded-[2rem] flex items-center justify-center border border-ninpo-lime/20 shadow-neon mb-2">
+                  <Coins className="w-10 h-10 text-ninpo-lime" />
+                </div>
+                <div>
+                  <h3 className="text-slate-600 font-black uppercase text-[10px] tracking-[0.4em] mb-2">
+                    Your Credits
+                  </h3>
+                  <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mb-2">
+                    Credits are earned from verified container returns and promotions.
+                  </p>
+                  <p className="text-4xl font-black text-white tracking-tighter leading-none">
+                    ${safeCredits.toFixed(2)}
+                  </p>
+                  <p className="mt-2 text-[10px] text-slate-600 font-bold uppercase tracking-widest">
+                    Credits never expire; Silver+ can cover route and distance fees, and Gold+ may request cash payouts.
+                  </p>
+                </div>
+                <div className="mt-4">
+                  <h3 className="text-slate-600 font-black uppercase text-[10px] tracking-[0.4em] mb-2">
+                    Loyalty Points
+                  </h3>
+                  <p className="text-3xl font-black text-ninpo-lime tracking-tighter leading-none">
+                    {safeLoyaltyPoints}
+                  </p>
                 </div>
               </div>
-            </div>
-
-            <div className="bg-ninpo-card p-10 rounded-[4rem] border border-white/5 flex flex-col justify-center items-center text-center space-y-10 shadow-2xl relative overflow-hidden group">
-              <div className="w-24 h-24 bg-ninpo-lime/10 rounded-[2.5rem] flex items-center justify-center border border-ninpo-lime/20 shadow-neon">
-                <Coins className="w-12 h-12 text-ninpo-lime" />
-              </div>
-
-              <div>
-                <h3 className="text-slate-600 font-black uppercase text-[10px] tracking-[0.4em] mb-3">
-                  Your Credits
-                </h3>
-                <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mb-3">
-                  Credits are earned from verified container returns and promotions.
-                </p>
-                <p className="text-6xl font-black text-white tracking-tighter leading-none">
-                  ${(safeCredits as number).toFixed(2)}
-                </p>
-                <p className="mt-4 text-[10px] text-slate-600 font-bold uppercase tracking-widest">
-                  Credits never expire; Silver+ can cover route and distance fees, and Gold+ may
-                  request cash payouts.
-                </p>
-              </div>
-
-              <button
-                onClick={() => setShowSettings(false)}
-                className="px-6 py-3 bg-white/5 text-slate-500 rounded-xl uppercase text-[9px] font-black hover:text-white transition-colors"
-              >
-                Return to Market
-              </button>
+              {/* Add more dashboard sections here, one at a time */}
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
-};
+}
 
 export default CustomerView;

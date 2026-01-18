@@ -1,3 +1,29 @@
+// Get user's lifetime bottle returns (sum of all finalAcceptedCount from ReturnSettlement)
+import ReturnVerification from '../models/ReturnVerification.js';
+import ReturnSettlement from '../models/ReturnSettlement.js';
+
+router.get('/:id/bottle-returns', authRequired, async (req, res) => {
+  try {
+    const userId = String(req.params.id || '').trim();
+    if (!userId) return res.status(400).json({ error: 'User id is required' });
+
+    // Find all verifications for this user
+    const verifications = await ReturnVerification.find({ customerId: userId }).select('_id');
+    const verificationIds = verifications.map(v => v._id);
+
+    // Sum all settlements for these verifications
+    const result = await ReturnSettlement.aggregate([
+      { $match: { verificationId: { $in: verificationIds } } },
+      { $group: { _id: null, total: { $sum: '$finalAcceptedCount' } } }
+    ]);
+    const lifetimeBottleReturns = result[0]?.total || 0;
+
+    res.json({ ok: true, lifetimeBottleReturns });
+  } catch (err) {
+    console.error('USER BOTTLE RETURNS ERROR:', err);
+    res.status(500).json({ error: 'Failed to load bottle returns' });
+  }
+});
 import express from 'express';
 
 import Order from '../models/Order.js';
