@@ -23,7 +23,6 @@ import ManagementInventory from './management/ManagementInventory';
 import ManagementUpcRegistry from './management/ManagementUpcRegistry';
 import ManagementSettings from './management/ManagementSettings';
 import ManagementApprovals from './management/ManagementApprovals';
-import ManagementReturns from './management/ManagementReturns';
 import {
   Truck,
   Package,
@@ -1051,52 +1050,16 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       label: 'Reviews',
       icon: ShieldCheck,
       render: () => (
-        <>
-          <ManagementApprovals
-            approvalFilter={approvalFilter}
-            setApprovalFilter={setApprovalFilter}
-            filteredApprovals={filteredApprovals}
-            handleApprove={handleApprove}
-            handleReject={handleReject}
-            setSelectedApproval={setSelectedApproval}
-            setPreviewPhoto={setPreviewPhoto}
-            fmtTime={fmtTime}
-          />
-          <ManagementReturns
-            scannerMode={scannerMode}
-            setScannerMode={setScannerMode}
-            scannerModalOpen={scannerModalOpen}
-            setScannerModalOpen={setScannerModalOpen}
-            lastBlockedUpc={lastBlockedUpc}
-            lastBlockedReason={lastBlockedReason}
-            handleScannerScan={handleScannerScan}
-            setLastBlockedUpc={setLastBlockedUpc}
-            setLastBlockedReason={setLastBlockedReason}
-            scannedUpcForCreation={scannedUpcForCreation}
-            handleManualUpcChange={handleManualUpcChange}
-            fetchOffLookup={fetchOffLookup}
-            offLookupStatus={offLookupStatus}
-            offLookupMessage={offLookupMessage}
-            createError={createError}
-            newProduct={newProduct}
-            setNewProduct={setNewProduct}
-            upcDraft={upcDraft}
-            setUpcDraft={setUpcDraft}
-            sizeUnitOptions={SIZE_UNIT_OPTIONS}
-            offLookupIngredients={offLookupIngredients}
-            offNutritionEntries={offNutritionEntries}
-            handleCancelCreate={handleCancelCreate}
-            apiCreateProduct={apiCreateProduct}
-            isCreating={isCreating}
-            inventorySort={inventorySort}
-            setInventorySort={setInventorySort}
-            sortedProducts={sortedProducts}
-            startEditProduct={startEditProduct}
-            apiRestockPlus10={apiRestockPlus10}
-            apiDeleteProduct={apiDeleteProduct}
-            formatSize={formatSize}
-          />
-        </>
+        <ManagementApprovals
+          approvalFilter={approvalFilter}
+          setApprovalFilter={setApprovalFilter}
+          filteredApprovals={filteredApprovals}
+          handleApprove={handleApprove}
+          handleReject={handleReject}
+          setSelectedApproval={setSelectedApproval}
+          setPreviewPhoto={setPreviewPhoto}
+          fmtTime={fmtTime}
+        />
       )
     },
     inventory: {
@@ -1105,35 +1068,38 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       icon: Package,
       render: () => (
         <ManagementInventory
-          products={products}
-          setProducts={setProducts}
           scannerMode={scannerMode}
           setScannerMode={setScannerMode}
           scannerModalOpen={scannerModalOpen}
           setScannerModalOpen={setScannerModalOpen}
+          lastBlockedUpc={lastBlockedUpc}
+          lastBlockedReason={lastBlockedReason}
+          handleScannerScan={handleScannerScan}
+          setLastBlockedUpc={setLastBlockedUpc}
+          setLastBlockedReason={setLastBlockedReason}
           scannedUpcForCreation={scannedUpcForCreation}
-          setScannedUpcForCreation={setScannedUpcForCreation}
-          upcDraft={upcDraft}
-          setUpcDraft={setUpcDraft}
+          handleManualUpcChange={handleManualUpcChange}
+          fetchOffLookup={fetchOffLookup}
+          offLookupStatus={offLookupStatus}
+          offLookupMessage={offLookupMessage}
+          createError={createError}
           newProduct={newProduct}
           setNewProduct={setNewProduct}
-          createError={createError}
-          setCreateError={setCreateError}
-          isCreating={isCreating}
-          setIsCreating={setIsCreating}
+          upcDraft={upcDraft}
+          setUpcDraft={setUpcDraft}
+          sizeUnitOptions={SIZE_UNIT_OPTIONS}
+          offLookupIngredients={offLookupIngredients}
+          offNutritionEntries={offNutritionEntries}
+          handleCancelCreate={handleCancelCreate}
           apiCreateProduct={apiCreateProduct}
+          isCreating={isCreating}
+          inventorySort={inventorySort}
+          setInventorySort={setInventorySort}
+          sortedProducts={sortedProducts}
           startEditProduct={startEditProduct}
           apiRestockPlus10={apiRestockPlus10}
           apiDeleteProduct={apiDeleteProduct}
-          editingProduct={editingProduct}
-          setEditingProduct={setEditingProduct}
-          editDraft={editDraft}
-          setEditDraft={setEditDraft}
-          editError={editError}
-          setEditError={setEditError}
-          isSavingEdit={isSavingEdit}
-          setIsSavingEdit={setIsSavingEdit}
-          apiUpdateProduct={apiUpdateProduct}
+          formatSize={formatSize}
         />
       )
     },
