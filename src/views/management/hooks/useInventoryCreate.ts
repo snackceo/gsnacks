@@ -25,6 +25,7 @@ interface UseInventoryCreateParams {
   upcDraft: UpcItem;
   setUpcDraft: React.Dispatch<React.SetStateAction<UpcItem>>;
   upcItemsRef: React.MutableRefObject<UpcItem[]>;
+  products: Product[];
 }
 
 export const useInventoryCreate = ({
@@ -36,7 +37,8 @@ export const useInventoryCreate = ({
   setUpcInput,
   upcDraft,
   setUpcDraft,
-  upcItemsRef
+  upcItemsRef,
+  products
 }: UseInventoryCreateParams) => {
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -200,30 +202,67 @@ export const useInventoryCreate = ({
     setCreateError(null);
     setIsCreating(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/products`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          name: newProduct.name.trim(),
-          price: Number(newProduct.price),
-          deposit: upcDraft.isEligible ? 0.1 : 0.0,
-          stock: Number(newProduct.stock),
-          sizeOz: Number(newProduct.sizeOz),
-          sizeUnit: newProduct.sizeUnit,
-          category: newProduct.category,
-          brand: newProduct.brand,
-          productType: newProduct.productType,
-          nutritionNote: newProduct.nutritionNote,
-          storageZone: newProduct.storageZone,
-          storageBin: newProduct.storageBin,
-          image: newProduct.image,
-          isGlass: !!newProduct.isGlass
-        })
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Create failed');
+      // Check if UPC is in registry
+      let upcInRegistry = false;
+      let productIdToEdit = '';
+      if (scannedUpcForCreation) {
+        upcInRegistry = upcItemsRef.current.some(item => item.upc === scannedUpcForCreation);
+        // Try to find product by UPC
+        const productMatch = products.find((p: any) => p.upc === scannedUpcForCreation);
+        if (productMatch && productMatch.id) {
+          productIdToEdit = productMatch.id;
+        }
+      }
+      let res, data;
+      if (upcInRegistry && productIdToEdit) {
+        // Edit product
+        res = await fetch(`${BACKEND_URL}/api/products/${productIdToEdit}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            name: newProduct.name.trim(),
+            price: Number(newProduct.price),
+            deposit: upcDraft.depositValue ?? (upcDraft.isEligible ? 0.1 : 0),
+            stock: Number(newProduct.stock),
+            sizeOz: Number(newProduct.sizeOz),
+            sizeUnit: newProduct.sizeUnit,
+            category: newProduct.category,
+            brand: newProduct.brand,
+            productType: newProduct.productType,
+            nutritionNote: newProduct.nutritionNote,
+            storageZone: newProduct.storageZone,
+            storageBin: newProduct.storageBin,
+            image: newProduct.image,
+            isGlass: !!newProduct.isGlass
+          })
+        });
+      } else {
+        // Create product
+        res = await fetch(`${BACKEND_URL}/api/products`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            name: newProduct.name.trim(),
+            price: Number(newProduct.price),
+            deposit: upcDraft.depositValue ?? (upcDraft.isEligible ? 0.1 : 0),
+            stock: Number(newProduct.stock),
+            sizeOz: Number(newProduct.sizeOz),
+            sizeUnit: newProduct.sizeUnit,
+            category: newProduct.category,
+            brand: newProduct.brand,
+            productType: newProduct.productType,
+            nutritionNote: newProduct.nutritionNote,
+            storageZone: newProduct.storageZone,
+            storageBin: newProduct.storageBin,
+            image: newProduct.image,
+            isGlass: !!newProduct.isGlass
+          })
+        });
+      }
+      data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || (upcInRegistry ? 'Update failed' : 'Create failed'));
 
       const created: Product = {
         ...data.product,

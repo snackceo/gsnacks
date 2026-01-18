@@ -186,7 +186,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setUpcInput,
     upcDraft,
     setUpcDraft,
-    upcItemsRef
+    upcItemsRef,
+    products
   });
 
   const {

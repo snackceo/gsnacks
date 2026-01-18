@@ -1,6 +1,7 @@
 import React from 'react';
 import { Plus, Loader2, ScanLine, X } from 'lucide-react';
 import { Product, SizeUnit, UpcItem } from '../../types';
+import { useNinpoCore } from '../../hooks/useNinpoCore';
 
 interface InventoryCreateFormProps {
   scannedUpcForCreation: string;
@@ -27,7 +28,6 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
   handleManualUpcChange,
   fetchOffLookup,
   offLookupStatus,
-  handleAddToUpcRegistry,
   offLookupMessage,
   createError,
   newProduct,
@@ -41,6 +41,11 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
   apiCreateProduct,
   isCreating,
 }) => {
+  const { addToast } = useNinpoCore();
+  const [isAddingUpc, setIsAddingUpc] = React.useState(false);
+  const [addUpcError, setAddUpcError] = React.useState<string | null>(null);
+  const [addUpcSuccess, setAddUpcSuccess] = React.useState<string | null>(null);
+
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -81,20 +86,61 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
             Clear UPC
           </button>
           <button
-            onClick={handleAddToUpcRegistry}
-            className="px-4 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+            onClick={async () => {
+              setIsAddingUpc(true);
+              setAddUpcError(null);
+              setAddUpcSuccess(null);
+              try {
+                const res = await fetch('/api/upc', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({
+                    upc: scannedUpcForCreation,
+                    name: upcDraft.name || newProduct.name,
+                    brand: newProduct.brand,
+                    productType: newProduct.productType,
+                    depositValue: upcDraft.depositValue ?? (upcDraft.isEligible ? 0.1 : 0),
+                    price: Number(newProduct.price),
+                    sizeOz: Number(newProduct.sizeOz),
+                    sizeUnit: newProduct.sizeUnit,
+                    isEligible: upcDraft.isEligible,
+                    containerType: upcDraft.containerType
+                  })
+                });
+                if (res.status === 409) {
+                  setAddUpcError('UPC already in registry');
+                  addToast('UPC already in registry', 'error');
+                } else if (!res.ok) {
+                  const data = await res.json().catch(() => ({}));
+                  setAddUpcError(data?.error || 'Failed to add to registry');
+                  addToast(data?.error || 'Failed to add to registry', 'error');
+                } else {
+                  setAddUpcSuccess('Added to UPC Registry!');
+                  addToast('Added to UPC Registry!', 'success');
+                }
+              } catch (err: any) {
+                setAddUpcError(err?.message || 'Failed to add to registry');
+                addToast(err?.message || 'Failed to add to registry', 'error');
+              } finally {
+                setIsAddingUpc(false);
+              }
+            }}
+            disabled={isAddingUpc || !scannedUpcForCreation}
+            className="px-4 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <ScanLine className="w-4 h-4" /> Add to UPC Registry
           </button>
         </div>
-        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-          Tip: Use Clear UPC to restart without reopening the scanner.
-        </div>
+        {addUpcSuccess && addToast(addUpcSuccess, 'success')}
+        {addUpcError && addToast(addUpcError, 'error')}
+        {/* Remove inline messages, rely on toast only */}
         {offLookupMessage && (
           <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
             {offLookupMessage}
           </div>
         )}
+        {createError && addToast(createError, 'error')}
       </div>
 
       <div className="flex flex-col md:flex-row gap-4 items-center">
@@ -116,12 +162,6 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
               </p>
             </div>
           </div>
-
-          {createError && (
-            <div className="bg-ninpo-card p-4 rounded-2xl border border-ninpo-red/20 text-[11px] text-ninpo-red">
-              {createError}
-            </div>
-          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
@@ -160,9 +200,13 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
               <span>Deposit</span>
               <input
                 className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                placeholder="Auto-calculated"
-                value={upcDraft.isEligible ? '0.10' : '0.00'}
-                disabled
+                placeholder="0.00"
+                type="number"
+                value={upcDraft.depositValue ?? (upcDraft.isEligible ? 0.1 : 0)}
+                onChange={e => {
+                  const val = Number(e.target.value);
+                  setUpcDraft({ ...upcDraft, depositValue: val });
+                }}
               />
             </label>
             <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
@@ -348,7 +392,7 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
               ) : (
                 <Plus className="w-5 h-5" />
               )}
-              Create
+              Save
             </button>
           </div>
         </div>
