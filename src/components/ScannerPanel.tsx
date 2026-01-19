@@ -93,6 +93,11 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
+  const torchOnRef = useRef(false);
+
+  useEffect(() => {
+    torchOnRef.current = torchOn;
+  }, [torchOn]);
 
   const modeLabel = useMemo(() => {
     if (!mode) return null;
@@ -182,7 +187,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
     // Turn off torch if it was on
     try {
-      if (videoTrackRef.current && torchOn) {
+      if (videoTrackRef.current && torchOnRef.current) {
         await videoTrackRef.current.applyConstraints({ advanced: [{ torch: false } as any] });
       }
     } catch {
@@ -209,7 +214,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         // ignore
       }
     }
-  }, [torchOn]);
+  }, []);
 
   const toggleTorch = useCallback(async () => {
     if (!torchSupported) {
@@ -217,14 +222,16 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
       return;
     }
     if (!videoTrackRef.current) return;
+
+    const next = !torchOnRef.current;
     try {
-      await videoTrackRef.current.applyConstraints({ advanced: [{ torch: !torchOn } as any] });
-      setTorchOn(prev => !prev);
+      await videoTrackRef.current.applyConstraints({ advanced: [{ torch: next } as any] });
+      setTorchOn(next);
     } catch (err) {
       setScannerError('Failed to toggle torch. Your device or browser may not support this feature.');
       // Do not restart or stop the camera, just show error
     }
-  }, [torchOn, torchSupported]);
+  }, [torchSupported]);
 
   const takePhoto = useCallback(() => {
     if (!videoRef.current || !onPhotoCaptured) return;
