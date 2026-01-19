@@ -188,6 +188,14 @@ router.post('/eligibility', async (req, res) => {
 
 router.get('/off/:code', offLookupLimiter, authRequired, ownerRequired, async (req, res) => {
   try {
+    // Prevent browser caching for owner-only data
+    res.set({
+      'Cache-Control': 'no-store',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Vary': 'Cookie, Origin'
+    });
+
     const code = normalizeBarcode(req.params.code);
     if (!code) return res.status(400).json({ error: 'code is required' });
     if (!isValidBarcode(code)) {
@@ -287,6 +295,14 @@ router.get('/eligibility/:upc', async (req, res) => {
 
 router.get('/', authRequired, ownerRequired, async (_req, res) => {
   try {
+    // Prevent browser caching for owner-only data
+    res.set({
+      'Cache-Control': 'no-store',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Vary': 'Cookie, Origin'
+    });
+
     const entries = await UpcItem.find({}).sort({ updatedAt: -1 }).lean();
     const depositValue = await getMichiganDepositValue();
     const upcItems = entries.map(entry => ({

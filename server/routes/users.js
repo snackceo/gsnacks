@@ -107,6 +107,14 @@ const maybeAutoPromote = ({ user }) => {
 
 router.get('/', authRequired, ownerRequired, async (_req, res) => {
   try {
+    // Prevent browser caching for owner-only data
+    res.set({
+      'Cache-Control': 'no-store',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Vary': 'Cookie, Origin'
+    });
+
     const users = await User.find({}).sort({ createdAt: -1 }).lean();
     res.json({ ok: true, users: users.map(mapUser) });
   } catch (err) {
@@ -117,6 +125,14 @@ router.get('/', authRequired, ownerRequired, async (_req, res) => {
 
 router.get('/stats', authRequired, ownerRequired, async (_req, res) => {
   try {
+    // Prevent browser caching for owner-only data
+    res.set({
+      'Cache-Control': 'no-store',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Vary': 'Cookie, Origin'
+    });
+
     const summaries = await Order.aggregate([
       {
         $group: {
@@ -184,6 +200,14 @@ router.get('/:id/stats', authRequired, async (req, res) => {
 
 router.get('/:id/ledger', authRequired, ownerRequired, async (req, res) => {
   try {
+    // Prevent browser caching for owner-only data
+    res.set({
+      'Cache-Control': 'no-store',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Vary': 'Cookie, Origin'
+    });
+
     const userId = String(req.params.id || '').trim();
     if (!userId) return res.status(400).json({ error: 'User id is required' });
 
