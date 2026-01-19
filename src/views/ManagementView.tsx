@@ -1627,7 +1627,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           beepEnabled={settings.beepEnabled ?? true}
           cooldownMs={settings.cooldownMs ?? 1000}
           isOpen={scannerModalOpen}
-          bottomSheetContent={
+          slideUpContent={
             scannerMode === ScannerMode.INVENTORY_CREATE ? (
               <InventoryCreateForm
                 scannedUpcForCreation={scannedUpcForCreation}

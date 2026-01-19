@@ -25,6 +25,7 @@ interface ScannerPanelProps {
   onClose?: () => void;
   showClose?: boolean;
   className?: string;
+  slideUpContent?: React.ReactNode;
 }
 
 // Allow UPC/EAN lengths commonly encountered.
@@ -57,7 +58,8 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   onPhotoCaptured,
   closeOnScan = false,
   manualStart = false,
-  className = ''
+  className = '',
+  slideUpContent
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -435,106 +437,94 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     void startScanner();
   }, [blocked, manualStart, startScanner, stopScanner]);
 
-  const panelClassName = `bg-ninpo-black border border-white/10 rounded-[2.5rem] p-6 shadow-2xl flex flex-col h-full ${className}`.trim();
-
   return (
-    <div className={panelClassName}>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-white font-black uppercase tracking-widest text-sm">{title}</p>
-          <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">{subtitle}</p>
-          {modeLabel && (
-            <p className="text-[10px] text-slate-700 font-bold uppercase tracking-widest mt-1">Mode: {modeLabel}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Torch button next to X */}
-          <button
-            onClick={() => void toggleTorch()}
-            disabled={!torchSupported}
-            className={`p-3 rounded-2xl border border-white/10 transition flex items-center justify-center ${
-              torchSupported
-                ? torchOn
-                  ? 'bg-yellow-400 text-black' // yellow when on
-                  : 'bg-white/10 text-white' // default when off
-                : 'bg-gray-600 text-gray-400 cursor-not-allowed'
-            }`}
-            title={torchSupported ? (torchOn ? 'Turn off torch' : 'Turn on torch') : 'Torch not supported'}
-          >
-            {torchOn ? <FlashlightOff className="w-4 h-4" /> : <Flashlight className="w-4 h-4" />}
-          </button>
-          {showClose && onClose ? (
-            <button
-              onClick={onClose}
-              className="p-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="mt-5 flex-1 min-h-0 rounded-3xl overflow-hidden border border-white/10 bg-black/40 flex items-center justify-center relative">
+    <div className="relative w-full h-full flex flex-col bg-black">
+      {/* Full-screen video */}
+      <div className="absolute inset-0 flex items-center justify-center">
         <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
-
+        
         {!isScanning && (
-          <div className="absolute text-center px-8 flex flex-col items-center gap-3">
-            <Camera className="w-8 h-8 text-slate-600 mx-auto mb-3" />
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-              {scannerError ?? (manualStart ? 'Press Start to begin scanning' : 'Initializing camera...')}
-            </p>
-
-            <button
-              onClick={() => void startScanner()}
-              className="px-4 py-2 rounded-xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
-            >
-              <RefreshCw className="w-3 h-3" /> {manualStart ? 'Start' : 'Retry'}
-            </button>
-            {scannerError && (
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                Enable camera permissions, then retry.
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+            <div className="text-center px-8 flex flex-col items-center gap-3">
+              <Camera className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+              <p className="text-sm font-black uppercase tracking-widest text-slate-400">
+                {scannerError ?? (manualStart ? 'Press Start to begin scanning' : 'Initializing camera...')}
               </p>
-            )}
-            {scannerHint && (
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{scannerHint}</p>
-            )}
+              <button
+                onClick={() => void startScanner()}
+                className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-xs font-black uppercase tracking-widest flex items-center gap-2 mt-4"
+              >
+                <RefreshCw className="w-4 h-4" /> {manualStart ? 'Start' : 'Retry'}
+              </button>
+              {scannerError && (
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mt-2">
+                  Enable camera permissions, then retry.
+                </p>
+              )}
+            </div>
           </div>
         )}
       </div>
 
-      <div className="mt-5 space-y-4">
-        <div className="flex gap-2">
-          {canCapturePhoto ? (
-            <button
-              onClick={takePhoto}
-              disabled={!isScanning}
-              className="px-4 py-4 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Capture photo"
-            >
-              <Camera className="w-4 h-4" /> Photo
-            </button>
-          ) : null}
-        </div>
+      {/* Top bar with back and torch */}
+      <div className="relative z-10 flex items-center justify-between p-4">
+        {showClose && onClose ? (
+          <button
+            onClick={onClose}
+            className="p-3 rounded-full bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        ) : (
+          <div className="w-11" />
+        )}
+        
+        <button
+          onClick={() => void toggleTorch()}
+          disabled={!torchSupported}
+          className={`p-3 rounded-full backdrop-blur-sm transition flex items-center justify-center ${
+            torchSupported
+              ? torchOn
+                ? 'bg-yellow-400/90 text-black'
+                : 'bg-black/60 text-white hover:bg-black/80'
+              : 'bg-gray-600/60 text-gray-400 cursor-not-allowed'
+          }`}
+          title={torchSupported ? (torchOn ? 'Turn off torch' : 'Turn on torch') : 'Torch not supported'}
+        >
+          {torchOn ? <FlashlightOff className="w-5 h-5" /> : <Flashlight className="w-5 h-5" />}
+        </button>
+      </div>
 
-        <div className="flex items-center justify-between">
-          <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-            Latest: <span className="text-white">{lastDetectedUpc || '—'}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            {beepEnabled ? (
-              <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                <Volume2 className="w-3 h-3" /> Beep
+      {/* Bottom slide-up card - shows when content is provided */}
+      {slideUpContent && (
+        <div className="relative z-10 mt-auto w-full max-h-[60vh] overflow-y-auto rounded-t-[2rem] bg-ninpo-black/95 backdrop-blur-xl border-t border-white/10 shadow-2xl animate-in slide-in-from-bottom duration-300">
+          <div className="sticky top-0 bg-ninpo-black/95 backdrop-blur-xl z-10 px-6 pt-4 pb-3">
+            <div className="mx-auto h-1 w-12 rounded-full bg-white/20 mb-4" />
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-white font-black uppercase tracking-widest text-xs">{title}</p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">{subtitle}</p>
               </div>
-            ) : null}
+              {lastDetectedUpc && (
+                <div className="text-right">
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Scanned</p>
+                  <p className="text-sm text-ninpo-lime font-black">{lastDetectedUpc}</p>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="px-6 pb-6 space-y-4">
+            {slideUpContent}
           </div>
         </div>
+      )}
 
-        {scannerError && (
-          <div className="text-[11px] text-ninpo-red bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4">
-            {scannerError}
-          </div>
-        )}
-      </div>
+      {/* Minimal error overlay */}
+      {scannerError && (
+        <div className="absolute bottom-4 left-4 right-4 z-20 text-xs text-white bg-ninpo-red/90 backdrop-blur-sm rounded-2xl p-4 shadow-lg">
+          {scannerError}
+        </div>
+      )}
     </div>
   );
 };

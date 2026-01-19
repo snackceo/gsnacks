@@ -15,7 +15,7 @@ interface ScannerModalProps {
   cooldownMs?: number;
   isOpen?: boolean;
   onPhotoCaptured?: (photoDataUrl: string, mime: string) => void;
-  bottomSheetContent?: React.ReactNode;
+  slideUpContent?: React.ReactNode;
 
   /**
    * Optional: if true, the modal closes after a successful scan.
@@ -41,41 +41,30 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
   cooldownMs = 1200,
   isOpen = false,
   onPhotoCaptured,
-  bottomSheetContent,
+  slideUpContent,
   closeOnScan = false,
   manualStart = false
 }) => {
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[14000] flex flex-col justify-between pointer-events-auto">
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={onClose} />
-      <div className="relative z-10 flex flex-col h-full w-full pointer-events-none">
-        <div className="pointer-events-auto">
-          <ScannerPanel
-            mode={mode}
-            onScan={onScan}
-            onCooldown={onCooldown}
-            onClose={onClose}
-            showClose
-            title={title}
-            subtitle={subtitle}
-            beepEnabled={beepEnabled}
-            cooldownMs={cooldownMs}
-            onPhotoCaptured={onPhotoCaptured}
-            closeOnScan={closeOnScan}
-            manualStart={manualStart}
-            className={`relative w-full max-h-[42vh] ${bottomSheetContent ? 'rounded-b-none' : ''}`}
-          />
-        </div>
-        <div className="flex-1" />
-        {bottomSheetContent ? (
-          <div className="pointer-events-auto relative z-10 w-full max-h-[45vh] overflow-y-auto rounded-t-[2.5rem] border-t border-white/10 bg-ninpo-black/95 p-6 shadow-2xl">
-            <div className="mx-auto h-1 w-12 rounded-full bg-white/20" />
-            <div className="mt-6 space-y-6">{bottomSheetContent}</div>
-          </div>
-        ) : null}
-      </div>
+    <div className="fixed inset-0 z-[14000] flex flex-col pointer-events-auto bg-black">
+      <ScannerPanel
+        mode={mode}
+        onScan={onScan}
+        onCooldown={onCooldown}
+        onClose={onClose}
+        showClose
+        title={title}
+        subtitle={subtitle}
+        beepEnabled={beepEnabled}
+        cooldownMs={cooldownMs}
+        onPhotoCaptured={onPhotoCaptured}
+        closeOnScan={closeOnScan}
+        manualStart={manualStart}
+        slideUpContent={slideUpContent}
+        className=""
+      />
     </div>,
     document.body
   );
