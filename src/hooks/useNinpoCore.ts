@@ -330,7 +330,7 @@ export const useNinpoCore = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [userStats, setUserStats] = useState<Record<string, UserStatsSummary>>({});
 
-  const [settings, setSettings] = useState<AppSettings>(() => normalizeSettings());
+  const [settings, setSettings] = useState<AppSettings>(() => readStoredSettings() ?? normalizeSettings());
 
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
