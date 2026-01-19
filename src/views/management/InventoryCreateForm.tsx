@@ -6,6 +6,7 @@ import { BACKEND_URL } from '../../constants';
 
 interface InventoryCreateFormProps {
   scannedUpcForCreation: string;
+  setScannedUpcForCreation?: (upc: string) => void;
   handleManualUpcChange: (value: string) => void;
   fetchOffLookup: (upc: string) => void;
   offLookupStatus: 'idle' | 'loading' | 'found' | 'not_found' | 'error';
@@ -22,10 +23,27 @@ interface InventoryCreateFormProps {
   handleCancelCreate: () => void;
   apiCreateProduct: () => Promise<any>;
   isCreating: boolean;
+  // Draft state management
+  isDirty: boolean;
+  setIsDirty: (dirty: boolean) => void;
+  pendingUpc: string | null;
+  setPendingUpc: (upc: string | null) => void;
+  draftStatus: 'idle' | 'scanned' | 'editing' | 'savingUpc' | 'savingInventory' | 'saved' | 'error';
+  setDraftStatus: (status: any) => void;
+  batchMode: boolean;
+  toggleBatchMode: (on: boolean) => void;
+  batchQueue: Array<{ id: string; upc: string; status: 'queued' | 'saved' | 'failed'; containerType: 'plastic' | 'aluminum' | 'glass'; error?: string }>;
+  setBatchQueue: React.Dispatch<
+    React.SetStateAction<
+      Array<{ id: string; upc: string; status: 'queued' | 'saved' | 'failed'; containerType: 'plastic' | 'aluminum' | 'glass'; error?: string }>
+    >
+  >;
+  addBatchQueueToRegistry: () => Promise<{ successCount: number; failCount: number }>;
 }
 
 const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
   scannedUpcForCreation,
+  setScannedUpcForCreation,
   handleManualUpcChange,
   fetchOffLookup,
   offLookupStatus,
@@ -41,6 +59,17 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
   handleCancelCreate,
   apiCreateProduct,
   isCreating,
+  isDirty,
+  setIsDirty,
+  pendingUpc,
+  setPendingUpc,
+  draftStatus,
+  setDraftStatus,
+  batchMode,
+  toggleBatchMode,
+  batchQueue,
+  setBatchQueue,
+  addBatchQueueToRegistry,
 }) => {
   const { addToast } = useNinpoCore();
   const [isAddingUpc, setIsAddingUpc] = React.useState(false);
@@ -49,9 +78,82 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
     if (createError) {
       addToast(createError, 'error');
     }
-    // Only run when createError changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createError]);
+
+  React.useEffect(() => {
+    if (pendingUpc) {
+      addToast(`New UPC scanned: ${pendingUpc}. Tap "Use New Scan" to switch.`, 'info');
+    }
+  }, [pendingUpc, addToast]);
+
+  React.useEffect(() => {
+    if (draftStatus === 'saved') {
+      addToast('Inventory item saved successfully!', 'success');
+    }
+  }, [draftStatus, addToast]);
+
+  const handleUseNewScan = () => {
+    if (!pendingUpc) return;
+    setScannedUpcForCreation?.(pendingUpc);
+    handleManualUpcChange(pendingUpc);
+    setPendingUpc(null);
+    setIsDirty(false);
+    setDraftStatus('scanned');
+    setNewProduct(prev => ({
+      ...prev,
+      name: '',
+      brand: '',
+      productType: '',
+      nutritionNote: '',
+      storageZone: '',
+      storageBin: '',
+      image: '',
+      stock: 0,
+      price: 0,
+      sizeOz: 0,
+      sizeUnit: 'oz',
+      isGlass: false
+    }));
+    setUpcDraft(prev => ({
+      ...prev,
+      upc: pendingUpc,
+      name: '',
+      price: 0,
+      depositValue: 0.1,
+      containerType: 'plastic',
+      sizeOz: 0,
+      sizeUnit: 'oz',
+      isEligible: true
+    }));
+  };
+
+  const handleFieldChange = (onChange: () => void) => {
+    setIsDirty(true);
+    setDraftStatus('editing');
+    onChange();
+  };
+
+  const handleBatchCommit = async () => {
+    const result = await addBatchQueueToRegistry();
+    if (result.successCount && result.failCount) {
+      addToast(`Added ${result.successCount}, failed ${result.failCount}`, 'warning');
+    } else if (result.successCount) {
+      addToast(`Added ${result.successCount} UPCs`, 'success');
+    } else if (result.failCount) {
+      addToast(`Failed ${result.failCount} UPCs`, 'error');
+    }
+  };
+
+  const handleRemoveQueued = (id: string) => {
+    setBatchQueue(batchQueue.filter(item => item.id !== id));
+  };
+
+  const handleContainerChange = (id: string, value: 'plastic' | 'aluminum' | 'glass') => {
+    setBatchQueue(
+      batchQueue.map(item => (item.id === id ? { ...item, containerType: value, error: undefined } : item))
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -60,6 +162,25 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
           Scanned UPC: <span className="text-white">{scannedUpcForCreation || 'No UPC scanned'}</span>
         </div>
         <div className="flex flex-col md:flex-row md:items-end gap-2">
+          <div className="flex items-center justify-between w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3">
+            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              Batch UPC capture
+            </div>
+            <button
+              type="button"
+              onClick={() => toggleBatchMode(!batchMode)}
+              className={`relative inline-flex h-8 w-14 items-center rounded-full transition ${
+                batchMode ? 'bg-ninpo-lime' : 'bg-slate-700'
+              }`}
+            >
+              <span
+                className={`inline-block h-6 w-6 transform rounded-full bg-black shadow transition ${
+                  batchMode ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
           <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 flex-1">
             <span>UPC (editable)</span>
             <input
@@ -67,6 +188,7 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
               placeholder="Scan or type UPC"
               value={scannedUpcForCreation}
               onChange={e => handleManualUpcChange(e.target.value)}
+              disabled={batchMode}
             />
           </label>
           <button
@@ -75,7 +197,7 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
                 void fetchOffLookup(scannedUpcForCreation);
               }
             }}
-            disabled={!scannedUpcForCreation || offLookupStatus === 'loading'}
+            disabled={batchMode || !scannedUpcForCreation || offLookupStatus === 'loading'}
             className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {offLookupStatus === 'loading' ? (
@@ -87,13 +209,20 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
           </button>
           <button
             onClick={() => handleManualUpcChange('')}
-            className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+            disabled={batchMode}
+            className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <X className="w-4 h-4" />
             Clear UPC
           </button>
           <button
             onClick={async () => {
+              if (batchMode) {
+                setIsAddingUpc(true);
+                await handleBatchCommit();
+                setIsAddingUpc(false);
+                return;
+              }
               setIsAddingUpc(true);
               try {
                 const res = await fetch(`${BACKEND_URL}/api/upc`, {
@@ -133,12 +262,56 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
                 setIsAddingUpc(false);
               }
             }}
-            disabled={isAddingUpc || !scannedUpcForCreation}
+            disabled={isAddingUpc || (batchMode ? batchQueue.length === 0 : !scannedUpcForCreation)}
             className="px-4 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <ScanLine className="w-4 h-4" /> Add to UPC Registry
+            <ScanLine className="w-4 h-4" /> {batchMode ? 'Add All to UPC Registry' : 'Add to UPC Registry'}
           </button>
         </div>
+        {batchMode && (
+          <div className="mt-4 space-y-3">
+            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+              Queued UPCs ({batchQueue.length})
+            </div>
+            <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
+              {batchQueue.length === 0 && (
+                <div className="text-[11px] text-slate-500">Scan to add UPCs to the queue.</div>
+              )}
+              {batchQueue.map(item => (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-3 bg-black/30 border border-white/10 rounded-2xl p-3"
+                >
+                  <div className="flex-1">
+                    <p className="text-white text-sm font-bold">{item.upc}</p>
+                    <p className="text-[10px] uppercase tracking-widest text-slate-400">
+                      Status: {item.status}
+                      {item.error ? ` • ${item.error}` : ''}
+                    </p>
+                  </div>
+                  <select
+                    className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white"
+                    value={item.containerType}
+                    onChange={e =>
+                      handleContainerChange(item.id, e.target.value as 'plastic' | 'aluminum' | 'glass')
+                    }
+                  >
+                    <option value="plastic">Plastic</option>
+                    <option value="aluminum">Aluminum</option>
+                    <option value="glass">Glass</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveQueued(item.id)}
+                    className="p-2 rounded-xl bg-white/10 text-white hover:bg-white/20"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {/* Remove inline messages, rely on toast only */}
         {offLookupMessage && (
           <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
@@ -156,7 +329,7 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
       </div>
 
       {scannedUpcForCreation ? (
-        <div className="pt-6 border-t border-white/5 space-y-6">
+        <div className={`pt-6 border-t border-white/5 space-y-6 ${batchMode ? 'opacity-50 pointer-events-none select-none' : ''}`}>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
@@ -185,7 +358,7 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
                 placeholder="Product name"
                 value={newProduct.name}
                 onChange={e =>
-                  setNewProduct({ ...newProduct, name: e.target.value })
+                  handleFieldChange(() => setNewProduct({ ...newProduct, name: e.target.value }))
                 }
               />
             </label>
@@ -197,7 +370,7 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
                 type="number"
                 value={newProduct.price}
                 onChange={e =>
-                  setNewProduct({ ...newProduct, price: Number(e.target.value) })
+                  handleFieldChange(() => setNewProduct({ ...newProduct, price: Number(e.target.value) }))
                 }
               />
             </label>
@@ -210,7 +383,7 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
                 value={upcDraft.depositValue ?? (upcDraft.isEligible ? 0.1 : 0)}
                 onChange={e => {
                   const val = Number(e.target.value);
-                  setUpcDraft({ ...upcDraft, depositValue: val });
+                  handleFieldChange(() => setUpcDraft({ ...upcDraft, depositValue: val }));
                 }}
               />
             </label>
@@ -378,6 +551,22 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
             </label>
           </div>
 
+          {/* Show pending UPC notification and button */}
+          {pendingUpc && (
+            <div className="bg-ninpo-red/20 border border-ninpo-red/40 rounded-2xl p-4 space-y-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-ninpo-red">
+                New UPC Scanned: {pendingUpc}
+              </p>
+              <button
+                onClick={handleUseNewScan}
+                className="w-full py-3 bg-ninpo-red/40 text-ninpo-red rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-ninpo-red/60 transition border border-ninpo-red/40"
+              >
+                <ScanLine className="w-4 h-4" />
+                Use New Scan
+              </button>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <button
               type="button"
@@ -389,7 +578,7 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
             </button>
             <button
               onClick={apiCreateProduct}
-              disabled={isCreating}
+              disabled={isCreating || batchMode}
               className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.01] transition-all shadow-neon"
             >
               {isCreating ? (

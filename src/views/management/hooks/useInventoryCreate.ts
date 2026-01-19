@@ -58,6 +58,89 @@ export const useInventoryCreate = ({
     [offLookupNutriments]
   );
 
+  // Draft state management
+  const [draftStatus, setDraftStatus] = useState<
+    'idle' | 'scanned' | 'editing' | 'savingUpc' | 'savingInventory' | 'saved' | 'error'
+  >('idle');
+  const [isDirty, setIsDirty] = useState(false);
+  const [pendingUpc, setPendingUpc] = useState<string | null>(null);
+  const [lastAcceptedUpc, setLastAcceptedUpc] = useState<string | null>(null);
+  const [lastAcceptedAtMs, setLastAcceptedAtMs] = useState(0);
+  const recentUpcSetRef = useRef<Map<string, number>>(new Map());
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchQueue, setBatchQueue] = useState<
+    Array<{ id: string; upc: string; status: 'queued' | 'saved' | 'failed'; containerType: 'plastic' | 'aluminum' | 'glass'; error?: string }>
+  >([]);
+  const COOLDOWN_MS = 1200;
+  const RECENT_TTL_MS = 15000; // 15 seconds
+
+  const queueUpc = useCallback((upc: string) => {
+    setBatchQueue(prev => [
+      ...prev,
+      {
+        id: `${upc}-${Date.now()}`,
+        upc,
+        status: 'queued',
+        containerType: 'plastic'
+      }
+    ]);
+  }, []);
+
+  const toggleBatchMode = useCallback(
+    (on: boolean) => {
+      setBatchMode(on);
+      if (on) {
+        setIsDirty(false);
+        if (pendingUpc) {
+          queueUpc(pendingUpc);
+          setPendingUpc(null);
+        }
+      }
+    },
+    [pendingUpc, queueUpc]
+  );
+
+  const addBatchQueueToRegistry = useCallback(async () => {
+    const items = batchQueue;
+    if (!items.length) return { successCount: 0, failCount: 0 };
+
+    let successCount = 0;
+    let failCount = 0;
+
+    const updated = await Promise.all(
+      items.map(async item => {
+        if (item.status === 'saved') return item;
+        if (!item.containerType) {
+          failCount += 1;
+          return { ...item, status: 'failed', error: 'Container required' };
+        }
+        try {
+          const res = await fetch(`${BACKEND_URL}/api/upc`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              upc: item.upc,
+              containerType: item.containerType,
+              isEligible: true
+            })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data?.error || 'Failed to save');
+          successCount += 1;
+          return { ...item, status: 'saved', error: undefined };
+        } catch (err: any) {
+          failCount += 1;
+          return { ...item, status: 'failed', error: err?.message || 'Failed' };
+        }
+      })
+    );
+
+    const remaining = updated.filter(item => item.status !== 'saved');
+    setBatchQueue(remaining);
+    return { successCount, failCount };
+  }, [batchQueue]);
+
   const resetCreateForm = useCallback(() => {
     setNewProduct({ ...DEFAULT_NEW_PRODUCT });
     setScannedUpcForCreation('');
@@ -66,6 +149,11 @@ export const useInventoryCreate = ({
     setOffLookupMessage('');
     setOffLookupIngredients('');
     setOffLookupNutriments(null);
+    setDraftStatus('idle');
+    setIsDirty(false);
+    setPendingUpc(null);
+    setLastAcceptedUpc(null);
+    setLastAcceptedAtMs(0);
   }, []);
 
   const handleCancelCreate = useCallback(() => {
@@ -336,9 +424,18 @@ export const useInventoryCreate = ({
         }
       }
 
-      resetCreateForm();
-      setScannerMode(ScannerMode.INVENTORY_CREATE);
-      setScannerModalOpen(true);
+      // Mark UPC as recently handled to prevent immediate re-read
+      if (scannedUpcForCreation) {
+        recentUpcSetRef.current.set(scannedUpcForCreation, Date.now());
+      }
+
+      // Set status and auto-reset after 500ms (fast intake UX)
+      setDraftStatus('saved');
+      setTimeout(() => {
+        resetCreateForm();
+        setScannerMode(ScannerMode.INVENTORY_CREATE);
+      }, 500);
+
       return created;
     } catch (e: any) {
       setCreateError(e?.message || 'Create failed');
@@ -361,18 +458,56 @@ export const useInventoryCreate = ({
 
   const handleScannerScan = useCallback(
     async (upc: string) => {
-      // Normalize: digits only
+      // Step 1: Normalize
       const normalized = String(upc).replace(/\D/g, '').trim();
       if (!normalized) return;
 
-      // Set authoritative creation UPC and override only relevant fields
+      // Step 2: Reject if saving
+      if (draftStatus === 'savingUpc' || draftStatus === 'savingInventory') {
+        return; // Ignore scans during save
+      }
+
+      // Step 3: Reject duplicates in cooldown window
+      const now = Date.now();
+      if (lastAcceptedUpc === normalized && now - lastAcceptedAtMs < COOLDOWN_MS) {
+        return; // Cooldown active
+      }
+
+      // Step 4: Reject "recently handled" UPCs
+      const recentTimestamp = recentUpcSetRef.current.get(normalized);
+      if (recentTimestamp && now - recentTimestamp < RECENT_TTL_MS) {
+        return; // Recently saved, suppress re-read
+      }
+
+      // Step 5: Decide whether to replace the current draft
+      if (isDirty && scannedUpcForCreation && scannedUpcForCreation !== normalized) {
+        // User is editing, don't auto-replace
+        setPendingUpc(normalized);
+        // Toast will be shown by component
+        return;
+      }
+
+      // Accept the scan
+      setLastAcceptedUpc(normalized);
+      setLastAcceptedAtMs(now);
+      setDraftStatus('scanned');
+      setIsDirty(false);
+
+      if (batchMode) {
+        queueUpc(normalized);
+        setUpcInput(normalized);
+        return;
+      }
+
+      // Set authoritative creation UPC
       setScannedUpcForCreation(normalized);
       upcLastScannedRef.current = normalized;
       setOffLookupStatus('idle');
       setOffLookupMessage('');
       setOffLookupIngredients('');
       setOffLookupNutriments(null);
-      // Clear only auto-fill fields before new lookup
+
+      // Initialize draft with defaults
       setUpcDraft(prev => ({
         ...prev,
         upc: normalized,
@@ -502,6 +637,19 @@ export const useInventoryCreate = ({
     handleScannerScan,
     handleCancelCreate,
     apiCreateProduct,
-    handleAddToUpcRegistry
+    handleAddToUpcRegistry,
+    draftStatus,
+    setDraftStatus,
+    isDirty,
+    setIsDirty,
+    pendingUpc,
+    setPendingUpc,
+    lastAcceptedUpc,
+    lastAcceptedAtMs,
+    batchMode,
+    toggleBatchMode,
+    batchQueue,
+    setBatchQueue,
+    addBatchQueueToRegistry
   };
 };

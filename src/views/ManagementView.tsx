@@ -206,7 +206,18 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     handleScannerScan: handleInventoryScannerScan,
     handleCancelCreate,
     apiCreateProduct,
-    handleAddToUpcRegistry
+    handleAddToUpcRegistry,
+    draftStatus,
+    setDraftStatus,
+    isDirty,
+    setIsDirty,
+    pendingUpc,
+    setPendingUpc,
+    batchMode,
+    toggleBatchMode,
+    batchQueue,
+    setBatchQueue,
+    addBatchQueueToRegistry
   } = inventoryCreate;
 
   const handleModuleSelect = (moduleId: string) => {
@@ -1083,6 +1094,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           setLastBlockedUpc={setLastBlockedUpc}
           setLastBlockedReason={setLastBlockedReason}
           scannedUpcForCreation={scannedUpcForCreation}
+          setScannedUpcForCreation={setScannedUpcForCreation}
           handleManualUpcChange={handleManualUpcChange}
           fetchOffLookup={fetchOffLookup}
           offLookupStatus={offLookupStatus}
@@ -1098,6 +1110,17 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           handleCancelCreate={handleCancelCreate}
           apiCreateProduct={apiCreateProduct}
           isCreating={isCreating}
+          isDirty={isDirty}
+          setIsDirty={setIsDirty}
+          pendingUpc={pendingUpc}
+          setPendingUpc={setPendingUpc}
+          draftStatus={draftStatus}
+          setDraftStatus={setDraftStatus}
+          batchMode={batchMode}
+          toggleBatchMode={toggleBatchMode}
+          batchQueue={batchQueue}
+          setBatchQueue={setBatchQueue}
+          addBatchQueueToRegistry={addBatchQueueToRegistry}
           inventorySort={inventorySort}
           setInventorySort={setInventorySort}
           sortedProducts={sortedProducts}
@@ -1631,6 +1654,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             scannerMode === ScannerMode.INVENTORY_CREATE ? (
               <InventoryCreateForm
                 scannedUpcForCreation={scannedUpcForCreation}
+                setScannedUpcForCreation={setScannedUpcForCreation}
                 handleManualUpcChange={handleManualUpcChange}
                 fetchOffLookup={fetchOffLookup}
                 offLookupStatus={offLookupStatus}
@@ -1647,6 +1671,17 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 handleCancelCreate={handleCancelCreate}
                 apiCreateProduct={apiCreateProduct}
                 isCreating={isCreating}
+                isDirty={isDirty}
+                setIsDirty={setIsDirty}
+                pendingUpc={pendingUpc}
+                setPendingUpc={setPendingUpc}
+                draftStatus={draftStatus}
+                setDraftStatus={setDraftStatus}
+                batchMode={batchMode}
+                toggleBatchMode={toggleBatchMode}
+                batchQueue={batchQueue}
+                setBatchQueue={setBatchQueue}
+                addBatchQueueToRegistry={addBatchQueueToRegistry}
               />
             ) : null
           }

@@ -29,6 +29,21 @@ interface ManagementInventoryProps {
   handleCancelCreate: () => void;
   apiCreateProduct: () => Promise<any>;
   isCreating: boolean;
+  isDirty: boolean;
+  setIsDirty: (dirty: boolean) => void;
+  pendingUpc: string | null;
+  setPendingUpc: (upc: string | null) => void;
+  draftStatus: 'idle' | 'scanned' | 'editing' | 'savingUpc' | 'savingInventory' | 'saved' | 'error';
+  setDraftStatus: (status: any) => void;
+  batchMode: boolean;
+  toggleBatchMode: (on: boolean) => void;
+  batchQueue: Array<{ id: string; upc: string; status: 'queued' | 'saved' | 'failed'; containerType: 'plastic' | 'aluminum' | 'glass'; error?: string }>;
+  setBatchQueue: React.Dispatch<
+    React.SetStateAction<
+      Array<{ id: string; upc: string; status: 'queued' | 'saved' | 'failed'; containerType: 'plastic' | 'aluminum' | 'glass'; error?: string }>
+    >
+  >;
+  addBatchQueueToRegistry: () => Promise<{ successCount: number; failCount: number }>;
   inventorySort: 'alpha' | 'price' | 'brand' | 'type' | 'storage-zone' | 'storage-bin';
   setInventorySort: (
     sort: 'alpha' | 'price' | 'brand' | 'type' | 'storage-zone' | 'storage-bin'
@@ -66,6 +81,17 @@ const ManagementInventory: React.FC<ManagementInventoryProps> = ({
   handleCancelCreate,
   apiCreateProduct,
   isCreating,
+  isDirty,
+  setIsDirty,
+  pendingUpc,
+  setPendingUpc,
+  draftStatus,
+  setDraftStatus,
+  batchMode,
+  toggleBatchMode,
+  batchQueue,
+  setBatchQueue,
+  addBatchQueueToRegistry,
   inventorySort,
   setInventorySort,
   sortedProducts,
