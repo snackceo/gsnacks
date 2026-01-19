@@ -19,9 +19,9 @@ import {
   ownerRequired,
   releaseCreditAuthorization,
   restockOrderItems, // eslint-disable-line no-unused-vars
-  voidStripeAuthorizationBestEffort,
-  isDbReady
+  voidStripeAuthorizationBestEffort
 } from '../utils/helpers.js';
+import { isDbReady } from '../db/connect.js';
 import { recordAuditLog } from '../utils/audit.js';
 import refundsRouter from './refunds.js';
 

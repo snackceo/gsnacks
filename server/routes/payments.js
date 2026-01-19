@@ -20,6 +20,7 @@ import {
   normalizeUpcCounts,
   sumReturnCredits
 } from '../utils/helpers.js';
+import { isDbReady } from '../db/connect.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { resolveDistanceMiles } from '../utils/distance.js';
 
@@ -298,6 +299,9 @@ const createPaymentsRouter = ({ stripe }) => {
    * - estimates subtotal + fees based on backend logic
    */
   router.post('/quote', async (req, res) => {
+    if (!isDbReady()) {
+      return res.status(503).json({ error: 'Database not ready' });
+    }
     try {
       const rawItems = req.body?.items;
       const userId = req.body?.userId;
@@ -396,6 +400,9 @@ const createPaymentsRouter = ({ stripe }) => {
    * - creates Stripe Checkout Session with capture_method = manual (authorize only)
    */
   router.post('/create-session', async (req, res) => {
+    if (!isDbReady()) {
+      return res.status(503).json({ error: 'Database not ready' });
+    }
     const sessionDb = await mongoose.startSession();
 
     try {
@@ -629,6 +636,9 @@ const createPaymentsRouter = ({ stripe }) => {
    * - creates order and Stripe session for remaining amount (if needed)
    */
   router.post('/credits', authRequired, async (req, res) => {
+    if (!isDbReady()) {
+      return res.status(503).json({ error: 'Database not ready' });
+    }
     const sessionDb = await mongoose.startSession();
 
     let user;
@@ -979,6 +989,9 @@ const createPaymentsRouter = ({ stripe }) => {
    * - Server captures final amount = authorized - verified credit (never increases)
    */
   router.post('/capture', authRequired, async (req, res) => {
+    if (!isDbReady()) {
+      return res.status(503).json({ error: 'Database not ready' });
+    }
     const sessionDb = await mongoose.startSession();
 
     try {
