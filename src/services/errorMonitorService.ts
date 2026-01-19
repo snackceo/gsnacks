@@ -1,5 +1,5 @@
 // src/services/errorMonitorService.ts
-// Simulated error monitoring service integration (replace with real API calls as needed)
+import * as Sentry from '@sentry/react';
 
 export interface ErrorEvent {
   id: string;
@@ -9,23 +9,18 @@ export interface ErrorEvent {
   url?: string;
 }
 
-// Simulate fetching recent error events (replace with real API call)
+// Fetch recent error events - currently uses localStorage as fallback
+// In production, integrate with Sentry's API or a backend endpoint
 export async function fetchRecentErrors(): Promise<ErrorEvent[]> {
-  // In production, fetch from your error monitoring provider's API
-  return [
-    {
-      id: 'evt1',
-      message: 'Unhandled exception in /api/orders',
-      level: 'error',
-      timestamp: new Date().toISOString(),
-      url: 'https://monitoring.example.com/event/evt1'
-    },
-    {
-      id: 'evt2',
-      message: 'Database connection timeout',
-      level: 'warning',
-      timestamp: new Date(Date.now() - 3600 * 1000).toISOString(),
-      url: 'https://monitoring.example.com/event/evt2'
+  try {
+    // Get stored errors from localStorage (populated by Sentry's before-send hook)
+    const storedErrors = localStorage.getItem('sentry_recent_errors');
+    if (storedErrors) {
+      return JSON.parse(storedErrors);
     }
-  ];
+    return [];
+  } catch (error) {
+    console.error('Failed to fetch recent errors:', error);
+    return [];
+  }
 }

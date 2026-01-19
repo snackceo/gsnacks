@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import Stripe from 'stripe';
 import mongoose from 'mongoose';
+import * as Sentry from '@sentry/node';
 import connectDB, { isDbReady } from './db/connect.js';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -27,6 +28,13 @@ import inventoryAuditRouter from './routes/inventory-audit.js';
 import returnsRouter from './routes/returns.js';
 
 dotenv.config();
+
+// Initialize Sentry for backend error tracking
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+  tracesSampleRate: 1.0
+});
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -95,6 +103,9 @@ app.use(
 /* =========================
    MIDDLEWARE
 ========================= */
+// Sentry middleware to capture transactions
+app.use(Sentry.Handlers.requestHandler());
+
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' }
@@ -142,6 +153,9 @@ app.use('/api/returns', returnsRouter);
 /* =========================
    ERROR HANDLING MIDDLEWARE
 ========================= */
+// Sentry error handler - must come before custom error handler
+app.use(Sentry.Handlers.errorHandler());
+
 app.use((err, req, res, next) => {
   console.error('UNHANDLED ERROR:', err);
   console.error('Request URL:', req.originalUrl);
