@@ -4,7 +4,6 @@ import dotenv from 'dotenv';
 import Stripe from 'stripe';
 import mongoose from 'mongoose';
 import * as Sentry from '@sentry/node';
-import { Handlers } from '@sentry/node';
 import connectDB, { isDbReady } from './db/connect.js';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -104,8 +103,6 @@ app.use(
 /* =========================
    MIDDLEWARE
 ========================= */
-// Sentry middleware to capture transactions
-app.use(Handlers.requestHandler());
 
 app.use(
   helmet({
@@ -154,10 +151,10 @@ app.use('/api/returns', returnsRouter);
 /* =========================
    ERROR HANDLING MIDDLEWARE
 ========================= */
-// Sentry error handler - must come before custom error handler
-app.use(Handlers.errorHandler());
-
 app.use((err, req, res, next) => {
+  // Capture error in Sentry
+  Sentry.captureException(err);
+  
   console.error('UNHANDLED ERROR:', err);
   console.error('Request URL:', req.originalUrl);
   console.error('Request Method:', req.method);
