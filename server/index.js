@@ -26,6 +26,7 @@ import scanSessionsRouter from './routes/scan-sessions.js';
 import distanceRouter from './routes/distance.js';
 import inventoryAuditRouter from './routes/inventory-audit.js';
 import returnsRouter from './routes/returns.js';
+import { maintenanceModeGuardCached } from './utils/maintenanceMode.js';
 
 dotenv.config();
 
@@ -118,12 +119,20 @@ app.use((req, res, next) => {
 /* =========================
    ROUTES
 ========================= */
+// Health check - always accessible
 app.use('/', healthRouter);
+
+// Auth - always accessible (needed for login)
 app.use('/api/auth', authRouter);
-app.use('/api/products', productsRouter);
-app.use('/api/orders', createOrdersRouter({ stripe }));
-app.use('/api/payments', createPaymentsRouter({ stripe }));
-app.use('/api/stripe', createStripeRouter({ stripe, webhookSecret }));
+
+// Customer-facing routes - blocked during maintenance (except for owners)
+app.use('/api/products', maintenanceModeGuardCached, productsRouter);
+app.use('/api/orders', maintenanceModeGuardCached, createOrdersRouter({ stripe }));
+app.use('/api/payments', maintenanceModeGuardCached, createPaymentsRouter({ stripe }));
+app.use('/api/stripe', maintenanceModeGuardCached, createStripeRouter({ stripe, webhookSecret }));
+app.use('/api/returns', maintenanceModeGuardCached, returnsRouter);
+
+// Admin/management routes - always accessible (auth protection handles access)
 app.use('/api/upc', upcRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/ai', aiRouter);
@@ -134,7 +143,6 @@ app.use('/api/uploads', uploadsRouter);
 app.use('/api/scan-sessions', scanSessionsRouter);
 app.use('/api/distance', distanceRouter);
 app.use('/api/inventory-audit', inventoryAuditRouter);
-app.use('/api/returns', returnsRouter);
 
 /* =========================
    ERROR HANDLING MIDDLEWARE

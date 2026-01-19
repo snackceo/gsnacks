@@ -239,6 +239,17 @@ HUB_LAT, HUB_LNG (env vars): Environment variables specifying the hub (origin) l
 
 id (as in various interfaces): Generally a unique identifier string. For example, User.id (user’s unique ID), Order.id, Product.id, etc. Users and Orders use MongoDB ObjectIDs (converted to string in responses). These IDs link relationships (e.g., Order.customerId = User.id).
 
+Heavy Item Handling (fee concept): Per-unit surcharge applied when an order includes items that are unusually heavy, bulky, or awkward to handle and transport.
+
+- Customer-facing name: Heavy Item Handling
+- Tooltip (customer UI): Applied per heavy unit when items are unusually heavy or require special handling.
+- Purpose: Pays for added time, equipment, and safety required to move and deliver heavy/awkward items; offsets route and labor impact.
+- Monetized factors: Two-person lifts, staging time, protective packaging, equipment usage (dollies/straps), and route/time disruption.
+- Trigger model (internal): Applies per unit flagged as heavy (operational flag on SKU). Internally, “heavy” typically means ≥ 8–10 lb each or awkward to carry (cases, gallons, bulk liquids). Examples: 40-pack bottled water, 1‑gallon milk, soda cases.
+- Pricing model: $1.00–$2.00 per heavy item; recommended starting point $1.50 per unit.
+- Examples: 10 cases of water → 10 × $1.50 = $15.00; 40 gallons of milk → 40 × $1.50 = $60.00.
+- Rules: Charged only for qualifying items, per unit; never a flat order fee. Precisely scales with heavy count; discourages abusive orders without penalizing normal ones.
+
 ineligible (ScanEventStatus): Indicates a scanned UPC was recognized but is not eligible for Michigan deposit (e.g., out-of-state container). Logged in scan events so the driver knows it won’t count for credit.
 
 inventory create scan (workflow): Inventory Mode A scanner flow for unmapped UPCs. The scanner captures a UPC, optionally captures a label photo for AI analysis, and then closes after the scan/photo to return the operator to the Create Product form.
@@ -282,6 +293,16 @@ ledger (data model): Transaction log of credit changes per user. Each LedgerEntr
 LEGACY_SESSION_COOKIE_NAME (constant "auth_token"): The old cookie name for sessions, cleared out on logout for compatibility. The new standard is session.
 
 loyaltyPoints (number field): Points accrued by the user for loyalty rewards. In User model and responses. Points are earned per order (the backend calculates based on spend and tier: higher tiers earn more points). These could be redeemed for rewards (the front-end has onRedeemPoints callback, though actual redemption flow is minimal in code).
+
+Large Order Handling (fee concept): Per-item surcharge applied when an order’s item count exceeds a normal threshold.
+
+- Customer-facing name: Large Order Handling
+- Tooltip (customer UI): Charged per item above the normal threshold.
+- Purpose: Pays for time and packing complexity — not weight. Offsets extra picking/packing, staging, and route planning beyond standard-size purchases.
+- Calculation model: First 10 items included; every additional item is charged $0.25–$0.40. Recommended starting point: $0.30 per extra item.
+- Examples: 10 items → $0.00; 20 items → (20 − 10) × $0.30 = $3.00; 40 items → (40 − 10) × $0.30 = $9.00.
+- Why customers accept this: “More items = more work.” It scales naturally, feels logical, and discourages abuse without punishing normal orders.
+- Rules: Applies only to the count above threshold; linear per extra item; never charged when total items ≤ threshold.
 
 LoginView (component): Modal content for user login. In App, rendered when isLoginViewOpen is true. Takes onSuccess (called after successful login, e.g., to restore session and fetch orders) and onCancel handlers.
 

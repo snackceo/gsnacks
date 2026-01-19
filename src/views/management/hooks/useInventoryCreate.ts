@@ -319,7 +319,8 @@ export const useInventoryCreate = ({
             storageZone: newProduct.storageZone,
             storageBin: newProduct.storageBin,
             image: newProduct.image,
-            isGlass: !!newProduct.isGlass
+            isGlass: !!newProduct.isGlass,
+            isHeavy: !!newProduct.isHeavy
           })
         });
       } else {
@@ -342,7 +343,8 @@ export const useInventoryCreate = ({
             storageZone: newProduct.storageZone,
             storageBin: newProduct.storageBin,
             image: newProduct.image,
-            isGlass: !!newProduct.isGlass
+            isGlass: !!newProduct.isGlass,
+            isHeavy: !!newProduct.isHeavy
           })
         });
       }

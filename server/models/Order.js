@@ -32,6 +32,9 @@ const orderSchema = new mongoose.Schema(
     distanceMiles: { type: Number, default: 0 },
     distanceFee: { type: Number, default: 0 },
     distanceFeeFinal: { type: Number, default: 0 },
+   // Handling fees
+   largeOrderFee: { type: Number, default: 0 },
+   heavyItemFee: { type: Number, default: 0 },
 
     /* =========================================================
        PAYMENT

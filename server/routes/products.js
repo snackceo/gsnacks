@@ -47,7 +47,8 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       brand,
       productType,
       storageZone,
-      storageBin
+      storageBin,
+      isHeavy
     } = req.body || {};
 
     if (!name) return res.status(400).json({ error: 'name is required' });
@@ -71,7 +72,8 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       brand: brand || '',
       productType: productType || '',
       storageZone: storageZone || '',
-      storageBin: storageBin || ''
+      storageBin: storageBin || '',
+      isHeavy: !!isHeavy
     });
 
     res.json({
@@ -120,7 +122,8 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
       'storageZone',
       'storageBin',
       'image',
-      'isGlass'
+      'isGlass',
+      'isHeavy'
     ];
 
     for (const k of allowed) {
@@ -132,6 +135,7 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
     if (updates.stock !== undefined) updates.stock = Number(updates.stock);
     if (updates.sizeOz !== undefined) updates.sizeOz = Number(updates.sizeOz);
     if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
+    if (updates.isHeavy !== undefined) updates.isHeavy = !!updates.isHeavy;
 
     const updated = await Product.findOneAndUpdate(
       { $or: [{ frontendId: paramId }, { sku: paramId }] },
@@ -160,7 +164,8 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
         productType: updated.productType || '',
         storageZone: updated.storageZone || '',
         storageBin: updated.storageBin || '',
-        isGlass: !!updated.isGlass
+        isGlass: !!updated.isGlass,
+        isHeavy: !!updated.isHeavy
       }
     });
   } catch (err) {

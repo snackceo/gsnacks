@@ -89,6 +89,20 @@ function PaymentSuccess({ clearCart }: { clearCart: () => void }) {
               </>
             )}
 
+            {Number(order.largeOrderFee || 0) > 0 && (
+              <>
+                <p className="uppercase tracking-widest opacity-60 mt-4">Large Order Handling</p>
+                <p className="font-black">{money(order.largeOrderFee || 0)}</p>
+              </>
+            )}
+
+            {Number(order.heavyItemFee || 0) > 0 && (
+              <>
+                <p className="uppercase tracking-widest opacity-60 mt-4">Heavy Item Handling</p>
+                <p className="font-black">{money(order.heavyItemFee || 0)}</p>
+              </>
+            )}
+
             <p className="uppercase tracking-widest opacity-60 mt-4">Order total (pre-credit)</p>
             <p className="font-black">{money(order.total)}</p>
 

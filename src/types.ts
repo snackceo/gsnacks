@@ -105,6 +105,7 @@ export interface Product {
   storageZone?: string;
   storageBin?: string;
   isGlass: boolean;
+  isHeavy?: boolean;
 }
 
 export type SizeUnit = 'oz' | 'fl oz' | 'g' | 'kg' | 'ml' | 'l';
@@ -201,6 +202,11 @@ export interface AppSettings {
     returnProcessingFeePercent: number;
     glassHandlingFeePerContainer: number;
     returnHandlingFeePerContainer: number;
+    // Large Order Handling
+    largeOrderIncludedItems: number;
+    largeOrderPerItemFee: number;
+    // Heavy Item Handling
+    heavyItemFeePerUnit: number;
   routeFee: number;
   referralBonus: number;
   pickupOnlyMultiplier: number;

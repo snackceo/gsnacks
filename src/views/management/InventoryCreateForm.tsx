@@ -568,6 +568,19 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
             </label>
           </div>
 
+          <div className="md:col-span-2">
+            <label className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+              <input
+                type="checkbox"
+                checked={!!newProduct.isHeavy}
+                onChange={e =>
+                  setNewProduct({ ...newProduct, isHeavy: e.target.checked })
+                }
+              />
+              Heavy Item
+            </label>
+          </div>
+
           {/* Show pending UPC notification and button */}
           {pendingUpc && (
             <div className="bg-ninpo-red/20 border border-ninpo-red/40 rounded-2xl p-4 space-y-3">

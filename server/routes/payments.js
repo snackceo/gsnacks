@@ -192,6 +192,39 @@ const calculateDistanceFee = ({
   return { distanceFee: feeCents / 100, distanceFeeCents: feeCents, distanceMiles: roundedDistance };
 };
 
+const getHandlingFeeConfig = async () => {
+  const doc = await AppSettings.findOne({ key: 'default' }).lean();
+  return {
+    largeOrderIncludedItems: Number(doc?.largeOrderIncludedItems ?? 10),
+    largeOrderPerItemFee: Number(doc?.largeOrderPerItemFee ?? 0.3),
+    heavyItemFeePerUnit: Number(doc?.heavyItemFeePerUnit ?? 1.5)
+  };
+};
+
+const calculateLargeOrderFee = ({ items, includedItems, perItemFee }) => {
+  const totalItems = Array.isArray(items)
+    ? items.reduce((sum, it) => sum + Math.max(0, Number(it.quantity || 0)), 0)
+    : 0;
+  const extras = Math.max(0, totalItems - Math.max(0, Number(includedItems || 0)));
+  const fee = Math.max(0, Number(perItemFee || 0)) * extras;
+  const feeCents = Math.round(fee * 100);
+  return { largeOrderFee: feeCents / 100, largeOrderFeeCents: feeCents, totalItems, extras };
+};
+
+const calculateHeavyItemFee = ({ items, productsByFrontendId, perUnitFee }) => {
+  let heavyCount = 0;
+  for (const it of items || []) {
+    const pid = String(it?.productId || '').trim();
+    const product = productsByFrontendId.get(pid);
+    if (product?.isHeavy) {
+      heavyCount += Math.max(0, Number(it.quantity || 0));
+    }
+  }
+  const fee = Math.max(0, Number(perUnitFee || 0)) * heavyCount;
+  const feeCents = Math.round(fee * 100);
+  return { heavyItemFee: feeCents / 100, heavyItemFeeCents: feeCents, heavyCount };
+};
+
 const getReturnFeeConfig = async () => ({
   returnHandlingFeePerContainer: CASH_HANDLING_FEE_PER_CONTAINER,
   glassHandlingFeePerContainer: GLASS_HANDLING_SURCHARGE_PER_CONTAINER
@@ -321,6 +354,7 @@ const createPaymentsRouter = ({ stripe }) => {
         : null;
       const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery } =
         await getRouteFeeConfig();
+      const handlingFeeConfig = await getHandlingFeeConfig();
       const distanceFeeConfig = await getDistanceFeeConfig();
 
       let distanceMiles = 0;
@@ -351,11 +385,13 @@ const createPaymentsRouter = ({ stripe }) => {
 
       let totalCents = 0;
       let productSubtotalCents = 0;
+      let largeOrderFeeCents = 0;
+      let heavyItemFeeCents = 0;
 
       if (Array.isArray(items) && items.length > 0) {
         const products = await Product.find(
           { frontendId: { $in: items.map(item => item.productId) } },
-          { price: 1, frontendId: 1 }
+          { price: 1, frontendId: 1, isHeavy: 1 }
         ).lean();
         const productMap = new Map(products.map(product => [product.frontendId, product]));
 
@@ -369,6 +405,21 @@ const createPaymentsRouter = ({ stripe }) => {
           totalCents += lineTotal;
           productSubtotalCents += lineTotal;
         }
+        // Large Order Handling (applies to purchase orders only)
+        const { largeOrderFeeCents: loCents } = calculateLargeOrderFee({
+          items,
+          includedItems: handlingFeeConfig.largeOrderIncludedItems,
+          perItemFee: handlingFeeConfig.largeOrderPerItemFee
+        });
+        largeOrderFeeCents = orderType === 'DELIVERY_PURCHASE' ? loCents : 0;
+
+        // Heavy Item Handling (per heavy unit)
+        const { heavyItemFeeCents: hiCents } = calculateHeavyItemFee({
+          items,
+          productsByFrontendId: productMap,
+          perUnitFee: handlingFeeConfig.heavyItemFeePerUnit
+        });
+        heavyItemFeeCents = orderType === 'DELIVERY_PURCHASE' ? hiCents : 0;
       }
 
       if (routeFeeCents > 0) {
@@ -379,13 +430,23 @@ const createPaymentsRouter = ({ stripe }) => {
         totalCents += distanceFeeCents;
       }
 
+      if (largeOrderFeeCents > 0) {
+        totalCents += largeOrderFeeCents;
+      }
+
+      if (heavyItemFeeCents > 0) {
+        totalCents += heavyItemFeeCents;
+      }
+
       return res.json({
         subtotal: productSubtotalCents / 100,
         total: totalCents / 100,
         routeFeeFinal: routeFee,
         distanceFeeFinal: distanceFee,
         distanceMiles: roundedDistanceMiles,
-        orderType
+        orderType,
+        largeOrderFee: largeOrderFeeCents / 100,
+        heavyItemFee: heavyItemFeeCents / 100
       });
     } catch (err) {
       console.error('QUOTE ERROR:', err);
@@ -421,6 +482,7 @@ const createPaymentsRouter = ({ stripe }) => {
       );
       const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery } =
         await getRouteFeeConfig();
+      const handlingFeeConfig = await getHandlingFeeConfig();
       const distanceFeeConfig = await getDistanceFeeConfig();
       let distanceMiles;
       try {
@@ -460,6 +522,10 @@ const createPaymentsRouter = ({ stripe }) => {
           pickupOnlyMultiplier,
           tier: tierLookupUser?.membershipTier
         });
+
+      // Handling fees
+      let largeOrderFeeCents = 0;
+      let heavyItemFeeCents = 0;
 
       const orderId = crypto.randomUUID();
       const lineItems = [];
@@ -509,6 +575,51 @@ const createPaymentsRouter = ({ stripe }) => {
           });
         });
 
+        // Large Order Handling (purchase orders only)
+        {
+          const { largeOrderFeeCents: loCents } = calculateLargeOrderFee({
+            items,
+            includedItems: handlingFeeConfig.largeOrderIncludedItems,
+            perItemFee: handlingFeeConfig.largeOrderPerItemFee
+          });
+          largeOrderFeeCents = orderType === 'DELIVERY_PURCHASE' ? loCents : 0;
+        }
+
+        // Heavy Item Handling (per heavy unit)
+        {
+          const byFrontendId = new Map(products.map(({ updated }) => [updated.frontendId, updated]));
+          const { heavyItemFeeCents: hiCents } = calculateHeavyItemFee({
+            items,
+            productsByFrontendId: byFrontendId,
+            perUnitFee: handlingFeeConfig.heavyItemFeePerUnit
+          });
+          heavyItemFeeCents = orderType === 'DELIVERY_PURCHASE' ? hiCents : 0;
+        }
+
+        if (largeOrderFeeCents > 0) {
+          totalCents += largeOrderFeeCents;
+          lineItems.push({
+            price_data: {
+              currency: 'usd',
+              product_data: { name: 'Large Order Handling' },
+              unit_amount: largeOrderFeeCents
+            },
+            quantity: 1
+          });
+        }
+
+        if (heavyItemFeeCents > 0) {
+          totalCents += heavyItemFeeCents;
+          lineItems.push({
+            price_data: {
+              currency: 'usd',
+              product_data: { name: 'Heavy Item Handling' },
+              unit_amount: heavyItemFeeCents
+            },
+            quantity: 1
+          });
+        }
+
         if (routeFeeCents > 0) {
           totalCents += routeFeeCents;
           lineItems.push({
@@ -556,6 +667,8 @@ const createPaymentsRouter = ({ stripe }) => {
               distanceMiles: roundedDistanceMiles,
               distanceFee,
               distanceFeeFinal: distanceFee,
+              largeOrderFee: largeOrderFeeCents / 100,
+              heavyItemFee: heavyItemFeeCents / 100,
               creditAppliedCents: 0,
               creditAuthorizedCents: 0,
 
@@ -679,6 +792,7 @@ const createPaymentsRouter = ({ stripe }) => {
       }
       const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery } =
         await getRouteFeeConfig();
+      const handlingFeeConfig = await getHandlingFeeConfig();
       const distanceFeeConfig = await getDistanceFeeConfig();
       let distanceMiles;
       try {
@@ -706,6 +820,8 @@ const createPaymentsRouter = ({ stripe }) => {
       const orderId = crypto.randomUUID();
       let totalCents = 0;
       let productSubtotalCents = 0;
+      let largeOrderFeeCents = 0;
+      let heavyItemFeeCents = 0;
 
       creditTransactionId = crypto.randomUUID();
       user.creditTransactionId = creditTransactionId;
@@ -744,8 +860,34 @@ const createPaymentsRouter = ({ stripe }) => {
             totalCents += lineTotal;
             productSubtotalCents += lineTotal;
           });
+
+          // Handling fees (purchase orders only)
+          {
+            const { largeOrderFeeCents: loCents } = calculateLargeOrderFee({
+              items,
+              includedItems: handlingFeeConfig.largeOrderIncludedItems,
+              perItemFee: handlingFeeConfig.largeOrderPerItemFee
+            });
+            largeOrderFeeCents = orderType === 'DELIVERY_PURCHASE' ? loCents : 0;
+          }
+          {
+            const byFrontendId = new Map(products.map(({ updated }) => [updated.frontendId, updated]));
+            const { heavyItemFeeCents: hiCents } = calculateHeavyItemFee({
+              items,
+              productsByFrontendId: byFrontendId,
+              perUnitFee: handlingFeeConfig.heavyItemFeePerUnit
+            });
+            heavyItemFeeCents = orderType === 'DELIVERY_PURCHASE' ? hiCents : 0;
+          }
         }
 
+        // Apply handling fees to total
+        if (largeOrderFeeCents > 0) {
+          totalCents += largeOrderFeeCents;
+        }
+        if (heavyItemFeeCents > 0) {
+          totalCents += heavyItemFeeCents;
+        }
         if (routeFeeCents > 0) {
           totalCents += routeFeeCents;
         }
@@ -789,6 +931,8 @@ const createPaymentsRouter = ({ stripe }) => {
               distanceMiles: roundedDistanceMiles,
               distanceFee,
               distanceFeeFinal: distanceFee,
+              largeOrderFee: largeOrderFeeCents / 100,
+              heavyItemFee: heavyItemFeeCents / 100,
               creditAuthorizedCents: creditAppliedCents,
               creditAppliedCents: 0, // Will be set on capture
               paymentMethod: remainingCents > 0 ? 'STRIPE' : 'CREDITS', // if fully covered

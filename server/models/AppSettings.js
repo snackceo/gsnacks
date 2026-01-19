@@ -34,6 +34,11 @@ const appSettingsSchema = new mongoose.Schema(
     cooldownMs: { type: Number, default: 1000 },
     requireSkuForScanning: { type: Boolean, default: true },
     shelfGroupingEnabled: { type: Boolean, default: true }
+    ,
+    // Handling fees
+    largeOrderIncludedItems: { type: Number, default: 10 },
+    largeOrderPerItemFee: { type: Number, default: 0.3 },
+    heavyItemFeePerUnit: { type: Number, default: 1.5 }
   },
   { timestamps: true }
 );

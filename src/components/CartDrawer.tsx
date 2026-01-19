@@ -81,6 +81,8 @@ type QuoteResponse = {
   routeFeeFinal: number;
   distanceFeeFinal: number;
   distanceMiles: number;
+  largeOrderFee?: number;
+  heavyItemFee?: number;
 };
 
 function money(n: number) {
@@ -462,7 +464,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
           total: Number(data?.total ?? 0),
           routeFeeFinal: Number(data?.routeFeeFinal ?? 0),
           distanceFeeFinal: Number(data?.distanceFeeFinal ?? 0),
-          distanceMiles: Number(data?.distanceMiles ?? 0)
+          distanceMiles: Number(data?.distanceMiles ?? 0),
+          largeOrderFee: Number(data?.largeOrderFee ?? 0),
+          heavyItemFee: Number(data?.heavyItemFee ?? 0)
         });
       } catch (err: any) {
         if (err?.name === 'AbortError') return;
@@ -487,7 +491,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       .map(ci => {
         const p = products.find(x => x.id === ci.productId || (x as any).frontendId === ci.productId);
         if (!p) return null;
-        const unitPrice = Number(p.price || 0) + Number(p.deposit || 0);
+        const unitPrice = Number(p.price || 0);
         return {
           product: p,
           productId: ci.productId,
@@ -517,14 +521,20 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const activeRouteFee = Number.isFinite(quote?.routeFeeFinal) ? Number(quote?.routeFeeFinal) : 0;
   const activeDistanceFee = Number.isFinite(quote?.distanceFeeFinal) ? Number(quote?.distanceFeeFinal) : 0;
+  const activeLargeOrderFee = Number.isFinite(quote?.largeOrderFee ?? NaN) ? Number(quote?.largeOrderFee) : 0;
+  const activeHeavyItemFee = Number.isFinite(quote?.heavyItemFee ?? NaN) ? Number(quote?.heavyItemFee) : 0;
 
   const subtotalCents = useMemo(() => Math.round(quoteSubtotal * 100), [quoteSubtotal]);
+  const depositCents = Math.round(depositTotal * 100);
   const estimatedReturnCreditCents = useMemo(() => Math.round(estimatedReturnCredit * 100), [estimatedReturnCredit]);
+  const activeRouteFeeCents = Math.round(activeRouteFee * 100);
   const activeDistanceFeeCents = Math.round(activeDistanceFee * 100);
+  const activeLargeOrderFeeCents = Math.round(activeLargeOrderFee * 100);
+  const activeHeavyItemFeeCents = Math.round(activeHeavyItemFee * 100);
 
   const creditsCoverDelivery = [UserTier.SILVER, UserTier.GOLD, UserTier.PLATINUM, UserTier.GREEN].includes(activeTier);
   const creditEligibleCents = creditsCoverDelivery
-    ? subtotalCents + activeDistanceFeeCents
+    ? subtotalCents + activeRouteFeeCents + activeDistanceFeeCents
     : subtotalCents;
 
   const creditAppliedCents =
@@ -533,14 +543,14 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const deliveryCoveredByCredits =
     payoutMethod !== 'CASH' &&
     creditsCoverDelivery &&
-    activeDistanceFeeCents > 0 &&
+    (activeRouteFeeCents + activeDistanceFeeCents) > 0 &&
     estimatedReturnCreditCents > subtotalCents;
 
   const previewTotalAfterCredit = useMemo(() => {
     const totalCents =
-      subtotalCents + activeDistanceFeeCents - creditAppliedCents;
+      subtotalCents + depositCents + activeRouteFeeCents + activeDistanceFeeCents + activeLargeOrderFeeCents + activeHeavyItemFeeCents - creditAppliedCents;
     return Math.max(0, totalCents) / 100;
-  }, [subtotalCents, activeDistanceFeeCents, creditAppliedCents]);
+  }, [subtotalCents, depositCents, activeRouteFeeCents, activeDistanceFeeCents, activeLargeOrderFeeCents, activeHeavyItemFeeCents, creditAppliedCents]);
 
   // ----------------------------
   // Scanner lifecycle
@@ -949,7 +959,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
             <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  Subtotal
+                  Items Subtotal
                 </p>
                 <p className="text-white font-black">{money(quoteSubtotal)}</p>
               </div>
@@ -957,7 +967,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               {depositTotal > 0 && (
                 <div className="flex items-center justify-between">
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                    MI 10¢ deposit (included)
+                    Michigan Bottle Deposit (10¢ each)
                   </p>
                   <p className="text-white font-black">{money(depositTotal)}</p>
                 </div>
@@ -965,7 +975,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-                  {isPickupOnlyOrder ? 'Route Fee — Pickup-Only Order' : 'Route Fee — Delivery Order'}
+                  Route Fee
                 </p>
                 <p className="text-white font-black">{money(activeRouteFee)}</p>
               </div>
@@ -976,6 +986,24 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                     Distance Fee{quoteDistanceMiles > 0 ? ` (${quoteDistanceMiles.toFixed(1)} mi)` : ''}
                   </p>
                   <p className="text-white font-black">{money(activeDistanceFee)}</p>
+                </div>
+              )}
+
+              {activeLargeOrderFeeCents > 0 && (
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    Large Order Handling
+                  </p>
+                  <p className="text-white font-black">{money(activeLargeOrderFee)}</p>
+                </div>
+              )}
+
+              {activeHeavyItemFeeCents > 0 && (
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                    Heavy Item Handling
+                  </p>
+                  <p className="text-white font-black">{money(activeHeavyItemFee)}</p>
                 </div>
               )}
 

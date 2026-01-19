@@ -16,7 +16,9 @@ const productSchema = new mongoose.Schema(
 
     category: { type: String, default: 'DRINK' },
     image: { type: String, default: '' },
-    isGlass: { type: Boolean, default: false }
+    isGlass: { type: Boolean, default: false },
+    // Operational flag for heavy item handling
+    isHeavy: { type: Boolean, default: false }
   },
   { timestamps: true }
 );

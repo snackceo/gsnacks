@@ -3,6 +3,7 @@ import express from 'express';
 import AppSettings from '../models/AppSettings.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { authRequired, ownerRequired } from '../utils/helpers.js';
+import { clearMaintenanceModeCache } from '../utils/maintenanceMode.js';
 
 const router = express.Router();
 
@@ -43,6 +44,11 @@ const defaultSettings = {
   returnProcessingFeePercent: 0,
   glassHandlingFeePerContainer: 0.02,
   returnHandlingFeePerContainer: 0.02
+  ,
+  // Handling Fees
+  largeOrderIncludedItems: 10,
+  largeOrderPerItemFee: 0.3,
+  heavyItemFeePerUnit: 1.5
 };
 
 const numericFields = [
@@ -63,6 +69,10 @@ const numericFields = [
   'returnProcessingFeePercent',
   'glassHandlingFeePerContainer',
   'returnHandlingFeePerContainer'
+  ,
+  'largeOrderIncludedItems',
+  'largeOrderPerItemFee',
+  'heavyItemFeePerUnit'
 ];
 
 const booleanFields = [
@@ -157,6 +167,10 @@ const mapSettings = (doc) => ({
   returnProcessingFeePercent: Number(doc?.returnProcessingFeePercent ?? defaultSettings.returnProcessingFeePercent),
   glassHandlingFeePerContainer: Number(doc?.glassHandlingFeePerContainer ?? defaultSettings.glassHandlingFeePerContainer),
   returnHandlingFeePerContainer: Number(doc?.returnHandlingFeePerContainer ?? defaultSettings.returnHandlingFeePerContainer)
+  ,
+  largeOrderIncludedItems: Number(doc?.largeOrderIncludedItems ?? defaultSettings.largeOrderIncludedItems),
+  largeOrderPerItemFee: Number(doc?.largeOrderPerItemFee ?? defaultSettings.largeOrderPerItemFee),
+  heavyItemFeePerUnit: Number(doc?.heavyItemFeePerUnit ?? defaultSettings.heavyItemFeePerUnit)
 });
 
 const diffSettings = (before, after) =>
@@ -213,6 +227,9 @@ const handleFullSettingsUpdate = async (req, res) => {
         details: changes.join(', ')
       });
     }
+
+    // Clear maintenance mode cache when settings are updated
+    clearMaintenanceModeCache();
 
     res.json({ ok: true, settings: nextSettings });
   } catch (err) {

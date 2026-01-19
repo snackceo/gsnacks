@@ -108,6 +108,17 @@ const ManagementSettings: React.FC<ManagementSettingsProps> = ({
           <input type="number" step="0.0001" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.returnHandlingFeePerContainer} onChange={e => updateSettingsDraft({ returnHandlingFeePerContainer: Number(e.target.value) })} />
         </label>
 
+        {/* Handling fees */}
+        <label className="text-sm font-bold text-slate-300">Large Order Included Items
+          <input type="number" step="1" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.largeOrderIncludedItems} onChange={e => updateSettingsDraft({ largeOrderIncludedItems: Number(e.target.value) })} />
+        </label>
+        <label className="text-sm font-bold text-slate-300">Large Order Per-Item Fee
+          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.largeOrderPerItemFee} onChange={e => updateSettingsDraft({ largeOrderPerItemFee: Number(e.target.value) })} />
+        </label>
+        <label className="text-sm font-bold text-slate-300">Heavy Item Fee Per Unit
+          <input type="number" step="0.01" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.heavyItemFeePerUnit} onChange={e => updateSettingsDraft({ heavyItemFeePerUnit: Number(e.target.value) })} />
+        </label>
+
         {/* Boolean fields */}
         <label className="flex items-center gap-3 text-sm font-bold text-slate-300">
           <input type="checkbox" checked={!!settingsDraft.maintenanceMode} onChange={e => updateSettingsDraft({ maintenanceMode: e.target.checked })} />

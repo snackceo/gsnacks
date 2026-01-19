@@ -330,6 +330,9 @@ function mapOrderForFrontend(d) {
     routeFee: Number(d.routeFeeFinal ?? d.routeFee ?? d.deliveryFeeFinal ?? d.deliveryFee ?? 0),
     distanceMiles: Number(d.distanceMiles || 0),
     distanceFee: Number(d.distanceFeeFinal ?? d.distanceFee ?? 0),
+    // Handling fees
+    largeOrderFee: Number(d.largeOrderFee || 0),
+    heavyItemFee: Number(d.heavyItemFee || 0),
     creditAuthorizedCents: Math.round(Number(d.creditAuthorizedCents || 0)),
     creditAppliedCents: d.creditAppliedAt
       ? Math.round(Number(d.creditAppliedCents || 0))
