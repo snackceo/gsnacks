@@ -532,6 +532,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   };
 
   const saveSettings = async () => {
+    console.log('[saveSettings] Starting settings save...', { isSavingSettings, settingsDirty });
     setIsSavingSettings(true);
     setSettingsError(null);
     setSettingsSaved(false);
@@ -584,6 +585,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     };
 
     try {
+      console.log('[saveSettings] Sending to backend:', nextSettings);
       const res = await fetch(`${BACKEND_URL}/api/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -592,7 +594,13 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       });
 
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to save settings');
+      console.log('[saveSettings] Backend response:', { ok: res.ok, status: res.status, data });
+      if (!res.ok) {
+        if (res.status === 403) {
+          throw new Error('You do not have permission to save settings. Owner access required.');
+        }
+        throw new Error(data?.error || `Failed to save settings (${res.status})`);
+      }
 
       const savedSettings = (data?.settings as AppSettings) || nextSettings;
       setSettings(savedSettings);
@@ -600,15 +608,19 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setSettingsDirty(false);
       setSettingsSaved(true);
     } catch (e: any) {
+      console.error('[saveSettings] Error caught:', e?.message, e);
       const stored = persistSettings(nextSettings);
       if (stored) {
+        console.log('[saveSettings] Saved to localStorage');
         setSettings(nextSettings);
         setSettingsDirty(false);
         setSettingsSaved(true);
       } else {
+        console.error('[saveSettings] Failed to save anywhere');
         setSettingsError(e?.message || 'Failed to save settings');
       }
     } finally {
+      console.log('[saveSettings] finally block, setting isSavingSettings to false');
       setIsSavingSettings(false);
     }
   };

@@ -35,18 +35,23 @@ const ManagementSettings: React.FC<ManagementSettingsProps> = ({
 
   React.useEffect(() => {
     if (settingsSaved) {
+      console.log('[ManagementSettings] Showing success toast');
       addToast('Settings saved successfully!', 'success');
+      setTimeout(() => setSettingsSaved(false), 100);
     }
     if (settingsError) {
+      console.log('[ManagementSettings] Showing error toast:', settingsError);
       addToast(settingsError, 'error');
+      setTimeout(() => setSettingsError(null), 100);
     }
-  }, [settingsSaved, settingsError, addToast]);
+  }, [settingsSaved, settingsError, addToast, setSettingsSaved, setSettingsError])
 
   return (
     <form
       className="space-y-8 max-w-2xl mx-auto bg-ninpo-card p-8 rounded-[2.5rem] border border-white/10 shadow-neon"
       onSubmit={e => {
         e.preventDefault();
+        console.log('[ManagementSettings form] onSubmit called, calling saveSettings()');
         saveSettings();
       }}
     >
