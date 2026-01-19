@@ -145,15 +145,6 @@ const CustomerView: React.FC<CustomerViewProps> = ({
             <>
               <button
                 onClick={() => {
-                  setShowReturnScanner(!showReturnScanner);
-                  setShowDashboard(false);
-                }}
-                className="px-8 py-5 bg-ninpo-card border border-white/5 rounded-[1.5rem] text-white font-black text-[12px] uppercase tracking-widest flex items-center gap-3 hover:border-ninpo-lime/40 transition-all shadow-lg active:scale-95"
-              >
-                <Recycle className="w-5 h-5 text-ninpo-lime" /> Bottle Returns
-              </button>
-              <button
-                onClick={() => {
                   setShowDashboard(!showDashboard);
                   setShowReturnScanner(false);
                 }}

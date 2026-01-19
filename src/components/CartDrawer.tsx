@@ -398,6 +398,40 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               )}
             </div>
 
+            {/* Container Returns */}
+            <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-white font-black uppercase tracking-widest text-xs">
+                  Container Returns (Optional)
+                </p>
+                <button
+                  onClick={openScanner}
+                  className="px-4 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-ninpo-lime/90 transition"
+                >
+                  <ScanLine className="w-4 h-4" /> {hasReturnUpcs ? 'Continue Scanning' : 'Scan Containers'}
+                </button>
+              </div>
+
+              {hasReturnUpcs && (
+                <div className="flex items-center justify-between bg-black/30 border border-white/10 rounded-2xl p-5">
+                  <div>
+                    <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest">
+                      Containers Scanned
+                    </p>
+                    <p className="text-white font-black text-2xl mt-1">{totalReturnContainers}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest">
+                      Expected Credit
+                    </p>
+                    <p className="text-ninpo-lime font-black text-2xl mt-1">
+                      {money(estimatedReturnCredit)}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Address */}
             <div className="space-y-3">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
