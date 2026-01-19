@@ -15,7 +15,7 @@ interface ScannerModalProps {
   cooldownMs?: number;
   isOpen?: boolean;
   onPhotoCaptured?: (photoDataUrl: string, mime: string) => void;
-  slideUpContent?: React.ReactNode;
+  bottomSheetContent?: React.ReactNode;
 
   /**
    * Optional: if true, the modal closes after a successful scan.
@@ -41,7 +41,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
   cooldownMs = 1200,
   isOpen = false,
   onPhotoCaptured,
-  slideUpContent,
+  bottomSheetContent,
   closeOnScan = false,
   manualStart = false
 }) => {
@@ -62,7 +62,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
         onPhotoCaptured={onPhotoCaptured}
         closeOnScan={closeOnScan}
         manualStart={manualStart}
-        slideUpContent={slideUpContent}
+        bottomSheetContent={bottomSheetContent}
         className=""
       />
     </div>,

@@ -25,7 +25,7 @@ interface ScannerPanelProps {
   onClose?: () => void;
   showClose?: boolean;
   className?: string;
-  slideUpContent?: React.ReactNode;
+  bottomSheetContent?: React.ReactNode;
 }
 
 // Allow UPC/EAN lengths commonly encountered.
@@ -59,7 +59,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   closeOnScan = false,
   manualStart = false,
   className = '',
-  slideUpContent
+  bottomSheetContent
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -495,8 +495,8 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         </button>
       </div>
 
-      {/* Bottom slide-up card - shows after a scan is detected */}
-      {slideUpContent && lastDetectedUpc && (
+      {/* Bottom sheet card - shows after a scan is detected */}
+      {bottomSheetContent && lastDetectedUpc && (
         <div className="relative z-10 mt-auto w-full max-h-[60vh] overflow-y-auto rounded-t-[2rem] bg-ninpo-black/95 backdrop-blur-xl border-t border-white/10 shadow-2xl transition-all duration-500 ease-out">
           <div className="sticky top-0 bg-ninpo-black/95 backdrop-blur-xl z-10 px-6 pt-4 pb-3">
             <div className="mx-auto h-1 w-12 rounded-full bg-white/20 mb-4" />
@@ -514,7 +514,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
             </div>
           </div>
           <div className="px-6 pb-6 space-y-4">
-            {slideUpContent}
+            {bottomSheetContent}
           </div>
         </div>
       )}
