@@ -589,7 +589,19 @@ export const useInventoryCreate = ({
         console.error('UPC lookup failed:', err);
       }
     },
-    [applyLookupDrafts, fetchOffLookup, setUpcDraft, setUpcInput]
+    [
+      applyLookupDrafts,
+      batchMode,
+      draftStatus,
+      fetchOffLookup,
+      isDirty,
+      lastAcceptedAtMs,
+      lastAcceptedUpc,
+      queueUpc,
+      scannedUpcForCreation,
+      setUpcDraft,
+      setUpcInput
+    ]
   );
 
   const handleManualUpcChange = useCallback(
