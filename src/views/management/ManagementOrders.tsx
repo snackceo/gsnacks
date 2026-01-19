@@ -318,7 +318,11 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
 
                   {canCancel(o) && (
                     <button
-                      onClick={() => handleLogisticsUpdate(o.id, OrderStatus.CLOSED)}
+                      onClick={() => {
+                        if (confirm(`Cancel order ${o.id}? Items will be restocked and order marked as closed.`)) {
+                          handleLogisticsUpdate(o.id, OrderStatus.CLOSED);
+                        }
+                      }}
                       className="md:w-[240px] py-5 bg-ninpo-red/10 text-ninpo-red rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
                     >
                       <XCircle className="w-5 h-5" /> Cancel (Restock)

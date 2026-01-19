@@ -764,6 +764,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   };
 
   const apiDeleteProduct = async (id: string) => {
+    const product = products.find(p => p.id === id);
+    const productName = product?.name || 'this product';
+    if (!confirm(`Delete ${productName}? This will permanently remove the product from inventory.`)) {
+      return;
+    }
     try {
       const res = await fetch(`${BACKEND_URL}/api/products/${id}`, {
         method: 'DELETE',
