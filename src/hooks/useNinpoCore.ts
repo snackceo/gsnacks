@@ -91,7 +91,10 @@ const defaultSettings: AppSettings = {
   processingFeePercent: 0,
   returnProcessingFeePercent: 0,
   glassHandlingFeePerContainer: 0,
-  returnHandlingFeePerContainer: 0
+  returnHandlingFeePerContainer: 0,
+  largeOrderIncludedItems: 10,
+  largeOrderPerItemFee: 0.3,
+  heavyItemFeePerUnit: 1.5
 };
 
 const parseOptionalNumber = (value: number | null | undefined, fallback: number | null) => {
@@ -294,6 +297,15 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     ),
     returnHandlingFeePerContainer: Number(
       data.returnHandlingFeePerContainer ?? defaultSettings.returnHandlingFeePerContainer
+    ),
+    largeOrderIncludedItems: Number(
+      data.largeOrderIncludedItems ?? defaultSettings.largeOrderIncludedItems
+    ),
+    largeOrderPerItemFee: Number(
+      data.largeOrderPerItemFee ?? defaultSettings.largeOrderPerItemFee
+    ),
+    heavyItemFeePerUnit: Number(
+      data.heavyItemFeePerUnit ?? defaultSettings.heavyItemFeePerUnit
     )
   };
 };

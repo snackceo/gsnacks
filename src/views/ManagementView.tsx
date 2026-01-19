@@ -567,6 +567,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       returnProcessingFeePercent: Number(settingsDraft.returnProcessingFeePercent || 0),
       glassHandlingFeePerContainer: Number(settingsDraft.glassHandlingFeePerContainer || 0),
       returnHandlingFeePerContainer: Number(settingsDraft.returnHandlingFeePerContainer || 0),
+      largeOrderIncludedItems: Number(settingsDraft.largeOrderIncludedItems || 0),
+      largeOrderPerItemFee: Number(settingsDraft.largeOrderPerItemFee || 0),
+      heavyItemFeePerUnit: Number(settingsDraft.heavyItemFeePerUnit || 0),
+      maintenanceMode: Boolean(settingsDraft.maintenanceMode),
     };
 
     const persistSettings = (payload: AppSettings) => {
