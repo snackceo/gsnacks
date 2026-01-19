@@ -180,6 +180,14 @@ const diffSettings = (before, after) =>
 
 router.get('/', authRequired, ownerRequired, async (_req, res) => {
   try {
+    // Prevent browser caching for owner-only settings (best practice for sensitive data)
+    res.set({
+      'Cache-Control': 'no-store',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Vary': 'Cookie, Origin'
+    });
+
     const existing = await AppSettings.findOne({ key: SETTINGS_KEY }).lean();
     if (!existing) {
       return res.json({ ok: true, settings: { ...defaultSettings } });
