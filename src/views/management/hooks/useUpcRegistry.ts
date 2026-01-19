@@ -160,6 +160,34 @@ export const useUpcRegistry = ({ activeModule }: UseUpcRegistryParams) => {
     }
   }, [upcDraft]);
 
+  const apiDeleteUpcDirect = useCallback(async (upc: string) => {
+    if (!upc) return;
+    setIsUpcSaving(true);
+    setUpcError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/upc/${upc}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to delete UPC');
+      setUpcItems(prev => prev.filter(item => item.upc !== upc));
+      // Invalidate caches
+      try {
+        localStorage.removeItem('ninpo_upc_eligibility_v1');
+      } catch {}
+      // Clear draft if it was the deleted UPC
+      if (upcDraft.upc === upc) {
+        setUpcDraft(DEFAULT_UPC_DRAFT);
+        setUpcInput('');
+      }
+    } catch (e: any) {
+      setUpcError(e?.message || 'Failed to delete UPC');
+    } finally {
+      setIsUpcSaving(false);
+    }
+  }, [upcDraft.upc]);
+
   const apiLinkUpc = useCallback(async (upc: string, productId: string) => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/upc/link`, {
@@ -221,6 +249,7 @@ export const useUpcRegistry = ({ activeModule }: UseUpcRegistryParams) => {
     handleUpcLookup,
     apiSaveUpc,
     apiDeleteUpc,
+    apiDeleteUpcDirect,
     apiLinkUpc,
     loadUpcDraft,
     filteredUpcItems,

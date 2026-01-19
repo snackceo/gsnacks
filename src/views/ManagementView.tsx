@@ -167,6 +167,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     handleUpcLookup,
     apiSaveUpc,
     apiDeleteUpc,
+    apiDeleteUpcDirect,
     apiLinkUpc,
     loadUpcDraft,
     filteredUpcItems,
@@ -1152,6 +1153,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           handleUpcLookup={handleUpcLookup}
           apiSaveUpc={apiSaveUpc}
           apiDeleteUpc={apiDeleteUpc}
+          apiDeleteUpcDirect={apiDeleteUpcDirect}
           apiLinkUpc={apiLinkUpc}
           filteredUpcItems={filteredUpcItems}
           loadUpcDraft={loadUpcDraft}

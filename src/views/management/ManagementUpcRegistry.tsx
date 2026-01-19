@@ -1,4 +1,5 @@
 import React from 'react';
+import { Trash2 } from 'lucide-react';
 import { UpcItem, Product, UpcContainerType, SizeUnit } from '../../types';
 
 interface ManagementUpcRegistryProps {
@@ -17,6 +18,7 @@ interface ManagementUpcRegistryProps {
   handleUpcLookup: (upc?: string) => void;
   apiSaveUpc: () => void;
   apiDeleteUpc: () => void;
+  apiDeleteUpcDirect: (upc: string) => void;
   apiLinkUpc: (upc: string, productId: string) => void;
   filteredUpcItems: UpcItem[];
   loadUpcDraft: (entry: UpcItem) => void;
@@ -54,9 +56,11 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
     upcFilter,
     setUpcFilter,
     isUpcLoading,
+    isUpcSaving,
     upcError,
     apiLoadUpcItems,
     handleUpcLookup,
+    apiDeleteUpcDirect,
     filteredUpcItems,
     loadUpcDraft,
     UPC_CONTAINER_LABELS
@@ -228,31 +232,48 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
         ) : (
           <div className="space-y-3">
             {filteredUpcItems.map(item => (
-              <button
+              <div
                 key={item.upc}
-                onClick={() => {
-                  setUpcInput(item.upc);
-                  loadUpcDraft(item);
-                }}
-                className="w-full text-left p-4 rounded-2xl border border-white/5 bg-black/40 hover:bg-white/5 transition-all"
+                className="flex items-center gap-3 p-4 rounded-2xl border border-white/5 bg-black/40"
               >
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                  <div>
-                    <p className="text-white text-sm font-black">{item.upc}</p>
-                    <p className="text-[10px] uppercase tracking-widest text-slate-500">
-                      {item.name || 'Unnamed'} • Deposit $
-                      {Number(item.depositValue || 0).toFixed(2)} • Price $
-                      {Number(item.price || 0).toFixed(2)} •{' '}
-                      {formatSize(item.sizeOz, item.sizeUnit)} •{' '}
-                      {UPC_CONTAINER_LABELS[item.containerType || 'plastic']} •{' '}
-                      {item.isEligible ? 'ELIGIBLE' : 'INELIGIBLE'}
+                <button
+                  onClick={() => {
+                    setUpcInput(item.upc);
+                    loadUpcDraft(item);
+                  }}
+                  className="flex-1 text-left hover:bg-white/5 transition-all rounded-xl p-2 -m-2"
+                >
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div>
+                      <p className="text-white text-sm font-black">{item.upc}</p>
+                      <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                        {item.name || 'Unnamed'} • Deposit $
+                        {Number(item.depositValue || 0).toFixed(2)} • Price $
+                        {Number(item.price || 0).toFixed(2)} •{' '}
+                        {formatSize(item.sizeOz, item.sizeUnit)} •{' '}
+                        {UPC_CONTAINER_LABELS[item.containerType || 'plastic']} •{' '}
+                        {item.isEligible ? 'ELIGIBLE' : 'INELIGIBLE'}
+                      </p>
+                    </div>
+                    <p className="text-[10px] uppercase tracking-widest text-slate-600">
+                      Updated {fmtTime(item.updatedAt)}
                     </p>
                   </div>
-                  <p className="text-[10px] uppercase tracking-widest text-slate-600">
-                    Updated {fmtTime(item.updatedAt)}
-                  </p>
-                </div>
-              </button>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`Delete UPC ${item.upc}?`)) {
+                      apiDeleteUpcDirect(item.upc);
+                    }
+                  }}
+                  disabled={isUpcSaving}
+                  className="p-3 rounded-xl bg-ninpo-red/10 text-ninpo-red hover:bg-ninpo-red/20 border border-ninpo-red/20 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Delete UPC"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             ))}
           </div>
         )}
