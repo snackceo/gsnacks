@@ -495,9 +495,9 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         </button>
       </div>
 
-      {/* Bottom slide-up card - shows when content is provided */}
-      {slideUpContent && (
-        <div className="relative z-10 mt-auto w-full max-h-[60vh] overflow-y-auto rounded-t-[2rem] bg-ninpo-black/95 backdrop-blur-xl border-t border-white/10 shadow-2xl animate-in slide-in-from-bottom duration-300">
+      {/* Bottom slide-up card - shows after a scan is detected */}
+      {slideUpContent && lastDetectedUpc && (
+        <div className="relative z-10 mt-auto w-full max-h-[60vh] overflow-y-auto rounded-t-[2rem] bg-ninpo-black/95 backdrop-blur-xl border-t border-white/10 shadow-2xl transition-all duration-500 ease-out">
           <div className="sticky top-0 bg-ninpo-black/95 backdrop-blur-xl z-10 px-6 pt-4 pb-3">
             <div className="mx-auto h-1 w-12 rounded-full bg-white/20 mb-4" />
             <div className="flex items-center justify-between">
