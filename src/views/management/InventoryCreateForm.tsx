@@ -268,50 +268,6 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
             <ScanLine className="w-4 h-4" /> {batchMode ? 'Add All to UPC Registry' : 'Add to UPC Registry'}
           </button>
         </div>
-        {batchMode && (
-          <div className="mt-4 space-y-3">
-            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-              Queued UPCs ({batchQueue.length})
-            </div>
-            <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
-              {batchQueue.length === 0 && (
-                <div className="text-[11px] text-slate-500">Scan to add UPCs to the queue.</div>
-              )}
-              {batchQueue.map(item => (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-3 bg-black/30 border border-white/10 rounded-2xl p-3"
-                >
-                  <div className="flex-1">
-                    <p className="text-white text-sm font-bold">{item.upc}</p>
-                    <p className="text-[10px] uppercase tracking-widest text-slate-400">
-                      Status: {item.status}
-                      {item.error ? ` • ${item.error}` : ''}
-                    </p>
-                  </div>
-                  <select
-                    className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white"
-                    value={item.containerType}
-                    onChange={e =>
-                      handleContainerChange(item.id, e.target.value as 'plastic' | 'aluminum' | 'glass')
-                    }
-                  >
-                    <option value="plastic">Plastic</option>
-                    <option value="aluminum">Aluminum</option>
-                    <option value="glass">Glass</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveQueued(item.id)}
-                    className="p-2 rounded-xl bg-white/10 text-white hover:bg-white/20"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
         {/* Remove inline messages, rely on toast only */}
         {offLookupMessage && (
           <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
@@ -321,10 +277,71 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
         {/* Error toast handled by useEffect, not inline */}
       </div>
 
+      {batchMode && (
+        <div className="space-y-3 bg-black/40 border border-white/10 rounded-2xl p-6">
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] font-black uppercase tracking-widest text-white">
+              Queued UPCs ({batchQueue.length})
+            </div>
+            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+              Scan to add • Select container • Commit all
+            </div>
+          </div>
+          <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
+            {batchQueue.length === 0 && (
+              <div className="text-center py-8 text-[11px] text-slate-500 uppercase tracking-widest">
+                Scan barcodes to add UPCs to the queue.
+              </div>
+            )}
+            {batchQueue.map(item => (
+              <div
+                key={item.id}
+                className={`flex items-center gap-3 rounded-2xl p-4 border-2 ${
+                  item.status === 'saved'
+                    ? 'bg-ninpo-lime/10 border-ninpo-lime/30'
+                    : item.status === 'failed'
+                    ? 'bg-ninpo-red/10 border-ninpo-red/30'
+                    : 'bg-black/50 border-white/10'
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm font-black">{item.upc}</p>
+                  <p className="text-[10px] uppercase tracking-widest text-slate-400 truncate">
+                    {item.status === 'saved' ? '✓ Saved' : item.status === 'failed' ? '✗ Failed' : 'Queued'}
+                    {item.error ? ` • ${item.error}` : ''}
+                  </p>
+                </div>
+                <select
+                  className="bg-black/60 border border-white/20 rounded-xl px-3 py-2 text-xs text-white font-bold uppercase tracking-widest"
+                  value={item.containerType}
+                  onChange={e =>
+                    handleContainerChange(item.id, e.target.value as 'plastic' | 'aluminum' | 'glass')
+                  }
+                  disabled={item.status !== 'queued'}
+                >
+                  <option value="plastic">Plastic</option>
+                  <option value="aluminum">Aluminum</option>
+                  <option value="glass">Glass</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveQueued(item.id)}
+                  disabled={item.status !== 'queued'}
+                  className="p-2 rounded-xl bg-ninpo-red/20 text-ninpo-red hover:bg-ninpo-red/30 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row gap-4 items-center">
         <div className="flex-1 text-[10px] text-slate-500 uppercase tracking-widest">
-          Scan a UPC to auto-fill product details from Open Food Facts, then review and edit before
-          creating.
+          {batchMode
+            ? 'Batch mode enabled: scan multiple UPCs, select containers, then commit all at once.'
+            : 'Scan a UPC to auto-fill product details from Open Food Facts, then review and edit before creating.'}
         </div>
       </div>
 
