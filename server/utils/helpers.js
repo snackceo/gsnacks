@@ -8,26 +8,22 @@ import User from '../models/User.js';
 ========================= */
 function getCookieOptions(req) {
   const host = (req.headers.host || '').toLowerCase();
-
   const isLocalhost =
     host.includes('localhost') ||
     host.startsWith('127.0.0.1') ||
     host.includes('0.0.0.0');
-
-  const isNinpoDomain = host.includes('ninposnacks.com');
-
   const secure = !isLocalhost;
+  const sameSite = secure ? 'none' : 'lax';
   const base = {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite,
     secure,
     path: '/'
   };
-
-  if (isNinpoDomain && !isLocalhost) {
-    return { ...base, domain: '.ninposnacks.com' };
+  const cookieDomain = process.env.COOKIE_DOMAIN;
+  if (!isLocalhost && cookieDomain) {
+    return { ...base, domain: cookieDomain };
   }
-
   return base;
 }
 
@@ -44,33 +40,52 @@ function setAuthCookie(req, res, token) {
 }
 
 function clearAuthCookie(req, res) {
+  const cookieDomain = process.env.COOKIE_DOMAIN;
+  // Standard clears
   res.clearCookie(SESSION_COOKIE_NAME, getCookieOptions(req));
   res.clearCookie(LEGACY_SESSION_COOKIE_NAME, getCookieOptions(req));
 
-  // Extra safety for mixed testing
-  res.clearCookie(SESSION_COOKIE_NAME, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: true,
-    domain: '.ninposnacks.com',
-    path: '/'
-  });
+  // Extra safety for mixed testing: clear both sameSite: 'none' and 'lax' for secure: true
+  if (cookieDomain) {
+    // sameSite: 'none', secure: true
+    res.clearCookie(SESSION_COOKIE_NAME, {
+      httpOnly: true,
+      sameSite: 'none',
+      secure: true,
+      domain: cookieDomain,
+      path: '/'
+    });
+    res.clearCookie(LEGACY_SESSION_COOKIE_NAME, {
+      httpOnly: true,
+      sameSite: 'none',
+      secure: true,
+      domain: cookieDomain,
+      path: '/'
+    });
+    // sameSite: 'lax', secure: true (legacy)
+    res.clearCookie(SESSION_COOKIE_NAME, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: true,
+      domain: cookieDomain,
+      path: '/'
+    });
+    res.clearCookie(LEGACY_SESSION_COOKIE_NAME, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: true,
+      domain: cookieDomain,
+      path: '/'
+    });
+  }
 
-  res.clearCookie(LEGACY_SESSION_COOKIE_NAME, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: true,
-    domain: '.ninposnacks.com',
-    path: '/'
-  });
-
+  // Also clear for insecure (localhost)
   res.clearCookie(SESSION_COOKIE_NAME, {
     httpOnly: true,
     sameSite: 'lax',
     secure: false,
     path: '/'
   });
-
   res.clearCookie(LEGACY_SESSION_COOKIE_NAME, {
     httpOnly: true,
     sameSite: 'lax',
