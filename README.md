@@ -38,6 +38,13 @@ See also: GLOSSARY.md for definitions.
 - (Potential) Twilio (SMS/phone)
 ---
 
+
+## API Authentication & Cookie Handling
+
+The frontend does not read cookies directly; the browser attaches them automatically to API requests when `credentials: 'include'` is set. Removing this option will break authentication.
+
+**Recommended:** All API requests should go through a shared `apiFetch()` wrapper that always sets `credentials: 'include'`.
+
 ## Usage & Project Purpose
 
 NinpoSnacks is a delivery-first snack business with integrated Michigan 10¢ bottle return service. This system manages product delivery, deposit returns, and wallet credits, with strict backend authority for all financial and inventory operations. See [GEMINI.md](GEMINI.md) for system contract and [GLOSSARY.md](GLOSSARY.md) for all term definitions.

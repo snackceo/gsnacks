@@ -6,7 +6,10 @@ const connectDB = async () => {
       throw new Error('MONGO_URI not defined');
     }
 
-    await mongoose.connect(process.env.MONGO_URI);
+    await mongoose.connect(process.env.MONGO_URI, {
+      serverSelectionTimeoutMS: 10000, // fail fast if cannot reach cluster
+      socketTimeoutMS: 45000
+    });
 
     console.log('MONGO CONNECTED');
   } catch (err) {
@@ -16,4 +19,6 @@ const connectDB = async () => {
   }
 };
 
+
+export const isDbReady = () => mongoose.connection.readyState === 1;
 export default connectDB;

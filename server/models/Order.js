@@ -4,7 +4,7 @@ const orderSchema = new mongoose.Schema(
   {
     orderId: { type: String, required: true, unique: true },
 
-    customerId: { type: String },
+    customerId: { type: String, index: true },
     address: { type: String, default: '' },
 
     /* =========================================================
@@ -29,7 +29,6 @@ const orderSchema = new mongoose.Schema(
     routeFee: { type: Number, default: 0 },
     routeFeeDiscountPercent: { type: Number, default: 0 },
     routeFeeFinal: { type: Number, default: 0 },
-   // ...existing code...
     distanceMiles: { type: Number, default: 0 },
     distanceFee: { type: Number, default: 0 },
     distanceFeeFinal: { type: Number, default: 0 },
@@ -89,9 +88,13 @@ const orderSchema = new mongoose.Schema(
     /* =========================================================
        INVENTORY / AUDIT
        ========================================================= */
-    inventoryReleasedAt: { type: Date }
+    inventoryReleasedAt: { type: Date },
+
+    driverId: { type: String, index: true }
   },
   { timestamps: true }
 );
+
+orderSchema.index({ createdAt: 1 });
 
 export default mongoose.model('Order', orderSchema);

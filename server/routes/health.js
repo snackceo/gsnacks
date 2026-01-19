@@ -2,8 +2,15 @@ import express from 'express';
 
 const router = express.Router();
 
+
+import { isDbReady } from '../db/connect.js';
+
 router.get('/', (_, res) => {
-  res.send('NINPO MAINFRAME ONLINE');
+  if (isDbReady()) {
+    res.send('NINPO MAINFRAME ONLINE');
+  } else {
+    res.status(503).send('Database not ready');
+  }
 });
 
 router.get('/api/sync', (_, res) => {

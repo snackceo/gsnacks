@@ -19,7 +19,8 @@ import {
   ownerRequired,
   releaseCreditAuthorization,
   restockOrderItems, // eslint-disable-line no-unused-vars
-  voidStripeAuthorizationBestEffort
+  voidStripeAuthorizationBestEffort,
+  isDbReady
 } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 import refundsRouter from './refunds.js';
@@ -43,6 +44,9 @@ const createOrdersRouter = ({ stripe }) => {
      - Customers see their own
   ========================= */
   router.get('/', authRequired, async (req, res) => {
+    if (!isDbReady()) {
+      return res.status(503).json({ error: 'Database not ready' });
+    }
     try {
       const isOwner = isOwnerUsername(req.user?.username);
       const isDriver = isDriverUsername(req.user?.username);
@@ -75,6 +79,7 @@ const createOrdersRouter = ({ stripe }) => {
         }
       }
 
+      // Pure read: no writes, always lean
       const [docs, total] = await Promise.all([
         Order.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
         Order.countDocuments(q)
@@ -94,6 +99,9 @@ const createOrdersRouter = ({ stripe }) => {
    * Backfill returnUpcCounts/verifiedReturnUpcCounts for legacy records.
    */
   router.post('/backfill-return-counts', authRequired, ownerRequired, async (req, res) => {
+    if (!isDbReady()) {
+      return res.status(503).json({ error: 'Database not ready' });
+    }
     try {
       const query = {
         $or: [
@@ -153,8 +161,10 @@ const createOrdersRouter = ({ stripe }) => {
    * Idempotent: guarded by inventoryReleasedAt and terminal statuses.
    */
   router.post('/release-reservation', async (req, res) => {
+    if (!isDbReady()) {
+      return res.status(503).json({ error: 'Database not ready' });
+    }
     const sessionDb = await mongoose.startSession();
-
     try {
       const sessionId = String(req.body?.sessionId || '').trim();
       if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
@@ -177,7 +187,7 @@ const createOrdersRouter = ({ stripe }) => {
 
         // best-effort void
         await voidStripeAuthorizationBestEffort(stripe, order);
-      });
+      }, { maxCommitTimeMS: 10000 });
 
       res.json({ ok: true });
     } catch (err) {
@@ -194,8 +204,10 @@ const createOrdersRouter = ({ stripe }) => {
    * - CLOSED -> immediately restocks and sets DB status to CANCELED, and voids Stripe authorization if present.
    */
   router.patch('/:id', authRequired, async (req, res) => {
+    if (!isDbReady()) {
+      return res.status(503).json({ error: 'Database not ready' });
+    }
     const sessionDb = await mongoose.startSession();
-
     try {
       const orderId = String(req.params.id || '').trim();
       if (!orderId) return res.status(400).json({ error: 'Invalid order id' });
@@ -307,7 +319,7 @@ const createOrdersRouter = ({ stripe }) => {
 
           await order.save({ session: sessionDb });
           updatedOrderDoc = order;
-        });
+        }, { maxCommitTimeMS: 10000 });
 
         if (!updatedOrderDoc) return res.status(404).json({ error: 'Order not found' });
 

@@ -2,10 +2,12 @@
 
 All frontend API calls MUST follow these rules:
 
+
 1. Use `${BACKEND_URL}/api/...` for all API endpoints.
-2. Always include `credentials: 'include'` in fetch options.
+2. Always include `credentials: 'include'` in fetch options. The frontend does not read cookies directly; the browser attaches them automatically to API requests when `credentials: 'include'` is set. Removing this option will break authentication.
 3. Never use relative paths (e.g., `/server`, `/users`, etc.) for API calls.
 4. Never redefine `BACKEND_URL` locally in any file—import it from the shared constant.
+5. **Recommended:** All API requests should go through a shared `apiFetch()` wrapper that always sets `credentials: 'include'`.
 
 **This rule alone prevents 80% of common integration issues.**
 

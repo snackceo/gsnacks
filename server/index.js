@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import Stripe from 'stripe';
 import mongoose from 'mongoose';
+import connectDB, { isDbReady } from './db/connect.js';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -45,10 +46,14 @@ const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 /* =========================
    MONGO DB
 ========================= */
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log('MongoDB Connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+
+// Start server only after DB is connected
+(async () => {
+  await connectDB();
+  app.listen(PORT, () => {
+    console.log(`LOGISTICS HUB ONLINE @ ${PORT}`);
+  });
+})();
 
 /* =========================
    STRIPE WEBHOOK (RAW BODY)
@@ -137,6 +142,3 @@ app.use('/api/returns', returnsRouter);
 /* =========================
    START SERVER
 ========================= */
-app.listen(PORT, () => {
-  console.log(`LOGISTICS HUB ONLINE @ ${PORT}`);
-});
