@@ -1,8 +1,19 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ErrorMonitorPanel } from './ErrorMonitorPanel';
-import { BarChart3, ShieldAlert, Loader2, BrainCircuit } from 'lucide-react';
+import { BarChart3, ShieldAlert, Loader2, BrainCircuit, TrendingUp, Users, ShoppingCart, Package, RefreshCw, TrendingDown, Sparkles } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Order } from '../../types';
+import { analytics } from '../../services/analyticsService';
+import { getDemandForecast, DemandForecastItem } from '../../services/geminiService';
+
+interface AnalyticsEvent {
+  category: 'user' | 'product' | 'order' | 'scanner' | 'returns' | 'payment' | 'navigation';
+  action: string;
+  label?: string;
+  value?: number;
+  metadata?: Record<string, any>;
+  timestamp: string;
+}
 
 interface ManagementDashboardProps {
   auditModel: string;
@@ -19,9 +30,30 @@ interface ManagementDashboardProps {
   isChartVisible: boolean;
   chartContainerRef: React.RefObject<HTMLDivElement>;
   setAuditModel: (model: string) => void;
-  runAudit: () => void;
+  runAudit?: () => void;
   runOpsSummary: () => void;
 }
+
+// StatCard component
+const StatCard: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  subtitle?: string;
+}> = ({ icon, label, value, subtitle }) => (
+  <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+    <div className="flex items-center gap-2 mb-2">
+      <div className="text-ninpo-lime">{icon}</div>
+      <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+        {label}
+      </span>
+    </div>
+    <div className="text-2xl font-black text-white">{value}</div>
+    {subtitle && (
+      <div className="text-xs text-slate-500 mt-1">{subtitle}</div>
+    )}
+  </div>
+);
 
 const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   auditModel,
@@ -41,19 +73,122 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   runAudit,
   runOpsSummary
 }) => {
+  // Analytics state
+  const [events, setEvents] = useState<AnalyticsEvent[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Demand Forecast state
+  const [forecast, setForecast] = useState<DemandForecastItem[]>([]);
+  const [forecastInsights, setForecastInsights] = useState<string>('');
+  const [isForecastLoading, setIsForecastLoading] = useState(false);
+
+  const loadEvents = () => {
+    setIsRefreshing(true);
+    const storedEvents = analytics.getStoredEvents();
+    setEvents(storedEvents);
+    setTimeout(() => setIsRefreshing(false), 300);
+  };
+
+  useEffect(() => {
+    loadEvents();
+    loadForecast();
+  }, []);
+
+  const loadForecast = async () => {
+    setIsForecastLoading(true);
+    try {
+      // Get products from events (simplified - in production, fetch from API)
+      const productEvents = events.filter(e => e.category === 'product');
+      const products = productEvents.map(e => ({
+        id: e.metadata?.productId || '',
+        name: e.label || 'Unknown'
+      }));
+
+      const result = await getDemandForecast(products, orders, 'week');
+      setForecast(result.forecast.slice(0, 10)); // Top 10
+      setForecastInsights(result.insights);
+    } catch (error) {
+      console.error('Forecast error:', error);
+      setForecast([]);
+      setForecastInsights('Unable to generate forecast');
+    } finally {
+      setIsForecastLoading(false);
+    }
+  };
+
+  // Calculate analytics statistics
+  const stats = useMemo(() => {
+    const ordersCompleted = events.filter(e => e.action === 'order_completed').length;
+    const totalOrderValue = events
+      .filter(e => e.action === 'order_completed')
+      .reduce((sum, e) => sum + (e.value || 0), 0);
+    const avgOrderValue = ordersCompleted > 0 ? totalOrderValue / ordersCompleted : 0;
+    
+    const pageViews = events.filter(e => e.category === 'navigation' && e.action === 'page_view').length;
+    const totalContainers = events
+      .filter(e => e.action === 'return_completed')
+      .reduce((sum, e) => sum + (e.value || 0), 0);
+    
+    return {
+      total: events.length,
+      ordersCompleted,
+      totalOrderValue,
+      avgOrderValue,
+      pageViews,
+      totalContainers
+    };
+  }, [events]);
+
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-black uppercase text-white tracking-widest">
-            Main Dashboard
+          <h2 className="text-2xl font-black uppercase text-white tracking-wider">
+            Dashboard
           </h2>
-          <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
-            Revenue snapshots & operational pulse
+          <p className="text-xs text-slate-500 mt-1">
+            Analytics • AI Insights • Error Monitoring
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+        <button
+          onClick={loadEvents}
+          disabled={isRefreshing}
+          className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold uppercase tracking-wide transition flex items-center gap-2"
+        >
+          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Quick Stats Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          icon={<BarChart3 className="h-4 w-4" />}
+          label="Total Events"
+          value={stats.total}
+        />
+        <StatCard
+          icon={<Users className="h-4 w-4" />}
+          label="Page Views"
+          value={stats.pageViews}
+        />
+        <StatCard
+          icon={<ShoppingCart className="h-4 w-4" />}
+          label="Orders"
+          value={stats.ordersCompleted}
+          subtitle={`$${stats.avgOrderValue.toFixed(2)} avg`}
+        />
+        <StatCard
+          icon={<Package className="h-4 w-4" />}
+          label="Containers"
+          value={stats.totalContainers}
+        />
+      </div>
+
+      {/* AI Operations Summary Section */}
+      <div className="bg-white/5 rounded-xl p-6 border border-white/10">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
           <div className="flex flex-col gap-1">
             <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-500">
               Audit Model
@@ -164,6 +299,82 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
       {/* Error Monitor Section */}
       <ErrorMonitorPanel />
+
+      {/* Demand Forecast Section */}
+      <div className="bg-white/5 rounded-xl p-6 border border-white/10">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-ninpo-lime" />
+            <h3 className="text-sm font-bold uppercase tracking-wider text-white">
+              Weekly Demand Forecast
+            </h3>
+          </div>
+          <button
+            onClick={loadForecast}
+            disabled={isForecastLoading}
+            className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold uppercase tracking-wide transition flex items-center gap-2"
+          >
+            <RefreshCw className={`h-3 w-3 ${isForecastLoading ? 'animate-spin' : ''}`} />
+            {isForecastLoading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
+
+        {forecastInsights && (
+          <div className="mb-4 p-4 bg-ninpo-midnight/60 rounded-lg border border-white/5">
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {forecastInsights}
+            </p>
+          </div>
+        )}
+
+        {isForecastLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-ninpo-lime" />
+          </div>
+        ) : forecast.length > 0 ? (
+          <div className="space-y-2">
+            {forecast.map((item, idx) => (
+              <div
+                key={idx}
+                className="bg-ninpo-midnight/40 border border-white/5 rounded-lg p-3 flex items-center gap-4"
+              >
+                <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-ninpo-lime/10 flex items-center justify-center">
+                  {item.trend === 'increasing' ? (
+                    <TrendingUp className="w-4 h-4 text-green-400" />
+                  ) : item.trend === 'decreasing' ? (
+                    <TrendingDown className="w-4 h-4 text-red-400" />
+                  ) : (
+                    <Package className="w-4 h-4 text-slate-400" />
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-white truncate">
+                    {item.productName}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Predicted: {item.predictedSales} units • {item.confidence}% confidence
+                  </p>
+                </div>
+
+                <div className="flex-shrink-0">
+                  <span className={`text-xs px-2 py-1 rounded-full ${
+                    item.stockRecommendation.toLowerCase().includes('ok')
+                      ? 'bg-green-500/10 text-green-400'
+                      : 'bg-yellow-500/10 text-yellow-400'
+                  }`}>
+                    {item.stockRecommendation}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500 text-center py-8">
+            No forecast data available
+          </p>
+        )}
+      </div>
     </div>
   );
 };

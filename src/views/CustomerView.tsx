@@ -18,6 +18,7 @@ import { Plus, Search, Award, Settings, Leaf, Star, Coins, Zap, Info, CheckCircl
 import { CATEGORIES } from '../constants';
 import CustomerReturnScanner from '../components/CustomerReturnScanner';
 import { analytics } from '../services/analyticsService';
+import { ProductRecommendations } from '../components/ProductRecommendations';
 
 
 
@@ -204,6 +205,21 @@ const CustomerView: React.FC<CustomerViewProps> = ({
       ) : !showDashboard ? (
         <>
           {/* Main product/market view */}
+          
+          {/* AI Recommendations Section */}
+          {currentUser && (
+            <ProductRecommendations
+              userId={currentUser.id}
+              orderHistory={orders}
+              currentCart={[]} // TODO: Pass actual cart items
+              onProductClick={(productName) => {
+                // Auto-search for recommended product
+                setSearchQuery(productName);
+                setActiveCategory('ALL');
+              }}
+            />
+          )}
+
           <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4 px-1">
             {CATEGORIES.map(cat => {
               const catKey = cat.toUpperCase();

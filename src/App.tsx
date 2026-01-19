@@ -18,6 +18,7 @@ import CartDrawer from './components/CartDrawer';
 import LegalFooter from './components/LegalFooter';
 import BackendStatusBanner from './components/BackendStatusBanner';
 import ToastStack from './components/ToastStack';
+import { SupportChatbot } from './components/SupportChatbot';
 
 import { ShoppingBag } from 'lucide-react';
 import { BACKEND_URL } from './constants'; // already correct
@@ -395,6 +396,12 @@ function App() {
           />
         </div>
       )}
+
+      {/* SUPPORT CHATBOT */}
+      <SupportChatbot 
+        currentUser={core.currentUser || undefined}
+        recentOrders={core.orders || []}
+      />
 
       <LegalFooter />
     </div>

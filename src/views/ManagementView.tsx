@@ -107,7 +107,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   settleReturnVerification
 }) => {
   const { addToast } = useNinpoCore();
-  const [activeModule, setActiveModule] = useState<string>('analytics');
+  const [activeModule, setActiveModule] = useState<string>('dashboard');
   const [isAuditing, setIsAuditing] = useState(false);
   const [aiInsights, setAiInsights] = useState<string | null>(null);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
@@ -848,6 +848,27 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   };
 
+  const runAudit = async () => {
+    if (!auditModel) {
+      setAiInsights('No AI model configured for audit.');
+      return;
+    }
+    setIsAuditing(true);
+    setAiInsights(null);
+    try {
+      const report = await getAdvancedInventoryInsights(
+        products as any,
+        orders as any,
+        auditModel
+      );
+      setAiInsights(report || 'NO OUTPUT');
+    } catch {
+      setAiInsights('Audit transmission interrupted.');
+    } finally {
+      setIsAuditing(false);
+    }
+  };
+
   const runAuditSummary = async () => {
     if (!auditModel) {
       setAuditSummary('No AI model configured for audit.');
@@ -1042,12 +1063,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   };
 
   const managementSections = {
-    analytics: {
-      id: 'analytics',
-      label: 'Analytics',
-      icon: TrendingUp,
-      render: () => <ManagementAnalytics />
-    },
     dashboard: {
       id: 'dashboard',
       label: 'Dashboard',
@@ -1068,7 +1083,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           isChartVisible={isChartVisible}
           chartContainerRef={chartContainerRef}
           setAuditModel={setAuditModel}
-          // runAudit prop removed because runAudit is not defined
+          runAudit={runAudit}
           runOpsSummary={runOpsSummary}
         />
       )

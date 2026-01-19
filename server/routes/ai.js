@@ -1,7 +1,22 @@
 import express from 'express';
 import { GoogleGenAI } from '@google/genai';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const router = express.Router();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load customer knowledge base from markdown
+let CUSTOMER_KNOWLEDGE = '';
+try {
+  const knowledgePath = path.join(__dirname, '..', '..', 'CUSTOMER_KNOWLEDGE.md');
+  CUSTOMER_KNOWLEDGE = fs.readFileSync(knowledgePath, 'utf-8');
+} catch (error) {
+  console.warn('⚠️ Could not load CUSTOMER_KNOWLEDGE.md - chatbot will use basic training');
+  CUSTOMER_KNOWLEDGE = 'Customer knowledge base not available. Please check documentation files.';
+}
 
 const getGeminiApiKey = () =>
   process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
@@ -906,6 +921,433 @@ ${JSON.stringify(auditLogs)}`;
       message: 'Audit summary interrupted.',
       error: error?.message || 'Unknown error',
       model: modelSelection.modelName
+    });
+  }
+});
+
+// 1. Smart Address Validation
+router.post('/validate-address', async (req, res) => {
+  const { address } = req.body ?? {};
+
+  if (!address || typeof address !== 'string') {
+    return res.status(400).json({ message: 'Valid address string is required.' });
+  }
+
+  const apiReady = ensureGeminiReady();
+  if (!apiReady.ok) {
+    return res.status(503).json({ message: apiReady.error });
+  }
+
+  const modelSelection = resolveModelName(req.body?.model);
+  if (!modelSelection.ok) {
+    return res.status(400).json({
+      message: modelSelection.error,
+      allowedModels: modelSelection.allowedModels,
+      defaultModel: modelSelection.defaultModel
+    });
+  }
+
+  try {
+    const prompt = `Validate and correct the following address. Respond ONLY with a JSON object (no markdown, no extra text) in this exact format:
+{
+  "isValid": true/false,
+  "correctedAddress": "full corrected address",
+  "confidence": 0-100,
+  "issues": ["issue1", "issue2"],
+  "suggestions": "helpful suggestion if needed"
+}
+
+Address to validate: "${address}"
+
+Rules:
+- Check for common typos (e.g., "Steet" → "Street")
+- Verify state abbreviations are correct
+- Ensure ZIP code format is valid
+- Flag missing apartment/unit numbers
+- Suggest corrections for ambiguous addresses`;
+
+    const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
+    const response = await ai.models.generateContent({
+      model: modelSelection.modelName,
+      contents: prompt,
+      generationConfig: { temperature: 0.1 }
+    });
+    
+    const text = response?.text?.trim?.() ?? '';
+    // Strip markdown code blocks if present
+    const jsonText = text.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '');
+    const result = JSON.parse(jsonText);
+    
+    return res.json(result);
+  } catch (error) {
+    console.error('Gemini address validation failed.', error);
+    return res.status(502).json({
+      message: 'Address validation interrupted.',
+      error: error?.message || 'Unknown error',
+      model: modelSelection.modelName
+    });
+  }
+});
+
+// 2. Customer Support Chatbot
+router.post('/chat', async (req, res) => {
+  const { message, conversationHistory, userContext } = req.body ?? {};
+
+  if (!message || typeof message !== 'string') {
+    return res.status(400).json({ message: 'Message is required.' });
+  }
+
+  const apiReady = ensureGeminiReady();
+  if (!apiReady.ok) {
+    return res.status(503).json({ message: apiReady.error });
+  }
+
+  const modelSelection = resolveModelName(req.body?.model);
+  if (!modelSelection.ok) {
+    return res.status(400).json({
+      message: modelSelection.error,
+      allowedModels: modelSelection.allowedModels,
+      defaultModel: modelSelection.defaultModel
+    });
+  }
+
+  try {
+    const history = Array.isArray(conversationHistory) ? conversationHistory : [];
+    const context = userContext || {};
+    
+    const systemPrompt = `You are a helpful customer support agent for NinpoSnacks.
+
+## KNOWLEDGE BASE (Read this carefully - it contains all customer-facing information):
+
+${CUSTOMER_KNOWLEDGE}
+
+## CURRENT CUSTOMER CONTEXT:
+${JSON.stringify(context, null, 2)}
+
+## CONVERSATION HISTORY:
+${history.map(h => `${h.role}: ${h.message}`).join('\n')}
+
+## INSTRUCTIONS:
+- Answer ONLY based on the knowledge base above
+- Be friendly, helpful, and concise
+- If the customer asks about something not in the knowledge base, politely say you'll connect them with a human agent
+- Always include "Believe it! 🍜" at the end of responses for brand consistency
+- Never mention internal calculations, formulas, or backend logic
+- Never discuss code, technical implementation, or system architecture
+- Focus on customer benefits, not how things work behind the scenes
+- For contact info, always direct to Instagram @ninpo_llc
+
+Provide helpful, friendly, concise responses. If you need more information, ask clarifying questions.`;
+
+    const prompt = `${systemPrompt}\n\nCustomer: ${message}\nAgent:`;
+
+    const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
+    const response = await ai.models.generateContent({
+      model: modelSelection.modelName,
+      contents: prompt,
+      generationConfig: { 
+        temperature: 0.7,
+        maxOutputTokens: 500
+      }
+    });
+    
+    const reply = response?.text?.trim?.() ?? 'I apologize, but I had trouble processing that. Could you rephrase?';
+    
+    return res.json({ reply, timestamp: new Date().toISOString() });
+  } catch (error) {
+    console.error('Gemini chat failed.', error);
+    return res.status(502).json({
+      message: 'Chat interrupted.',
+      error: error?.message || 'Unknown error',
+      model: modelSelection.modelName
+    });
+  }
+});
+
+// 3. Product Recommendations
+router.post('/recommendations', async (req, res) => {
+  const { userId, orderHistory, currentCart } = req.body ?? {};
+
+  if (!userId) {
+    return res.status(400).json({ message: 'User ID is required.' });
+  }
+
+  const apiReady = ensureGeminiReady();
+  if (!apiReady.ok) {
+    return res.status(503).json({ message: apiReady.error });
+  }
+
+  const modelSelection = resolveModelName(req.body?.model);
+  if (!modelSelection.ok) {
+    return res.status(400).json({
+      message: modelSelection.error,
+      allowedModels: modelSelection.allowedModels,
+      defaultModel: modelSelection.defaultModel
+    });
+  }
+
+  try {
+    const prompt = `Analyze the customer's purchase history and current cart, then recommend 5 products they might like. Respond ONLY with a JSON array (no markdown) of product suggestions:
+[
+  {
+    "productName": "suggested product name",
+    "category": "category",
+    "reason": "why this recommendation makes sense",
+    "confidence": 0-100
+  }
+]
+
+Order history (last 10 orders):
+${JSON.stringify(orderHistory || [], null, 2)}
+
+Current cart:
+${JSON.stringify(currentCart || [], null, 2)}
+
+Focus on:
+- Frequently purchased items that are missing from current cart
+- Complementary products (chips + dip, cereal + milk)
+- Items in similar categories to their preferences
+- Seasonal or trending items based on order patterns`;
+
+    const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
+    const response = await ai.models.generateContent({
+      model: modelSelection.modelName,
+      contents: prompt,
+      generationConfig: { temperature: 0.6 }
+    });
+    
+    const text = response?.text?.trim?.() ?? '[]';
+    const jsonText = text.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '');
+    const recommendations = JSON.parse(jsonText);
+    
+    return res.json({ recommendations, userId });
+  } catch (error) {
+    console.error('Gemini recommendations failed.', error);
+    return res.status(502).json({
+      message: 'Recommendations interrupted.',
+      error: error?.message || 'Unknown error',
+      model: modelSelection.modelName,
+      recommendations: []
+    });
+  }
+});
+
+// 4. Automatic Product Categorization
+router.post('/categorize-product', async (req, res) => {
+  const { productName, brand, description, image } = req.body ?? {};
+
+  if (!productName) {
+    return res.status(400).json({ message: 'Product name is required.' });
+  }
+
+  const apiReady = ensureGeminiReady();
+  if (!apiReady.ok) {
+    return res.status(503).json({ message: apiReady.error });
+  }
+
+  const modelSelection = resolveModelName(req.body?.model);
+  if (!modelSelection.ok) {
+    return res.status(400).json({
+      message: modelSelection.error,
+      allowedModels: modelSelection.allowedModels,
+      defaultModel: modelSelection.defaultModel
+    });
+  }
+
+  try {
+    const prompt = `Categorize this product. Respond ONLY with a JSON object (no markdown):
+{
+  "category": "main category",
+  "subcategory": "specific subcategory",
+  "tags": ["tag1", "tag2", "tag3"],
+  "dietaryInfo": ["gluten-free", "vegan", etc],
+  "shelfLife": "estimated shelf life",
+  "storageType": "refrigerated/frozen/pantry"
+}
+
+Product: ${productName}
+Brand: ${brand || 'Unknown'}
+Description: ${description || 'Not provided'}
+
+Categories should match: Beverages, Snacks, Dairy, Frozen Foods, Bakery, Household, Personal Care, etc.`;
+
+    const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
+    
+    let contents = prompt;
+    if (image) {
+      const cleanImage = stripBase64ImagePrefix(image);
+      contents = [
+        { text: prompt },
+        { inlineData: { mimeType: 'image/jpeg', data: cleanImage } }
+      ];
+    }
+
+    const response = await ai.models.generateContent({
+      model: modelSelection.modelName,
+      contents,
+      generationConfig: { temperature: 0.2 }
+    });
+    
+    const text = response?.text?.trim?.() ?? '{}';
+    const jsonText = text.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '');
+    const categorization = JSON.parse(jsonText);
+    
+    return res.json(categorization);
+  } catch (error) {
+    console.error('Gemini categorization failed.', error);
+    return res.status(502).json({
+      message: 'Categorization interrupted.',
+      error: error?.message || 'Unknown error',
+      model: modelSelection.modelName
+    });
+  }
+});
+
+// 5. Demand Forecasting
+router.post('/demand-forecast', async (req, res) => {
+  const { products, orderHistory, timeframe } = req.body ?? {};
+
+  if (!Array.isArray(products) || !Array.isArray(orderHistory)) {
+    return res.status(400).json({ message: 'Products and order history arrays are required.' });
+  }
+
+  const apiReady = ensureGeminiReady();
+  if (!apiReady.ok) {
+    return res.status(503).json({ message: apiReady.error });
+  }
+
+  const modelSelection = resolveModelName(req.body?.model);
+  if (!modelSelection.ok) {
+    return res.status(400).json({
+      message: modelSelection.error,
+      allowedModels: modelSelection.allowedModels,
+      defaultModel: modelSelection.defaultModel
+    });
+  }
+
+  try {
+    const prompt = `Analyze order history and predict demand for the next ${timeframe || 'week'}. Respond ONLY with a JSON object (no markdown):
+{
+  "forecast": [
+    {
+      "productId": "id",
+      "productName": "name",
+      "predictedSales": number,
+      "confidence": 0-100,
+      "trend": "increasing/stable/decreasing",
+      "stockRecommendation": "restock quantity or OK"
+    }
+  ],
+  "insights": "overall market insights and recommendations"
+}
+
+Current products:
+${JSON.stringify(products.slice(0, 50), null, 2)}
+
+Order history (last 30 days):
+${JSON.stringify(orderHistory.slice(0, 100), null, 2)}
+
+Consider:
+- Seasonal trends
+- Day of week patterns
+- Historical sales velocity
+- Product correlations
+- Stock-out incidents`;
+
+    const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
+    const response = await ai.models.generateContent({
+      model: modelSelection.modelName,
+      contents: prompt,
+      generationConfig: { temperature: 0.4 }
+    });
+    
+    const text = response?.text?.trim?.() ?? '{"forecast":[],"insights":"Unable to generate forecast"}';
+    const jsonText = text.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '');
+    const forecast = JSON.parse(jsonText);
+    
+    return res.json(forecast);
+  } catch (error) {
+    console.error('Gemini demand forecast failed.', error);
+    return res.status(502).json({
+      message: 'Demand forecast interrupted.',
+      error: error?.message || 'Unknown error',
+      model: modelSelection.modelName,
+      forecast: [],
+      insights: 'Forecast unavailable'
+    });
+  }
+});
+
+// 6. Natural Language Search
+router.post('/natural-search', async (req, res) => {
+  const { query, products } = req.body ?? {};
+
+  if (!query || typeof query !== 'string') {
+    return res.status(400).json({ message: 'Search query is required.' });
+  }
+
+  if (!Array.isArray(products)) {
+    return res.status(400).json({ message: 'Products array is required.' });
+  }
+
+  const apiReady = ensureGeminiReady();
+  if (!apiReady.ok) {
+    return res.status(503).json({ message: apiReady.error });
+  }
+
+  const modelSelection = resolveModelName(req.body?.model);
+  if (!modelSelection.ok) {
+    return res.status(400).json({
+      message: modelSelection.error,
+      allowedModels: modelSelection.allowedModels,
+      defaultModel: modelSelection.defaultModel
+    });
+  }
+
+  try {
+    const prompt = `Interpret this natural language search query and return matching products. Respond ONLY with a JSON object (no markdown):
+{
+  "matchedProducts": ["productId1", "productId2"],
+  "interpretation": "how you interpreted the query",
+  "filters": {
+    "priceRange": {"min": 0, "max": 100},
+    "categories": ["category1"],
+    "keywords": ["keyword1"]
+  }
+}
+
+Search query: "${query}"
+
+Available products:
+${JSON.stringify(products.slice(0, 100), null, 2)}
+
+Examples of queries to handle:
+- "cheap snacks under $5"
+- "healthy breakfast options"
+- "drinks for party"
+- "gluten free pasta"
+- "best selling chips"
+- "new arrivals this week"`;
+
+    const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
+    const response = await ai.models.generateContent({
+      model: modelSelection.modelName,
+      contents: prompt,
+      generationConfig: { temperature: 0.3 }
+    });
+    
+    const text = response?.text?.trim?.() ?? '{"matchedProducts":[],"interpretation":"No matches found"}';
+    const jsonText = text.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '');
+    const result = JSON.parse(jsonText);
+    
+    return res.json(result);
+  } catch (error) {
+    console.error('Gemini natural search failed.', error);
+    return res.status(502).json({
+      message: 'Natural search interrupted.',
+      error: error?.message || 'Unknown error',
+      model: modelSelection.modelName,
+      matchedProducts: []
     });
   }
 });

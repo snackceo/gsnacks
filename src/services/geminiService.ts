@@ -360,3 +360,329 @@ export const getAvailableAuditModels = async (): Promise<AuditModelResponse> => 
 
 // Preserve existing import name used elsewhere
 export const getInventoryInsights = getAdvancedInventoryInsights;
+
+// 1. Smart Address Validation
+export type AddressValidationResult = {
+  isValid: boolean;
+  correctedAddress: string;
+  confidence: number;
+  issues: string[];
+  suggestions?: string;
+};
+
+export const validateAddress = async (
+  address: string,
+  model?: string
+): Promise<AddressValidationResult> => {
+  const backendUrl = getBackendUrl();
+
+  try {
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/ai/validate-address`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ address, model })
+      },
+      15000
+    );
+
+    if (!response.ok) {
+      return {
+        isValid: false,
+        correctedAddress: address,
+        confidence: 0,
+        issues: ['Validation service unavailable'],
+        suggestions: 'Please verify your address manually'
+      };
+    }
+
+    const data = await response.json();
+    return {
+      isValid: data?.isValid ?? false,
+      correctedAddress: data?.correctedAddress || address,
+      confidence: data?.confidence ?? 0,
+      issues: Array.isArray(data?.issues) ? data.issues : [],
+      suggestions: data?.suggestions
+    };
+  } catch {
+    return {
+      isValid: false,
+      correctedAddress: address,
+      confidence: 0,
+      issues: ['Network error'],
+      suggestions: 'Please check your connection'
+    };
+  }
+};
+
+// 2. Customer Support Chatbot
+export type ChatMessage = {
+  role: 'user' | 'agent';
+  message: string;
+  timestamp?: string;
+};
+
+export type ChatResponse = {
+  reply: string;
+  timestamp: string;
+};
+
+export const chatWithSupport = async (
+  message: string,
+  conversationHistory?: ChatMessage[],
+  userContext?: Record<string, any>,
+  model?: string
+): Promise<ChatResponse> => {
+  const backendUrl = getBackendUrl();
+
+  try {
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/ai/chat`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ message, conversationHistory, userContext, model })
+      },
+      15000
+    );
+
+    if (!response.ok) {
+      return {
+        reply: 'I apologize, but I\'m having trouble connecting right now. Please try again or contact support directly.',
+        timestamp: new Date().toISOString()
+      };
+    }
+
+    const data = await response.json();
+    return {
+      reply: data?.reply || 'No response received',
+      timestamp: data?.timestamp || new Date().toISOString()
+    };
+  } catch {
+    return {
+      reply: 'Connection error. Please try again.',
+      timestamp: new Date().toISOString()
+    };
+  }
+};
+
+// 3. Product Recommendations
+export type ProductRecommendation = {
+  productName: string;
+  category: string;
+  reason: string;
+  confidence: number;
+};
+
+export type RecommendationsResult = {
+  recommendations: ProductRecommendation[];
+  userId: string;
+};
+
+export const getProductRecommendations = async (
+  userId: string,
+  orderHistory?: any[],
+  currentCart?: any[],
+  model?: string
+): Promise<RecommendationsResult> => {
+  const backendUrl = getBackendUrl();
+
+  try {
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/ai/recommendations`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ userId, orderHistory, currentCart, model })
+      },
+      20000
+    );
+
+    if (!response.ok) {
+      return { recommendations: [], userId };
+    }
+
+    const data = await response.json();
+    return {
+      recommendations: Array.isArray(data?.recommendations) ? data.recommendations : [],
+      userId: data?.userId || userId
+    };
+  } catch {
+    return { recommendations: [], userId };
+  }
+};
+
+// 4. Automatic Product Categorization
+export type ProductCategorization = {
+  category: string;
+  subcategory: string;
+  tags: string[];
+  dietaryInfo: string[];
+  shelfLife: string;
+  storageType: string;
+};
+
+export const categorizeProduct = async (
+  productName: string,
+  brand?: string,
+  description?: string,
+  image?: string,
+  model?: string
+): Promise<ProductCategorization> => {
+  const backendUrl = getBackendUrl();
+  const normalized = image ? normalizeBase64(image) : undefined;
+
+  try {
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/ai/categorize-product`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ productName, brand, description, image: normalized, model })
+      },
+      15000
+    );
+
+    if (!response.ok) {
+      return {
+        category: 'Uncategorized',
+        subcategory: '',
+        tags: [],
+        dietaryInfo: [],
+        shelfLife: 'Unknown',
+        storageType: 'pantry'
+      };
+    }
+
+    const data = await response.json();
+    return {
+      category: data?.category || 'Uncategorized',
+      subcategory: data?.subcategory || '',
+      tags: Array.isArray(data?.tags) ? data.tags : [],
+      dietaryInfo: Array.isArray(data?.dietaryInfo) ? data.dietaryInfo : [],
+      shelfLife: data?.shelfLife || 'Unknown',
+      storageType: data?.storageType || 'pantry'
+    };
+  } catch {
+    return {
+      category: 'Uncategorized',
+      subcategory: '',
+      tags: [],
+      dietaryInfo: [],
+      shelfLife: 'Unknown',
+      storageType: 'pantry'
+    };
+  }
+};
+
+// 5. Demand Forecasting
+export type DemandForecastItem = {
+  productId: string;
+  productName: string;
+  predictedSales: number;
+  confidence: number;
+  trend: string;
+  stockRecommendation: string;
+};
+
+export type DemandForecastResult = {
+  forecast: DemandForecastItem[];
+  insights: string;
+};
+
+export const getDemandForecast = async (
+  products: any[],
+  orderHistory: any[],
+  timeframe?: string,
+  model?: string
+): Promise<DemandForecastResult> => {
+  const backendUrl = getBackendUrl();
+
+  try {
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/ai/demand-forecast`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ products, orderHistory, timeframe, model })
+      },
+      20000
+    );
+
+    if (!response.ok) {
+      return {
+        forecast: [],
+        insights: 'Forecast unavailable'
+      };
+    }
+
+    const data = await response.json();
+    return {
+      forecast: Array.isArray(data?.forecast) ? data.forecast : [],
+      insights: data?.insights || 'No insights available'
+    };
+  } catch {
+    return {
+      forecast: [],
+      insights: 'Network error'
+    };
+  }
+};
+
+// 6. Natural Language Search
+export type NaturalSearchResult = {
+  matchedProducts: string[];
+  interpretation: string;
+  filters?: {
+    priceRange?: { min: number; max: number };
+    categories?: string[];
+    keywords?: string[];
+  };
+};
+
+export const naturalLanguageSearch = async (
+  query: string,
+  products: any[],
+  model?: string
+): Promise<NaturalSearchResult> => {
+  const backendUrl = getBackendUrl();
+
+  try {
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/ai/natural-search`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ query, products, model })
+      },
+      15000
+    );
+
+    if (!response.ok) {
+      return {
+        matchedProducts: [],
+        interpretation: 'Search unavailable'
+      };
+    }
+
+    const data = await response.json();
+    return {
+      matchedProducts: Array.isArray(data?.matchedProducts) ? data.matchedProducts : [],
+      interpretation: data?.interpretation || 'No matches found',
+      filters: data?.filters
+    };
+  } catch {
+    return {
+      matchedProducts: [],
+      interpretation: 'Network error'
+    };
+  }
+};
+

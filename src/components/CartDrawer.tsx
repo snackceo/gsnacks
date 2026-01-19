@@ -17,6 +17,7 @@ import CustomerReturnScanner from './CustomerReturnScanner';
 import { BACKEND_URL } from '../constants'; // already correct
 import { useNinpoCore } from '../hooks/useNinpoCore';
 import { analytics } from '../services/analyticsService';
+import { validateAddress, AddressValidationResult } from '../services/geminiService';
 
 interface CartItem {
   productId: string;
@@ -123,6 +124,11 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const [isQuoteLoading, setIsQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
 
+  // Address validation state
+  const [addressValidation, setAddressValidation] = useState<AddressValidationResult | null>(null);
+  const [isValidatingAddress, setIsValidatingAddress] = useState(false);
+  const [showAddressSuggestion, setShowAddressSuggestion] = useState(false);
+
   const cartIsEmpty = cart.length === 0;
   const hasReturnUpcs = totalReturnContainers > 0;
   const isPickupOnlyOrder = cartIsEmpty && hasReturnUpcs;
@@ -138,6 +144,43 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const payoutMethod: ReturnPayoutMethod =
     allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
+
+  // Address validation (runs 800ms after user stops typing)
+  useEffect(() => {
+    const trimmedAddress = address.trim();
+    if (!trimmedAddress || trimmedAddress.length < 10) {
+      setAddressValidation(null);
+      setShowAddressSuggestion(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setIsValidatingAddress(true);
+      try {
+        const result = await validateAddress(trimmedAddress);
+        setAddressValidation(result);
+        
+        // Show suggestion if address has issues and AI is confident
+        if (!result.isValid && result.confidence > 70 && result.correctedAddress !== trimmedAddress) {
+          setShowAddressSuggestion(true);
+        } else {
+          setShowAddressSuggestion(false);
+        }
+      } catch (error) {
+        console.error('Address validation failed:', error);
+        setAddressValidation(null);
+        setShowAddressSuggestion(false);
+      } finally {
+        setIsValidatingAddress(false);
+      }
+    }, 800);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [address]);
 
   // Quote (distance/route fees)
   useEffect(() => {
@@ -443,14 +486,65 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
                 Delivery Address
               </p>
-              <input
-                id="deliveryAddress"
-                name="deliveryAddress"
-                placeholder="Drop Location..."
-                value={address}
-                onChange={e => onAddressChange(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 text-white text-xs outline-none focus:border-ninpo-lime"
-              />
+              <div className="relative">
+                <input
+                  id="deliveryAddress"
+                  name="deliveryAddress"
+                  placeholder="Drop Location..."
+                  value={address}
+                  onChange={e => onAddressChange(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 text-white text-xs outline-none focus:border-ninpo-lime"
+                />
+                {isValidatingAddress && (
+                  <div className="absolute right-5 top-1/2 -translate-y-1/2">
+                    <Loader2 className="h-4 w-4 animate-spin text-ninpo-lime" />
+                  </div>
+                )}
+              </div>
+
+              {/* Address Validation Suggestion */}
+              {showAddressSuggestion && addressValidation && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-yellow-500 font-bold text-xs mb-2">
+                        Address Suggestion
+                      </p>
+                      <p className="text-white text-xs mb-3">
+                        Did you mean: <span className="font-bold">{addressValidation.correctedAddress}</span>?
+                      </p>
+                      {addressValidation.issues && addressValidation.issues.length > 0 && (
+                        <ul className="text-xs text-slate-300 space-y-1 mb-3">
+                          {addressValidation.issues.map((issue, idx) => (
+                            <li key={idx}>• {issue}</li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            onAddressChange(addressValidation.correctedAddress);
+                            setShowAddressSuggestion(false);
+                          }}
+                          className="px-4 py-2 bg-ninpo-lime text-ninpo-black rounded-xl text-xs font-bold uppercase tracking-wide hover:bg-ninpo-lime/90 transition"
+                        >
+                          Use Suggested
+                        </button>
+                        <button
+                          onClick={() => setShowAddressSuggestion(false)}
+                          className="px-4 py-2 bg-white/10 text-white rounded-xl text-xs font-bold uppercase tracking-wide hover:bg-white/20 transition"
+                        >
+                          Keep Original
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-2">
+                        {addressValidation.confidence}% AI confidence
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-3">
