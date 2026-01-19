@@ -584,7 +584,7 @@ const createOrdersRouter = ({ stripe }) => {
 
         await order.save({ session: sessionDb });
         updatedOrderDoc = order;
-      });
+      }, { maxCommitTimeMS: 10000 });
 
       if (!updatedOrderDoc) return res.status(404).json({ error: 'Order not found' });
 

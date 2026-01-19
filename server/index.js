@@ -140,5 +140,22 @@ app.use('/api/inventory-audit', inventoryAuditRouter);
 app.use('/api/returns', returnsRouter);
 
 /* =========================
+   ERROR HANDLING MIDDLEWARE
+========================= */
+app.use((err, req, res, next) => {
+  console.error('UNHANDLED ERROR:', err);
+  console.error('Request URL:', req.originalUrl);
+  console.error('Request Method:', req.method);
+  
+  // Don't leak error details in production
+  const isDevelopment = process.env.NODE_ENV !== 'production';
+  
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal server error',
+    ...(isDevelopment && { stack: err.stack })
+  });
+});
+
+/* =========================
    START SERVER
 ========================= */
