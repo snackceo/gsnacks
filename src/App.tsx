@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
 import { useNinpoCore } from './hooks/useNinpoCore';
 import { ReturnUpcCount, UserRole } from './types';
+import { analytics } from './services/analyticsService';
 
 import CustomerView from './views/CustomerView';
 import ManagementView from './views/ManagementView';
@@ -32,6 +33,28 @@ function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
 
+  // Track page views
+  useEffect(() => {
+    analytics.trackPageView(location.pathname, core.currentUser?._id);
+  }, [location.pathname, core.currentUser?._id]);
+
+  // Track user login/logout
+  useEffect(() => {
+    if (core.currentUser) {
+      analytics.setUser(
+        core.currentUser._id,
+        core.currentUser.email,
+        core.currentUser.tier
+      );
+      analytics.trackUserAction('user_logged_in', {
+        tier: core.currentUser.tier,
+        role: core.currentUser.role
+      });
+    } else {
+      analytics.clearUser();
+    }
+  }, [core.currentUser]);
+
   const handleExternalPayment = async (
     type: 'STRIPE' | 'GPAY',
     returnUpcs: ReturnUpcCount[],
@@ -45,6 +68,18 @@ function App() {
     }
 
     setIsProcessingOrder(true);
+    
+    // Track payment initiation
+    const total = core.cart.reduce((sum, item) => {
+      const product = core.products.find(p => p._id === item.productId);
+      return sum + (product?.price || 0) * item.quantity;
+    }, 0);
+    
+    analytics.trackPayment(
+      type === 'STRIPE' ? 'stripe' : 'gpay',
+      'initiated',
+      total
+    );
 
     try {
       const res = await fetch(`${BACKEND_URL}/api/payments/create-session`, {
@@ -65,9 +100,16 @@ function App() {
 
       const { sessionUrl } = await res.json();
       core.addToast('REDIRECTING TO SECURE VAULT', 'success');
+      analytics.trackOrder('initiated', undefined, total);
       window.location.href = sessionUrl;
     } catch (err: any) {
       core.addToast(err?.message ?? 'Payment error', 'warning');
+      analytics.trackPayment(
+        type === 'STRIPE' ? 'stripe' : 'gpay',
+        'failed',
+        total,
+        err?.message
+      );
       setIsProcessingOrder(false);
     }
   };
@@ -85,6 +127,13 @@ function App() {
     }
 
     setIsProcessingOrder(true);
+    
+    const total = core.cart.reduce((sum, item) => {
+      const product = core.products.find(p => p._id === item.productId);
+      return sum + (product?.price || 0) * item.quantity;
+    }, 0);
+    
+    analytics.trackPayment('credits', 'initiated', total);
 
     try {
       const res = await fetch(`${BACKEND_URL}/api/payments/credits`, {
@@ -110,17 +159,21 @@ function App() {
 
       if (data?.sessionUrl) {
         core.addToast('REDIRECTING TO SECURE VAULT', 'success');
+        analytics.trackOrder('initiated', undefined, total);
         window.location.href = data.sessionUrl;
         return true;
       }
 
       core.addToast('CREDITS APPLIED', 'success');
+      analytics.trackPayment('credits', 'success', total);
+      analytics.trackOrder('completed', data?.orderId, total);
       core.clearCart();
       setIsCartOpen(false);
       if (core.fetchOrders) await core.fetchOrders();
       return true;
     } catch (err: any) {
       core.addToast(err?.message ?? 'Credits payment error', 'warning');
+      analytics.trackPayment('credits', 'failed', total, err?.message);
       return false;
     } finally {
       setIsProcessingOrder(false);

@@ -16,6 +16,7 @@ import { Product, ReturnUpcCount, UserTier } from '../types';
 import CustomerReturnScanner from './CustomerReturnScanner';
 import { BACKEND_URL } from '../constants'; // already correct
 import { useNinpoCore } from '../hooks/useNinpoCore';
+import { analytics } from '../services/analyticsService';
 
 interface CartItem {
   productId: string;
@@ -270,6 +271,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   // ----------------------------
   const openScanner = () => {
     setScannerOpen(true);
+    analytics.trackScanner('opened');
   };
 
   const closeScanner = () => {
@@ -277,11 +279,15 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   };
 
   const handleScannerComplete = (upcs: ReturnUpcCount[], credit: number) => {
+    const containerCount = upcs.reduce((sum, e) => sum + e.quantity, 0);
     setReturnUpcs(upcs);
     setEstimatedReturnCredit(credit);
-    setTotalReturnContainers(upcs.reduce((sum, e) => sum + e.quantity, 0));
+    setTotalReturnContainers(containerCount);
     setScannerOpen(false);
-    addToast(`Scanned ${upcs.reduce((sum, e) => sum + e.quantity, 0)} containers`, 'success');
+    addToast(`Scanned ${containerCount} containers`, 'success');
+    
+    // Track bottle return completion
+    analytics.trackReturn('completed', containerCount, credit);
   };
 
   const handleScannerChange = (containers: number, credit: number) => {

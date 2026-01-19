@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BACKEND_URL } from '../constants';
 import { Order, OrderStatus } from '../types';
+import { analytics } from '../services/analyticsService';
 
 
 function money(n: any) {
@@ -35,7 +36,12 @@ function PaymentSuccess({ clearCart }: { clearCart: () => void }) {
 
         const data = await res.json().catch(() => ({}));
         if (res.ok && Array.isArray(data?.orders) && data.orders.length) {
-          setOrder(data.orders[0]);
+          const latestOrder = data.orders[0];
+          setOrder(latestOrder);
+          
+          // Track successful order completion
+          analytics.trackOrder('completed', latestOrder._id, latestOrder.total);
+          analytics.trackPayment('stripe', 'success', latestOrder.total);
         }
       } catch {
         // silent fail

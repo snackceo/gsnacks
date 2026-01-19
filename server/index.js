@@ -1,3 +1,6 @@
+// IMPORTANT: Import Sentry instrument FIRST before any other modules
+import './instrument.js';
+
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -29,13 +32,6 @@ import returnsRouter from './routes/returns.js';
 import { maintenanceModeGuardCached } from './utils/maintenanceMode.js';
 
 dotenv.config();
-
-// Initialize Sentry for backend error tracking
-Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  environment: process.env.NODE_ENV,
-  tracesSampleRate: 1.0
-});
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -144,13 +140,23 @@ app.use('/api/scan-sessions', scanSessionsRouter);
 app.use('/api/distance', distanceRouter);
 app.use('/api/inventory-audit', inventoryAuditRouter);
 
+// Debug endpoint for testing Sentry (REMOVE IN PRODUCTION)
+if (process.env.NODE_ENV !== 'production') {
+  app.get("/api/debug-sentry", function mainHandler(req, res) {
+    throw new Error("My first Sentry error!");
+  });
+}
+
+/* =========================
+   SENTRY ERROR HANDLER
+   Must be registered AFTER all controllers and BEFORE other error middleware
+========================= */
+Sentry.setupExpressErrorHandler(app);
+
 /* =========================
    ERROR HANDLING MIDDLEWARE
 ========================= */
 app.use((err, req, res, next) => {
-  // Capture error in Sentry
-  Sentry.captureException(err);
-  
   console.error('UNHANDLED ERROR:', err);
   console.error('Request URL:', req.originalUrl);
   console.error('Request Method:', req.method);
@@ -158,8 +164,10 @@ app.use((err, req, res, next) => {
   // Don't leak error details in production
   const isDevelopment = process.env.NODE_ENV !== 'production';
   
+  // The error id is attached to `res.sentry` by Sentry middleware
   res.status(err.status || 500).json({
     error: err.message || 'Internal server error',
+    sentryId: res.sentry, // Include Sentry error ID for support
     ...(isDevelopment && { stack: err.stack })
   });
 });

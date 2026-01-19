@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BACKEND_URL } from '../constants';
 import { useSearchParams } from 'react-router-dom';
+import { analytics } from '../services/analyticsService';
 
 
 export default function PaymentCancel() {
@@ -10,6 +11,9 @@ export default function PaymentCancel() {
   >('idle');
 
   useEffect(() => {
+    // Track payment cancellation
+    analytics.trackPayment('stripe', 'failed', undefined, 'User cancelled payment');
+    
     const sessionId = String(params.get('session_id') || '').trim();
     if (!sessionId) {
       setStatus('missing');

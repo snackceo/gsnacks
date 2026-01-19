@@ -23,6 +23,7 @@ import ManagementInventory from './management/ManagementInventory';
 import ManagementUpcRegistry from './management/ManagementUpcRegistry';
 import ManagementSettings from './management/ManagementSettings';
 import ManagementApprovals from './management/ManagementApprovals';
+import ManagementAnalytics from './management/ManagementAnalytics';
 import {
   Truck,
   Package,
@@ -35,7 +36,8 @@ import {
   EyeOff,
   Plus,
   ScanLine,
-  X
+  X,
+  TrendingUp
 } from 'lucide-react';
 import ScannerModal from '../components/ScannerModal';
 import UnmappedUpcModal from '../components/UnmappedUpcModal';
@@ -1042,6 +1044,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const managementSections = {
     analytics: {
       id: 'analytics',
+      label: 'Analytics',
+      icon: TrendingUp,
+      render: () => <ManagementAnalytics />
+    },
+    dashboard: {
+      id: 'dashboard',
       label: 'Dashboard',
       icon: BarChart3,
       render: () => (

@@ -17,6 +17,7 @@ import { Product, Order, OrderStatus, User, UserTier, UserStatsSummary } from '.
 import { Plus, Search, Award, Settings, Leaf, Star, Coins, Zap, Info, CheckCircle2, XCircle, Recycle } from 'lucide-react';
 import { CATEGORIES } from '../constants';
 import CustomerReturnScanner from '../components/CustomerReturnScanner';
+import { analytics } from '../services/analyticsService';
 
 
 
@@ -267,7 +268,10 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                     ${((p.price ?? 0) as number).toFixed(2)}
                   </span>
                   <button
-                    onClick={() => addToCart(p.id)}
+                    onClick={() => {
+                      addToCart(p.id);
+                      analytics.trackProductInteraction('add_to_cart', p.id, p.name);
+                    }}
                     disabled={p.stock === 0}
                     className="w-12 h-12 bg-ninpo-lime rounded-[1.2rem] flex items-center justify-center text-ninpo-black hover:bg-white active:scale-90 transition-all shadow-neon disabled:opacity-5 disabled:grayscale"
                   >
