@@ -12,8 +12,8 @@ import {
   Info,
   AlertCircle
 } from 'lucide-react';
-import { Product, ReturnUpcCount, UserTier, ScannerMode } from '../types';
-import ScannerModal from './ScannerModal'; // adjust path if your ScannerModal lives elsewhere
+import { Product, ReturnUpcCount, UserTier } from '../types';
+import CustomerReturnScanner from './CustomerReturnScanner';
 import { BACKEND_URL } from '../constants'; // already correct
 import { useNinpoCore } from '../hooks/useNinpoCore';
 
@@ -110,18 +110,11 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   // ----------------------------
   // Container returns (Customer scanner)
   // ----------------------------
-  const [returnUpcs, setReturnUpcs] = useState<ReturnUpcEntry[]>([]);
-  const [manualUpc, setManualUpc] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [scannerError, setScannerError] = useState<string | null>(null);
-  const [lastBlockedUpc, setLastBlockedUpc] = useState<string | null>(null);
-  const [lastBlockedReason, setLastBlockedReason] = useState<'cooldown' | 'duplicate' | null>(null);
+  const [returnUpcs, setReturnUpcs] = useState<ReturnUpcEntry[]>([]);
+  const [totalReturnContainers, setTotalReturnContainers] = useState(0);
+  const [estimatedReturnCredit, setEstimatedReturnCredit] = useState(0);
 
-  const [hasEligibilityCache, setHasEligibilityCache] = useState(false);
-  const [eligibilityCache, setEligibilityCache] = useState<UpcEligibilityCache>({});
-  const eligibilityCacheRef = useRef<UpcEligibilityCache>({});
-
-  const [showBottleReturnAdvisory, setShowBottleReturnAdvisory] = useState(false);
   const [showPolicyAdvisories, setShowPolicyAdvisories] = useState(false);
 
   const [useCashPayout, setUseCashPayout] = useState(false);
@@ -129,247 +122,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const [isQuoteLoading, setIsQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
 
-  // Anti-spam throttle for scanner input (ScannerModal already has cooldown, but we still need
-  // to prevent repeated eligibility calls when the camera sees the same code repeatedly).
-  const lastScanAtRef = useRef<number>(0);
-
-  const normalizeReturnUpcs = (raw: unknown): ReturnUpcEntry[] => {
-    if (!Array.isArray(raw)) return [];
-    if (raw.length === 0) return [];
-
-    // Legacy: stored as string[] of UPCs
-    if (typeof raw[0] === 'string') {
-      const counts = new Map<string, number>();
-      raw.forEach(value => {
-        const upc = String(value || '').trim();
-        if (!upc) return;
-        counts.set(upc, (counts.get(upc) || 0) + 1);
-      });
-      return Array.from(counts.entries()).map(([upc, quantity]) => ({ upc, quantity }));
-    }
-
-    return raw
-      .map(entry => ({
-        upc: String((entry as ReturnUpcEntry)?.upc || '').trim(),
-        quantity: Math.max(1, Number((entry as ReturnUpcEntry)?.quantity || 1))
-      }))
-      .filter(entry => entry.upc);
-  };
-
-  // Load UPCs from localStorage on mount
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_KEY_UPCS);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      setReturnUpcs(normalizeReturnUpcs(parsed));
-    } catch {
-      // ignore
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Load eligibility cache on mount
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_KEY_UPC_ELIGIBILITY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        eligibilityCacheRef.current = parsed as UpcEligibilityCache;
-        setEligibilityCache(parsed as UpcEligibilityCache);
-        setHasEligibilityCache(Object.keys(parsed).length > 0);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  // Persist UPCs
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_KEY_UPCS, JSON.stringify(returnUpcs));
-    } catch {
-      // ignore
-    }
-  }, [returnUpcs]);
-
-  const updateEligibilityCache = useCallback(
-    (
-      upc: string,
-      payload: {
-        isEligible: boolean;
-        name?: string;
-        containerType?: string;
-        sizeOz?: number;
-      }
-    ) => {
-      const next = {
-        ...eligibilityCacheRef.current,
-        [upc]: {
-          isEligible: payload.isEligible,
-          name: payload.name,
-          containerType: payload.containerType,
-          sizeOz: payload.sizeOz,
-          checkedAt: new Date().toISOString()
-        }
-      };
-      eligibilityCacheRef.current = next;
-      setEligibilityCache(next);
-      setHasEligibilityCache(true);
-      try {
-        localStorage.setItem(LS_KEY_UPC_ELIGIBILITY, JSON.stringify(next));
-      } catch {
-        // ignore
-      }
-    },
-    []
-  );
-
-  const clearEligibilityCache = () => {
-    eligibilityCacheRef.current = {};
-    setEligibilityCache({});
-    setHasEligibilityCache(false);
-    try {
-      localStorage.removeItem(LS_KEY_UPC_ELIGIBILITY);
-    } catch {
-      // ignore
-    }
-  };
-
-  const isEligibilityCacheFresh = (checkedAt?: string) => {
-    if (!checkedAt) return false;
-    const parsed = Date.parse(checkedAt);
-    if (!Number.isFinite(parsed)) return false;
-    return Date.now() - parsed < UPC_ELIGIBILITY_TTL_MS;
-  };
-
-  // IMPORTANT FIX:
-  // Your previous logic refused duplicates, which is wrong for returns.
-  // Scanning the same UPC multiple times should increment quantity.
-  const addOrIncrementUpc = (upc: string) => {
-    setReturnUpcs(prev => {
-      const existing = prev.find(e => e.upc === upc);
-      if (!existing) return [{ upc, quantity: 1 }, ...prev];
-      return prev.map(e => (e.upc === upc ? { ...e, quantity: e.quantity + 1 } : e));
-    });
-
-    setScannerError(null);
-    setManualUpc('');
-    setLastBlockedUpc(null);
-    setLastBlockedReason(null);
-  };
-
-  const incrementUpc = (upc: string) => {
-    setReturnUpcs(prev =>
-      prev.map(entry =>
-        entry.upc === upc ? { ...entry, quantity: entry.quantity + 1 } : entry
-      )
-    );
-  };
-
-  const decrementUpc = (upc: string) => {
-    setReturnUpcs(prev =>
-      prev
-        .map(entry =>
-          entry.upc === upc
-            ? { ...entry, quantity: Math.max(0, entry.quantity - 1) }
-            : entry
-        )
-        .filter(entry => entry.quantity > 0)
-    );
-  };
-
-  const addUpc = useCallback(
-    async (upcRaw: string, source: 'scanner' | 'manual' = 'manual') => {
-      const upc = String(upcRaw || '').replace(/\s+/g, '').trim();
-      if (!upc) return;
-
-      // Throttle repeated scan events
-      if (source === 'scanner') {
-        const now = Date.now();
-        if (now - lastScanAtRef.current < 900) return;
-        lastScanAtRef.current = now;
-      }
-
-      // Basic UPC/EAN sanity check
-      if (!/^\d{8,14}$/.test(upc)) {
-        setScannerError('Invalid UPC format. Enter 8–14 digits.');
-        return;
-      }
-
-      const cached = eligibilityCacheRef.current[upc];
-      if (cached && isEligibilityCacheFresh(cached.checkedAt)) {
-        if (!cached.isEligible) {
-          setScannerError(NOT_ELIGIBLE_MESSAGE);
-          return;
-        }
-        addOrIncrementUpc(upc);
-        return;
-      }
-
-      try {
-        const response = await fetch(
-          `${BACKEND_URL}/api/upc/eligibility?upc=${encodeURIComponent(upc)}`
-        );
-
-        if (response.ok) {
-          const data = await response.json().catch(() => ({}));
-          const isEligible = data?.eligible !== false;
-          updateEligibilityCache(upc, {
-            isEligible,
-            name: data?.name,
-            containerType: data?.containerType,
-            sizeOz: data?.sizeOz
-          });
-
-          if (!isEligible) {
-            setScannerError(NOT_ELIGIBLE_MESSAGE);
-            return;
-          }
-
-          addOrIncrementUpc(upc);
-          return;
-        }
-
-        if (response.status === 404) {
-          updateEligibilityCache(upc, { isEligible: false });
-          setScannerError(NOT_ELIGIBLE_MESSAGE);
-          return;
-        }
-
-        const text = await response.text().catch(() => '');
-        throw new Error(text || `Eligibility check failed: ${response.status}`);
-      } catch {
-        setScannerError('Unable to validate UPC eligibility. Please try again.');
-      }
-    },
-    [updateEligibilityCache]
-  );
-
-  const removeUpc = (upc: string) => {
-    setReturnUpcs(prev => prev.filter(entry => entry.upc !== upc));
-  };
-
-  const clearUpcs = () => {
-    setReturnUpcs([]);
-    setScannerError(null);
-  };
-
-  const totalReturnCount = useMemo(
-    () => returnUpcs.reduce((sum, entry) => sum + entry.quantity, 0),
-    [returnUpcs]
-  );
-
   const cartIsEmpty = cart.length === 0;
-  const hasReturnUpcs = totalReturnCount > 0;
+  const hasReturnUpcs = totalReturnContainers > 0;
   const isPickupOnlyOrder = cartIsEmpty && hasReturnUpcs;
-
-  const depositValue = MI_DEPOSIT_VALUE;
-  const handlingFee = DEFAULT_HANDLING_FEE;
-  const glassHandlingFee = DEFAULT_GLASS_HANDLING_FEE;
-  const netStandardCash = Math.max(0, depositValue - handlingFee);
-  const netGlassCash = Math.max(0, depositValue - handlingFee - glassHandlingFee);
 
   const activeTier = membershipTier ?? UserTier.COMMON;
   const allowCashPayout = [UserTier.GOLD, UserTier.PLATINUM, UserTier.GREEN].includes(activeTier);
@@ -383,52 +138,10 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const payoutMethod: ReturnPayoutMethod =
     allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
 
-  // Estimated deposit credit (preview only)
-  const estimatedReturnBreakdown = useMemo(() => {
-    if (totalReturnCount === 0) {
-      return { gross: 0, handlingFee: 0, glassFee: 0, net: 0 };
-    }
-
-    let gross = 0;
-    let totalHandlingFee = 0;
-    let totalGlassFee = 0;
-
-    for (const entry of returnUpcs) {
-      const isGlass = eligibilityCache[entry.upc]?.containerType === 'glass';
-      gross += depositValue * entry.quantity;
-      totalHandlingFee += handlingFee * entry.quantity;
-      if (isGlass) {
-        totalGlassFee += glassHandlingFee * entry.quantity;
-      }
-    }
-
-    const net = gross - totalHandlingFee - totalGlassFee;
-    return {
-      gross,
-      handlingFee: totalHandlingFee,
-      glassFee: totalGlassFee,
-      net: Math.max(0, net)
-    };
-  }, [
-    depositValue,
-    eligibilityCache,
-    glassHandlingFee,
-    handlingFee,
-    returnUpcs,
-    totalReturnCount
-  ]);
-
-  const estimatedReturnCredit = useMemo(() => {
-    if (payoutMethod === 'CASH') {
-      return estimatedReturnBreakdown.net;
-    }
-    return estimatedReturnBreakdown.gross;
-  }, [payoutMethod, estimatedReturnBreakdown]);
-
   // Quote (distance/route fees)
   useEffect(() => {
     const trimmedAddress = address.trim();
-    if (!trimmedAddress || (!cart.length && totalReturnCount === 0)) {
+    if (!trimmedAddress || (!cart.length && totalReturnContainers === 0)) {
       setQuote(null);
       setQuoteError(null);
       setIsQuoteLoading(false);
@@ -481,7 +194,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [address, cart, currentUserId, payoutMethod, returnUpcs, totalReturnCount]);
+  }, [address, cart, currentUserId, payoutMethod, returnUpcs, totalReturnContainers]);
 
   // ----------------------------
   // Cart totals
@@ -556,23 +269,30 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   // Scanner lifecycle
   // ----------------------------
   const openScanner = () => {
-    setScannerError(null);
     setScannerOpen(true);
   };
 
   const closeScanner = () => {
     setScannerOpen(false);
-    setLastBlockedUpc(null);
-    setLastBlockedReason(null);
+  };
+
+  const handleScannerComplete = (upcs: ReturnUpcCount[], credit: number) => {
+    setReturnUpcs(upcs);
+    setEstimatedReturnCredit(credit);
+    setTotalReturnContainers(upcs.reduce((sum, e) => sum + e.quantity, 0));
+    setScannerOpen(false);
+    addToast(`Scanned ${upcs.reduce((sum, e) => sum + e.quantity, 0)} containers`, 'success');
+  };
+
+  const handleScannerChange = (containers: number, credit: number) => {
+    setTotalReturnContainers(containers);
+    setEstimatedReturnCredit(credit);
   };
 
   // Close scanner when drawer closes
   useEffect(() => {
     if (!isOpen) {
       setScannerOpen(false);
-      setScannerError(null);
-      setLastBlockedUpc(null);
-      setLastBlockedReason(null);
     }
   }, [isOpen]);
 
@@ -593,7 +313,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     if (!canCheckoutCredits) return;
     const didComplete = await onPayCredits(returnUpcs, payoutMethod);
     if (didComplete) {
-      clearUpcs();
+      setReturnUpcs([]);
+      setTotalReturnContainers(0);
+      setEstimatedReturnCredit(0);
     }
   };
 
@@ -673,199 +395,6 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                     </div>
                   </div>
                 ))
-              )}
-            </div>
-
-            {/* Container Returns */}
-            <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-white font-black uppercase tracking-widest text-xs">
-                      Container Returns (Optional)
-                    </p>
-                    <button
-                      type="button"
-                      aria-label="Toggle container return advisory"
-                      aria-expanded={showBottleReturnAdvisory}
-                      onClick={() => setShowBottleReturnAdvisory(prev => !prev)}
-                      className="flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-black/40 text-slate-300 hover:text-white hover:border-white/20 transition"
-                    >
-                      <AlertCircle className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                  {showBottleReturnAdvisory && (
-                    <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
-                      Enter eligible Michigan 10¢ deposit UPCs to see an estimated return value.
-                      Credit settlement preserves the full deposit value; cash settlement deducts
-                      cash handling and glass surcharges after verification.
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={openScanner}
-                    className="px-4 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
-                  >
-                    <ScanLine className="w-4 h-4" /> Scan
-                  </button>
-                  {lastBlockedUpc && lastBlockedReason === 'duplicate' && (
-                    <button
-                      onClick={() => addUpc(lastBlockedUpc, 'scanner')}
-                      className="px-4 py-3 rounded-2xl bg-white/10 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest"
-                    >
-                      Add anyway
-                    </button>
-                  )}
-
-                  <button
-                    onClick={clearUpcs}
-                    disabled={totalReturnCount === 0}
-                    className="px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
-                  >
-                    Clear
-                  </button>
-
-                  <button
-                    onClick={clearEligibilityCache}
-                    disabled={!hasEligibilityCache}
-                    className="px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
-                  >
-                    Refresh eligibility
-                  </button>
-                </div>
-              </div>
-
-              {/* Manual entry */}
-              <div className="flex gap-2">
-                <input
-                  id="returnManualUpc"
-                  name="returnManualUpc"
-                  value={manualUpc}
-                  onChange={e => setManualUpc(e.target.value)}
-                  placeholder="Enter UPC manually (8–14 digits)"
-                  className="flex-1 bg-black/40 border border-white/10 rounded-2xl p-4 text-white text-xs outline-none focus:border-ninpo-lime"
-                />
-                <button
-                  onClick={() => addUpc(manualUpc, 'manual')}
-                  className="px-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
-                >
-                  <Plus className="w-4 h-4" /> Add
-                </button>
-              </div>
-
-              {scannerError && (
-                <div className="text-[11px] text-ninpo-red bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4">
-                  {scannerError}
-                </div>
-              )}
-
-              {/* Summary */}
-              <div className="flex items-center justify-between bg-black/30 border border-white/10 rounded-2xl p-4">
-                <div>
-                  <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest">
-                    Containers Scanned
-                  </p>
-                  <p className="text-white font-black text-lg">{totalReturnCount}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest">
-                    {payoutMethod === 'CASH'
-                      ? 'Estimated Payout (Net)'
-                      : 'Estimated Return Credit'}
-                  </p>
-                  <p className="text-ninpo-lime font-black text-lg">
-                    {money(estimatedReturnCredit)}
-                  </p>
-                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
-                    Estimate only — verified at delivery
-                  </p>
-                </div>
-              </div>
-
-              {payoutMethod === 'CASH' && estimatedReturnBreakdown.gross > 0 && (
-                <div className="space-y-2 text-[10px] text-slate-500 font-bold uppercase tracking-widest border border-dashed border-white/10 rounded-2xl p-4">
-                  <div className="flex items-center justify-between">
-                    <p>Estimated Return (Gross)</p>
-                    <p className="font-mono text-slate-400">
-                      {money(estimatedReturnBreakdown.gross)}
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <p>Cash Handling Fee</p>
-                    <p className="font-mono text-slate-400">
-                      - {money(estimatedReturnBreakdown.handlingFee)}
-                    </p>
-                  </div>
-                  {estimatedReturnBreakdown.glassFee > 0 && (
-                    <div className="flex items-center justify-between">
-                      <p>Glass Handling Surcharge</p>
-                      <p className="font-mono text-slate-400">
-                        - {money(estimatedReturnBreakdown.glassFee)}
-                      </p>
-                    </div>
-                  )}
-                  <div className="border-t border-dashed border-white/10 mt-2 pt-2 flex items-center justify-between">
-                    <p>Estimated Payout (Net)</p>
-                    <p className="font-mono text-ninpo-lime">
-                      {money(estimatedReturnBreakdown.net)}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {payoutMethod !== 'CASH' && (
-                <div className="flex items-start gap-2 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-                  <Info className="w-3 h-3 text-slate-500 mt-0.5" />
-                  <p>Credits are issued at the full $0.10 per eligible container.</p>
-                </div>
-              )}
-
-              {/* UPC list */}
-              {returnUpcs.length > 0 && (
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {returnUpcs.map(entry => (
-                    <div
-                      key={entry.upc}
-                      className="flex items-center justify-between bg-black/30 border border-white/10 rounded-2xl px-4 py-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex flex-col">
-                          <span className="text-[11px] text-white font-bold tracking-wider">
-                            {eligibilityCache[entry.upc]?.name || entry.upc}
-                          </span>
-                          <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
-                            Return UPC
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                          Qty × {entry.quantity}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => decrementUpc(entry.upc)}
-                          className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition"
-                        >
-                          -
-                        </button>
-                        <button
-                          onClick={() => incrementUpc(entry.upc)}
-                          className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition"
-                        >
-                          +
-                        </button>
-                        <button
-                          onClick={() => removeUpc(entry.upc)}
-                          className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest hover:bg-ninpo-red/20 hover:border-ninpo-red/20 transition"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               )}
             </div>
 
@@ -1143,28 +672,33 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
         </div>
       </div>
 
-      {/* SINGLE CUSTOMER SCANNER (shared component) */}
-      <ScannerModal
-        mode={ScannerMode.DRIVER_VERIFY_CONTAINERS /* best available enum for “returns scan” without editing types.ts */}
-        isOpen={scannerOpen}
-        title="Container UPC Scanner"
-        subtitle="Point camera at barcode. Each scan increments quantity."
-        cooldownMs={900}
-        beepEnabled={true}
-        onClose={closeScanner}
-        onCooldown={(upc, reason) => {
-          addToast('Same UPC — tap to add again', 'info');
-          if (reason === 'duplicate') {
-            setLastBlockedUpc(upc);
-            setLastBlockedReason(reason);
-          } else {
-            setLastBlockedUpc(null);
-            setLastBlockedReason(reason);
-          }
-        }}
-        onScan={(upc) => addUpc(upc, 'scanner')}
-        // onPhotoCaptured can be wired to AI later; kept optional to avoid breaking checkout
-      />
+      {/* FULL-SCREEN CUSTOMER RETURN SCANNER */}
+      {scannerOpen && (
+        <div className="fixed inset-0 z-[10000] bg-ninpo-black">
+          <div className="h-full flex flex-col">
+            <div className="p-4 border-b border-white/5 flex items-center justify-between">
+              <div>
+                <p className="text-white font-black uppercase tracking-widest text-sm">Container Returns</p>
+                <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
+                  Scan bottles and cans for deposit credit
+                </p>
+              </div>
+              <button
+                onClick={closeScanner}
+                className="p-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <CustomerReturnScanner
+                onComplete={handleScannerComplete}
+                onChange={handleScannerChange}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
