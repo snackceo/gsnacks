@@ -19,6 +19,7 @@ interface UpcEligibility {
 
 interface CustomerReturnScannerProps {
   onComplete: (upcs: ReturnUpcEntry[], estimatedCredit: number) => void;
+  onChange?: (totalContainers: number, estimatedCredit: number) => void;
   className?: string;
 }
 
@@ -35,6 +36,7 @@ function money(n: number) {
 
 const CustomerReturnScanner: React.FC<CustomerReturnScannerProps> = ({
   onComplete,
+  onChange,
   className = ''
 }) => {
   const [returnUpcs, setReturnUpcs] = useState<ReturnUpcEntry[]>([]);
@@ -231,58 +233,14 @@ const CustomerReturnScanner: React.FC<CustomerReturnScannerProps> = ({
     };
   }, [returnUpcs, eligibilityCache]);
 
-  // Bottom sheet content for InlineScanner
+  // Notify parent of changes
+  useEffect(() => {
+    onChange?.(totalCount, netCredit);
+  }, [totalCount, netCredit, onChange]);
+
+  // Bottom sheet content for InlineScanner - only UPC list
   const bottomSheetContent = useMemo(() => (
     <div className="space-y-4">
-      {/* Summary Card */}
-      <div className="bg-black/30 border border-white/10 rounded-2xl p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">
-              Containers Scanned
-            </p>
-            <p className="text-white font-black text-2xl">{totalCount}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">
-              Estimated Credit
-            </p>
-            <p className="text-ninpo-lime font-black text-2xl">{money(netCredit)}</p>
-          </div>
-        </div>
-
-        {/* Fee Breakdown */}
-        {grossCredit > 0 && (
-          <div className="space-y-1 pt-3 border-t border-dashed border-white/10 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-            <div className="flex justify-between">
-              <span>Gross Return Value</span>
-              <span className="font-mono">{money(grossCredit)}</span>
-            </div>
-            {handlingFee > 0 && (
-              <div className="flex justify-between">
-                <span>Handling Fee</span>
-                <span className="font-mono text-ninpo-red">- {money(handlingFee)}</span>
-              </div>
-            )}
-            {glassFee > 0 && (
-              <div className="flex justify-between">
-                <span>Glass Handling Fee</span>
-                <span className="font-mono text-ninpo-red">- {money(glassFee)}</span>
-              </div>
-            )}
-            <div className="flex justify-between pt-1 border-t border-dashed border-white/10 text-ninpo-lime">
-              <span>Net Credit</span>
-              <span className="font-mono font-black">{money(netCredit)}</span>
-            </div>
-          </div>
-        )}
-
-        <div className="flex items-start gap-2 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-          <Info className="w-3 h-3 text-slate-500 mt-0.5 shrink-0" />
-          <p>Estimate only — final value verified at delivery</p>
-        </div>
-      </div>
-
       {/* Error Display */}
       {scanError && (
         <div className="bg-ninpo-red/10 border border-ninpo-red/20 rounded-2xl p-4 flex items-start gap-3">

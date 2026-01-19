@@ -171,42 +171,38 @@ const CustomerView: React.FC<CustomerViewProps> = ({
           <div className="max-w-7xl mx-auto space-y-8">
             {/* Summary Stats */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-ninpo-card border border-white/10 rounded-[2.5rem] p-8 space-y-4">
-                <div className="flex items-center gap-3">
+              <div className="bg-ninpo-card border border-white/10 rounded-[2.5rem] p-8 flex flex-col items-center justify-center">
+                <div className="flex items-center gap-3 mb-4">
                   <Recycle className="w-6 h-6 text-ninpo-lime" />
                   <h3 className="text-white font-black uppercase text-[11px] tracking-widest">
                     Total Containers Scanned
                   </h3>
                 </div>
-                <p className="text-white font-black text-5xl tracking-tighter">
+                <p className="text-white font-black text-6xl tracking-tighter">
                   {totalReturnContainers}
-                </p>
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-                  Scan bottles and cans below
                 </p>
               </div>
 
-              <div className="bg-ninpo-card border border-white/10 rounded-[2.5rem] p-8 space-y-4">
-                <div className="flex items-center gap-3">
+              <div className="bg-ninpo-card border border-white/10 rounded-[2.5rem] p-8 flex flex-col items-center justify-center">
+                <div className="flex items-center gap-3 mb-4">
                   <Coins className="w-6 h-6 text-ninpo-lime" />
                   <h3 className="text-white font-black uppercase text-[11px] tracking-widest">
                     Expected Return Credit
                   </h3>
                 </div>
-                <p className="text-ninpo-lime font-black text-5xl tracking-tighter">
+                <p className="text-ninpo-lime font-black text-6xl tracking-tighter">
                   ${estimatedReturnCredit.toFixed(2)}
-                </p>
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-                  Estimate only — verified at delivery
                 </p>
               </div>
             </div>
 
             {/* Scanner Component */}
             <CustomerReturnScanner
-              onComplete={(upcs, credit) => {
-                setTotalReturnContainers(upcs.reduce((sum, e) => sum + e.quantity, 0));
+              onChange={(totalContainers, credit) => {
+                setTotalReturnContainers(totalContainers);
                 setEstimatedReturnCredit(credit);
+              }}
+              onComplete={(upcs, credit) => {
                 // TODO: Add to cart or navigate to checkout
                 console.log('Return scan complete:', { upcs, credit });
               }}
