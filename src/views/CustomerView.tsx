@@ -14,7 +14,9 @@ interface CustomerViewProps {
 
 import React, { useState, useEffect } from 'react';
 import { Product, Order, OrderStatus, User, UserTier, UserStatsSummary } from '../types';
-import { Plus, Search, Award, Settings, Leaf, Star, Coins, Zap, Info, CheckCircle2, XCircle } from 'lucide-react';
+import { Plus, Search, Award, Settings, Leaf, Star, Coins, Zap, Info, CheckCircle2, XCircle, Recycle } from 'lucide-react';
+import { CATEGORIES } from '../constants';
+import CustomerReturnScanner from '../components/CustomerReturnScanner';
 
 
 
@@ -32,6 +34,9 @@ const CustomerView: React.FC<CustomerViewProps> = ({
   const [activeCategory, setActiveCategory] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [showDashboard, setShowDashboard] = useState(false);
+  const [showReturnScanner, setShowReturnScanner] = useState(false);
+  const [totalReturnContainers, setTotalReturnContainers] = useState(0);
+  const [estimatedReturnCredit, setEstimatedReturnCredit] = useState(0);
 
 
   // Lifetime bottle returns state
@@ -137,34 +142,97 @@ const CustomerView: React.FC<CustomerViewProps> = ({
         </div>
         <div className="flex gap-4">
           {currentUser && (
-            <button
-              onClick={() => setShowDashboard(!showDashboard)}
-              className="px-8 py-5 bg-ninpo-card border border-white/5 rounded-[1.5rem] text-white font-black text-[12px] uppercase tracking-widest flex items-center gap-3 hover:border-ninpo-lime/40 transition-all shadow-lg active:scale-95"
-            >
-              <Settings className="w-5 h-5 text-slate-600" /> Dashboard
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  setShowReturnScanner(!showReturnScanner);
+                  setShowDashboard(false);
+                }}
+                className="px-8 py-5 bg-ninpo-card border border-white/5 rounded-[1.5rem] text-white font-black text-[12px] uppercase tracking-widest flex items-center gap-3 hover:border-ninpo-lime/40 transition-all shadow-lg active:scale-95"
+              >
+                <Recycle className="w-5 h-5 text-ninpo-lime" /> Bottle Returns
+              </button>
+              <button
+                onClick={() => {
+                  setShowDashboard(!showDashboard);
+                  setShowReturnScanner(false);
+                }}
+                className="px-8 py-5 bg-ninpo-card border border-white/5 rounded-[1.5rem] text-white font-black text-[12px] uppercase tracking-widest flex items-center gap-3 hover:border-ninpo-lime/40 transition-all shadow-lg active:scale-95"
+              >
+                <Settings className="w-5 h-5 text-slate-600" /> Dashboard
+              </button>
+            </>
           )}
         </div>
       </div>
-      {!showDashboard ? (
+      {showReturnScanner ? (
+        <>
+          {/* Return Scanner View */}
+          <div className="max-w-7xl mx-auto space-y-8">
+            {/* Summary Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-ninpo-card border border-white/10 rounded-[2.5rem] p-8 space-y-4">
+                <div className="flex items-center gap-3">
+                  <Recycle className="w-6 h-6 text-ninpo-lime" />
+                  <h3 className="text-white font-black uppercase text-[11px] tracking-widest">
+                    Total Containers Scanned
+                  </h3>
+                </div>
+                <p className="text-white font-black text-5xl tracking-tighter">
+                  {totalReturnContainers}
+                </p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                  Scan bottles and cans below
+                </p>
+              </div>
+
+              <div className="bg-ninpo-card border border-white/10 rounded-[2.5rem] p-8 space-y-4">
+                <div className="flex items-center gap-3">
+                  <Coins className="w-6 h-6 text-ninpo-lime" />
+                  <h3 className="text-white font-black uppercase text-[11px] tracking-widest">
+                    Expected Return Credit
+                  </h3>
+                </div>
+                <p className="text-ninpo-lime font-black text-5xl tracking-tighter">
+                  ${estimatedReturnCredit.toFixed(2)}
+                </p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                  Estimate only — verified at delivery
+                </p>
+              </div>
+            </div>
+
+            {/* Scanner Component */}
+            <CustomerReturnScanner
+              onComplete={(upcs, credit) => {
+                setTotalReturnContainers(upcs.reduce((sum, e) => sum + e.quantity, 0));
+                setEstimatedReturnCredit(credit);
+                // TODO: Add to cart or navigate to checkout
+                console.log('Return scan complete:', { upcs, credit });
+              }}
+            />
+          </div>
+        </>
+      ) : !showDashboard ? (
         <>
           {/* Main product/market view */}
           <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4 px-1">
-            {['ALL', 'SAVORY', 'SWEET', 'DRINK', 'HEALTHY', 'USED GEAR'].map(
-              cat => (
+            {CATEGORIES.map(cat => {
+              const catKey = cat.toUpperCase();
+              return (
                 <button
                   key={cat}
-                  onClick={() => setActiveCategory(cat)}
+                  onClick={() => setActiveCategory(catKey)}
                   className={`px-10 py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] transition-all whitespace-nowrap shadow-xl ${
-                    activeCategory === cat
+                    activeCategory === catKey
                       ? 'bg-ninpo-lime text-ninpo-black shadow-neon'
                       : 'bg-ninpo-card border border-white/5 text-slate-600 hover:text-white hover:border-white/20'
                   }`}
                 >
                   {cat}
                 </button>
-              )
-            )}
+              );
+            })}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-8">
             {filteredProducts.map(p => (
