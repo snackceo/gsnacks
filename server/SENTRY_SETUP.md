@@ -58,7 +58,7 @@ Cause any error in your API (e.g., invalid database query, missing field) and ch
 Make sure your `server/.env` file has:
 
 ```bash
-SENTRY_DSN=https://710b85ed673cecc2a0d59df6c7ff85f3@o4510730569711616.ingest.us.sentry.io/4510737740660736
+
 NODE_ENV=development  # or production
 ```
 
