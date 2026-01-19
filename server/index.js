@@ -36,9 +36,6 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Sentry request handler must be the first middleware
-app.use(Sentry.Handlers.requestHandler());
-
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 
@@ -154,7 +151,7 @@ if (process.env.NODE_ENV !== 'production') {
    SENTRY ERROR HANDLER
    Must be registered AFTER all controllers and BEFORE other error middleware
 ========================= */
-app.use(Sentry.Handlers.errorHandler());
+Sentry.setupExpressErrorHandler(app);
 
 /* =========================
    ERROR HANDLING MIDDLEWARE
