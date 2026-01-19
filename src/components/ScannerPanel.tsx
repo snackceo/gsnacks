@@ -3,10 +3,11 @@ import {
   X,
   ScanLine,
   Camera,
-  Volume2,
   RefreshCw,
   Flashlight,
-  FlashlightOff
+  FlashlightOff,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 // See GLOSSARY.md for authoritative definitions of all scanner modes.
 import { ScannerMode } from '../types';
@@ -64,6 +65,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
+  const lastAutoOpenUpcRef = useRef<string | null>(null);
 
   const rafRef = useRef<number | null>(null);
   const cancelledRef = useRef<boolean>(false);
@@ -92,6 +94,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const [blocked, setBlocked] = useState(false);
   const [manualUpc, setManualUpc] = useState('');
   const [lastDetectedUpc, setLastDetectedUpc] = useState<string | null>(null);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
 
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
@@ -163,6 +166,8 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
       lastAcceptedCodeRef.current = upc;
 
       setLastDetectedUpc(upc);
+      lastAutoOpenUpcRef.current = upc;
+      setIsSheetOpen(true);
       if (beepEnabledRef.current) playBeep();
       onScanRef.current(upc);
 
@@ -417,11 +422,22 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     setManualUpc('');
   }, [acceptScan, manualUpc, validateUpc]);
 
+  const handleToggleSheet = useCallback(() => {
+    setIsSheetOpen(prev => !prev);
+  }, []);
+
   useEffect(() => {
     return () => {
       void stopScanner();
     };
   }, [stopScanner]);
+
+  useEffect(() => {
+    if (!lastDetectedUpc) return;
+    if (lastAutoOpenUpcRef.current === lastDetectedUpc) return;
+    lastAutoOpenUpcRef.current = lastDetectedUpc;
+    setIsSheetOpen(true); // auto-expand on new scan to keep autofill behavior
+  }, [lastDetectedUpc]);
 
   useEffect(() => {
     if (manualStart || blocked) {
@@ -495,27 +511,55 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         </button>
       </div>
 
-      {/* Bottom sheet card - shows after a scan is detected */}
-      {bottomSheetContent && lastDetectedUpc && (
-        <div className="relative z-10 mt-auto w-full max-h-[60vh] overflow-y-auto rounded-t-[2rem] bg-ninpo-black/95 backdrop-blur-xl border-t border-white/10 shadow-2xl transition-all duration-500 ease-out">
+      {/* Bottom sheet card with manual expand/collapse handle */}
+      {bottomSheetContent && (
+        <div
+          className={`relative z-10 mt-auto w-full overflow-hidden rounded-t-[2rem] bg-ninpo-black/95 backdrop-blur-xl border-t border-white/10 shadow-2xl transition-all duration-300 ease-out ${
+            isSheetOpen ? 'max-h-[70vh]' : 'max-h-[96px]'
+          }`}
+        >
           <div className="sticky top-0 bg-ninpo-black/95 backdrop-blur-xl z-10 px-6 pt-4 pb-3">
-            <div className="mx-auto h-1 w-12 rounded-full bg-white/20 mb-4" />
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-white font-black uppercase tracking-widest text-xs">{title}</p>
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">{subtitle}</p>
+            <div className="flex items-start justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleToggleSheet}
+                className="flex items-center gap-2 rounded-full px-3 py-2 bg-white/5 border border-white/10 text-white/80 text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition"
+                aria-expanded={isSheetOpen}
+              >
+                <span className="h-1 w-10 rounded-full bg-white/30" />
+                {isSheetOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                <span>{isSheetOpen ? 'Close' : 'Expand'}</span>
+              </button>
+
+              <div className="flex flex-col items-end">
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{title}</p>
+                <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">{subtitle}</p>
               </div>
-              {lastDetectedUpc && (
-                <div className="text-right">
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Scanned</p>
-                  <p className="text-sm text-ninpo-lime font-black">{lastDetectedUpc}</p>
-                </div>
-              )}
+            </div>
+
+            <div className="mt-3 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                <ScanLine className="w-4 h-4 text-ninpo-lime" />
+                <span>{lastDetectedUpc ? 'Latest scan' : 'Waiting for scan'}</span>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Scanned</p>
+                <p className="text-sm text-ninpo-lime font-black">{lastDetectedUpc ?? '—'}</p>
+              </div>
             </div>
           </div>
-          <div className="px-6 pb-6 space-y-4">
-            {bottomSheetContent}
-          </div>
+
+          {isSheetOpen && (
+            <div className="px-6 pb-6 space-y-4 overflow-y-auto max-h-[60vh]">
+              {lastDetectedUpc ? (
+                bottomSheetContent
+              ) : (
+                <p className="text-xs text-slate-400 font-semibold uppercase tracking-widest">
+                  Waiting for a scan to auto-fill.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
