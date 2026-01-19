@@ -52,18 +52,6 @@ const stripe = process.env.STRIPE_SECRET_KEY
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 /* =========================
-   MONGO DB
-========================= */
-
-// Start server only after DB is connected
-(async () => {
-  await connectDB();
-  app.listen(PORT, () => {
-    console.log(`LOGISTICS HUB ONLINE @ ${PORT}`);
-  });
-})();
-
-/* =========================
    STRIPE WEBHOOK (RAW BODY)
 ========================= */
 app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
@@ -171,3 +159,15 @@ app.use((err, req, res, next) => {
 /* =========================
    START SERVER
 ========================= */
+
+(async () => {
+  try {
+    await connectDB();
+    app.listen(PORT, () => {
+      console.log(`LOGISTICS HUB ONLINE @ ${PORT}`);
+    });
+  } catch (err) {
+    console.error('FAILED TO START SERVER', err);
+    process.exit(1);
+  }
+})();
