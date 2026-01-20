@@ -1017,11 +1017,8 @@ const createPaymentsRouter = ({ stripe }) => {
    * - Server captures final amount = authorized - verified credit (never increases)
    */
   router.post('/capture', authRequired, async (req, res) => {
-      const eligibility = await getTierEligibilityConfig();
+    const eligibility = await getTierEligibilityConfig();
     if (!isDbReady() && process.env.SKIP_DB_CHECKS_FOR_TESTS !== '1') {
-
-                // Persist pricing lock for audit if provided and valid
-                pricingLock: lockCheck.ok ? req.body?.pricingLock : undefined,
       return res.status(503).json({ error: 'Database not ready' });
     }
     const sessionDb = await mongoose.startSession();
@@ -1038,6 +1035,7 @@ const createPaymentsRouter = ({ stripe }) => {
         details: `Attempting to capture payment for order ${orderId}.`
       });
 
+      const lockCheck = verifyPricingLock(req.body?.pricingLock);
       let updatedOrderDoc = null;
 
       const isOwner = isOwnerUsername(req.user?.username);
@@ -1058,6 +1056,42 @@ const createPaymentsRouter = ({ stripe }) => {
       await sessionDb.withTransaction(async () => {
         const order = await Order.findOne({ orderId }).session(sessionDb);
         if (!order) return;
+
+        const savedLockCheck = order.pricingLock ? verifyPricingLock(order.pricingLock) : { ok: false };
+        if (order.pricingLock && !savedLockCheck.ok) {
+          const e = new Error('Stored pricing lock is invalid.');
+          e.code = 'PRICING_LOCK_INVALID';
+          throw e;
+        }
+        if (savedLockCheck.ok && !lockCheck.ok) {
+          const e = new Error('Pricing lock is required for capture.');
+          e.code = 'PRICING_LOCK_REQUIRED';
+          throw e;
+        }
+        if (savedLockCheck.ok && lockCheck.ok) {
+          const mismatch = JSON.stringify(lockCheck.payload) !== JSON.stringify(savedLockCheck.payload);
+          if (mismatch) {
+            const e = new Error('Pricing lock does not match authorized totals.');
+            e.code = 'PRICING_LOCK_MISMATCH';
+            throw e;
+          }
+        }
+        if (!savedLockCheck.ok && lockCheck.ok) {
+          order.pricingLock = req.body?.pricingLock;
+          await order.save({ session: sessionDb });
+          await recordAuditLog({
+            type: 'PRICING_LOCK_ATTACHED',
+            actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+            details: `Pricing lock attached on capture for order ${orderId}.`
+          });
+        } else if (savedLockCheck.ok) {
+          await recordAuditLog({
+            type: 'PRICING_LOCK_VALIDATED',
+            actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+            details: `Pricing lock validated on capture for order ${orderId}.`
+          });
+        }
+
         const payoutMethod = normalizeReturnPayoutMethod(order.returnPayoutMethod);
 
         if (!isOwner) {

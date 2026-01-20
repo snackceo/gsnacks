@@ -33,6 +33,7 @@ import refundsRouter from './routes/refunds.js';
 import cartRouter from './routes/cart.js';
 import shoppingRouter from './routes/shopping.js';
 import driverRouter from './routes/driver.js';
+import itemsNotFoundRouter from './routes/items-not-found.js';
 import { maintenanceModeGuardCached } from './utils/maintenanceMode.js';
 
 dotenv.config();
@@ -140,6 +141,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/shopping', shoppingRouter); // Multi-store shopping
 app.use('/api/driver', driverRouter); // Driver operations
+app.use('/api/driver', itemsNotFoundRouter); // Items not found tracking
 app.use('/api/approvals', approvalsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/audit-logs', auditLogsRouter);

@@ -124,6 +124,26 @@ const orderSchema = new mongoose.Schema(
     customerSignature: {
       signature: { type: String, default: null },
       signedAt: { type: Date, default: null }
+    },
+
+    /* =========================================================
+       DRIVER ITEM NOT FOUND TRACKING
+       ========================================================= */
+    itemsNotFound: {
+      type: [
+        {
+          sku: String,
+          name: String,
+          quantity: Number,
+          price: Number,
+          originalStore: String,
+          attemptedStores: [String],
+          foundAt: { type: String, default: null },
+          foundAtTime: { type: Date, default: null },
+          removedAt: { type: Date, default: null }
+        }
+      ],
+      default: []
     }
   },
   { timestamps: true }

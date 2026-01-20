@@ -9,8 +9,11 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Home
+  Home,
+  Eye,
+  SkipForward
 } from 'lucide-react';
+import ItemNotFoundTracker from './ItemNotFoundTracker';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
@@ -21,6 +24,15 @@ interface ShoppingListItem {
   price: number;
   store: string;
   storeId: string;
+}
+
+interface NotFoundItem {
+  sku: string;
+  name: string;
+  quantity: number;
+  price: number;
+  originalStore: string;
+  attemptedStores: string[];
 }
 
 interface OrderDetail {
@@ -46,12 +58,16 @@ interface DriverOrderDetailProps {
 
 const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) => {
   const [shoppingList, setShoppingList] = useState<ShoppingListItem[]>([]);
+  const [notFoundItems, setNotFoundItems] = useState<NotFoundItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [groupedByStore, setGroupedByStore] = useState<Record<string, ShoppingListItem[]>>({});
+  const [currentStoreId, setCurrentStoreId] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchShoppingList();
+    loadNotFoundItemsFromStorage();
   }, [order?.orderId]);
 
   const fetchShoppingList = async () => {
@@ -90,8 +106,97 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
     }
   };
 
+  const handleItemNotFound = (item: ShoppingListItem, storeId: string) => {
+    const existing = notFoundItems.find(n => n.sku === item.sku);
+    const storeName = groupedByStore[storeId]?.[0]?.store || `Store ${storeId}`;
+    
+    let updated: NotFoundItem[];
+    if (existing) {
+      if (!existing.attemptedStores.includes(storeName)) {
+        updated = notFoundItems.map(n =>
+          n.sku === item.sku
+            ? { ...n, attemptedStores: [...n.attemptedStores, storeName] }
+            : n
+        );
+      } else {
+        return;
+      }
+    } else {
+      updated = [
+        ...notFoundItems,
+        {
+          sku: item.sku,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+          originalStore: storeName,
+          attemptedStores: [storeName]
+        }
+      ];
+    }
+    setNotFoundItems(updated);
+    saveNotFoundItemsToStorage(updated);
+  };
+
+  const handleUpdateNotFound = (item: NotFoundItem) => {
+    const updated = notFoundItems.map(n => (n.sku === item.sku ? item : n));
+    setNotFoundItems(updated);
+    saveNotFoundItemsToStorage(updated);
+  };
+
+  const handleRemoveNotFound = (sku: string) => {
+    const updated = notFoundItems.filter(n => n.sku !== sku);
+    setNotFoundItems(updated);
+    saveNotFoundItemsToStorage(updated);
+  };
+
+  const getStoreNameFromId = (storeId: string): string => {
+    const items = groupedByStore[storeId];
+    if (items && items.length > 0) {
+      return items[0].store || `Store ${storeId}`;
+    }
+    return `Store ${storeId}`;
+  };
+
+  const loadNotFoundItemsFromStorage = () => {
+    try {
+      const orderId = order?.orderId || order?.id;
+      const storageKey = `notFoundItems_${orderId}`;
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        setNotFoundItems(JSON.parse(stored));
+      }
+    } catch (err) {
+      console.warn('Failed to load items from storage:', err);
+    }
+  };
+
+  const saveNotFoundItemsToStorage = async (items: NotFoundItem[]) => {
+    try {
+      const orderId = order?.orderId || order?.id;
+      const storageKey = `notFoundItems_${orderId}`;
+      localStorage.setItem(storageKey, JSON.stringify(items));
+
+      // Sync to backend
+      const token = localStorage.getItem('token');
+      await fetch(`${BACKEND_URL}/api/driver/order/${orderId}/items-not-found`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ items })
+      }).catch(err => console.warn('Backend sync failed:', err));
+    } catch (err) {
+      setSyncError('Failed to sync items not found');
+      console.error(err);
+    }
+  };
+
   const getTotalItems = () => shoppingList.reduce((sum, item) => sum + item.quantity, 0);
   
+  const getSubtotal = () => shoppingList.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
   const getStoreName = (storeId: string) => {
     // Extract store name from grouped data or use ID
     const items = groupedByStore[storeId];
@@ -100,8 +205,6 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
     }
     return `Store ${storeId}`;
   };
-
-  const getSubtotal = () => shoppingList.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
   const totalFees = (order?.routeFee || 0) + (order?.distanceFee || 0) + (order?.largeOrderFee || 0) + (order?.heavyItemFee || 0);
 
@@ -126,6 +229,13 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
           <div className="mb-6 p-4 bg-red-900/20 border border-red-600 rounded-xl text-red-300 flex items-center gap-2">
             <AlertCircle className="w-5 h-5" />
             {error}
+          </div>
+        )}
+
+        {syncError && (
+          <div className="mb-6 p-3 bg-yellow-900/20 border border-yellow-600 rounded-xl text-yellow-300 flex items-center gap-2 text-sm">
+            <AlertCircle className="w-4 h-4" />
+            {syncError}
           </div>
         )}
 
@@ -221,8 +331,30 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
           </div>
         ) : (
           <div className="space-y-6">
+            {/* Items Not Found Tracker */}
+            <ItemNotFoundTracker
+              orderId={order?.orderId || order?.id || ''}
+              notFoundItems={notFoundItems}
+              onItemNotFound={handleUpdateNotFound}
+              onRemoveNotFound={handleRemoveNotFound}
+              currentStore={currentStoreId ? getStoreNameFromId(currentStoreId) : 'N/A'}
+              availableStores={Object.entries(groupedByStore).map(([id, items]) => ({
+                id,
+                name: items[0]?.store || `Store ${id}`
+              }))}
+            />
+
+            {/* Shopping List by Store */}
             {(Object.entries(groupedByStore) as Array<[string, ShoppingListItem[]]>).map(([storeId, storeItems]) => (
-              <div key={storeId} className="bg-white/5 border border-white/10 rounded-xl p-6">
+              <div
+                key={storeId}
+                className={`bg-white/5 border rounded-xl p-6 cursor-pointer transition-all ${
+                  currentStoreId === storeId
+                    ? 'border-ninpo-lime/50 bg-ninpo-lime/10'
+                    : 'border-white/10 hover:border-ninpo-lime/30'
+                }`}
+                onClick={() => setCurrentStoreId(storeId)}
+              >
                 <h3 className="text-lg font-black text-ninpo-lime mb-4 flex items-center gap-2">
                   <Store className="w-5 h-5" />
                   {getStoreName(storeId)}
@@ -238,7 +370,7 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
                         <p className="font-bold text-sm">{item.name}</p>
                         <p className="text-xs text-white/50">SKU: {item.sku}</p>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right mr-3">
                         <p className="text-sm font-bold text-ninpo-lime">
                           x{item.quantity}
                         </p>
@@ -246,6 +378,13 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
                           ${(item.price * item.quantity).toFixed(2)}
                         </p>
                       </div>
+                      <button
+                        onClick={() => handleItemNotFound(item, storeId)}
+                        className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-all text-white/70 hover:text-white"
+                        title="Mark as not found"
+                      >
+                        <SkipForward className="w-4 h-4" />
+                      </button>
                     </div>
                   ))}
                 </div>
