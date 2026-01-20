@@ -18,7 +18,6 @@ import { Plus, Award, Settings, Leaf, Star, Coins, Zap, Info, CheckCircle2, XCir
 import { CATEGORIES } from '../constants';
 import CustomerReturnScanner from '../components/CustomerReturnScanner';
 import { analytics } from '../services/analyticsService';
-import { ProductRecommendations } from '../components/ProductRecommendations';
 import AssistantSearchChat from '../components/AssistantSearchChat';
 
 
@@ -220,24 +219,6 @@ const CustomerView: React.FC<CustomerViewProps> = ({
       ) : !showDashboard ? (
         <>
           {/* Main product/market view */}
-          
-          {/* AI Recommendations Section (now opt-in) */}
-          {currentUser && (
-            <details className="bg-ninpo-card/60 border border-white/10 rounded-[1.5rem] p-4">
-              <summary className="text-sm text-white font-semibold cursor-pointer">Get AI suggestions (click to open)</summary>
-              <div className="mt-4">
-                <ProductRecommendations
-                  userId={currentUser.id}
-                  orderHistory={orders}
-                  currentCart={[]} // TODO: Pass actual cart items
-                  onProductClick={(productName) => {
-                    setSearchQuery(productName);
-                    setActiveCategory('ALL');
-                  }}
-                />
-              </div>
-            </details>
-          )}
 
           <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4 px-1">
             {CATEGORIES.map(cat => {

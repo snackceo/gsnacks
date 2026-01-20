@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, MessageCircle } from 'lucide-react';
+import { Search, MessageCircle, Star } from 'lucide-react';
 import { BACKEND_URL } from '../constants';
 
 interface AssistantSearchChatProps {
@@ -29,6 +29,7 @@ export const AssistantSearchChat: React.FC<AssistantSearchChatProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [lastReply, setLastReply] = useState<string>('');
   const [lastInterpretation, setLastInterpretation] = useState<string>('');
+  const [recommendations, setRecommendations] = useState<any[]>([]);
 
   const handleSubmit = async () => {
     if (!input.trim() || isLoading) return;
@@ -73,7 +74,9 @@ export const AssistantSearchChat: React.FC<AssistantSearchChatProps> = ({
           setLastReply(data.message || 'Opening return scanner...');
         } else if (data.action === 'open_recommendations' && onOpenRecommendations) {
           onOpenRecommendations();
-          setLastReply(data.message || 'Opening recommendations...');
+          // Fetch recommendations
+          fetchRecommendations();
+          setLastReply(data.message || 'Fetching personalized recommendations...');
         } else {
           setLastReply(data.message || 'Action processed');
         }
@@ -94,6 +97,28 @@ export const AssistantSearchChat: React.FC<AssistantSearchChatProps> = ({
   };
 
   const disabled = isLoading;
+
+  const fetchRecommendations = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/ai/recommendations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          userId: currentUser?._id || currentUser?.id,
+          orderHistory: recentOrders.slice(0, 10),
+          currentCart: []
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setRecommendations(data.recommendations || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch recommendations:', err);
+    }
+  };
 
   return (
     <div className="w-full bg-ninpo-card border border-white/10 rounded-[1.75rem] p-4 shadow-xl space-y-3">
@@ -140,6 +165,23 @@ export const AssistantSearchChat: React.FC<AssistantSearchChatProps> = ({
             <span className="text-xs uppercase tracking-wide text-slate-300">Response</span>
           </div>
           <p className="text-slate-100 whitespace-pre-wrap">{lastReply}</p>
+        </div>
+      )}
+
+      {recommendations.length > 0 && (
+        <div className="bg-ninpo-midnight/60 border border-white/10 rounded-xl p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <Star className="w-4 h-4 text-ninpo-lime" />
+            <span className="text-xs uppercase tracking-wide text-slate-300 font-semibold">Recommended for you</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {recommendations.map(product => (
+              <div key={product._id || product.id} className="bg-white/5 border border-white/10 rounded-lg p-2 cursor-pointer hover:border-ninpo-lime/40 transition-colors">
+                <p className="text-xs font-semibold text-white line-clamp-2">{product.name}</p>
+                <p className="text-xs text-slate-400 mt-1">${product.price?.toFixed(2) || '0.00'}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
