@@ -90,7 +90,7 @@ export const SupportChatbot: React.FC<SupportChatbotProps> = ({
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white rounded-full p-4 shadow-lg z-50 transition-transform hover:scale-110"
+        className="fixed bottom-6 left-6 bg-blue-600 hover:bg-blue-700 text-white rounded-full p-4 shadow-lg z-[9999] transition-transform hover:scale-110"
         aria-label="Open chat support"
       >
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -101,7 +101,7 @@ export const SupportChatbot: React.FC<SupportChatbotProps> = ({
   }
 
   return (
-    <div className="fixed bottom-6 right-6 w-96 h-[32rem] bg-white rounded-lg shadow-2xl flex flex-col z-50 border border-gray-200">
+    <div className="fixed bottom-6 left-6 w-96 h-[32rem] bg-white rounded-lg shadow-2xl flex flex-col z-[9999] border border-gray-200">
       {/* Header */}
       <div className="bg-blue-600 text-white p-4 rounded-t-lg flex justify-between items-center">
         <div className="flex items-center gap-2">
