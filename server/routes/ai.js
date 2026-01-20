@@ -285,6 +285,184 @@ const buildSearchSummary = items => {
   return lines.join('\n');
 };
 
+// ============================================================
+// UNIFIED AI ASSISTANT ENDPOINT
+// ============================================================
+// Single entry point for all AI interactions
+// 1. Intent classification
+// 2. Tool routing based on intent
+// 3. Structured response
+
+router.post('/assistant', async (req, res) => {
+  const { query, products = [], context = {} } = req.body ?? {};
+
+  if (!query || typeof query !== 'string') {
+    return res.status(400).json({ error: 'Query is required.' });
+  }
+
+  const apiReady = ensureGeminiReady();
+  if (!apiReady.ok) {
+    return res.status(503).json({ error: apiReady.error });
+  }
+
+  const modelSelection = resolveModelName(req.body?.model);
+  if (!modelSelection.ok) {
+    return res.status(400).json({
+      error: modelSelection.error,
+      allowedModels: modelSelection.allowedModels,
+      defaultModel: modelSelection.defaultModel
+    });
+  }
+
+  try {
+    // STEP 1: Intent Classification
+    const intentPrompt = `Classify the user's intent. Respond ONLY with JSON (no markdown):
+{
+  "intent": "product_search|natural_search|support|order_help|returns|recommendation|navigation|unknown",
+  "confidence": 0-100,
+  "category": "optional - category if product_search",
+  "reasoning": "brief explanation"
+}
+
+User query: "${query}"
+
+Guidelines:
+- product_search: asking for specific product types ("drinks", "snacks", "healthy")
+- natural_search: open-ended search with adjectives ("cheap under $5", "best sellers")
+- support: questions about policies, delivery, account, etc.
+- order_help: questions about specific orders
+- returns: mentions scanning, containers, returns, refunds
+- recommendation: asking for suggestions based on preferences
+- navigation: asking how to do something on the site
+- unknown: can't classify`;
+
+    const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
+    const intentResponse = await ai.models.generateContent({
+      model: modelSelection.modelName,
+      contents: intentPrompt,
+      generationConfig: { temperature: 0.1 }
+    });
+
+    const intentText = intentResponse?.text?.trim?.() ?? '{}';
+    const intentJson = JSON.parse(intentText.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, ''));
+    const intent = intentJson.intent || 'unknown';
+    const intentConfidence = intentJson.confidence || 0;
+
+    // STEP 2: Route based on intent
+    if (intent === 'product_search' || intent === 'natural_search') {
+      // Call natural search logic
+      const searchPayload = { query, products, model: modelSelection.modelName };
+      const searchRes = await naturalSearchInternal(searchPayload);
+      
+      return res.json({
+        intent,
+        intentConfidence,
+        type: 'products',
+        productIds: searchRes.matchedProducts || [],
+        interpretation: searchRes.interpretation || query,
+        count: (searchRes.matchedProducts || []).length
+      });
+    }
+
+    if (intent === 'returns') {
+      return res.json({
+        intent,
+        intentConfidence,
+        type: 'action',
+        action: 'open_return_scanner',
+        message: 'Let me open the return scanner for you.'
+      });
+    }
+
+    if (intent === 'recommendation') {
+      // Return minimal response; frontend can trigger recommendations UI
+      return res.json({
+        intent,
+        intentConfidence,
+        type: 'action',
+        action: 'open_recommendations',
+        message: 'I can suggest products based on your preferences!'
+      });
+    }
+
+    // For support, order_help, navigation, unknown: use chatbot
+    const chatPayload = {
+      message: query,
+      conversationHistory: [],
+      userContext: context,
+      model: modelSelection.modelName
+    };
+    const chatRes = await chatInternal(chatPayload);
+
+    return res.json({
+      intent,
+      intentConfidence,
+      type: 'chat',
+      reply: chatRes.reply || 'I can help with that. Can you provide more details?',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('AI assistant failed:', error);
+    return res.status(502).json({
+      error: 'AI assistant error',
+      message: error?.message || 'Unknown error',
+      model: modelSelection.modelName
+    });
+  }
+});
+
+// Helper function for natural search (extracted for reuse)
+const naturalSearchInternal = async ({ query, products = [], model = getDefaultModel() }) => {
+  // Simplified internal version of natural-search logic
+  const matchedProducts = products.filter(p => {
+    const text = `${p.name} ${p.category} ${p.description || ''}`.toLowerCase();
+    return text.includes(query.toLowerCase());
+  });
+
+  return {
+    matchedProducts: matchedProducts.map(p => p._id || p.id),
+    interpretation: `Searching for: ${query}`,
+    count: matchedProducts.length
+  };
+};
+
+// Helper function for chat (extracted for reuse)
+const chatInternal = async ({ message, conversationHistory = [], userContext = {}, model = getDefaultModel() }) => {
+  const apiKey = getGeminiApiKey();
+  const ai = new GoogleGenAI({ apiKey });
+
+  const history = Array.isArray(conversationHistory) ? conversationHistory : [];
+  const context = userContext || {};
+
+  const systemPrompt = `You are a helpful customer support agent for NinpoSnacks.
+
+## KNOWLEDGE BASE:
+${CUSTOMER_KNOWLEDGE}
+
+## CUSTOMER CONTEXT:
+${JSON.stringify(context, null, 2)}
+
+## INSTRUCTIONS:
+- Answer ONLY based on knowledge base
+- Be friendly, helpful, concise
+- Never discuss internal logic or code
+- Always include "Believe it! 🍜" at end
+- For contact: Instagram @ninpo_llc`;
+
+  const prompt = `${systemPrompt}\n\nCustomer: ${message}\nAgent:`;
+
+  const response = await ai.models.generateContent({
+    model,
+    contents: prompt,
+    generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
+  });
+
+  return {
+    reply: response?.text?.trim?.() || 'I apologize, could you rephrase?',
+    timestamp: new Date().toISOString()
+  };
+};
+
 router.get('/health', (req, res) => {
   const apiKey = getGeminiApiKey();
   return res.json({ configured: Boolean(apiKey) });

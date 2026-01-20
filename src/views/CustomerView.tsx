@@ -146,6 +146,17 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                 setSearchQuery('');
               }
             }}
+            onOpenReturnScanner={() => {
+              setShowReturnScanner(true);
+              setShowDashboard(false);
+            }}
+            onOpenRecommendations={() => {
+              // Scroll to recommendations section or open them
+              const detailsEl = document.querySelector('details');
+              if (detailsEl) {
+                detailsEl.setAttribute('open', '');
+              }
+            }}
           />
         </div>
         <div className="flex gap-4">
