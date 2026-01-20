@@ -232,7 +232,6 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
           }}
         />
       )}
-      </div>
 
       {ordersError && (
         <div className="bg-ninpo-card p-6 rounded-[2rem] border border-ninpo-red/20 text-[11px] text-ninpo-red">
