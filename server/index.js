@@ -113,8 +113,16 @@ app.use(cookieParser());
 app.use('/uploads', express.static('uploads', { fallthrough: false }));
 
 // IMPORTANT: Do NOT run JSON parser on webhook route
+// Increase limit for receipt images (base64-encoded, up to 5MB per image × 3 = 15MB)
 app.use((req, res, next) => {
   if (req.originalUrl === '/api/stripe/webhook') return next();
+  
+  // Receipt uploads need larger limit
+  if (req.originalUrl?.includes('/api/driver/upload-receipt-image') || 
+      req.originalUrl?.includes('/api/driver/receipt-capture')) {
+    return express.json({ limit: '20mb' })(req, res, next);
+  }
+  
   return express.json({ limit: '1mb' })(req, res, next);
 });
 

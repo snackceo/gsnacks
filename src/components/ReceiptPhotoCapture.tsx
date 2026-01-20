@@ -65,6 +65,10 @@ export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onCom
     const base64Data = await base64Promise;
     
     const token = localStorage.getItem('token');
+    if (!token) {
+      throw new Error('Authentication token not found. Please log in again.');
+    }
+
     const response = await fetch(`${BACKEND_URL}/api/driver/upload-receipt-image`, {
       method: 'POST',
       headers: {
@@ -75,10 +79,20 @@ export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onCom
     });
 
     if (!response.ok) {
-      throw new Error('Failed to upload image');
+      let errorMsg = 'Failed to upload image';
+      try {
+        const errorData = await response.json();
+        errorMsg = errorData.error || errorMsg;
+      } catch {
+        errorMsg = `Upload failed: ${response.status} ${response.statusText}`;
+      }
+      throw new Error(errorMsg);
     }
 
     const data = await response.json();
+    if (!data.url) {
+      throw new Error('Server returned invalid response (missing url)');
+    }
     return {
       url: data.url,
       thumbnailUrl: data.thumbnailUrl || data.url
@@ -135,11 +149,21 @@ export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onCom
       });
 
       if (!captureResponse.ok) {
-        throw new Error('Failed to create receipt capture');
+        let errorMsg = 'Failed to create receipt capture';
+        try {
+          const errorData = await captureResponse.json();
+          errorMsg = errorData.error || errorMsg;
+        } catch {
+          errorMsg = `Capture failed: ${captureResponse.status} ${captureResponse.statusText}`;
+        }
+        throw new Error(errorMsg);
       }
 
       const captureData = await captureResponse.json();
       const captureId = captureData.captureId;
+      if (!captureId) {
+        throw new Error('Server did not return captureId');
+      }
 
       // Trigger parsing
       setParsing(true);
@@ -153,7 +177,14 @@ export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onCom
       });
 
       if (!parseResponse.ok) {
-        throw new Error('Failed to parse receipt');
+        let errorMsg = 'Failed to parse receipt';
+        try {
+          const errorData = await parseResponse.json();
+          errorMsg = errorData.error || errorMsg;
+        } catch {
+          errorMsg = `Parse failed: ${parseResponse.status} ${parseResponse.statusText}`;
+        }
+        throw new Error(errorMsg);
       }
 
       // Success!
