@@ -114,12 +114,11 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
     setError(null);
 
     try {
-      const token = localStorage.getItem('token');
       const res = await fetch(`${BACKEND_URL}/api/driver/receipt-price-update`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           storeId,
@@ -414,12 +413,11 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
                       <button
                         onClick={async () => {
                           try {
-                            const token = localStorage.getItem('token');
                             await fetch(`${BACKEND_URL}/api/driver/receipt-confirm-match`, {
                               method: 'POST',
+                              credentials: 'include',
                               headers: {
-                                'Content-Type': 'application/json',
-                                Authorization: `Bearer ${token}`
+                                'Content-Type': 'application/json'
                               },
                               body: JSON.stringify({
                                 storeId,
