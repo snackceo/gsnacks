@@ -567,6 +567,7 @@ IMPORTANT RULES:
           let matchConfidence = 0;
           let needsReview = true;
           let reviewReason = 'no_match';
+          let workflowType = 'new_product'; // 'new_product' or 'update_price'
 
           // Step 1: Check ReceiptNameAlias for confirmed mappings
           const alias = await ReceiptNameAlias.findOne({
@@ -585,6 +586,7 @@ IMPORTANT RULES:
               };
               matchMethod = 'alias_confirmed';
               matchConfidence = Math.min(1.0, 0.7 + alias.confirmedCount * 0.1);
+              workflowType = 'update_price'; // Item exists - update price
               
               // Auto-confirm high-confidence aliases (3+ confirmations)
               if (alias.confirmedCount >= 3) {
@@ -631,6 +633,7 @@ IMPORTANT RULES:
                 sku: bestMatch.sku
               };
               matchConfidence = bestScore;
+              workflowType = 'update_price'; // Item exists - update price
 
               // Gate A: Size token missing = always needs review
               if (!tokens.hasSizeToken) {
@@ -650,6 +653,12 @@ IMPORTANT RULES:
                 needsReview = true;
                 reviewReason = 'fuzzy_medium_confidence';
               }
+            } else {
+              // No match found - this is a NEW PRODUCT
+              workflowType = 'new_product';
+              matchMethod = 'no_match';
+              needsReview = true;
+              reviewReason = 'create_new_product';
             }
           }
 
@@ -667,7 +676,8 @@ IMPORTANT RULES:
             needsReview,
             reviewReason,
             promoDetected,
-            priceType: promoDetected ? 'promo' : 'regular'
+            priceType: promoDetected ? 'promo' : 'regular',
+            workflowType // NEW: indicates if this should create new product or update price
           });
         }
 
@@ -1517,22 +1527,32 @@ router.get('/receipt-captures', authRequired, async (req, res) => {
 
     res.json({
       ok: true,
-      captures: captures.map(c => ({
-        _id: c._id,
-        storeId: c.storeId,
-        storeName: c.storeName,
-        orderId: c.orderId,
-        status: c.status,
-        imageCount: c.images?.length || 0,
-        stats: {
-          totalItems: c.totalItems || 0,
-          itemsNeedingReview: c.itemsNeedingReview || 0,
-          itemsConfirmed: c.itemsConfirmed || 0,
-          itemsCommitted: c.itemsCommitted || 0
-        },
-        createdAt: c.createdAt,
-        reviewExpiresAt: c.reviewExpiresAt
-      }))
+      captures: captures.map(c => {
+        // Calculate workflow stats
+        const newProducts = (c.draftItems || []).filter(i => i.workflowType === 'new_product').length;
+        const priceUpdates = (c.draftItems || []).filter(i => i.workflowType === 'update_price').length;
+        
+        return {
+          _id: c._id,
+          storeId: c.storeId,
+          storeName: c.storeName,
+          orderId: c.orderId,
+          status: c.status,
+          imageCount: c.images?.length || 0,
+          stats: {
+            totalItems: c.totalItems || 0,
+            itemsNeedingReview: c.itemsNeedingReview || 0,
+            itemsConfirmed: c.itemsConfirmed || 0,
+            itemsCommitted: c.itemsCommitted || 0
+          },
+          workflowStats: {
+            newProducts,      // Items to create as new products
+            priceUpdates      // Items to update existing prices
+          },
+          createdAt: c.createdAt,
+          reviewExpiresAt: c.reviewExpiresAt
+        };
+      })
     });
 
   } catch (error) {

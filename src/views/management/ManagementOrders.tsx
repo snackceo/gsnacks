@@ -149,6 +149,23 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
                   <div>
                     {capture.stats.itemsConfirmed}/{capture.stats.totalItems} items confirmed
                   </div>
+                  
+                  {/* Workflow breakdown */}
+                  {capture.workflowStats && (
+                    <div className="flex items-center gap-2 mt-2">
+                      {capture.workflowStats.newProducts > 0 && (
+                        <span className="bg-orange-500/30 text-orange-200 text-xs px-2 py-1 rounded">
+                          {capture.workflowStats.newProducts} NEW
+                        </span>
+                      )}
+                      {capture.workflowStats.priceUpdates > 0 && (
+                        <span className="bg-blue-500/30 text-blue-200 text-xs px-2 py-1 rounded">
+                          {capture.workflowStats.priceUpdates} PRICES
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  
                   {capture.stats.itemsNeedingReview > 0 && (
                     <div className="text-yellow-300 font-semibold">
                       {capture.stats.itemsNeedingReview} need review

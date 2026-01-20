@@ -33,6 +33,7 @@ interface DraftItem {
   confirmedBy?: string;
   promoDetected?: boolean;
   priceType?: string;
+  workflowType?: 'new_product' | 'update_price'; // NEW: workflow classification
 }
 
 interface ReceiptCapture {
@@ -312,6 +313,17 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
                       <td className="px-4 py-3 text-sm">{item.lineIndex + 1}</td>
                       <td className="px-4 py-3">
                         <div className="text-sm font-medium">{item.receiptName}</div>
+                        <div className="flex items-center gap-2 mt-1">
+                          {item.workflowType === 'new_product' ? (
+                            <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded font-semibold">
+                              CREATE PRODUCT
+                            </span>
+                          ) : (
+                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded font-semibold">
+                              UPDATE PRICE
+                            </span>
+                          )}
+                        </div>
                         {item.suggestedProduct && (
                           <div className="text-xs text-gray-600 mt-1">
                             Suggested: {item.suggestedProduct.name}
