@@ -440,9 +440,6 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
     }
 
     // Validation
-    if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
-      return res.status(400).json({ error: 'Valid storeId required' });
-    }
     if (!storeName || typeof storeName !== 'string') {
       return res.status(400).json({ error: 'storeName is required' });
     }
@@ -450,14 +447,31 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'images array required (1-3 photos)' });
     }
 
-    // Verify store exists
-    const store = await Store.findById(storeId);
-    if (!store) {
-      return res.status(404).json({ error: 'Store not found' });
+    // Find or create store by name
+    let store;
+    if (storeId && mongoose.Types.ObjectId.isValid(storeId)) {
+      // If storeId provided, verify it exists
+      store = await Store.findById(storeId);
+      if (!store) {
+        return res.status(404).json({ error: 'Store not found' });
+      }
+    } else {
+      // If no storeId, find or create store by name
+      store = await Store.findOne({ name: storeName });
+      if (!store) {
+        // Auto-create store from receipt
+        store = new Store({
+          name: storeName,
+          createdFrom: 'receipt_upload',
+          createdAt: new Date()
+        });
+        await store.save();
+        console.log(`Auto-created store: ${storeName} (${store._id})`);
+      }
     }
 
     // Enforce driver-store binding
-    if (isDriver && !driverCanAccessStore(username, storeId)) {
+    if (isDriver && !driverCanAccessStore(username, store._id.toString())) {
       return res.status(403).json({ error: 'Driver not authorized for this store' });
     }
 
@@ -517,8 +531,8 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
     // Create ReceiptCapture record
     const capture = new ReceiptCapture({
       captureRequestId, // For idempotency
-      storeId,
-      storeName,
+      storeId: store._id.toString(),
+      storeName: store.name,
       orderId: orderId || undefined,
       images: images.map((img, idx) => ({
         url: img.url,

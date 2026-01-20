@@ -1,7 +1,12 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Camera, Upload, X, Check, Loader2 } from 'lucide-react';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+
+interface Store {
+  _id: string;
+  name: string;
+}
 
 interface ReceiptPhotoCaptureProps {
   storeId: string;
@@ -19,13 +24,38 @@ interface CapturedImage {
   thumbnailUrl?: string;
 }
 
-export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onComplete, onCancel }: ReceiptPhotoCaptureProps) {
+export default function ReceiptPhotoCapture({ storeId: initialStoreId, storeName: initialStoreName, orderId, onComplete, onCancel }: ReceiptPhotoCaptureProps) {
   const [images, setImages] = useState<CapturedImage[]>([]);
   const [uploading, setUploading] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState('');
+  const [stores, setStores] = useState<Store[]>([]);
+  const [selectedStoreId, setSelectedStoreId] = useState<string>(initialStoreId || '');
+  const [customStoreName, setCustomStoreName] = useState<string>(initialStoreName || '');
+  const [loadingStores, setLoadingStores] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch available stores
+  useEffect(() => {
+    const fetchStores = async () => {
+      try {
+        const resp = await fetch(`${BACKEND_URL}/api/stores`, {
+          credentials: 'include'
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          setStores(data.stores || []);
+        }
+      } catch (err) {
+        console.error('Error fetching stores:', err);
+      } finally {
+        setLoadingStores(false);
+      }
+    };
+
+    fetchStores();
+  }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
@@ -100,6 +130,13 @@ export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onCom
       return;
     }
 
+    if (!selectedStoreId) {
+      setError('Please select a store');
+      return;
+    }
+
+    const storeNameToUse = customStoreName || stores.find(s => s._id === selectedStoreId)?.name || 'Unknown Store';
+
     setUploading(true);
     setError('');
 
@@ -135,8 +172,8 @@ export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onCom
         credentials: 'include',
         body: JSON.stringify({
           captureRequestId, // For idempotency - browser retries will return same capture
-          storeId,
-          storeName,
+          storeId: selectedStoreId,
+          storeName: storeNameToUse,
           orderId,
           images: uploadedImages
         })
@@ -204,7 +241,9 @@ export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onCom
                 <Camera className="w-6 h-6" />
                 Receipt Photo Capture
               </h2>
-              <p className="text-sm text-green-100 mt-1">{storeName}</p>
+              <p className="text-sm text-green-100 mt-1">
+                {loadingStores ? 'Loading stores...' : (customStoreName || stores.find(s => s._id === selectedStoreId)?.name || 'Select a store')}
+              </p>
             </div>
             <button onClick={onCancel} className="text-white hover:bg-white/20 rounded p-2">
               <X className="w-6 h-6" />
@@ -218,9 +257,57 @@ export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onCom
             <p className="text-red-800">{error}</p>
           </div>
         )}
-
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
+          {/* Store Selector */}
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+            <h3 className="font-semibold text-amber-900 mb-3">Select Store Location:</h3>
+            {loadingStores ? (
+              <p className="text-amber-800 text-sm">Loading stores...</p>
+            ) : (
+              <div className="space-y-3">
+                <select
+                  value={selectedStoreId}
+                  onChange={(e) => {
+                    setSelectedStoreId(e.target.value);
+                    setCustomStoreName('');
+                  }}
+                  className="w-full border border-amber-300 rounded-lg px-4 py-2 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                >
+                  <option value="">-- Select from existing stores --</option>
+                  {stores.map(store => (
+                    <option key={store._id} value={store._id}>
+                      {store.name}
+                    </option>
+                  ))}
+                </select>
+                
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-amber-300"></div>
+                  </div>
+                  <div className="relative flex justify-center text-sm">
+                    <span className="px-2 bg-amber-50 text-amber-600 font-semibold">OR</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-amber-900 mb-2">Create new store:</label>
+                  <input
+                    type="text"
+                    value={customStoreName}
+                    onChange={(e) => {
+                      setCustomStoreName(e.target.value);
+                      setSelectedStoreId(''); // Clear selection when typing custom name
+                    }}
+                    placeholder="e.g., Walmart 1, Kroger B, Target Downtown"
+                    className="w-full border border-amber-300 rounded-lg px-4 py-2 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Instructions */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
             <h3 className="font-semibold text-blue-900 mb-2">Instructions:</h3>
