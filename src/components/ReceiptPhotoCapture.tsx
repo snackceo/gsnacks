@@ -64,17 +64,12 @@ export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onCom
 
     const base64Data = await base64Promise;
     
-    const token = localStorage.getItem('token');
-    if (!token) {
-      throw new Error('Authentication token not found. Please log in again.');
-    }
-
     const response = await fetch(`${BACKEND_URL}/api/driver/upload-receipt-image`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`
+        'Content-Type': 'application/json'
       },
+      credentials: 'include',
       body: JSON.stringify({ image: base64Data })
     });
 
@@ -130,15 +125,14 @@ export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onCom
       );
 
       // Create receipt capture (with idempotency UUID)
-      const token = localStorage.getItem('token');
       const captureRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       
       const captureResponse = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify({
           captureRequestId, // For idempotency - browser retries will return same capture
           storeId,
@@ -170,9 +164,9 @@ export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onCom
       const parseResponse = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify({ captureId })
       });
 
