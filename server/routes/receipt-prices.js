@@ -459,14 +459,39 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
       // If no storeId, find or create store by name
       store = await Store.findOne({ name: storeName });
       if (!store) {
-        // Auto-create store from receipt
-        store = new Store({
+        // Auto-create store from receipt with optional geocoding
+        const storeData = {
           name: storeName,
           createdFrom: 'receipt_upload',
           createdAt: new Date()
-        });
+        };
+
+        // Try to geocode the store name if it looks like an address
+        // (e.g., "Walmart Dearborn" → geocode "Walmart Dearborn, MI")
+        const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY;
+        if (apiKey && storeName.length > 5) {
+          try {
+            const geocodeUrl = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+            geocodeUrl.searchParams.set('address', storeName);
+            geocodeUrl.searchParams.set('key', apiKey);
+            
+            const geocodeResp = await fetch(geocodeUrl.toString());
+            const geocodeData = await geocodeResp.json();
+            
+            if (geocodeData.status === 'OK' && geocodeData.results?.[0]?.geometry?.location) {
+              const loc = geocodeData.results[0].geometry.location;
+              storeData.location = { lat: loc.lat, lng: loc.lng };
+              console.log(`Geocoded ${storeName}: ${loc.lat}, ${loc.lng}`);
+            }
+          } catch (geocodeErr) {
+            // Non-blocking - continue without location
+            console.warn(`Geocoding failed for ${storeName}:`, geocodeErr.message);
+          }
+        }
+
+        store = new Store(storeData);
         await store.save();
-        console.log(`Auto-created store: ${storeName} (${store._id})`);
+        console.log(`Auto-created store: ${storeName} (${store._id})${storeData.location ? ' with location' : ''}`);
       }
     }
 
