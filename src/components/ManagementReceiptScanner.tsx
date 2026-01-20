@@ -74,9 +74,8 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
   // Fetch capture data
   const fetchCapture = async () => {
     try {
-      const token = localStorage.getItem('token');
       const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${captureId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        credentials: 'include'
       });
       
       if (!resp.ok) throw new Error('Failed to fetch receipt capture');
@@ -117,11 +116,9 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
     if (!scannedUpc || scanningLineIndex === null) return;
 
     try {
-      const token = localStorage.getItem('token');
-      
       // Lookup product by UPC
       const productResp = await fetch(`${BACKEND_URL}/api/driver/products?upc=${scannedUpc}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        credentials: 'include'
       });
       
       if (!productResp.ok) {
@@ -139,9 +136,9 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
       const confirmResp = await fetch(`${BACKEND_URL}/api/driver/receipt-confirm-item`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify({
           captureId,
           lineIndex: scanningLineIndex,
@@ -186,13 +183,12 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
 
     setCommitting(true);
     try {
-      const token = localStorage.getItem('token');
       const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-commit`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify({ captureId })
       });
 

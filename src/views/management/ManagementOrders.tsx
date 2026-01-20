@@ -70,9 +70,8 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
   // Fetch receipt captures
   const fetchReceiptCaptures = async () => {
     try {
-      const token = localStorage.getItem('token');
       const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-captures?status=parsed&status=review_complete&limit=20`, {
-        headers: { Authorization: `Bearer ${token}` }
+        credentials: 'include'
       });
       
       if (resp.ok) {
