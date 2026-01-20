@@ -128,6 +128,64 @@ function isDriverUsername(username) {
   return list.includes((username || '').toLowerCase());
 }
 
+// Driver-to-store allowlist. Configure via DRIVER_STORE_ACCESS_JSON (preferred) or DRIVER_STORE_ACCESS.
+// Example JSON: { "driver1": ["64a...storeId1", "64b...storeId2"] }
+// Example string: "driver1:storeA,storeB;driver2:storeC"
+let driverStoreAccessCache = { raw: null, map: {} };
+
+function parseDriverStoreAccess() {
+  const raw =
+    process.env.DRIVER_STORE_ACCESS_JSON || process.env.DRIVER_STORE_ACCESS || '';
+
+  if (!raw) return {};
+  if (driverStoreAccessCache.raw === raw) return driverStoreAccessCache.map;
+
+  let map = {};
+
+  // Try JSON first
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      map = Object.fromEntries(
+        Object.entries(parsed).map(([user, stores]) => [
+          String(user || '').toLowerCase(),
+          Array.isArray(stores)
+            ? stores.map(s => String(s || '').trim()).filter(Boolean)
+            : []
+        ])
+      );
+    }
+  } catch (err) {
+    // Fallback: semicolon-separated entries like "driver:store1,store2"
+    map = {};
+    const entries = raw.split(';').map(s => s.trim()).filter(Boolean);
+    for (const entry of entries) {
+      const [user, stores] = entry.split(':');
+      if (!user || !stores) continue;
+      const list = stores
+        .split(/[,|]/)
+        .map(s => s.trim())
+        .filter(Boolean);
+      if (list.length === 0) continue;
+      map[user.toLowerCase()] = list;
+    }
+  }
+
+  driverStoreAccessCache = { raw, map };
+  return map;
+}
+
+function driverCanAccessStore(username, storeId) {
+  if (!username || !storeId) return false;
+  if (isOwnerUsername(username)) return true;
+
+  const map = parseDriverStoreAccess();
+  if (!map || Object.keys(map).length === 0) return false; // Hardened default: deny if not configured
+
+  const stores = map[String(username).toLowerCase()] || [];
+  return stores.includes(String(storeId));
+}
+
 function ownerRequired(req, res, next) {
   const u = req.user;
   if (!u?.username || !isOwnerUsername(u.username)) {
@@ -442,6 +500,7 @@ export {
   buildReturnCountUpdates,
   isDriverUsername,
   isOwnerUsername,
+  driverCanAccessStore,
   mapOrderForFrontend,
   normalizeReturnPayoutMethod,
   normalizeCart,

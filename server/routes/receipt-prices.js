@@ -1,12 +1,14 @@
 import express from 'express';
 import mongoose from 'mongoose';
+import rateLimit from 'express-rate-limit';
+import { v2 as cloudinary } from 'cloudinary';
 import { GoogleGenAI } from '@google/genai';
 import StoreInventory from '../models/StoreInventory.js';
 import Product from '../models/Product.js';
 import Store from '../models/Store.js';
 import ReceiptNameAlias from '../models/ReceiptNameAlias.js';
 import ReceiptCapture from '../models/ReceiptCapture.js';
-import { authRequired, isDriverUsername, isOwnerUsername } from '../utils/helpers.js';
+import { authRequired, isDriverUsername, isOwnerUsername, driverCanAccessStore } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { isDbReady } from '../db/connect.js';
 
@@ -21,30 +23,107 @@ const ensureGeminiReady = () => {
   return { ok: true, apiKey };
 };
 
-// Simple image upload handler (base64 to data URL)
-const handleReceiptImageUpload = (base64Data) => {
-  // For MVP: return data URL directly
-  // Production: upload to Cloudinary/S3 and return public URL
+// Extract base64 and mime from data URL
+function parseDataUrl(dataUrl) {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/i);
+  if (!match) return null;
+  return { mime: match[1], base64: match[2] };
+}
+
+// Upload handler: Cloudinary if configured, else data URL fallback
+const handleReceiptImageUpload = async (base64Data) => {
   if (!base64Data) {
     throw new Error('No image data provided');
   }
 
-  // If it's already a data URL, return it
-  if (base64Data.startsWith('data:')) {
+  // Ensure data URL format
+  const dataUrl = base64Data.startsWith('data:')
+    ? base64Data
+    : `data:image/jpeg;base64,${base64Data}`;
+
+  if (!isAllowedImageDataUrl(dataUrl)) {
+    throw new Error('Image content failed validation');
+  }
+
+  // Fallback: return data URL if Cloudinary not configured
+  if (!hasCloudinary) {
     return {
-      url: base64Data,
-      thumbnailUrl: base64Data // For MVP, same as URL
+      url: dataUrl,
+      thumbnailUrl: dataUrl
     };
   }
 
-  // Otherwise wrap it as data URL
+  if (!parseDataUrl(dataUrl)) {
+    throw new Error('Invalid data URL');
+  }
+
+  const uploadResult = await cloudinary.uploader.upload(dataUrl, {
+    folder: RECEIPT_UPLOAD_FOLDER,
+    resource_type: 'image',
+    overwrite: false,
+    transformation: [{ width: 1600, crop: 'limit' }],
+    eager: [{ width: 400, crop: 'limit' }]
+  });
+
   return {
-    url: `data:image/jpeg;base64,${base64Data}`,
-    thumbnailUrl: `data:image/jpeg;base64,${base64Data}`
+    url: uploadResult.secure_url,
+    thumbnailUrl: uploadResult.eager?.[0]?.secure_url || uploadResult.secure_url
   };
 };
 
+// Validate data URL magic bytes (best-effort) to ensure it's an image
+function isAllowedImageDataUrl(dataUrl) {
+  if (!dataUrl.startsWith('data:')) return false;
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/i);
+  if (!match) return false;
+  const mime = (match[1] || '').toLowerCase();
+  const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+  if (!allowedMimes.includes(mime)) return false;
+
+  try {
+    const base64 = match[2];
+    const buf = Buffer.from(base64.slice(0, 64), 'base64'); // first ~48 bytes
+    if (buf.length < 4) return false;
+
+    const isJpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+    const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+    const isWebp = buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP';
+    const brand = buf.toString('ascii', 4, 12);
+    const isHeic = brand.includes('ftypheic') || brand.includes('ftypheix') || brand.includes('ftyphevc') || brand.includes('ftyphevx') || brand.includes('ftypmif1');
+
+    return isJpeg || isPng || isWebp || isHeic;
+  } catch (err) {
+    console.error('Data URL validation failed:', err);
+    return false;
+  }
+}
+
 const router = express.Router();
+
+// Tight rate limit for receipt endpoints to reduce abuse and control OCR costs
+const receiptLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 60, // 60 actions per 10 minutes per IP
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+router.use(receiptLimiter);
+
+// Cloudinary config (optional). Provide either CLOUDINARY_URL or individual creds.
+const hasCloudinary = Boolean(process.env.CLOUDINARY_URL || process.env.CLOUDINARY_CLOUD_NAME);
+if (hasCloudinary) {
+  cloudinary.config({
+    secure: true,
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    ...(!process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_URL ? { url: process.env.CLOUDINARY_URL } : {})
+  });
+}
+
+// Default Cloudinary folder (hashed folder id from console link); override via env if needed
+const RECEIPT_UPLOAD_FOLDER = process.env.CLOUDINARY_RECEIPT_FOLDER || 'cdeebf4d7989589cc96f42dc1f19664b3c';
 
 // Normalization rules
 const ABBREVIATIONS = {
@@ -73,6 +152,21 @@ const CATEGORY_KEYWORDS = {
   'frozen': ['ICE', 'FROZEN', 'PIZZA'],
   'produce': ['APPLE', 'BANANA', 'ORANGE', 'LETTUCE', 'TOMATO']
 };
+
+// Category price guardrails (unit price)
+const CATEGORY_PRICE_BOUNDS = {
+  beverage: { min: 0.5, max: 20 },
+  dairy: { min: 0.5, max: 25 },
+  snack: { min: 0.25, max: 15 },
+  frozen: { min: 1, max: 30 },
+  produce: { min: 0.1, max: 20 },
+  other: { min: 0.1, max: 50 }
+};
+
+function isWithinCategoryBounds(category, unitPrice) {
+  const bounds = CATEGORY_PRICE_BOUNDS[category] || CATEGORY_PRICE_BOUNDS.other;
+  return unitPrice >= bounds.min && unitPrice <= bounds.max;
+}
 
 /**
  * Normalize receipt name for matching
@@ -283,7 +377,13 @@ router.post('/upload-receipt-image', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'Image data required' });
     }
 
-    const result = handleReceiptImageUpload(image);
+    // Enforce size limit (max 5MB per image, consistent with receipt-capture)
+    if (typeof image === 'string' && image.length > 5 * 1024 * 1024) {
+      const sizeMB = (image.length / (1024 * 1024)).toFixed(1);
+      return res.status(413).json({ error: `Image too large: ${sizeMB}MB (max 5MB)` });
+    }
+
+    const result = await handleReceiptImageUpload(image);
     
     res.json({
       ok: true,
@@ -356,6 +456,11 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
       return res.status(404).json({ error: 'Store not found' });
     }
 
+    // Enforce driver-store binding
+    if (isDriver && !driverCanAccessStore(username, storeId)) {
+      return res.status(403).json({ error: 'Driver not authorized for this store' });
+    }
+
     // Validate image URLs and sizes
     for (const img of images) {
       if (!img.url || typeof img.url !== 'string') {
@@ -366,6 +471,45 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
         const sizeMB = img.url.length / (1024 * 1024);
         if (sizeMB > 5) {
           return res.status(400).json({ error: `Image too large: ${sizeMB.toFixed(1)}MB (max 5MB)` });
+        }
+
+        const mimeMatch = img.url.match(/^data:([^;]+);base64,/i);
+        const mime = mimeMatch?.[1] || '';
+        const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+        if (!allowedMimes.includes(mime.toLowerCase())) {
+          return res.status(400).json({ error: `Unsupported image type: ${mime || 'unknown'}` });
+        }
+
+        if (!isAllowedImageDataUrl(img.url)) {
+          return res.status(400).json({ error: 'Image content failed validation (corrupt or unsupported)' });
+        }
+      } else {
+        // Non-data URLs must be valid image URLs (HTTPS, allowed hosts, content-type check)
+        if (!img.url.startsWith('https://')) {
+          return res.status(400).json({ error: 'Image URLs must use HTTPS' });
+        }
+        
+        const urlObj = new URL(img.url);
+        const allowedHosts = ['cloudinary.com', 'res.cloudinary.com'];
+        const isAllowedHost = allowedHosts.some(host => urlObj.hostname?.includes(host));
+        if (!isAllowedHost) {
+          return res.status(400).json({ error: 'Only Cloudinary image URLs are allowed' });
+        }
+        
+        // Verify content-type by HEAD request
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const headResp = await fetch(img.url, { method: 'HEAD', signal: controller.signal });
+          clearTimeout(timeoutId);
+          const ct = (headResp.headers.get('content-type') || '').toLowerCase();
+          const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+          if (!allowedMimes.some(m => ct.includes(m))) {
+            return res.status(400).json({ error: `Unsupported content-type: ${ct}` });
+          }
+        } catch (headErr) {
+          console.warn('HEAD request failed for image URL:', img.url, headErr.message);
+          // Don't fail entirely, but log for investigation
         }
       }
     }
@@ -387,6 +531,12 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
     });
 
     await capture.save();
+
+    await recordAuditLog({
+      type: 'receipt_capture_create',
+      actorId: username || 'unknown',
+      details: `store=${storeId} images=${capture.images.length} capture=${capture._id.toString()}`
+    });
 
     res.json({
       ok: true,
@@ -480,6 +630,11 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
       return res.status(403).json({ error: 'Not authorized to parse receipts' });
     }
 
+    // Enforce driver-store binding
+    if (isDriver && !driverCanAccessStore(req.user?.username, capture.storeId)) {
+      return res.status(403).json({ error: 'Driver not authorized for this store' });
+    }
+
     if (capture.status !== 'pending_parse' && capture.status !== 'failed') {
       return res.status(400).json({ error: `Cannot parse receipt with status: ${capture.status}` });
     }
@@ -493,19 +648,53 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
       return res.status(503).json({ error: apiReady.error });
     }
 
-    // Mark as parsing
-    capture.markParsing();
-    await capture.save();
+    // Use transaction for atomic parse
+    const parseSession = await mongoose.startSession();
+    parseSession.startTransaction();
 
-    // Download and parse receipt images
-    const draftItems = [];
+    try {
+      // Mark as parsing (atomic update to prevent race conditions)
+      const updated = await ReceiptCapture.findByIdAndUpdate(
+        captureId,
+        { status: 'parsing', startedParsingAt: new Date() },
+        { new: true, session: parseSession }
+      );
+      if (!updated) {
+        await parseSession.abortTransaction();
+        await parseSession.endSession();
+        return res.status(404).json({ error: 'Receipt capture not found' });
+      }
+
+      // Download and parse receipt images
+      const draftItems = [];
     
     for (const image of capture.images) {
       try {
-        // Fetch image data
-        const imageResponse = await fetch(image.url);
-        if (!imageResponse.ok) {
-          console.error(`Failed to fetch image: ${image.url}`);
+        // Fetch image data with timeout (10 seconds) and retry (2 attempts)
+        let imageResponse = null;
+        let fetchError = null;
+        const FETCH_TIMEOUT_MS = 10000;
+        const MAX_FETCH_RETRIES = 2;
+        
+        for (let retry = 0; retry < MAX_FETCH_RETRIES; retry++) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+            imageResponse = await fetch(image.url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (imageResponse.ok) break;
+            fetchError = new Error(`HTTP ${imageResponse.status}`);
+          } catch (err) {
+            fetchError = err;
+            if (retry < MAX_FETCH_RETRIES - 1) {
+              console.warn(`Fetch retry ${retry + 1}/${MAX_FETCH_RETRIES - 1} for image:`, image.url, err.message);
+              await new Promise(r => setTimeout(r, 500 * Math.pow(2, retry))); // Exponential backoff
+            }
+          }
+        }
+        
+        if (!imageResponse?.ok) {
+          console.error(`Failed to fetch image after ${MAX_FETCH_RETRIES} attempts:`, image.url, fetchError?.message);
           continue;
         }
         
@@ -531,30 +720,47 @@ RULES:
 5. Return empty array [] if no items found
 6. Return ONLY the JSON array, no markdown, no explanation, no comments`;
 
-        // Call Gemini Vision API
-        const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.0-flash-exp',
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                { text: prompt },
-                {
-                  inline_data: {
-                    data: imageBase64,
-                    mime_type: mimeType
+        // Call Gemini Vision API with error handling
+        let response;
+        try {
+          const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
+          response = await ai.models.generateContent({
+            model: 'gemini-2.0-flash-exp',
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  { text: prompt },
+                  {
+                    inline_data: {
+                      data: imageBase64,
+                      mime_type: mimeType
+                    }
                   }
-                }
-              ]
+                ]
+              }
+            ],
+            generationConfig: { 
+              temperature: 0.1,
+              topP: 0.8,
+              topK: 10
             }
-          ],
-          generationConfig: { 
-            temperature: 0.1,
-            topP: 0.8,
-            topK: 10
+          });
+        } catch (geminiErr) {
+          // Distinguish transient vs permanent Gemini errors
+          const isTransient = geminiErr?.message?.includes('429') || geminiErr?.message?.includes('timeout') || geminiErr?.code === 'ECONNRESET';
+          const severity = isTransient ? 'warn' : 'error';
+          console[severity](`Gemini API error (${image.sequence}):`, geminiErr?.message);
+          
+          // For rate limits, mark capture as requires_retry instead of failed
+          if (isTransient) {
+            capture.status = 'requires_retry';
+            capture.parseError = `Gemini rate limit / timeout (image ${image.sequence})`;
+            await capture.save();
+            return res.status(503).json({ error: 'Gemini service overloaded. Retry in 30s.' });
           }
-        });
+          continue; // Skip this image for permanent errors
+        }
 
         const rawText = response?.text?.trim?.() ?? '';
         if (!rawText) {
@@ -578,16 +784,34 @@ RULES:
           continue;
         }
 
-        // Process each extracted item
-        for (const item of extractedItems) {
-          if (!item.receiptName || !item.totalPrice) {
-            console.warn('Skipping invalid item:', item);
-            continue;
-          }
+        // Sanitize and cap items from Gemini
+        const MAX_ITEMS = 120;
+        const sanitizedItems = [];
+        for (const raw of extractedItems) {
+          if (!raw || typeof raw !== 'object') continue;
+          const receiptName = String(raw.receiptName || '').trim();
+          const quantity = Math.min(1000, Math.max(1, Math.floor(Number(raw.quantity) || 1)));
+          const totalPrice = Number(raw.totalPrice);
+          if (!receiptName || !Number.isFinite(totalPrice)) continue;
+          if (totalPrice < 0 || totalPrice > 10000) continue;
+          sanitizedItems.push({
+            receiptName,
+            quantity,
+            totalPrice: Number(totalPrice.toFixed(2))
+          });
+          if (sanitizedItems.length >= MAX_ITEMS) break;
+        }
 
-          const receiptName = item.receiptName.trim();
-          const quantity = Math.max(1, parseInt(item.quantity) || 1);
-          const totalPrice = parseFloat(item.totalPrice);
+        if (sanitizedItems.length === 0) {
+          console.warn('Gemini returned no valid items after sanitization');
+          continue;
+        }
+
+        // Process each sanitized item
+        for (const item of sanitizedItems) {
+          const receiptName = item.receiptName;
+          const quantity = item.quantity;
+          const totalPrice = item.totalPrice;
           const unitPrice = totalPrice / quantity;
 
           // Validate price
@@ -702,6 +926,15 @@ RULES:
             }
           }
 
+          // Price guardrails per category
+          const withinCategoryBounds = isWithinCategoryBounds(category, unitPrice);
+          if (!withinCategoryBounds) {
+            needsReview = true;
+            reviewReason = reviewReason && reviewReason !== 'no_match'
+              ? `${reviewReason}|price_out_of_bounds`
+              : 'price_out_of_bounds';
+          }
+
           // Add to draft items
           draftItems.push({
             lineIndex: draftItems.length,
@@ -726,37 +959,49 @@ RULES:
       }
     }
 
-    // Mark as parsed with extracted items
-    capture.markParsed(draftItems);
-    capture.geminiRequestId = `receipt_${capture._id}_${Date.now()}`;
-    await capture.save();
+      // Mark as parsed with extracted items (within transaction)
+      capture.markParsed(draftItems);
+      capture.geminiRequestId = `receipt_${capture._id}_${Date.now()}`;
+      await capture.save({ session: parseSession });
 
-    res.json({
-      ok: true,
-      captureId: capture._id.toString(),
-      status: capture.status,
-      itemCount: draftItems.length,
-      itemsNeedingReview: draftItems.filter(i => i.needsReview).length,
-      message: 'Receipt parsed successfully'
-    });
+      // Commit transaction
+      await parseSession.commitTransaction();
 
-  } catch (error) {
-    console.error('Error parsing receipt:', error);
-    
-    // Mark as failed
-    if (req.body.captureId) {
+      await recordAuditLog({
+        type: 'receipt_parse',
+        actorId: req.user?.username || 'unknown',
+        details: `capture=${capture._id.toString()} items=${draftItems.length} review=${draftItems.filter(i => i.needsReview).length}`
+      });
+
+      res.json({
+        ok: true,
+        captureId: capture._id.toString(),
+        status: capture.status,
+        itemCount: draftItems.length,
+        itemsNeedingReview: draftItems.filter(i => i.needsReview).length,
+        message: 'Receipt parsed successfully'
+      });
+    } catch (error) {
+      await parseSession.abortTransaction();
+      console.error('Error parsing receipt:', error);
+      
+      // Mark as failed
       try {
-        const capture = await ReceiptCapture.findById(req.body.captureId);
-        if (capture) {
-          capture.status = 'failed';
-          capture.parseError = error.message;
-          await capture.save();
-        }
+        const capture = await ReceiptCapture.findByIdAndUpdate(
+          captureId,
+          { status: 'failed', parseError: error.message },
+          { new: true }
+        );
       } catch (updateError) {
         console.error('Failed to update capture status:', updateError);
       }
+      
+      res.status(500).json({ error: 'Failed to parse receipt' });
+    } finally {
+      await parseSession.endSession();
     }
-    
+  } catch (error) {
+    console.error('Error in receipt-parse route:', error);
     res.status(500).json({ error: 'Failed to parse receipt' });
   }
 });
@@ -795,6 +1040,16 @@ router.post('/receipt-confirm-item', authRequired, async (req, res) => {
       return res.status(400).json({ error: `Cannot confirm items with status: ${capture.status}` });
     }
 
+    // Enforce driver-store binding
+    const isOwner = isOwnerUsername(username);
+    const isDriver = isDriverUsername(username);
+    if (!isOwner && !isDriver) {
+      return res.status(403).json({ error: 'Not authorized to confirm receipts' });
+    }
+    if (isDriver && !driverCanAccessStore(username, capture.storeId)) {
+      return res.status(403).json({ error: 'Driver not authorized for this store' });
+    }
+
     // Check if already confirmed with same values (idempotent)
     const draftItem = capture.draftItems.find(i => i.lineIndex === lineIndex);
     if (draftItem && draftItem.boundProductId && draftItem.confirmedAt) {
@@ -820,6 +1075,12 @@ router.post('/receipt-confirm-item', authRequired, async (req, res) => {
     // Confirm the item
     capture.confirmItem(lineIndex, productId, upc, username || 'unknown');
     await capture.save();
+
+    await recordAuditLog({
+      type: 'receipt_confirm_item',
+      actorId: username || 'unknown',
+      details: `capture=${capture._id.toString()} line=${lineIndex} product=${productId}`
+    });
 
     res.json({
       ok: true,
@@ -873,6 +1134,19 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
       await session.abortTransaction();
       await session.endSession();
       return res.status(400).json({ error: 'All items must be confirmed before commit' });
+    }
+
+    const isOwner = isOwnerUsername(username);
+    const isDriver = isDriverUsername(username);
+    if (!isOwner && !isDriver) {
+      await session.abortTransaction();
+      await session.endSession();
+      return res.status(403).json({ error: 'Not authorized to commit receipts' });
+    }
+    if (isDriver && !driverCanAccessStore(username, capture.storeId)) {
+      await session.abortTransaction();
+      await session.endSession();
+      return res.status(403).json({ error: 'Driver not authorized for this store' });
     }
 
     // Process each confirmed item
@@ -1011,6 +1285,12 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
     // Commit transaction atomically
     await session.commitTransaction();
 
+    await recordAuditLog({
+      type: 'receipt_commit',
+      actorId: username || 'unknown',
+      details: `capture=${capture._id.toString()} committed=${committed} errors=${errors.length}`
+    });
+
     res.json({
       ok: true,
       captureId: capture._id.toString(),
@@ -1099,7 +1379,7 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
           }
           
           const validation = validatePriceQuantity(totalPrice, quantity);
-          if (!validation.valid) {
+          if (!validation.ok) {
             errors.push(`${name}: ${validation.error}`);
             continue;
           }
@@ -1483,7 +1763,7 @@ router.post('/receipt-confirm-match', authRequired, async (req, res) => {
     }
     
     const validation = validatePriceQuantity(unitPrice, quantity || 1);
-    if (!validation.valid) {
+    if (!validation.ok) {
       return res.status(400).json({ error: validation.error });
     }
 
@@ -1624,6 +1904,7 @@ router.get('/store-inventory/:storeId', authRequired, async (req, res) => {
  * GET /api/driver/receipt-captures
  * List receipt captures for management review
  * Query params: storeId, status, limit
+ * SECURITY: Owner sees all; Driver sees only their authorized stores
  */
 router.get('/receipt-captures', authRequired, async (req, res) => {
   if (!isDbReady()) {
@@ -1632,6 +1913,19 @@ router.get('/receipt-captures', authRequired, async (req, res) => {
 
   try {
     const { storeId, status, limit = 50 } = req.query;
+    const username = req.user?.username;
+    const isOwner = isOwnerUsername(username);
+    const isDriver = isDriverUsername(username);
+    
+    // Drivers must specify storeId and be authorized for it
+    if (isDriver && !isOwner) {
+      if (!storeId) {
+        return res.status(400).json({ error: 'Drivers must specify storeId' });
+      }
+      if (!driverCanAccessStore(username, storeId)) {
+        return res.status(403).json({ error: 'Driver not authorized for this store' });
+      }
+    }
     
     const query = {};
     if (storeId) query.storeId = storeId;
