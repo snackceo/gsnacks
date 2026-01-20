@@ -92,9 +92,16 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
 
   useEffect(() => {
     fetchCapture();
-    const interval = setInterval(fetchCapture, 5000); // Refresh every 5s
+    
+    // Only refresh if not actively scanning - prevent polling from overwriting confirmations
+    const interval = setInterval(() => {
+      if (scanningLineIndex === null) {
+        fetchCapture();
+      }
+    }, 5000); // Refresh every 5s (when not scanning)
+    
     return () => clearInterval(interval);
-  }, [captureId]);
+  }, [captureId, scanningLineIndex]);
 
   // Auto-focus scan input when scanning mode enabled
   useEffect(() => {

@@ -1,6 +1,13 @@
 import mongoose from 'mongoose';
 
 const receiptCaptureSchema = new mongoose.Schema({
+  // Idempotency key for duplicate prevention
+  captureRequestId: {
+    type: String,
+    index: true,
+    sparse: true // Allow null for old captures
+  },
+  
   // Store context
   storeId: {
     type: mongoose.Schema.Types.ObjectId,

@@ -6,7 +6,7 @@ import Product from '../models/Product.js';
 import Store from '../models/Store.js';
 import ReceiptNameAlias from '../models/ReceiptNameAlias.js';
 import ReceiptCapture from '../models/ReceiptCapture.js';
-import { authRequired, isDriverUsername } from '../utils/helpers.js';
+import { authRequired, isDriverUsername, isOwnerUsername } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { isDbReady } from '../db/connect.js';
 
@@ -301,6 +301,7 @@ router.post('/upload-receipt-image', authRequired, async (req, res) => {
  * POST /api/driver/receipt-capture
  * Create a receipt capture record for photo upload workflow
  * Accepts receipt metadata and creates ReceiptCapture with status=pending_parse
+ * Idempotent: uses captureRequestId to prevent duplicate captures on retry
  */
 router.post('/receipt-capture', authRequired, async (req, res) => {
   if (!isDbReady()) {
@@ -308,26 +309,70 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
   }
 
   try {
-    const { storeId, storeName, orderId, images } = req.body;
+    const { storeId, storeName, orderId, images, captureRequestId } = req.body;
     const username = req.user?.username;
 
+    // Authorization check
+    const isOwner = isOwnerUsername(username);
+    const isDriver = isDriverUsername(username);
+    if (!isOwner && !isDriver) {
+      return res.status(403).json({ error: 'Not authorized to upload receipts' });
+    }
+
+    // Idempotency: check if this captureRequestId already exists
+    if (captureRequestId && typeof captureRequestId === 'string' && captureRequestId.length >= 8) {
+      const existingCapture = await ReceiptCapture.findOne({ 
+        captureRequestId,
+        createdBy: username
+      });
+      if (existingCapture) {
+        // Return existing capture (idempotent)
+        return res.json({
+          ok: true,
+          captureId: existingCapture._id.toString(),
+          status: existingCapture.status,
+          imageCount: existingCapture.images.length,
+          idempotent: true
+        });
+      }
+    } else if (!captureRequestId) {
+      return res.status(400).json({ error: 'captureRequestId required (UUID recommended)' });
+    }
+
     // Validation
-    if (!storeId || !storeName) {
-      return res.status(400).json({ error: 'storeId and storeName are required' });
+    if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
+      return res.status(400).json({ error: 'Valid storeId required' });
+    }
+    if (!storeName || typeof storeName !== 'string') {
+      return res.status(400).json({ error: 'storeName is required' });
     }
     if (!images || !Array.isArray(images) || images.length === 0 || images.length > 3) {
       return res.status(400).json({ error: 'images array required (1-3 photos)' });
     }
 
-    // Validate image URLs
+    // Verify store exists
+    const store = await Store.findById(storeId);
+    if (!store) {
+      return res.status(404).json({ error: 'Store not found' });
+    }
+
+    // Validate image URLs and sizes
     for (const img of images) {
       if (!img.url || typeof img.url !== 'string') {
         return res.status(400).json({ error: 'Each image must have a url' });
+      }
+      // Validate data URL size (max 5MB per image)
+      if (img.url.startsWith('data:')) {
+        const sizeMB = img.url.length / (1024 * 1024);
+        if (sizeMB > 5) {
+          return res.status(400).json({ error: `Image too large: ${sizeMB.toFixed(1)}MB (max 5MB)` });
+        }
       }
     }
 
     // Create ReceiptCapture record
     const capture = new ReceiptCapture({
+      captureRequestId, // For idempotency
       storeId,
       storeName,
       orderId: orderId || undefined,
@@ -428,6 +473,13 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
       return res.status(404).json({ error: 'Receipt capture not found' });
     }
 
+    // Authorize: only owner or driver can parse for their stores
+    const isOwner = isOwnerUsername(req.user?.username);
+    const isDriver = isDriverUsername(req.user?.username);
+    if (!isOwner && !isDriver) {
+      return res.status(403).json({ error: 'Not authorized to parse receipts' });
+    }
+
     if (capture.status !== 'pending_parse' && capture.status !== 'failed') {
       return res.status(400).json({ error: `Cannot parse receipt with status: ${capture.status}` });
     }
@@ -462,34 +514,22 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
         const mimeType = imageResponse.headers.get('content-type') || 'image/jpeg';
 
         // Gemini prompt for receipt parsing
-        const prompt = `Parse this receipt image and extract ALL line items with prices.
+        // Sanitized Gemini prompt (no user input injection)
+        const prompt = `You are a receipt OCR specialist. Parse this receipt image and extract ALL line items with prices.
 
-For EACH product line item, return:
-- receiptName: exact product name as printed on receipt
-- quantity: number of items purchased (default 1)
-- totalPrice: total price for this line (quantity * unit price)
-
-Return ONLY valid JSON array format:
+For EACH product line item, return ONLY valid JSON array format:
 [
-  {
-    "receiptName": "COCA COLA 12PK",
-    "quantity": 2,
-    "totalPrice": 15.98
-  },
-  {
-    "receiptName": "LAYS CHIPS ORIG",
-    "quantity": 1,
-    "totalPrice": 3.99
-  }
+  {"receiptName": "COCA COLA 12PK", "quantity": 2, "totalPrice": 15.98},
+  {"receiptName": "LAYS CHIPS ORIG", "quantity": 1, "totalPrice": 3.99}
 ]
 
-IMPORTANT RULES:
-1. Extract ONLY product line items (skip store name, date, tax, subtotal, total, payment info)
-2. Use exact product names from receipt (preserve case, abbreviations)
-3. For multi-buy items (e.g., "2 @ $4.99"), quantity=2, totalPrice=9.98
-4. Skip promotional discounts, coupons, tax lines
+RULES:
+1. Extract ONLY product line items (skip store name, date, tax, subtotal, total, payment, instructions)
+2. Use exact product names from receipt
+3. For multi-buy items, calculate quantity * unit price = totalPrice
+4. Skip discounts, coupons, tax lines
 5. Return empty array [] if no items found
-6. Return ONLY the JSON array, no markdown, no explanation`;
+6. Return ONLY the JSON array, no markdown, no explanation, no comments`;
 
         // Call Gemini Vision API
         const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
@@ -724,6 +764,7 @@ IMPORTANT RULES:
 /**
  * POST /api/driver/receipt-confirm-item
  * Confirm a draft item binding (management scanner workflow)
+ * Idempotent: calling twice with same params is safe
  */
 router.post('/receipt-confirm-item', authRequired, async (req, res) => {
   if (!isDbReady()) {
@@ -754,6 +795,28 @@ router.post('/receipt-confirm-item', authRequired, async (req, res) => {
       return res.status(400).json({ error: `Cannot confirm items with status: ${capture.status}` });
     }
 
+    // Check if already confirmed with same values (idempotent)
+    const draftItem = capture.draftItems.find(i => i.lineIndex === lineIndex);
+    if (draftItem && draftItem.boundProductId && draftItem.confirmedAt) {
+      // Already confirmed - check if same values
+      if (draftItem.boundProductId.toString() === productId && draftItem.boundUpc === upc) {
+        // Idempotent - return same response
+        return res.json({
+          ok: true,
+          captureId: capture._id.toString(),
+          status: capture.status,
+          idempotent: true,
+          stats: {
+            totalItems: capture.totalItems,
+            itemsNeedingReview: capture.itemsNeedingReview,
+            itemsConfirmed: capture.itemsConfirmed
+          }
+        });
+      }
+      // Different values - error on double confirmation
+      return res.status(409).json({ error: 'Item already confirmed with different values' });
+    }
+
     // Confirm the item
     capture.confirmItem(lineIndex, productId, upc, username || 'unknown');
     await capture.save();
@@ -779,26 +842,36 @@ router.post('/receipt-confirm-item', authRequired, async (req, res) => {
  * POST /api/driver/receipt-commit
  * Commit confirmed receipt items to StoreInventory
  * Updates prices and creates ReceiptNameAlias entries
+ * Uses MongoDB transactions for atomic commit
  */
 router.post('/receipt-commit', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
 
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { captureId } = req.body;
     const username = req.user?.username;
 
     if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
+      await session.abortTransaction();
+      await session.endSession();
       return res.status(400).json({ error: 'Valid captureId required' });
     }
 
-    const capture = await ReceiptCapture.findById(captureId);
+    const capture = await ReceiptCapture.findById(captureId).session(session);
     if (!capture) {
+      await session.abortTransaction();
+      await session.endSession();
       return res.status(404).json({ error: 'Receipt capture not found' });
     }
 
     if (capture.status !== 'review_complete') {
+      await session.abortTransaction();
+      await session.endSession();
       return res.status(400).json({ error: 'All items must be confirmed before commit' });
     }
 
@@ -810,13 +883,50 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
       if (!item.boundProductId) continue; // Skip unconfirmed items
 
       try {
-        const product = await Product.findById(item.boundProductId);
-        if (!product) {
-          errors.push({ lineIndex: item.lineIndex, error: 'Product not found' });
+        let product = await Product.findById(item.boundProductId).session(session);
+        
+        // Handle new product creation
+        if (!product && item.workflowType === 'new_product') {
+          // Create new product from receipt line item
+          product = new Product({
+            frontendId: `RECEIPT-${capture._id}-${item.lineIndex}`,
+            name: item.receiptName,
+            brand: item.receiptName.split(/\s+/)[0] || 'UNKNOWN', // First word as brand
+            category: classifyCategory(item.receiptName) || 'DRINK',
+            price: item.unitPrice,
+            sizeOz: 0, // Would need to extract from receipt
+            stock: 0, // Will be managed separately
+            store: capture.storeId
+          });
+          await product.save({ session });
+          item.boundProductId = product._id.toString();
+        } else if (!product) {
+          errors.push({ lineIndex: item.lineIndex, error: 'Product not found and workflowType not new_product' });
           continue;
         }
 
-        // Update StoreInventory
+        // Validate price delta - prevent catastrophic pricing errors
+        const existingInventory = await StoreInventory.findOne(
+          { storeId: capture.storeId, productId: item.boundProductId }
+        ).session(session);
+        
+        if (existingInventory?.observedPrice) {
+          const currentPrice = existingInventory.observedPrice;
+          const newPrice = item.unitPrice;
+          const pctDelta = Math.abs((newPrice - currentPrice) / currentPrice);
+          const absDelta = Math.abs(newPrice - currentPrice);
+          
+          // Flag extreme deltas (>100% or >$5) for safety
+          if (pctDelta > 1.0 || absDelta > 5.0) {
+            errors.push({
+              lineIndex: item.lineIndex,
+              error: `Price delta too large: $${currentPrice} → $${newPrice} (${(pctDelta * 100).toFixed(0)}%)`
+            });
+            continue;
+          }
+        }
+
+        // Update StoreInventory with transaction
         const inventoryUpdate = {
           $set: {
             observedPrice: item.unitPrice,
@@ -835,7 +945,8 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
                 matchConfidence: item.matchConfidence || 1.0,
                 confirmedBy: item.confirmedBy,
                 priceType: item.priceType || 'regular',
-                promoDetected: item.promoDetected || false
+                promoDetected: item.promoDetected || false,
+                workflowType: item.workflowType
               }],
               $slice: -20 // Keep last 20
             },
@@ -853,10 +964,10 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
         await StoreInventory.updateOne(
           { storeId: capture.storeId, productId: item.boundProductId },
           inventoryUpdate,
-          { upsert: true }
+          { upsert: true, session }
         );
 
-        // Update or create ReceiptNameAlias
+        // Update or create ReceiptNameAlias with transaction
         const normalizedName = normalizeReceiptName(item.receiptName);
         await ReceiptNameAlias.updateOne(
           { storeId: capture.storeId, normalizedName },
@@ -879,7 +990,7 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
               createdBy: username || 'unknown'
             }
           },
-          { upsert: true }
+          { upsert: true, session }
         );
 
         committed++;
@@ -895,7 +1006,10 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
     capture.committedBy = username || 'unknown';
     capture.committedAt = new Date();
     capture.itemsCommitted = committed;
-    await capture.save();
+    await capture.save({ session });
+
+    // Commit transaction atomically
+    await session.commitTransaction();
 
     res.json({
       ok: true,
@@ -905,8 +1019,11 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
     });
 
   } catch (error) {
+    await session.abortTransaction();
     console.error('Error committing receipt:', error);
     res.status(500).json({ error: 'Failed to commit receipt' });
+  } finally {
+    await session.endSession();
   }
 });
 

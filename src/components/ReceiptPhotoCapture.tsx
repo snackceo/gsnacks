@@ -115,8 +115,10 @@ export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onCom
         })
       );
 
-      // Create receipt capture
+      // Create receipt capture (with idempotency UUID)
       const token = localStorage.getItem('token');
+      const captureRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
       const captureResponse = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
         method: 'POST',
         headers: {
@@ -124,6 +126,7 @@ export default function ReceiptPhotoCapture({ storeId, storeName, orderId, onCom
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
+          captureRequestId, // For idempotency - browser retries will return same capture
           storeId,
           storeName,
           orderId,
