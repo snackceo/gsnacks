@@ -91,7 +91,6 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
   useEffect(() => {
     loadEvents();
-    loadForecast();
   }, []);
 
   const loadForecast = async () => {
@@ -227,7 +226,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               ) : (
                 <BrainCircuit className="w-6 h-6" />
               )}
-              Run Audit
+              Analyze Inventory
             </button>
             <button
               onClick={runOpsSummary}
@@ -239,7 +238,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               ) : (
                 <BarChart3 className="w-6 h-6" />
               )}
-              Ops Summary
+              Daily Operations Report
             </button>
           </div>
         </div>
@@ -248,7 +247,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       {aiInsights && (
         <div className="bg-ninpo-midnight p-8 rounded-[2rem] border border-ninpo-lime/20 text-xs text-slate-300 leading-relaxed shadow-xl whitespace-pre-wrap">
           <p className="font-black text-ninpo-lime uppercase mb-4 tracking-widest flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4" /> Audit Report
+            <ShieldAlert className="w-4 h-4" /> Inventory Analysis
           </p>
           {aiInsights}
         </div>
@@ -257,7 +256,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       {opsSummary && (
         <div className="bg-ninpo-midnight/60 p-8 rounded-[2rem] border border-white/10 text-xs text-slate-300 leading-relaxed shadow-xl whitespace-pre-wrap">
           <p className="font-black text-white uppercase mb-4 tracking-widest flex items-center gap-2">
-            <BarChart3 className="w-4 h-4" /> Ops Summary
+            <BarChart3 className="w-4 h-4" /> Daily Operations Report
           </p>
           {opsSummary}
         </div>
