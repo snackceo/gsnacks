@@ -100,6 +100,30 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Receipt Capture Quick Access */}
+      <div className="bg-gradient-to-r from-orange-600 to-amber-600 rounded-2xl p-6 border border-white/20">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-black uppercase text-white tracking-widest flex items-center gap-2">
+              <Camera className="w-5 h-5" />
+              Upload Receipt
+            </h3>
+            <p className="text-sm text-orange-100 mt-2">Capture and process a new receipt</p>
+          </div>
+          <button
+            onClick={() => {
+              setCaptureStoreId('');
+              setCaptureStoreName('Manual Entry');
+              setShowPhotoCapture(true);
+            }}
+            className="px-6 py-3 bg-white hover:bg-gray-100 rounded-lg text-orange-600 font-bold text-sm flex items-center gap-2 transition-all"
+          >
+            <Camera className="w-5 h-5" />
+            Start Capture
+          </button>
+        </div>
+      </div>
+
       {/* Receipt Captures Section */}
       {receiptCaptures.length > 0 && (
         <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-2xl p-6 border border-white/20">
