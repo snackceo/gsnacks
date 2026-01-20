@@ -25,6 +25,7 @@ interface ManagementUsersProps {
   saveUserDraft: (userId: string) => void;
   apiDeleteUser: (userId: string) => void;
   allowPlatinumTier: boolean;
+  allowGreenTier: boolean;
   fmtTime: (iso?: string) => string;
   fmtDelta: (value: number) => string;
   getTierStyles: (tier: string) => string;
@@ -54,6 +55,7 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
   saveUserDraft,
   apiDeleteUser,
   allowPlatinumTier,
+  allowGreenTier,
   fmtTime,
   fmtDelta,
   getTierStyles,
@@ -264,6 +266,11 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
                           {(allowPlatinumTier || u.membershipTier === 'PLATINUM') && (
                             <option value="PLATINUM" disabled={!allowPlatinumTier}>
                               Secret Platinum
+                            </option>
+                          )}
+                          {(allowGreenTier || u.membershipTier === 'GREEN') && (
+                            <option value="GREEN" disabled={!allowGreenTier}>
+                              Green
                             </option>
                           )}
                         </select>

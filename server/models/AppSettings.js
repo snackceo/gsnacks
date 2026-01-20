@@ -20,6 +20,7 @@ const appSettingsSchema = new mongoose.Schema(
     allowGuestCheckout: { type: Boolean, default: false },
     showAdvancedInventoryInsights: { type: Boolean, default: false },
     allowPlatinumTier: { type: Boolean, default: false },
+    allowGreenTier: { type: Boolean, default: false },
     platinumFreeDelivery: { type: Boolean, default: false }
     ,
     storageZones: { type: [String], default: [] },

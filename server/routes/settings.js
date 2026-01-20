@@ -35,6 +35,7 @@ const defaultSettings = {
   allowGuestCheckout: false,
   showAdvancedInventoryInsights: false,
   allowPlatinumTier: false,
+  allowGreenTier: false,
   platinumFreeDelivery: false,
   dailyReturnLimit: 250,
   // deliveryFee removed (legacy)
@@ -81,6 +82,7 @@ const booleanFields = [
   'allowGuestCheckout',
   'showAdvancedInventoryInsights',
   'allowPlatinumTier',
+  'allowGreenTier',
   'platinumFreeDelivery'
 ];
 
@@ -158,6 +160,7 @@ const mapSettings = (doc) => ({
   allowGuestCheckout: Boolean(doc?.allowGuestCheckout ?? defaultSettings.allowGuestCheckout),
   showAdvancedInventoryInsights: Boolean(doc?.showAdvancedInventoryInsights ?? defaultSettings.showAdvancedInventoryInsights),
   allowPlatinumTier: Boolean(doc?.allowPlatinumTier ?? defaultSettings.allowPlatinumTier),
+  allowGreenTier: Boolean(doc?.allowGreenTier ?? defaultSettings.allowGreenTier),
   platinumFreeDelivery: Boolean(doc?.platinumFreeDelivery ?? defaultSettings.platinumFreeDelivery),
   dailyReturnLimit: Number(doc?.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
   // deliveryFee removed (legacy)

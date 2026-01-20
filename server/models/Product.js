@@ -18,7 +18,12 @@ const productSchema = new mongoose.Schema(
     image: { type: String, default: '' },
     isGlass: { type: Boolean, default: false },
     // Operational flag for heavy item handling
-    isHeavy: { type: Boolean, default: false }
+    isHeavy: { type: Boolean, default: false },
+    store: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Store',
+      index: true
+    }
   },
   { timestamps: true }
 );

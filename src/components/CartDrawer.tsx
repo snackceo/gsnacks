@@ -41,6 +41,7 @@ interface CartDrawerProps {
   onPolicyChange: (v: boolean) => void;
 
   onRemoveItem: (productId: string) => void;
+  onCartUpdate: (newCart: CartItem[]) => void;
 
   onPayCredits: (
     returnUpcs: ReturnUpcCount[],
@@ -105,10 +106,12 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   onAddressChange,
   onPolicyChange,
   onRemoveItem,
+  onCartUpdate,
   onPayCredits,
   onPayExternal
 }) => {
-  const { addToast } = useNinpoCore();
+  const core = useNinpoCore();
+  const { addToast } = core;
   // ----------------------------
   // Container returns (Customer scanner)
   // ----------------------------
@@ -129,12 +132,78 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const [isValidatingAddress, setIsValidatingAddress] = useState(false);
   const [showAddressSuggestion, setShowAddressSuggestion] = useState(false);
 
+  // Cart Optimization state
+  const [optimizationResult, setOptimizationResult] = useState<any>(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+
+  const handleOptimizeCart = async () => {
+    setIsOptimizing(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/cart/optimize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to optimize cart');
+      }
+      setOptimizationResult(data);
+      addToast('Cart optimization complete!', 'success');
+    } catch (error: any) {
+      console.error('Cart optimization failed:', error);
+      addToast(error.message || 'Cart optimization failed.', 'error');
+      setOptimizationResult(null);
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
+  const handleAcceptOptimization = async () => {
+    if (!optimizationResult) return;
+
+    const newCartItems = optimizationResult.optimizedCart.items.map(item => ({
+      productId: item.product._id || item.product.frontendId,
+      quantity: item.quantity,
+    }));
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/cart/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+            items: newCartItems,
+            subtotal: optimizationResult.optimizedCart.subtotal,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to update cart');
+      }
+
+      onCartUpdate(newCartItems);
+      setOptimizationResult(null);
+      addToast('Cart updated with optimized items!', 'success');
+
+    } catch (error: any) {
+        console.error('Failed to accept optimization:', error);
+        addToast(error.message || 'Failed to update cart.', 'error');
+    }
+  };
+
   const cartIsEmpty = cart.length === 0;
   const hasReturnUpcs = totalReturnContainers > 0;
   const isPickupOnlyOrder = cartIsEmpty && hasReturnUpcs;
 
   const activeTier = membershipTier ?? UserTier.COMMON;
-  const allowCashPayout = [UserTier.GOLD, UserTier.PLATINUM, UserTier.GREEN].includes(activeTier);
+  const allowPlatinumTier = Boolean((core as any)?.settings?.allowPlatinumTier);
+  const allowGreenTier = Boolean((core as any)?.settings?.allowGreenTier);
+  const cashEligibleTiers: UserTier[] = [UserTier.GOLD];
+  if (allowPlatinumTier) cashEligibleTiers.push(UserTier.PLATINUM);
+  if (allowGreenTier) cashEligibleTiers.push(UserTier.GREEN);
+  const allowCashPayout = cashEligibleTiers.includes(activeTier);
 
   useEffect(() => {
     if (!allowCashPayout && useCashPayout) {
@@ -246,7 +315,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const lineItems = useMemo(() => {
     return cart
       .map(ci => {
-        const p = products.find(x => x.id === ci.productId || (x as any).frontendId === ci.productId);
+        const p = products.find(x => x._id === ci.productId || (x as any).frontendId === ci.productId || (x as any).id === ci.productId);
         if (!p) return null;
         const unitPrice = Number(p.price || 0);
         return {
@@ -289,7 +358,10 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const activeLargeOrderFeeCents = Math.round(activeLargeOrderFee * 100);
   const activeHeavyItemFeeCents = Math.round(activeHeavyItemFee * 100);
 
-  const creditsCoverDelivery = [UserTier.SILVER, UserTier.GOLD, UserTier.PLATINUM, UserTier.GREEN].includes(activeTier);
+  const deliveryCreditEligibleTiers: UserTier[] = [UserTier.SILVER, UserTier.GOLD];
+  if (allowPlatinumTier) deliveryCreditEligibleTiers.push(UserTier.PLATINUM);
+  if (allowGreenTier) deliveryCreditEligibleTiers.push(UserTier.GREEN);
+  const creditsCoverDelivery = deliveryCreditEligibleTiers.includes(activeTier);
   const creditEligibleCents = creditsCoverDelivery
     ? subtotalCents + activeRouteFeeCents + activeDistanceFeeCents
     : subtotalCents;
@@ -614,6 +686,62 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                     AI output is advisory; eligibility is determined by the UPC whitelist and
                     deposit labeling.
                   </p>
+                </div>
+              )}
+            </div>
+
+            {/* Cart Optimization */}
+            <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-white font-black uppercase tracking-widest text-xs">
+                  Optimize Cart
+                </p>
+                <button
+                  onClick={handleOptimizeCart}
+                  disabled={isOptimizing || cartIsEmpty}
+                  className="px-4 py-3 rounded-2xl bg-ninpo-blue text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-ninpo-blue/90 transition disabled:opacity-50"
+                >
+                  {isOptimizing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Zap className="w-4 h-4" />
+                  )}
+                  {isOptimizing ? 'Optimizing...' : 'Optimize My Cart'}
+                </button>
+              </div>
+              {optimizationResult && (
+                <div className="border-t border-white/10 pt-4 space-y-4">
+                    <p className="text-sm text-white">Optimization Found!</p>
+                    <div className="bg-black/30 border border-white/10 rounded-2xl p-5 space-y-3">
+                        {optimizationResult.optimizedCart.items.map((item, index) => (
+                            <div key={index} className="flex justify-between items-center">
+                                <p className="text-white">{item.product.name} (x{item.quantity})</p>
+                                <div className='flex items-center gap-2'>
+                                  {item.originalPrice && <p className="text-slate-400 line-through">{money(item.originalPrice)}</p>}
+                                  <p className="text-ninpo-lime">{money(item.product.price)}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="flex justify-between items-center">
+                        <p className="text-white font-bold">New Subtotal:</p>
+                        <p className="text-ninpo-lime font-bold">{money(optimizationResult.optimizedCart.subtotal)}</p>
+                    </div>
+                    {optimizationResult.routeInfo && (
+                        <div>
+                            <p className="text-white font-bold">Route Info:</p>
+                            <p className="text-slate-300">Total Distance: {(optimizationResult.routeInfo.distance / 1609.34).toFixed(2)} miles</p>
+                            <p className="text-slate-300">Total Duration: {Math.round(optimizationResult.routeInfo.duration / 60)} minutes</p>
+                        </div>
+                    )}
+                    <div className="flex gap-4">
+                        <button onClick={handleAcceptOptimization} className="flex-1 px-4 py-2 bg-ninpo-lime text-ninpo-black rounded-xl text-xs font-bold uppercase tracking-wide hover:bg-ninpo-lime/90 transition">
+                            Accept
+                        </button>
+                        <button onClick={() => setOptimizationResult(null)} className="flex-1 px-4 py-2 bg-white/10 text-white rounded-xl text-xs font-bold uppercase tracking-wide hover:bg-white/20 transition">
+                            Decline
+                        </button>
+                    </div>
                 </div>
               )}
             </div>

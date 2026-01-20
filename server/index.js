@@ -29,6 +29,7 @@ import scanSessionsRouter from './routes/scan-sessions.js';
 import distanceRouter from './routes/distance.js';
 import inventoryAuditRouter from './routes/inventory-audit.js';
 import returnsRouter from './routes/returns.js';
+import cartRouter from './routes/cart.js';
 import { maintenanceModeGuardCached } from './utils/maintenanceMode.js';
 
 dotenv.config();
@@ -127,6 +128,7 @@ app.use('/api/orders', maintenanceModeGuardCached, createOrdersRouter({ stripe }
 app.use('/api/payments', maintenanceModeGuardCached, createPaymentsRouter({ stripe }));
 app.use('/api/stripe', maintenanceModeGuardCached, createStripeRouter({ stripe, webhookSecret }));
 app.use('/api/returns', maintenanceModeGuardCached, returnsRouter);
+app.use('/api/cart', maintenanceModeGuardCached, cartRouter);
 
 // Admin/management routes - always accessible (auth protection handles access)
 app.use('/api/upc', upcRouter);

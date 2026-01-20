@@ -89,7 +89,7 @@ function App() {
         credentials: 'include',
         body: JSON.stringify({
           items: core.cart,
-          userId: core.currentUser?.id,
+          userId: core.currentUser?._id,
           gateway: type,
           address: address, // NEW: stored on order for owner dashboard
           returnUpcCounts: returnUpcs,
@@ -231,10 +231,10 @@ function App() {
               <CustomerView
                 products={core.products}
                 orders={core.orders.filter(
-                  o => o.customerId === core.currentUser?.id
+                  o => o.customerId === core.currentUser?._id
                 )}
                 currentUser={core.currentUser}
-                userStats={core.currentUser ? core.userStats[core.currentUser.id] : undefined}
+                userStats={core.currentUser ? core.userStats[core.currentUser._id] : undefined}
                 openLogin={() => setIsLoginViewOpen(true)}
                 onRequestRefund={() => {}}
                 addToCart={(productId) => {
@@ -245,7 +245,7 @@ function App() {
                     }
                   }
 
-                  const product = core.products.find(p => p.id === productId);
+                  const product = core.products.find(p => p._id === productId || (p as any).frontendId === productId);
                   const stock = (product as any)?.stock ?? 0;
                   const inCart =
                     core.cart.find(i => i.productId === productId)?.quantity ??
@@ -370,14 +370,17 @@ function App() {
         address={address}
         acceptedPolicies={acceptedPolicies}
         isProcessing={isProcessingOrder}
-        currentUserId={core.currentUser?.id}
-        membershipTier={core.currentUser?.membershipTier}
+        currentUserId={core.currentUser?._id}
+        membershipTier={core.currentUser?.tier}
         onClose={() => setIsCartOpen(false)}
         onAddressChange={setAddress}
         onPolicyChange={setAcceptedPolicies}
         onRemoveItem={id =>
           core.setCart(prev => prev.filter(i => i.productId !== id))
         }
+        onCartUpdate={(newCart) => {
+            core.setCart(newCart);
+        }}
         onPayCredits={handleCreditsPayment}
         onPayExternal={handleExternalPayment}
       />

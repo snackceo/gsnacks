@@ -246,22 +246,25 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
               />
             </div>
             <div className="max-h-64 overflow-y-auto space-y-2">
-              {filteredProducts.map(product => (
-                <div
-                  key={product.id}
-                  onClick={() => setSelectedProductId(product.id)}
-                  className={`p-4 rounded-2xl border cursor-pointer transition ${
-                    selectedProductId === product.id
-                      ? 'border-ninpo-lime bg-ninpo-lime/10'
-                      : 'border-white/10 bg-black/30 hover:bg-black/50'
-                  }`}
-                >
+              {filteredProducts.map(product => {
+                const pid = (product as any)._id || product.id;
+                return (
+                  <div
+                    key={pid}
+                    onClick={() => setSelectedProductId(pid)}
+                    className={`p-4 rounded-2xl border cursor-pointer transition ${
+                      selectedProductId === pid
+                        ? 'border-ninpo-lime bg-ninpo-lime/10'
+                        : 'border-white/10 bg-black/30 hover:bg-black/50'
+                    }`}
+                  >
                   <p className="text-white font-semibold">{product.name}</p>
                   <p className="text-[10px] text-slate-600 uppercase tracking-widest">
-                    SKU: {product.sku || product.id}
+                    SKU: {product.sku || pid}
                   </p>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
               {filteredProducts.length === 0 && (
                 <p className="text-slate-500 text-[10px] uppercase tracking-widest text-center py-8">
                   No products found matching "{attachSearch}"

@@ -14,11 +14,12 @@ interface CustomerViewProps {
 
 import React, { useState, useEffect } from 'react';
 import { Product, Order, OrderStatus, User, UserTier, UserStatsSummary } from '../types';
-import { Plus, Search, Award, Settings, Leaf, Star, Coins, Zap, Info, CheckCircle2, XCircle, Recycle } from 'lucide-react';
+import { Plus, Award, Settings, Leaf, Star, Coins, Zap, Info, CheckCircle2, XCircle, Recycle } from 'lucide-react';
 import { CATEGORIES } from '../constants';
 import CustomerReturnScanner from '../components/CustomerReturnScanner';
 import { analytics } from '../services/analyticsService';
 import { ProductRecommendations } from '../components/ProductRecommendations';
+import AssistantSearchChat from '../components/AssistantSearchChat';
 
 
 
@@ -35,6 +36,8 @@ const CustomerView: React.FC<CustomerViewProps> = ({
 }) => {
   const [activeCategory, setActiveCategory] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [aiFilteredIds, setAiFilteredIds] = useState<string[]>([]);
+  const [aiInterpretation, setAiInterpretation] = useState('');
   const [showDashboard, setShowDashboard] = useState(false);
   const [showReturnScanner, setShowReturnScanner] = useState(false);
   const [totalReturnContainers, setTotalReturnContainers] = useState(0);
@@ -69,12 +72,12 @@ const CustomerView: React.FC<CustomerViewProps> = ({
   }, [currentUser]);
 
   // Filtering and derived values
-  const filteredProducts = products.filter(
-    p =>
-      (activeCategory === 'ALL' ||
-        p.category.toUpperCase() === activeCategory) &&
-      p.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProducts = products.filter(p => {
+    const matchesCategory = activeCategory === 'ALL' || p.category.toUpperCase() === activeCategory;
+    const matchesText = p.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesAi = aiFilteredIds.length === 0 || aiFilteredIds.includes(p._id || (p as any).frontendId);
+    return matchesCategory && matchesText && matchesAi;
+  });
 
   // Safe numeric defaults
   const safeCredits = currentUser?.creditBalance ?? 0;
@@ -130,31 +133,32 @@ const CustomerView: React.FC<CustomerViewProps> = ({
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20">
       <div className="flex flex-col xl:flex-row gap-8 items-center justify-between">
-        <div className="relative flex-1 w-full lg:max-w-2xl">
-          <input
-            id="productSearch"
-            name="productSearch"
-            type="text"
-            placeholder="Search Logistics Hub..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full bg-ninpo-midnight border border-white/10 text-white px-10 py-7 rounded-[2.5rem] font-bold text-lg shadow-2xl outline-none placeholder:text-slate-800 focus:border-ninpo-lime transition-all"
+        <div className="flex-1 w-full lg:max-w-3xl">
+          <AssistantSearchChat
+            products={products}
+            currentUser={currentUser}
+            recentOrders={orders}
+            onSearchResults={(ids, interpretation) => {
+              setAiFilteredIds(ids || []);
+              setAiInterpretation(interpretation || '');
+              setActiveCategory('ALL');
+              if (!ids || ids.length === 0) {
+                setSearchQuery('');
+              }
+            }}
           />
-          <Search className="absolute right-8 top-1/2 -translate-y-1/2 text-slate-800 w-6 h-6" />
         </div>
         <div className="flex gap-4">
           {currentUser && (
-            <>
-              <button
-                onClick={() => {
-                  setShowDashboard(!showDashboard);
-                  setShowReturnScanner(false);
-                }}
-                className="px-8 py-5 bg-ninpo-card border border-white/5 rounded-[1.5rem] text-white font-black text-[12px] uppercase tracking-widest flex items-center gap-3 hover:border-ninpo-lime/40 transition-all shadow-lg active:scale-95"
-              >
-                <Settings className="w-5 h-5 text-slate-600" /> Dashboard
-              </button>
-            </>
+            <button
+              onClick={() => {
+                setShowDashboard(!showDashboard);
+                setShowReturnScanner(false);
+              }}
+              className="px-8 py-5 bg-ninpo-card border border-white/5 rounded-[1.5rem] text-white font-black text-[12px] uppercase tracking-widest flex items-center gap-3 hover:border-ninpo-lime/40 transition-all shadow-lg active:scale-95"
+            >
+              <Settings className="w-5 h-5 text-slate-600" /> Dashboard
+            </button>
           )}
         </div>
       </div>
@@ -206,18 +210,22 @@ const CustomerView: React.FC<CustomerViewProps> = ({
         <>
           {/* Main product/market view */}
           
-          {/* AI Recommendations Section */}
+          {/* AI Recommendations Section (now opt-in) */}
           {currentUser && (
-            <ProductRecommendations
-              userId={currentUser.id}
-              orderHistory={orders}
-              currentCart={[]} // TODO: Pass actual cart items
-              onProductClick={(productName) => {
-                // Auto-search for recommended product
-                setSearchQuery(productName);
-                setActiveCategory('ALL');
-              }}
-            />
+            <details className="bg-ninpo-card/60 border border-white/10 rounded-[1.5rem] p-4">
+              <summary className="text-sm text-white font-semibold cursor-pointer">Get AI suggestions (click to open)</summary>
+              <div className="mt-4">
+                <ProductRecommendations
+                  userId={currentUser.id}
+                  orderHistory={orders}
+                  currentCart={[]} // TODO: Pass actual cart items
+                  onProductClick={(productName) => {
+                    setSearchQuery(productName);
+                    setActiveCategory('ALL');
+                  }}
+                />
+              </div>
+            </details>
           )}
 
           <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4 px-1">
@@ -285,8 +293,9 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                   </span>
                   <button
                     onClick={() => {
-                      addToCart(p.id);
-                      analytics.trackProductInteraction('add_to_cart', p.id, p.name);
+                      const productId = (p as any)._id || p.id;
+                      addToCart(productId);
+                      analytics.trackProductInteraction('add_to_cart', productId, p.name);
                     }}
                     disabled={p.stock === 0}
                     className="w-12 h-12 bg-ninpo-lime rounded-[1.2rem] flex items-center justify-center text-ninpo-black hover:bg-white active:scale-90 transition-all shadow-neon disabled:opacity-5 disabled:grayscale"

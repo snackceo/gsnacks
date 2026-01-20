@@ -146,6 +146,10 @@ const ManagementSettings: React.FC<ManagementSettingsProps> = ({
           Allow Platinum Tier
         </label>
         <label className="flex items-center gap-3 text-sm font-bold text-slate-300">
+          <input type="checkbox" checked={!!settingsDraft.allowGreenTier} onChange={e => updateSettingsDraft({ allowGreenTier: e.target.checked })} />
+          Allow Green Tier
+        </label>
+        <label className="flex items-center gap-3 text-sm font-bold text-slate-300">
           <input type="checkbox" checked={!!settingsDraft.platinumFreeDelivery} onChange={e => updateSettingsDraft({ platinumFreeDelivery: e.target.checked })} />
           Platinum Free Delivery
         </label>

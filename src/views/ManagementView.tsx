@@ -352,6 +352,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [auditActorFilter, setAuditActorFilter] = useState('');
   const [auditRangeFilter, setAuditRangeFilter] = useState<'24h' | '7d' | '30d'>('7d');
   const allowPlatinumTier = Boolean(settings.allowPlatinumTier);
+  const allowGreenTier = Boolean((settings as any).allowGreenTier);
 
   const auditTypeOptions = useMemo(() => {
     const types = Array.from(new Set(auditLogs.map(log => log.type))).sort();
@@ -733,8 +734,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
 
     setIsSavingEdit(true);
+    const editingProductId = (editingProduct as any)._id || editingProduct.id;
     try {
-      const res = await fetch(`${BACKEND_URL}/api/products/${editingProduct.id}`, {
+      const res = await fetch(`${BACKEND_URL}/api/products/${editingProductId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -749,7 +751,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         sizeUnit: data.product?.sizeUnit || editDraft.sizeUnit,
         nutritionNote: data.product?.nutritionNote || editDraft.nutritionNote
       };
-      setProducts(prev => prev.map(p => (p.id === updated.id ? updated : p)));
+      const updatedId = (updated as any)._id || updated.id;
+      setProducts(prev => prev.map(p => (((p as any)._id || p.id) === updatedId ? updated : p)));
       setEditingProduct(null);
     } catch (e: any) {
       setEditError(e?.message || 'Update failed');
@@ -1239,6 +1242,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           saveUserDraft={saveUserDraft}
           apiDeleteUser={apiDeleteUser}
           allowPlatinumTier={allowPlatinumTier}
+          allowGreenTier={allowGreenTier}
           fmtTime={fmtTime}
           fmtDelta={fmtDelta}
           getTierStyles={getTierStyles}
@@ -1353,7 +1357,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   Edit Product
                 </p>
                 <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mt-2">
-                  ID: {editingProduct.id}
+                  ID: {(editingProduct as any)._id || editingProduct.id}
                 </p>
                 <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-2">
                   Storage zone/bin = item location (e.g., Fridge / Shelf A).

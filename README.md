@@ -269,7 +269,7 @@ Platinum may receive operator-controlled waivers via management settings, includ
 
 > Platinum users should only ever pay for products unless the operator explicitly chooses otherwise.
 
-#### Green Tier (Future)
+#### Green Tier (Active)
 
 * **$1 flat Route Fee**
 * **No Distance Fee** regardless of mileage
@@ -307,7 +307,7 @@ Credits may only be applied to parts of an order that the customer’s tier expl
 | Silver          |          ✅         |          ✅          |                     ✅                    |
 | Gold            |          ✅         |          ✅          |                     ✅                    |
 | Secret Platinum |          ✅         |          ✅          |                     ✅                    |
-| Green (future)  |          ✅         |          ✅          | ❌ *(Distance Fee is always $0 in Green)* |
+| Green (active)  |          ✅         |          ✅          | ❌ *(Distance Fee is always $0 in Green)* |
 
 Credits may:
 
@@ -360,7 +360,7 @@ Cash settlement exists as a **legal and operational exception**, not a primary p
 
 * **Gold**
 * **Secret Platinum**
-* **Green (future)**
+* **Green (active)**
 
 ### 8.3 Settlement Rules
 

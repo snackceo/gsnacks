@@ -53,9 +53,10 @@ const normalizeTier = tier => {
   return 'COMMON';
 };
 
-const normalizePayoutMethodForTier = (payoutMethod, tier) => {
+const normalizePayoutMethodForTier = (payoutMethod, tier, eligibility) => {
   const normalizedPayout = normalizeReturnPayoutMethod(payoutMethod);
-  if (normalizedPayout === 'CASH' && !CASH_PAYOUT_ELIGIBLE_TIERS.has(normalizeTier(tier))) {
+  const cashEligibleSet = eligibility?.cashPayoutEligibleTiers || CASH_PAYOUT_ELIGIBLE_TIERS;
+  if (normalizedPayout === 'CASH' && !cashEligibleSet.has(normalizeTier(tier))) {
     return 'CREDIT';
   }
   return normalizedPayout;
@@ -66,8 +67,23 @@ const getRouteFeeConfig = async () => {
   return {
     baseRouteFee: Number(doc?.routeFee ?? 4.99),
     pickupOnlyMultiplier: Number(doc?.pickupOnlyMultiplier ?? 0.5),
-    platinumFreeDelivery: Boolean(doc?.platinumFreeDelivery ?? false)
+    platinumFreeDelivery: Boolean(doc?.platinumFreeDelivery ?? false),
+    allowPlatinumTier: Boolean(doc?.allowPlatinumTier ?? false),
+    allowGreenTier: Boolean(doc?.allowGreenTier ?? false)
   };
+};
+
+const getTierEligibilityConfig = async () => {
+  const doc = await AppSettings.findOne({ key: 'default' }).lean();
+  const allowPlatinumTier = Boolean(doc?.allowPlatinumTier ?? false);
+  const allowGreenTier = Boolean(doc?.allowGreenTier ?? false);
+  const creditDeliveryEligibleTiers = new Set(['SILVER', 'GOLD']);
+  if (allowPlatinumTier) creditDeliveryEligibleTiers.add('PLATINUM');
+  if (allowGreenTier) creditDeliveryEligibleTiers.add('GREEN');
+  const cashPayoutEligibleTiers = new Set(['GOLD']);
+  if (allowPlatinumTier) cashPayoutEligibleTiers.add('PLATINUM');
+  if (allowGreenTier) cashPayoutEligibleTiers.add('GREEN');
+  return { creditDeliveryEligibleTiers, cashPayoutEligibleTiers, allowPlatinumTier, allowGreenTier };
 };
 
 const TIER_ROUTE_DISCOUNTS = {
@@ -81,7 +97,9 @@ const calculateRouteFee = ({
   pickupOnlyMultiplier,
   orderType,
   tier,
-  platinumFreeDelivery
+  platinumFreeDelivery,
+  allowPlatinumTier,
+  allowGreenTier
 }) => {
   let fee = Math.max(0, Number(baseRouteFee || 0));
   const normalizedTier = normalizeTier(tier);
@@ -99,7 +117,7 @@ const calculateRouteFee = ({
     fee = fee * (1 - tierDiscount);
   }
 
-  if (normalizedTier === 'GREEN') {
+  if (normalizedTier === 'GREEN' && allowGreenTier) {
     fee = 1;
     discountPercent =
       feeBeforeTierDiscount > 0
@@ -107,7 +125,7 @@ const calculateRouteFee = ({
         : 0;
   }
 
-  if (normalizedTier === 'PLATINUM' && platinumFreeDelivery) {
+  if (normalizedTier === 'PLATINUM' && allowPlatinumTier && platinumFreeDelivery) {
     fee = 0;
     discountPercent = feeBeforeTierDiscount > 0 ? 1 : 0;
   }
@@ -159,14 +177,15 @@ const calculateDistanceFee = ({
   config,
   orderType,
   pickupOnlyMultiplier,
-  tier
+  tier,
+  allowGreenTier
 }) => {
   const normalizedTier = normalizeTier(tier);
   const rawDistance = Number(distanceMiles);
   const sanitizedDistance = Number.isFinite(rawDistance) ? Math.max(0, rawDistance) : 0;
   const roundedDistance = roundDownToTenth(sanitizedDistance);
 
-  if (normalizedTier === 'GREEN') {
+  if (normalizedTier === 'GREEN' && allowGreenTier) {
     return { distanceFee: 0, distanceFeeCents: 0, distanceMiles: roundedDistance };
   }
 
@@ -332,7 +351,7 @@ const createPaymentsRouter = ({ stripe }) => {
    * - estimates subtotal + fees based on backend logic
    */
   router.post('/quote', async (req, res) => {
-    if (!isDbReady()) {
+    if (!isDbReady() && process.env.SKIP_DB_CHECKS_FOR_TESTS !== '1') {
       return res.status(503).json({ error: 'Database not ready' });
     }
     try {
@@ -352,7 +371,7 @@ const createPaymentsRouter = ({ stripe }) => {
       const tierLookupUser = userId
         ? await User.findById(userId, { membershipTier: 1 }).lean()
         : null;
-      const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery } =
+      const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery, allowPlatinumTier, allowGreenTier } =
         await getRouteFeeConfig();
       const handlingFeeConfig = await getHandlingFeeConfig();
       const distanceFeeConfig = await getDistanceFeeConfig();
@@ -372,7 +391,9 @@ const createPaymentsRouter = ({ stripe }) => {
         pickupOnlyMultiplier,
         orderType,
         tier: tierLookupUser?.membershipTier,
-        platinumFreeDelivery
+        platinumFreeDelivery,
+        allowPlatinumTier,
+        allowGreenTier
       });
       const { distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles } =
         calculateDistanceFee({
@@ -380,7 +401,8 @@ const createPaymentsRouter = ({ stripe }) => {
           config: distanceFeeConfig,
           orderType,
           pickupOnlyMultiplier,
-          tier: tierLookupUser?.membershipTier
+          tier: tierLookupUser?.membershipTier,
+          allowGreenTier
         });
 
       let totalCents = 0;
@@ -461,7 +483,7 @@ const createPaymentsRouter = ({ stripe }) => {
    * - creates Stripe Checkout Session with capture_method = manual (authorize only)
    */
   router.post('/create-session', async (req, res) => {
-    if (!isDbReady()) {
+    if (!isDbReady() && process.env.SKIP_DB_CHECKS_FOR_TESTS !== '1') {
       return res.status(503).json({ error: 'Database not ready' });
     }
     const sessionDb = await mongoose.startSession();
@@ -476,11 +498,13 @@ const createPaymentsRouter = ({ stripe }) => {
       const tierLookupUser = userId
         ? await User.findById(userId, { membershipTier: 1 }).session(sessionDb)
         : null;
+      const eligibility = await getTierEligibilityConfig();
       const returnPayoutMethod = normalizePayoutMethodForTier(
         req.body?.returnPayoutMethod,
-        tierLookupUser?.membershipTier
+        tierLookupUser?.membershipTier,
+        eligibility
       );
-      const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery } =
+      const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery, allowPlatinumTier, allowGreenTier } =
         await getRouteFeeConfig();
       const handlingFeeConfig = await getHandlingFeeConfig();
       const distanceFeeConfig = await getDistanceFeeConfig();
@@ -512,7 +536,9 @@ const createPaymentsRouter = ({ stripe }) => {
         pickupOnlyMultiplier,
         orderType,
         tier: tierLookupUser?.membershipTier,
-        platinumFreeDelivery
+        platinumFreeDelivery,
+        allowPlatinumTier,
+        allowGreenTier
       });
       const { distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles } =
         calculateDistanceFee({
@@ -520,7 +546,8 @@ const createPaymentsRouter = ({ stripe }) => {
           config: distanceFeeConfig,
           orderType,
           pickupOnlyMultiplier,
-          tier: tierLookupUser?.membershipTier
+          tier: tierLookupUser?.membershipTier,
+          allowGreenTier
         });
 
       // Handling fees
@@ -749,7 +776,7 @@ const createPaymentsRouter = ({ stripe }) => {
    * - creates order and Stripe session for remaining amount (if needed)
    */
   router.post('/credits', authRequired, async (req, res) => {
-    if (!isDbReady()) {
+    if (!isDbReady() && process.env.SKIP_DB_CHECKS_FOR_TESTS !== '1') {
       return res.status(503).json({ error: 'Database not ready' });
     }
     const sessionDb = await mongoose.startSession();
@@ -775,9 +802,11 @@ const createPaymentsRouter = ({ stripe }) => {
       user = await User.findById(userId).session(sessionDb);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
+      const eligibility = await getTierEligibilityConfig();
       const returnPayoutMethod = normalizePayoutMethodForTier(
         req.body?.returnPayoutMethod,
-        user?.membershipTier
+        user?.membershipTier,
+        eligibility
       );
       const { eligibleUpcs, eligibleUpcCounts, ineligibleUpcs, estimatedCredit } =
         await buildReturnPreview(rawReturnUpcs, returnPayoutMethod);
@@ -790,7 +819,7 @@ const createPaymentsRouter = ({ stripe }) => {
         err.code = 'PENDING_CREDIT_TRANSACTION';
         throw err;
       }
-      const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery } =
+      const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery, allowPlatinumTier, allowGreenTier } =
         await getRouteFeeConfig();
       const handlingFeeConfig = await getHandlingFeeConfig();
       const distanceFeeConfig = await getDistanceFeeConfig();
@@ -806,7 +835,9 @@ const createPaymentsRouter = ({ stripe }) => {
         pickupOnlyMultiplier,
         orderType,
         tier: user?.membershipTier,
-        platinumFreeDelivery
+        platinumFreeDelivery,
+        allowPlatinumTier,
+        allowGreenTier
       });
       const { distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles } =
         calculateDistanceFee({
@@ -814,7 +845,8 @@ const createPaymentsRouter = ({ stripe }) => {
           config: distanceFeeConfig,
           orderType,
           pickupOnlyMultiplier,
-          tier: user?.membershipTier
+          tier: user?.membershipTier,
+          allowGreenTier
         });
 
       const orderId = crypto.randomUUID();
@@ -896,7 +928,7 @@ const createPaymentsRouter = ({ stripe }) => {
         }
 
         const tier = normalizeTier(user?.membershipTier);
-        const eligibleCreditCents = CREDIT_DELIVERY_ELIGIBLE_TIERS.has(tier)
+        const eligibleCreditCents = eligibility.creditDeliveryEligibleTiers.has(tier)
           ? totalCents
           : productSubtotalCents;
         const availableCreditsCents = Math.max(
@@ -1133,7 +1165,8 @@ const createPaymentsRouter = ({ stripe }) => {
    * - Server captures final amount = authorized - verified credit (never increases)
    */
   router.post('/capture', authRequired, async (req, res) => {
-    if (!isDbReady()) {
+      const eligibility = await getTierEligibilityConfig();
+    if (!isDbReady() && process.env.SKIP_DB_CHECKS_FOR_TESTS !== '1') {
       return res.status(503).json({ error: 'Database not ready' });
     }
     const sessionDb = await mongoose.startSession();
@@ -1282,7 +1315,7 @@ const createPaymentsRouter = ({ stripe }) => {
 
         const eligibleReturnCreditCents =
           payoutMethod === 'CREDIT'
-            ? CREDIT_DELIVERY_ELIGIBLE_TIERS.has(tier)
+            ? eligibility.creditDeliveryEligibleTiers.has(tier)
               ? authorizedCents
               : Math.min(authorizedCents, remainingProductCents)
             : 0;
