@@ -130,12 +130,12 @@ export default function ReceiptPhotoCapture({ storeId: initialStoreId, storeName
       return;
     }
 
-    if (!selectedStoreId) {
-      setError('Please select a store');
+    if (!selectedStoreId && !customStoreName.trim()) {
+      setError('Please select a store or enter a custom store name');
       return;
     }
 
-    const storeNameToUse = customStoreName || stores.find(s => s._id === selectedStoreId)?.name || 'Unknown Store';
+    const storeNameToUse = customStoreName.trim() || stores.find(s => s._id === selectedStoreId)?.name || 'Unknown Store';
 
     setUploading(true);
     setError('');
