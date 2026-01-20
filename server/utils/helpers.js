@@ -375,6 +375,9 @@ function mapOrderForFrontend(d) {
 
     verificationPhoto: d.verificationPhoto || undefined,
     returnPhoto: d.returnPhoto || undefined,
+    // Driver proof-of-delivery artifacts
+    deliveryProofPhoto: d.deliveryProof?.photo || undefined,
+    customerSignature: d.customerSignature?.signature || undefined,
     returnAiAnalysis:
       d.returnAiAnalysis &&
       (d.returnAiAnalysis.summary ||

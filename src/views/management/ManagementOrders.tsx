@@ -1,5 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Order, OrderStatus, ReturnUpcCount, User } from '../../types';
+import ManagementOrderDetailPanel from './ManagementOrderDetailPanel';
+import ManagementReceiptScanner from '../../components/ManagementReceiptScanner';
+import ReceiptPhotoCapture from '../../components/ReceiptPhotoCapture';
 import {
   CheckCircle2,
   Loader2,
@@ -8,8 +11,28 @@ import {
   PackageX,
   RefreshCw,
   UserCheck,
-  XCircle
+  XCircle,
+  Camera
 } from 'lucide-react';
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+
+interface ReceiptCapture {
+  _id: string;
+  storeId: string;
+  storeName: string;
+  orderId?: string;
+  status: string;
+  imageCount: number;
+  stats: {
+    totalItems: number;
+    itemsNeedingReview: number;
+    itemsConfirmed: number;
+    itemsCommitted: number;
+  };
+  createdAt: string;
+  reviewExpiresAt?: string;
+}
 
 interface ManagementOrdersProps {
   orders: Order[];
@@ -34,8 +57,114 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
   fmtTime,
   countTotalUpcs
 }) => {
+  const [openDetail, setOpenDetail] = useState<Record<string, boolean>>({});
+  const [receiptCaptures, setReceiptCaptures] = useState<ReceiptCapture[]>([]);
+  const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
+  const [showPhotoCapture, setShowPhotoCapture] = useState(false);
+  const [captureStoreId, setCaptureStoreId] = useState<string>('');
+  const [captureStoreName, setCaptureStoreName] = useState<string>('');
+
+  const toggleDetail = (id: string) =>
+    setOpenDetail(prev => ({ ...prev, [id]: !prev[id] }));
+
+  // Fetch receipt captures
+  const fetchReceiptCaptures = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-captures?status=parsed&status=review_complete&limit=20`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (resp.ok) {
+        const data = await resp.json();
+        setReceiptCaptures(data.captures || []);
+      }
+    } catch (error) {
+      console.error('Error fetching receipt captures:', error);
+    }
+  };
+
+  // Periodic refresh of orders for live updates
+  useEffect(() => {
+    const id = setInterval(() => {
+      apiRefreshOrders();
+      fetchReceiptCaptures();
+    }, 30000);
+    return () => clearInterval(id);
+  }, [apiRefreshOrders]);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchReceiptCaptures();
+  }, []);
+
   return (
     <div className="space-y-6">
+      {/* Receipt Captures Section */}
+      {receiptCaptures.length > 0 && (
+        <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-2xl p-6 border border-white/20">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-black uppercase text-white tracking-widest flex items-center gap-2">
+              <Camera className="w-5 h-5" />
+              Receipt Scanner Queue
+            </h3>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-purple-100">
+                {receiptCaptures.filter(c => c.status === 'parsed').length} pending review
+              </span>
+              <button
+                onClick={() => {
+                  setCaptureStoreId('');
+                  setCaptureStoreName('Manual Entry');
+                  setShowPhotoCapture(true);
+                }}
+                className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-white text-sm font-semibold flex items-center gap-2"
+              >
+                <Camera className="w-4 h-4" />
+                New Receipt
+              </button>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {receiptCaptures.slice(0, 6).map(capture => (
+              <div
+                key={capture._id}
+                onClick={() => setSelectedCaptureId(capture._id)}
+                className="bg-white/10 backdrop-blur-sm rounded-lg p-4 cursor-pointer hover:bg-white/20 transition-all border border-white/10"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-white font-bold text-sm">{capture.storeName}</span>
+                  <span className={`text-xs px-2 py-1 rounded ${
+                    capture.status === 'parsed' ? 'bg-yellow-500 text-yellow-900' :
+                    capture.status === 'review_complete' ? 'bg-green-500 text-green-900' :
+                    'bg-gray-500 text-gray-900'
+                  }`}>
+                    {capture.status.replace(/_/g, ' ')}
+                  </span>
+                </div>
+                
+                <div className="text-xs text-purple-100 space-y-1">
+                  <div>{capture.imageCount} photo{capture.imageCount !== 1 ? 's' : ''}</div>
+                  <div>
+                    {capture.stats.itemsConfirmed}/{capture.stats.totalItems} items confirmed
+                  </div>
+                  {capture.stats.itemsNeedingReview > 0 && (
+                    <div className="text-yellow-300 font-semibold">
+                      {capture.stats.itemsNeedingReview} need review
+                    </div>
+                  )}
+                </div>
+                
+                <div className="mt-3 text-xs text-purple-200">
+                  {new Date(capture.createdAt).toLocaleString()}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-black uppercase text-white tracking-widest">
@@ -58,6 +187,34 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
           )}
           Refresh Orders
         </button>
+      </div>
+
+      {/* Receipt Photo Capture Modal */}
+      {showPhotoCapture && (
+        <ReceiptPhotoCapture
+          storeId={captureStoreId}
+          storeName={captureStoreName}
+          onComplete={(captureId) => {
+            setShowPhotoCapture(false);
+            fetchReceiptCaptures();
+            // Auto-open scanner for newly created capture
+            setTimeout(() => setSelectedCaptureId(captureId), 500);
+          }}
+          onCancel={() => setShowPhotoCapture(false)}
+        />
+      )}
+
+      {/* Receipt Scanner Modal */}
+      {selectedCaptureId && (
+        <ManagementReceiptScanner
+          captureId={selectedCaptureId}
+          onClose={() => setSelectedCaptureId(null)}
+          onCommit={() => {
+            fetchReceiptCaptures();
+            apiRefreshOrders();
+          }}
+        />
+      )}
       </div>
 
       {ordersError && (
@@ -327,6 +484,21 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
                     >
                       <XCircle className="w-5 h-5" /> Cancel (Restock)
                     </button>
+                  )}
+                </div>
+
+                {/* Management Detail Panel: items-not-found and driver proof */}
+                <div className="mt-4">
+                  <button
+                    onClick={() => toggleDetail(o.id)}
+                    className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10"
+                  >
+                    {openDetail[o.id] ? 'Hide Driver Artifacts' : 'View Driver Artifacts'}
+                  </button>
+                  {openDetail[o.id] && (
+                    <div className="mt-4">
+                      <ManagementOrderDetailPanel order={o} />
+                    </div>
                   )}
                 </div>
               </div>

@@ -8,6 +8,7 @@ interface NotFoundItem {
   price: number;
   originalStore: string;
   attemptedStores: string[];
+  foundAt?: string;
 }
 
 interface ItemNotFoundTrackerProps {
@@ -17,6 +18,7 @@ interface ItemNotFoundTrackerProps {
   onRemoveNotFound: (sku: string) => void;
   currentStore: string;
   availableStores: Array<{ id: string; name: string }>;
+  onMarkFound?: (sku: string, storeName: string) => void;
 }
 
 const ItemNotFoundTracker: React.FC<ItemNotFoundTrackerProps> = ({
@@ -25,7 +27,8 @@ const ItemNotFoundTracker: React.FC<ItemNotFoundTrackerProps> = ({
   notFoundItems,
   onRemoveNotFound,
   currentStore,
-  availableStores
+  availableStores,
+  onMarkFound
 }) => {
   const [expandedSku, setExpandedSku] = useState<string | null>(null);
 
@@ -98,12 +101,22 @@ const ItemNotFoundTracker: React.FC<ItemNotFoundTrackerProps> = ({
                         Originally from: {item.originalStore}
                       </p>
                     </div>
-                    <button
-                      onClick={() => handleMarkAttempted(item.sku)}
-                      className="ml-2 px-3 py-2 bg-ninpo-lime/30 hover:bg-ninpo-lime/50 text-ninpo-lime rounded-lg text-xs font-bold transition-all whitespace-nowrap"
-                    >
-                      Found
-                    </button>
+                    <div className="flex items-center gap-2 ml-2">
+                      <button
+                        onClick={() => onMarkFound && onMarkFound(item.sku, currentStore)}
+                        className="px-3 py-2 bg-ninpo-lime text-ninpo-black hover:bg-white rounded-lg text-xs font-black transition-all whitespace-nowrap"
+                        title="Found at this store"
+                      >
+                        Found here
+                      </button>
+                      <button
+                        onClick={() => handleMarkAttempted(item.sku)}
+                        className="px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-bold transition-all whitespace-nowrap"
+                        title="Not here; try next store"
+                      >
+                        Not here
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -130,6 +143,9 @@ const ItemNotFoundTracker: React.FC<ItemNotFoundTrackerProps> = ({
                           <p className="font-bold text-sm">{item.name}</p>
                         </div>
                         <p className="text-xs text-white/50 ml-6">x{item.quantity} @ ${item.price}/ea</p>
+                        {item.foundAt && (
+                          <p className="text-xs text-ninpo-lime ml-6 mt-1">Found at: {item.foundAt}</p>
+                        )}
                       </div>
                       <button
                         onClick={(e) => {

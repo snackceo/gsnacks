@@ -11,9 +11,12 @@ import {
   Loader2,
   Home,
   Eye,
-  SkipForward
+  SkipForward,
+  X
 } from 'lucide-react';
 import ItemNotFoundTracker from './ItemNotFoundTracker';
+import ReceiptCapture from './ReceiptCapture';
+import ReceiptPhotoCapture from './ReceiptPhotoCapture';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
@@ -33,6 +36,7 @@ interface NotFoundItem {
   price: number;
   originalStore: string;
   attemptedStores: string[];
+  foundAt?: string;
 }
 
 interface OrderDetail {
@@ -64,11 +68,83 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
   const [groupedByStore, setGroupedByStore] = useState<Record<string, ShoppingListItem[]>>({});
   const [currentStoreId, setCurrentStoreId] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' | 'info' } | null>(null);
+  const [showReceiptCapture, setShowReceiptCapture] = useState(false);
+  const [showPhotoCapture, setShowPhotoCapture] = useState(false);
+
+  const showToast = (message: string, type: 'error' | 'success' | 'info' = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
 
   useEffect(() => {
     fetchShoppingList();
-    loadNotFoundItemsFromStorage();
+    fetchNotFoundItemsFromBackend();
   }, [order?.orderId]);
+
+  // Periodic backend refresh for items-not-found while view is open
+  useEffect(() => {
+    const id = setInterval(() => {
+      fetchNotFoundItemsFromBackend();
+    }, 30000);
+    return () => clearInterval(id);
+  }, [order?.orderId]);
+
+  const fetchNotFoundItemsFromBackend = async () => {
+    try {
+      const orderId = order?.orderId || order?.id;
+      const storageKey = `notFoundItems_${orderId}`;
+      const token = localStorage.getItem('token');
+
+      // Load local first (for immediate UI), then merge with backend
+      const localRaw = localStorage.getItem(storageKey);
+      const localItems: NotFoundItem[] = localRaw ? JSON.parse(localRaw) : [];
+      if (localItems.length > 0) {
+        setNotFoundItems(localItems);
+      }
+
+      const res = await fetch(`${BACKEND_URL}/api/driver/order/${orderId}/items-not-found`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        // Keep local data and surface a warning
+        showToast('Failed to refresh not-found items from server', 'error');
+        return;
+      }
+      const data = await res.json();
+      const serverItems: NotFoundItem[] = Array.isArray(data.itemsNotFound)
+        ? data.itemsNotFound
+        : [];
+
+      // Merge: prefer local entries on conflict (offline-first), include new server items
+      const bySku = new Map<string, NotFoundItem>();
+      for (const it of serverItems) bySku.set(it.sku, it);
+      for (const it of localItems) bySku.set(it.sku, it);
+      const merged = Array.from(bySku.values());
+
+      setNotFoundItems(merged);
+      localStorage.setItem(storageKey, JSON.stringify(merged));
+
+      // Push merged state back to server to reconcile
+      try {
+        await fetch(`${BACKEND_URL}/api/driver/order/${orderId}/items-not-found`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ items: merged })
+        });
+      } catch (e) {
+        // Non-fatal: retain local cache
+        console.warn('Post-merge sync failed:', e);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch not-found items from backend:', err);
+      // Fallback to local-only load
+      loadNotFoundItemsFromStorage();
+    }
+  };
 
   const fetchShoppingList = async () => {
     try {
@@ -144,6 +220,33 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
     saveNotFoundItemsToStorage(updated);
   };
 
+  const handleMarkFoundAt = async (sku: string, storeName: string) => {
+    const orderId = order?.orderId || order?.id;
+    const token = localStorage.getItem('token');
+    const existing = notFoundItems.find(n => n.sku === sku);
+    if (!existing) return;
+    const attempted = existing.attemptedStores.includes(storeName)
+      ? existing.attemptedStores
+      : [...existing.attemptedStores, storeName];
+    const updatedItem: NotFoundItem = { ...existing, foundAt: storeName, attemptedStores: attempted };
+    const updated = notFoundItems.map(n => (n.sku === sku ? updatedItem : n));
+    setNotFoundItems(updated);
+    saveNotFoundItemsToStorage(updated);
+    try {
+      await fetch(`${BACKEND_URL}/api/driver/order/${orderId}/items-not-found/${encodeURIComponent(sku)}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ action: 'found', foundAt: storeName })
+      });
+    } catch (e) {
+      console.warn('Failed to mark found on server:', e);
+      showToast('Could not sync found item to server', 'error');
+    }
+  };
+
   const handleRemoveNotFound = (sku: string) => {
     const updated = notFoundItems.filter(n => n.sku !== sku);
     setNotFoundItems(updated);
@@ -188,7 +291,7 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
         body: JSON.stringify({ items })
       }).catch(err => console.warn('Backend sync failed:', err));
     } catch (err) {
-      setSyncError('Failed to sync items not found');
+      showToast('Failed to sync items not found', 'error');
       console.error(err);
     }
   };
@@ -232,10 +335,23 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
           </div>
         )}
 
-        {syncError && (
-          <div className="mb-6 p-3 bg-yellow-900/20 border border-yellow-600 rounded-xl text-yellow-300 flex items-center gap-2 text-sm">
-            <AlertCircle className="w-4 h-4" />
-            {syncError}
+        {/* Toast Notification */}
+        {toast && (
+          <div className={`fixed top-20 left-1/2 -translate-x-1/2 z-50 p-4 rounded-xl shadow-2xl flex items-center gap-3 min-w-[320px] ${
+            toast.type === 'error' 
+              ? 'bg-red-900/95 border border-red-600 text-red-200'
+              : toast.type === 'success'
+              ? 'bg-green-900/95 border border-green-600 text-green-200'
+              : 'bg-blue-900/95 border border-blue-600 text-blue-200'
+          }`}>
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <span className="flex-1 text-sm font-bold">{toast.message}</span>
+            <button
+              onClick={() => setToast(null)}
+              className="p-1 hover:bg-white/10 rounded transition-all"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
 
@@ -342,6 +458,7 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
                 id,
                 name: items[0]?.store || `Store ${id}`
               }))}
+              onMarkFound={(sku, store) => handleMarkFoundAt(sku, store)}
             />
 
             {/* Shopping List by Store */}
@@ -419,21 +536,67 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
         )}
 
         {/* Action Buttons */}
-        <div className="mt-8 pb-6 flex gap-3">
-          <button
-            onClick={onBack}
-            className="flex-1 py-3 bg-white/10 hover:bg-white/20 rounded-xl font-black uppercase tracking-widest transition-all"
-          >
-            Close
-          </button>
-          <button
-            onClick={fetchShoppingList}
-            disabled={loading}
-            className="flex-1 py-3 bg-ninpo-lime text-ninpo-black hover:bg-white rounded-xl font-black uppercase tracking-widest transition-all disabled:opacity-50"
-          >
-            Refresh
-          </button>
+        <div className="mt-8 pb-6 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => setShowPhotoCapture(true)}
+              className="py-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 rounded-xl font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 text-sm"
+            >
+              <DollarSign className="w-5 h-5" />
+              Photo Receipt
+            </button>
+            <button
+              onClick={() => setShowReceiptCapture(true)}
+              className="py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 rounded-xl font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 text-sm"
+            >
+              <DollarSign className="w-5 h-5" />
+              Manual Entry
+            </button>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={onBack}
+              className="flex-1 py-3 bg-white/10 hover:bg-white/20 rounded-xl font-black uppercase tracking-widest transition-all"
+            >
+              Close
+            </button>
+            <button
+              onClick={fetchShoppingList}
+              disabled={loading}
+              className="flex-1 py-3 bg-ninpo-lime text-ninpo-black hover:bg-white rounded-xl font-black uppercase tracking-widest transition-all disabled:opacity-50"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
+
+        {/* Receipt Photo Capture Modal */}
+        {showPhotoCapture && (
+          <ReceiptPhotoCapture
+            storeId={currentStoreId || ''}
+            storeName={currentStoreId ? getStoreNameFromId(currentStoreId) : 'Unknown Store'}
+            orderId={order?.orderId || order?.id}
+            onComplete={(captureId) => {
+              setShowPhotoCapture(false);
+              showToast('Receipt uploaded and parsed! Check management scanner to review.', 'success');
+            }}
+            onCancel={() => setShowPhotoCapture(false)}
+          />
+        )}
+
+        {/* Manual Receipt Entry Modal */}
+        {showReceiptCapture && (
+          <ReceiptCapture
+            orderId={order?.orderId || order?.id || ''}
+            storeId={currentStoreId || undefined}
+            storeName={currentStoreId ? getStoreNameFromId(currentStoreId) : undefined}
+            onComplete={() => {
+              setShowReceiptCapture(false);
+              showToast('Prices updated from receipt!', 'success');
+            }}
+            onCancel={() => setShowReceiptCapture(false)}
+          />
+        )}
       </div>
     </div>
   );
