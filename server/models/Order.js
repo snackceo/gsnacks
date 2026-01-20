@@ -36,6 +36,14 @@ const orderSchema = new mongoose.Schema(
    largeOrderFee: { type: Number, default: 0 },
    heavyItemFee: { type: Number, default: 0 },
 
+      /* =========================================================
+          PRICING LOCK (from checkout-preview)
+          ========================================================= */
+      pricingLock: {
+         payload: { type: mongoose.Schema.Types.Mixed, default: null },
+         signature: { type: String, default: '' }
+      },
+
     /* =========================================================
        PAYMENT
        ========================================================= */
@@ -93,7 +101,30 @@ const orderSchema = new mongoose.Schema(
        ========================================================= */
     inventoryReleasedAt: { type: Date },
 
-    driverId: { type: String, index: true }
+    /* =========================================================
+       DRIVER ASSIGNMENT & DELIVERY
+       ========================================================= */
+    driverId: { type: String, index: true },
+    assignedAt: { type: Date },
+    pickedUpAt: { type: Date },
+    deliveryStartedAt: { type: Date },
+    deliveredAt: { type: Date },
+
+    /* =========================================================
+       DELIVERY PROOF
+       ========================================================= */
+    deliveryProof: {
+      photo: { type: String, default: null },
+      capturedAt: { type: Date, default: null }
+    },
+
+    /* =========================================================
+       CUSTOMER SIGNATURE
+       ========================================================= */
+    customerSignature: {
+      signature: { type: String, default: null },
+      signedAt: { type: Date, default: null }
+    }
   },
   { timestamps: true }
 );

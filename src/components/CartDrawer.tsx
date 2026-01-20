@@ -163,7 +163,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     if (!optimizationResult) return;
 
     const newCartItems = optimizationResult.optimizedCart.items.map(item => ({
-      productId: item.product._id || item.product.frontendId,
+      productId: item.product._id,
       quantity: item.quantity,
     }));
 
@@ -315,7 +315,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const lineItems = useMemo(() => {
     return cart
       .map(ci => {
-        const p = products.find(x => x._id === ci.productId || (x as any).frontendId === ci.productId || (x as any).id === ci.productId);
+        const p = products.find(x => x._id === ci.productId);
         if (!p) return null;
         const unitPrice = Number(p.price || 0);
         return {
@@ -711,7 +711,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
               {optimizationResult && (
                 <div className="border-t border-white/10 pt-4 space-y-4">
-                    <p className="text-sm text-white">Optimization Found!</p>
+                    <p className="text-sm text-white">Optimization Found: <span className='font-bold'>{optimizationResult.planName}</span></p>
+                    <p className="text-xs text-slate-400">{optimizationResult.reason}</p>
                     <div className="bg-black/30 border border-white/10 rounded-2xl p-5 space-y-3">
                         {optimizationResult.optimizedCart.items.map((item, index) => (
                             <div key={index} className="flex justify-between items-center">

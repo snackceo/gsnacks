@@ -29,7 +29,10 @@ import scanSessionsRouter from './routes/scan-sessions.js';
 import distanceRouter from './routes/distance.js';
 import inventoryAuditRouter from './routes/inventory-audit.js';
 import returnsRouter from './routes/returns.js';
+import refundsRouter from './routes/refunds.js';
 import cartRouter from './routes/cart.js';
+import shoppingRouter from './routes/shopping.js';
+import driverRouter from './routes/driver.js';
 import { maintenanceModeGuardCached } from './utils/maintenanceMode.js';
 
 dotenv.config();
@@ -128,12 +131,15 @@ app.use('/api/orders', maintenanceModeGuardCached, createOrdersRouter({ stripe }
 app.use('/api/payments', maintenanceModeGuardCached, createPaymentsRouter({ stripe }));
 app.use('/api/stripe', maintenanceModeGuardCached, createStripeRouter({ stripe, webhookSecret }));
 app.use('/api/returns', maintenanceModeGuardCached, returnsRouter);
+app.use('/api/orders', maintenanceModeGuardCached, refundsRouter); // Refund requests for exceptional cases
 app.use('/api/cart', maintenanceModeGuardCached, cartRouter);
 
 // Admin/management routes - always accessible (auth protection handles access)
 app.use('/api/upc', upcRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/ai', aiRouter);
+app.use('/api/shopping', shoppingRouter); // Multi-store shopping
+app.use('/api/driver', driverRouter); // Driver operations
 app.use('/api/approvals', approvalsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/audit-logs', auditLogsRouter);

@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import ScannerModal from '../components/ScannerModal';
 import DriverVerificationDelivery from './DriverVerificationDelivery';
+import DriverOrderFlow from '../components/DriverOrderFlow';
+import DriverOrderDetail from '../components/DriverOrderDetail';
 import { useNinpoCore } from '../hooks/useNinpoCore';
 
 
@@ -81,12 +83,12 @@ const UPC_ELIGIBILITY_TTL_MS = 1 * 60 * 60 * 1000; // 1 hour
 const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrder }) => {
   const { addToast } = useNinpoCore();
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
+  const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [returnCapturedPhoto, setReturnCapturedPhoto] = useState<string | null>(null);
   const [contaminationConfirmed, setContaminationConfirmed] = useState(false);
-  
 
   const [verifiedReturnUpcs, setVerifiedReturnUpcs] = useState<ReturnUpcCount[]>([]);
   const [manualUpc, setManualUpc] = useState('');
@@ -135,8 +137,20 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
   const handleAccept = (orderId: string) => {
     if (!orderId) return;
-    const driverId = currentUser?.username || currentUser?.id || 'DRIVER';
-    updateOrder(orderId, OrderStatus.ASSIGNED, { driverId });
+    
+    // Check if it's a detail view request
+    if (orderId.startsWith('detail-')) {
+      const actualOrderId = orderId.substring(7);
+      setDetailOrderId(actualOrderId);
+      return;
+    }
+    
+    const order = orders.find(o => o.id === orderId);
+    if (order) {
+      setActiveOrder(order);
+      setWorkflowMode('delivery');
+      setIsVerifying(true);
+    }
   };
 
   const handlePickUp = (orderId: string) => {
@@ -1166,7 +1180,20 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
           closeOnScan={false}
         />
 
-        {activeOrder && (
+        {activeOrder && workflowMode === 'delivery' && (
+          <DriverOrderFlow
+            order={activeOrder}
+            onBack={() => {
+              setActiveOrder(null);
+              setIsVerifying(false);
+            }}
+            onRefresh={() => {
+              // Refresh the active order with updated status
+            }}
+          />
+        )}
+
+        {activeOrder && workflowMode === 'verification' && (
           <DriverVerificationDelivery
             activeOrder={activeOrder}
             driverNotice={driverNotice}
@@ -1176,6 +1203,13 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
             setScannerOpen={setScannerOpen}
             scannerError={scannerError}
             // ...pass all other required props...
+          />
+        )}
+
+        {detailOrderId && (
+          <DriverOrderDetail
+            order={orders.find(o => o.id === detailOrderId || o.orderId === detailOrderId) || { orderId: detailOrderId }}
+            onBack={() => setDetailOrderId(null)}
           />
         )}
       </div>

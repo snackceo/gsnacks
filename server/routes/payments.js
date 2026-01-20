@@ -23,6 +23,7 @@ import {
 import { isDbReady } from '../db/connect.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { resolveDistanceMiles } from '../utils/distance.js';
+import { getDeliveryOptions } from '../utils/deliveryFees.js';
 
 const CREDIT_DELIVERY_ELIGIBLE_TIERS = new Set(['SILVER', 'GOLD', 'PLATINUM', 'GREEN']);
 const CASH_PAYOUT_ELIGIBLE_TIERS = new Set(['GOLD', 'PLATINUM', 'GREEN']);
@@ -44,6 +45,28 @@ const DEFAULT_DISTANCE_FEES = {
   distanceBand3Rate: 1.0
 };
 
+// Pricing lock helpers
+const getPricingSecret = () => process.env.PRICING_SECRET || process.env.JWT_SECRET || '';
+const verifyPricingLock = (lock) => {
+  try {
+    if (!lock || typeof lock !== 'object') return { ok: false, error: 'Missing pricing lock' };
+    const secret = getPricingSecret();
+    if (!secret) return { ok: false, error: 'Pricing secret not configured' };
+    const { payload, signature } = lock;
+    if (!payload || !signature) return { ok: false, error: 'Invalid pricing lock' };
+    const expected = crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
+    if (expected !== signature) return { ok: false, error: 'Signature mismatch' };
+    if (typeof payload.expiresAt !== 'number' || Date.now() > payload.expiresAt) {
+      return { ok: false, error: 'Pricing lock expired' };
+    }
+    const nonneg = ['routeFee','distanceFee','largeOrderFee','heavyItemFee','distanceMiles'].every(k => payload[k] >= 0);
+    if (!nonneg) return { ok: false, error: 'Negative values in pricing lock' };
+    return { ok: true, payload };
+  } catch (e) {
+    return { ok: false, error: 'Verification failed' };
+  }
+};
+
 const normalizeTier = tier => {
   const normalized = String(tier || '').trim().toUpperCase();
   // Add 'GREEN' as a recognized tier
@@ -62,18 +85,9 @@ const normalizePayoutMethodForTier = (payoutMethod, tier, eligibility) => {
   return normalizedPayout;
 };
 
-const getRouteFeeConfig = async () => {
-  const doc = await AppSettings.findOne({ key: 'default' }).lean();
-  return {
-    baseRouteFee: Number(doc?.routeFee ?? 4.99),
-    pickupOnlyMultiplier: Number(doc?.pickupOnlyMultiplier ?? 0.5),
-    platinumFreeDelivery: Boolean(doc?.platinumFreeDelivery ?? false),
-    allowPlatinumTier: Boolean(doc?.allowPlatinumTier ?? false),
-    allowGreenTier: Boolean(doc?.allowGreenTier ?? false)
-  };
-};
+// DEPRECATED: fee config calculators moved to deliveryFees.js
 
-const getTierEligibilityConfig = async () => {
+export const getTierEligibilityConfig = async () => {
   const doc = await AppSettings.findOne({ key: 'default' }).lean();
   const allowPlatinumTier = Boolean(doc?.allowPlatinumTier ?? false);
   const allowGreenTier = Boolean(doc?.allowGreenTier ?? false);
@@ -92,77 +106,11 @@ const TIER_ROUTE_DISCOUNTS = {
   GOLD: 0.3
 };
 
-const calculateRouteFee = ({
-  baseRouteFee,
-  pickupOnlyMultiplier,
-  orderType,
-  tier,
-  platinumFreeDelivery,
-  allowPlatinumTier,
-  allowGreenTier
-}) => {
-  let fee = Math.max(0, Number(baseRouteFee || 0));
-  const normalizedTier = normalizeTier(tier);
-  let discountPercent = 0;
+// DEPRECATED: calculateRouteFee moved to deliveryFees.js
 
-  if (orderType === 'RETURNS_PICKUP') {
-    fee = fee * Math.max(0, Number(pickupOnlyMultiplier || 0));
-  }
+// DEPRECATED: distance fee config moved to deliveryFees.js
 
-  const feeBeforeTierDiscount = fee;
-  const tierDiscount = TIER_ROUTE_DISCOUNTS[normalizedTier] ?? 0;
-
-  if (tierDiscount > 0) {
-    discountPercent = tierDiscount;
-    fee = fee * (1 - tierDiscount);
-  }
-
-  if (normalizedTier === 'GREEN' && allowGreenTier) {
-    fee = 1;
-    discountPercent =
-      feeBeforeTierDiscount > 0
-        ? Math.max(0, Math.min(1, 1 - fee / feeBeforeTierDiscount))
-        : 0;
-  }
-
-  if (normalizedTier === 'PLATINUM' && allowPlatinumTier && platinumFreeDelivery) {
-    fee = 0;
-    discountPercent = feeBeforeTierDiscount > 0 ? 1 : 0;
-  }
-
-  const feeCents = Math.round(fee * 100);
-  return {
-    routeFee: feeCents / 100,
-    routeFeeCents: feeCents,
-    routeFeeDiscountPercent: discountPercent
-  };
-};
-
-const getDistanceFeeConfig = async () => {
-  const doc = await AppSettings.findOne({ key: 'default' }).lean();
-  return {
-    distanceIncludedMiles: Number(
-      doc?.distanceIncludedMiles ?? DEFAULT_DISTANCE_FEES.distanceIncludedMiles
-    ),
-    distanceBand1MaxMiles: Number(
-      doc?.distanceBand1MaxMiles ?? DEFAULT_DISTANCE_FEES.distanceBand1MaxMiles
-    ),
-    distanceBand2MaxMiles: Number(
-      doc?.distanceBand2MaxMiles ?? DEFAULT_DISTANCE_FEES.distanceBand2MaxMiles
-    ),
-    distanceBand1Rate: Number(
-      doc?.distanceBand1Rate ?? DEFAULT_DISTANCE_FEES.distanceBand1Rate
-    ),
-    distanceBand2Rate: Number(
-      doc?.distanceBand2Rate ?? DEFAULT_DISTANCE_FEES.distanceBand2Rate
-    ),
-    distanceBand3Rate: Number(
-      doc?.distanceBand3Rate ?? DEFAULT_DISTANCE_FEES.distanceBand3Rate
-    )
-  };
-};
-
-const roundDownToTenth = value => Math.floor(value * 10) / 10;
+const roundDownToTenth = value => Math.floor(value * 10) / 10; // used for points calc only
 
 const calculatePointUnits = ({ productPaidCents, tier }) => {
   const normalizedTier = normalizeTier(tier);
@@ -172,77 +120,13 @@ const calculatePointUnits = ({ productPaidCents, tier }) => {
   return Math.max(0, Math.round(productPaidCents * rate));
 };
 
-const calculateDistanceFee = ({
-  distanceMiles,
-  config,
-  orderType,
-  pickupOnlyMultiplier,
-  tier,
-  allowGreenTier
-}) => {
-  const normalizedTier = normalizeTier(tier);
-  const rawDistance = Number(distanceMiles);
-  const sanitizedDistance = Number.isFinite(rawDistance) ? Math.max(0, rawDistance) : 0;
-  const roundedDistance = roundDownToTenth(sanitizedDistance);
+// DEPRECATED: calculateDistanceFee moved to deliveryFees.js
 
-  if (normalizedTier === 'GREEN' && allowGreenTier) {
-    return { distanceFee: 0, distanceFeeCents: 0, distanceMiles: roundedDistance };
-  }
+// DEPRECATED: handling fee config moved to deliveryFees.js
 
-  const includedMiles = Math.max(0, Number(config.distanceIncludedMiles || 0));
-  const band1Max = Math.max(includedMiles, Number(config.distanceBand1MaxMiles || 0));
-  const band2Max = Math.max(band1Max, Number(config.distanceBand2MaxMiles || 0));
-  const band1Rate = Math.max(0, Number(config.distanceBand1Rate || 0));
-  const band2Rate = Math.max(0, Number(config.distanceBand2Rate || 0));
-  const band3Rate = Math.max(0, Number(config.distanceBand3Rate || 0));
+// DEPRECATED: calculateLargeOrderFee moved to deliveryFees.js
 
-  const band1Miles = Math.max(0, Math.min(roundedDistance, band1Max) - includedMiles);
-  const band2Miles = Math.max(0, Math.min(roundedDistance, band2Max) - band1Max);
-  const band3Miles = Math.max(0, roundedDistance - band2Max);
-
-  let fee =
-    band1Miles * band1Rate + band2Miles * band2Rate + band3Miles * band3Rate;
-
-  if (orderType === 'RETURNS_PICKUP') {
-    fee = fee * Math.max(0, Number(pickupOnlyMultiplier || 0));
-  }
-
-  const feeCents = Math.round(fee * 100);
-  return { distanceFee: feeCents / 100, distanceFeeCents: feeCents, distanceMiles: roundedDistance };
-};
-
-const getHandlingFeeConfig = async () => {
-  const doc = await AppSettings.findOne({ key: 'default' }).lean();
-  return {
-    largeOrderIncludedItems: Number(doc?.largeOrderIncludedItems ?? 10),
-    largeOrderPerItemFee: Number(doc?.largeOrderPerItemFee ?? 0.3),
-    heavyItemFeePerUnit: Number(doc?.heavyItemFeePerUnit ?? 1.5)
-  };
-};
-
-const calculateLargeOrderFee = ({ items, includedItems, perItemFee }) => {
-  const totalItems = Array.isArray(items)
-    ? items.reduce((sum, it) => sum + Math.max(0, Number(it.quantity || 0)), 0)
-    : 0;
-  const extras = Math.max(0, totalItems - Math.max(0, Number(includedItems || 0)));
-  const fee = Math.max(0, Number(perItemFee || 0)) * extras;
-  const feeCents = Math.round(fee * 100);
-  return { largeOrderFee: feeCents / 100, largeOrderFeeCents: feeCents, totalItems, extras };
-};
-
-const calculateHeavyItemFee = ({ items, productsByFrontendId, perUnitFee }) => {
-  let heavyCount = 0;
-  for (const it of items || []) {
-    const pid = String(it?.productId || '').trim();
-    const product = productsByFrontendId.get(pid);
-    if (product?.isHeavy) {
-      heavyCount += Math.max(0, Number(it.quantity || 0));
-    }
-  }
-  const fee = Math.max(0, Number(perUnitFee || 0)) * heavyCount;
-  const feeCents = Math.round(fee * 100);
-  return { heavyItemFee: feeCents / 100, heavyItemFeeCents: feeCents, heavyCount };
-};
+// DEPRECATED: calculateHeavyItemFee moved to deliveryFees.js
 
 const getReturnFeeConfig = async () => ({
   returnHandlingFeePerContainer: CASH_HANDLING_FEE_PER_CONTAINER,
@@ -371,10 +255,7 @@ const createPaymentsRouter = ({ stripe }) => {
       const tierLookupUser = userId
         ? await User.findById(userId, { membershipTier: 1 }).lean()
         : null;
-      const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery, allowPlatinumTier, allowGreenTier } =
-        await getRouteFeeConfig();
-      const handlingFeeConfig = await getHandlingFeeConfig();
-      const distanceFeeConfig = await getDistanceFeeConfig();
+      // Centralized delivery fee calculation
 
       let distanceMiles = 0;
       if (address) {
@@ -386,29 +267,18 @@ const createPaymentsRouter = ({ stripe }) => {
       }
 
       const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
-      const { routeFee, routeFeeCents } = calculateRouteFee({
-        baseRouteFee,
-        pickupOnlyMultiplier,
+      const fees = await getDeliveryOptions({
         orderType,
         tier: tierLookupUser?.membershipTier,
-        platinumFreeDelivery,
-        allowPlatinumTier,
-        allowGreenTier
+        distanceMiles,
+        items,
+        productsByFrontendId: new Map() // not needed in quote
       });
-      const { distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles } =
-        calculateDistanceFee({
-          distanceMiles,
-          config: distanceFeeConfig,
-          orderType,
-          pickupOnlyMultiplier,
-          tier: tierLookupUser?.membershipTier,
-          allowGreenTier
-        });
+      let { routeFee, routeFeeCents, distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles } = fees;
 
       let totalCents = 0;
       let productSubtotalCents = 0;
-      let largeOrderFeeCents = 0;
-      let heavyItemFeeCents = 0;
+      let { largeOrderFeeCents, heavyItemFeeCents } = fees;
 
       if (Array.isArray(items) && items.length > 0) {
         const products = await Product.find(
@@ -428,20 +298,16 @@ const createPaymentsRouter = ({ stripe }) => {
           productSubtotalCents += lineTotal;
         }
         // Large Order Handling (applies to purchase orders only)
-        const { largeOrderFeeCents: loCents } = calculateLargeOrderFee({
+        // Recalculate handling fees with actual product map
+        const recalculated = await getDeliveryOptions({
+          orderType,
+          tier: tierLookupUser?.membershipTier,
+          distanceMiles,
           items,
-          includedItems: handlingFeeConfig.largeOrderIncludedItems,
-          perItemFee: handlingFeeConfig.largeOrderPerItemFee
+          productsByFrontendId: productMap
         });
-        largeOrderFeeCents = orderType === 'DELIVERY_PURCHASE' ? loCents : 0;
-
-        // Heavy Item Handling (per heavy unit)
-        const { heavyItemFeeCents: hiCents } = calculateHeavyItemFee({
-          items,
-          productsByFrontendId: productMap,
-          perUnitFee: handlingFeeConfig.heavyItemFeePerUnit
-        });
-        heavyItemFeeCents = orderType === 'DELIVERY_PURCHASE' ? hiCents : 0;
+        largeOrderFeeCents = orderType === 'DELIVERY_PURCHASE' ? recalculated.largeOrderFeeCents : 0;
+        heavyItemFeeCents = orderType === 'DELIVERY_PURCHASE' ? recalculated.heavyItemFeeCents : 0;
       }
 
       if (routeFeeCents > 0) {
@@ -504,10 +370,7 @@ const createPaymentsRouter = ({ stripe }) => {
         tierLookupUser?.membershipTier,
         eligibility
       );
-      const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery, allowPlatinumTier, allowGreenTier } =
-        await getRouteFeeConfig();
-      const handlingFeeConfig = await getHandlingFeeConfig();
-      const distanceFeeConfig = await getDistanceFeeConfig();
+      // Centralized delivery fee calculation
       let distanceMiles;
       try {
         distanceMiles = await resolveDistanceMiles(address);
@@ -531,28 +394,27 @@ const createPaymentsRouter = ({ stripe }) => {
       }
 
       const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
-      const { routeFee, routeFeeCents, routeFeeDiscountPercent } = calculateRouteFee({
-        baseRouteFee,
-        pickupOnlyMultiplier,
+      let { routeFee, routeFeeCents, routeFeeDiscountPercent, distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles, largeOrderFeeCents, heavyItemFeeCents } = await getDeliveryOptions({
         orderType,
         tier: tierLookupUser?.membershipTier,
-        platinumFreeDelivery,
-        allowPlatinumTier,
-        allowGreenTier
+        distanceMiles,
+        items,
+        productsByFrontendId: new Map() // handling fees recalculated after product fetch
       });
-      const { distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles } =
-        calculateDistanceFee({
-          distanceMiles,
-          config: distanceFeeConfig,
-          orderType,
-          pickupOnlyMultiplier,
-          tier: tierLookupUser?.membershipTier,
-          allowGreenTier
-        });
+
+      // If pricingLock is provided and valid, override calculated fees
+      const lockCheck = verifyPricingLock(req.body?.pricingLock);
+      if (lockCheck.ok && orderType === 'DELIVERY_PURCHASE') {
+        const p = lockCheck.payload;
+        routeFee = Number(p.routeFee);
+        routeFeeCents = Math.round(routeFee * 100);
+        distanceFee = Number(p.distanceFee);
+        distanceFeeCents = Math.round(distanceFee * 100);
+        roundedDistanceMiles = Number(p.distanceMiles);
+      }
 
       // Handling fees
-      let largeOrderFeeCents = 0;
-      let heavyItemFeeCents = 0;
+      // large/heavy already from initial calc; will refine after product fetch
 
       const orderId = crypto.randomUUID();
       const lineItems = [];
@@ -602,25 +464,20 @@ const createPaymentsRouter = ({ stripe }) => {
           });
         });
 
-        // Large Order Handling (purchase orders only)
-        {
-          const { largeOrderFeeCents: loCents } = calculateLargeOrderFee({
-            items,
-            includedItems: handlingFeeConfig.largeOrderIncludedItems,
-            perItemFee: handlingFeeConfig.largeOrderPerItemFee
-          });
-          largeOrderFeeCents = orderType === 'DELIVERY_PURCHASE' ? loCents : 0;
-        }
-
-        // Heavy Item Handling (per heavy unit)
-        {
-          const byFrontendId = new Map(products.map(({ updated }) => [updated.frontendId, updated]));
-          const { heavyItemFeeCents: hiCents } = calculateHeavyItemFee({
-            items,
-            productsByFrontendId: byFrontendId,
-            perUnitFee: handlingFeeConfig.heavyItemFeePerUnit
-          });
-          heavyItemFeeCents = orderType === 'DELIVERY_PURCHASE' ? hiCents : 0;
+        // Recalculate handling fees using actual product map
+        const byFrontendId = new Map(products.map(({ updated }) => [updated.frontendId, updated]));
+        const refined = await getDeliveryOptions({
+          orderType,
+          tier: tierLookupUser?.membershipTier,
+          distanceMiles,
+          items,
+          productsByFrontendId: byFrontendId
+        });
+        largeOrderFeeCents = orderType === 'DELIVERY_PURCHASE' ? refined.largeOrderFeeCents : 0;
+        heavyItemFeeCents = orderType === 'DELIVERY_PURCHASE' ? refined.heavyItemFeeCents : 0;
+        if (lockCheck.ok && orderType === 'DELIVERY_PURCHASE') {
+          largeOrderFeeCents = Math.round(Number(lockCheck.payload.largeOrderFee) * 100);
+          heavyItemFeeCents = Math.round(Number(lockCheck.payload.heavyItemFee) * 100);
         }
 
         if (largeOrderFeeCents > 0) {
@@ -698,6 +555,9 @@ const createPaymentsRouter = ({ stripe }) => {
               heavyItemFee: heavyItemFeeCents / 100,
               creditAppliedCents: 0,
               creditAuthorizedCents: 0,
+
+              // Persist pricing lock for audit if provided and valid
+              pricingLock: lockCheck.ok ? req.body?.pricingLock : undefined,
 
               returnUpcs: eligibleUpcs,
               returnUpcCounts: eligibleUpcCounts,
@@ -819,10 +679,7 @@ const createPaymentsRouter = ({ stripe }) => {
         err.code = 'PENDING_CREDIT_TRANSACTION';
         throw err;
       }
-      const { baseRouteFee, pickupOnlyMultiplier, platinumFreeDelivery, allowPlatinumTier, allowGreenTier } =
-        await getRouteFeeConfig();
-      const handlingFeeConfig = await getHandlingFeeConfig();
-      const distanceFeeConfig = await getDistanceFeeConfig();
+      // Centralized delivery fee calculation
       let distanceMiles;
       try {
         distanceMiles = await resolveDistanceMiles(address);
@@ -830,24 +687,24 @@ const createPaymentsRouter = ({ stripe }) => {
         return handleDistanceLookupError(res, err);
       }
       const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
-      const { routeFee, routeFeeCents, routeFeeDiscountPercent } = calculateRouteFee({
-        baseRouteFee,
-        pickupOnlyMultiplier,
+      let { routeFee, routeFeeCents, routeFeeDiscountPercent, distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles, largeOrderFeeCents, heavyItemFeeCents } = await getDeliveryOptions({
         orderType,
         tier: user?.membershipTier,
-        platinumFreeDelivery,
-        allowPlatinumTier,
-        allowGreenTier
+        distanceMiles,
+        items,
+        productsByFrontendId: new Map()
       });
-      const { distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles } =
-        calculateDistanceFee({
-          distanceMiles,
-          config: distanceFeeConfig,
-          orderType,
-          pickupOnlyMultiplier,
-          tier: user?.membershipTier,
-          allowGreenTier
-        });
+
+      // If pricingLock is provided and valid, override calculated fees
+      const lockCheck = verifyPricingLock(req.body?.pricingLock);
+      if (lockCheck.ok && orderType === 'DELIVERY_PURCHASE') {
+        const p = lockCheck.payload;
+        routeFee = Number(p.routeFee);
+        routeFeeCents = Math.round(routeFee * 100);
+        distanceFee = Number(p.distanceFee);
+        distanceFeeCents = Math.round(distanceFee * 100);
+        roundedDistanceMiles = Number(p.distanceMiles);
+      }
 
       const orderId = crypto.randomUUID();
       let totalCents = 0;
@@ -893,23 +750,20 @@ const createPaymentsRouter = ({ stripe }) => {
             productSubtotalCents += lineTotal;
           });
 
-          // Handling fees (purchase orders only)
-          {
-            const { largeOrderFeeCents: loCents } = calculateLargeOrderFee({
-              items,
-              includedItems: handlingFeeConfig.largeOrderIncludedItems,
-              perItemFee: handlingFeeConfig.largeOrderPerItemFee
-            });
-            largeOrderFeeCents = orderType === 'DELIVERY_PURCHASE' ? loCents : 0;
-          }
-          {
-            const byFrontendId = new Map(products.map(({ updated }) => [updated.frontendId, updated]));
-            const { heavyItemFeeCents: hiCents } = calculateHeavyItemFee({
-              items,
-              productsByFrontendId: byFrontendId,
-              perUnitFee: handlingFeeConfig.heavyItemFeePerUnit
-            });
-            heavyItemFeeCents = orderType === 'DELIVERY_PURCHASE' ? hiCents : 0;
+          // Recalculate handling fees using actual product map  
+          const byFrontendId = new Map(products.map(({ updated }) => [updated.frontendId, updated]));
+          const refined = await getDeliveryOptions({
+            orderType,
+            tier: user?.membershipTier,
+            distanceMiles,
+            items,
+            productsByFrontendId: byFrontendId
+          });
+          largeOrderFeeCents = orderType === 'DELIVERY_PURCHASE' ? refined.largeOrderFeeCents : 0;
+          heavyItemFeeCents = orderType === 'DELIVERY_PURCHASE' ? refined.heavyItemFeeCents : 0;
+          if (lockCheck.ok && orderType === 'DELIVERY_PURCHASE') {
+            largeOrderFeeCents = Math.round(Number(lockCheck.payload.largeOrderFee) * 100);
+            heavyItemFeeCents = Math.round(Number(lockCheck.payload.heavyItemFee) * 100);
           }
         }
 
@@ -1167,6 +1021,9 @@ const createPaymentsRouter = ({ stripe }) => {
   router.post('/capture', authRequired, async (req, res) => {
       const eligibility = await getTierEligibilityConfig();
     if (!isDbReady() && process.env.SKIP_DB_CHECKS_FOR_TESTS !== '1') {
+
+                // Persist pricing lock for audit if provided and valid
+                pricingLock: lockCheck.ok ? req.body?.pricingLock : undefined,
       return res.status(503).json({ error: 'Database not ready' });
     }
     const sessionDb = await mongoose.startSession();

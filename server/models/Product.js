@@ -19,6 +19,9 @@ const productSchema = new mongoose.Schema(
     isGlass: { type: Boolean, default: false },
     // Operational flag for heavy item handling
     isHeavy: { type: Boolean, default: false },
+    // Capacity model: weighted handling points for batching
+    // Normal item: 1, Bulky: 2, Heavy: 3, Very heavy (cases): 6-10
+    handlingPoints: { type: Number, default: 1 },
     store: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Store',

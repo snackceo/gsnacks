@@ -1530,4 +1530,117 @@ Examples of queries to handle:
   }
 });
 
+// ============================================================
+// CHECKOUT EXPLANATION
+// Explains pricing, fees, and delivery options in plain English
+// Does NOT calculate anything - only reads and explains
+// ============================================================
+
+router.post('/explain-checkout', async (req, res) => {
+  const { checkoutData, question } = req.body ?? {};
+
+  if (!checkoutData) {
+    return res.status(400).json({ error: 'Checkout data required' });
+  }
+
+  const apiReady = ensureGeminiReady();
+  if (!apiReady.ok) {
+    return res.status(503).json({ error: apiReady.error });
+  }
+
+  const modelSelection = resolveModelName(req.body?.model);
+  if (!modelSelection.ok) {
+    return res.status(400).json({
+      error: modelSelection.error,
+      allowedModels: modelSelection.allowedModels,
+      defaultModel: modelSelection.defaultModel
+    });
+  }
+
+  try {
+    const {
+      items = [],
+      listAmount = 0,
+      fees = {},
+      total = 0,
+      deliveryOptions = {},
+      route = {},
+      tier = {},
+      capacity = {}
+    } = checkoutData;
+
+    const prompt = `You are a helpful delivery service assistant. Explain the checkout pricing to the customer in plain English.
+
+CHECKOUT SUMMARY:
+Items: ${items.length} items totaling $${listAmount.toFixed(2)}
+${items.map(item => `  - ${item.name} x${item.quantity} @ $${item.price} = $${item.total.toFixed(2)}`).join('\n')}
+
+FEES BREAKDOWN:
+- Route Fee: $${fees.routeFee?.toFixed(2) || '0.00'}
+- Distance Fee: $${fees.distanceFee?.toFixed(2) || '0.00'} (${route.distance?.toFixed(1) || '0'} miles)
+- Heavy Item Fee: $${fees.heavyItemFee?.toFixed(2) || '0.00'}
+- Large Order Fee: $${fees.largeOrderFee?.toFixed(2) || '0.00'}
+Total Fees: $${fees.total?.toFixed(2) || '0.00'}
+
+GRAND TOTAL: $${total.toFixed(2)}
+
+CUSTOMER TIER: ${tier.name || 'COMMON'}
+${tier.discount > 0 ? `Tier Discount Applied: ${(tier.discount * 100).toFixed(0)}% off route fee` : 'No tier discount (upgrade to Bronze/Silver/Gold for savings!)'}
+
+DELIVERY OPTIONS:
+Standard: ${deliveryOptions.standard?.eta || 'N/A'} - Direct delivery
+${deliveryOptions.batch ? `Batch: ${deliveryOptions.batch.eta} - Grouped with ${deliveryOptions.batch.customersInBatch || 0} other customers (same price, longer wait)` : 'Batch: Not available for this order'}
+
+ROUTE: ${route.distance?.toFixed(1) || '0'} miles, ~${route.duration || '0'} min drive time
+
+CAPACITY: ${capacity.orderLoad || 0} handling points (${capacity.heavyPoints || 0} heavy)
+
+${question ? `\nCUSTOMER QUESTION: "${question}"\n` : ''}
+
+Provide a friendly, clear explanation. If customer asked a question, answer it directly. If not, give a brief overview.
+
+Rules:
+- Be conversational and helpful
+- Explain fees in simple terms (e.g., "Heavy items like milk cost $1.50 each to handle")
+- Mention tier benefits if applicable
+- Never calculate or change prices - only explain
+- If batch is available, explain the tradeoff (same price, longer wait)
+- Keep it under 150 words unless customer asks for details`;
+
+    const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
+    const response = await ai.models.generateContent({
+      model: modelSelection.modelName,
+      contents: prompt,
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 500
+      }
+    });
+
+    const explanation = response?.text?.trim?.() || 'Unable to generate explanation.';
+
+    return res.json({
+      ok: true,
+      explanation,
+      model: modelSelection.modelName,
+      summary: {
+        itemCount: items.length,
+        listAmount,
+        fees: fees.total || 0,
+        total,
+        tier: tier.name,
+        distance: route.distance,
+        batchAvailable: !!deliveryOptions.batch
+      }
+    });
+  } catch (error) {
+    console.error('Checkout explanation failed:', error);
+    return res.status(502).json({
+      error: 'Failed to generate explanation',
+      message: error?.message || 'Unknown error',
+      model: modelSelection.modelName
+    });
+  }
+});
+
 export default router;
