@@ -709,8 +709,6 @@ const createPaymentsRouter = ({ stripe }) => {
       const orderId = crypto.randomUUID();
       let totalCents = 0;
       let productSubtotalCents = 0;
-      let largeOrderFeeCents = 0;
-      let heavyItemFeeCents = 0;
 
       creditTransactionId = crypto.randomUUID();
       user.creditTransactionId = creditTransactionId;
