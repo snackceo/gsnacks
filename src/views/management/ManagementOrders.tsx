@@ -70,7 +70,7 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
   // Fetch receipt captures
   const fetchReceiptCaptures = async () => {
     try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-captures?status=parsed&status=review_complete&limit=20`, {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-captures?status=pending_parse&status=parsed&status=review_complete&limit=20`, {
         credentials: 'include'
       });
       

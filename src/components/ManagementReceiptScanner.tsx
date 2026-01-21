@@ -318,7 +318,7 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
             <div className="text-center py-12 text-gray-500">
               <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
               <p>No items parsed yet</p>
-              {capture.status === 'pending_parse' && (
+              {(capture.status === 'pending_parse' || capture.status === 'failed') && (
                 <div className="mt-6">
                   <p className="text-sm mb-4">Click the button below to extract items using Gemini Vision</p>
                   <button
