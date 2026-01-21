@@ -52,13 +52,13 @@ router.put('/', protect, async (req, res) => {
     if (!cart) {
       cart = await Cart.create({
         userId: req.user._id,
-        items: items.filter(item => item.quantity > 0).map(item => ({
+        items: items.filter(item => item.productId && item.quantity > 0).map(item => ({
           productId: item.productId,
           quantity: item.quantity
         }))
       });
     } else {
-      cart.items = items.filter(item => item.quantity > 0).map(item => ({
+      cart.items = items.filter(item => item.productId && item.quantity > 0).map(item => ({
         productId: item.productId,
         quantity: item.quantity,
         addedAt: new Date()
