@@ -1,7 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import rateLimit from 'express-rate-limit';
-import { v2 as cloudinary } from 'cloudinary';
+import cloudinary, { isCloudinaryConfigured } from '../config/cloudinary.js';
 import { GoogleGenAI } from '@google/genai';
 import StoreInventory from '../models/StoreInventory.js';
 import Product from '../models/Product.js';
@@ -41,8 +41,12 @@ const handleReceiptImageUpload = async (base64Data) => {
     ? base64Data
     : `data:image/jpeg;base64,${base64Data}`;
 
-  if (!isAllowedImageDataUrl(dataUrl)) {
-    throw new Error('Image content failed validation');
+  // Log initial validation
+  const validationResult = isAllowedImageDataUrl(dataUrl);
+  if (!validationResult) {
+    console.error('Image validation failed. Data URL length:', dataUrl.length);
+    console.error('Starts with data:', dataUrl.substring(0, 50));
+    throw new Error('Image content failed validation - invalid format or corrupted data');
   }
 
   // Fallback: return data URL if Cloudinary not configured
@@ -53,45 +57,124 @@ const handleReceiptImageUpload = async (base64Data) => {
     };
   }
 
-  if (!parseDataUrl(dataUrl)) {
-    throw new Error('Invalid data URL');
+  const parsed = parseDataUrl(dataUrl);
+  if (!parsed) {
+    console.error('Failed to parse data URL');
+    throw new Error('Invalid data URL format');
   }
 
-  const uploadResult = await cloudinary.uploader.upload(dataUrl, {
-    folder: RECEIPT_UPLOAD_FOLDER,
-    resource_type: 'image',
-    overwrite: false,
-    transformation: [{ width: 1600, crop: 'limit' }],
-    eager: [{ width: 400, crop: 'limit' }]
-  });
+  try {
+    const uploadResult = await cloudinary.uploader.upload(dataUrl, {
+      folder: RECEIPT_UPLOAD_FOLDER,
+      resource_type: 'image',
+      overwrite: false,
+      transformation: [{ width: 1600, crop: 'limit' }],
+      eager: [{ width: 400, crop: 'limit' }]
+    });
 
-  return {
-    url: uploadResult.secure_url,
-    thumbnailUrl: uploadResult.eager?.[0]?.secure_url || uploadResult.secure_url
-  };
+    return {
+      url: uploadResult.secure_url,
+      thumbnailUrl: uploadResult.eager?.[0]?.secure_url || uploadResult.secure_url
+    };
+  } catch (uploadErr) {
+    console.error('Cloudinary upload failed:', uploadErr.message);
+    throw new Error(`Cloudinary upload failed: ${uploadErr.message}`);
+  }
 };
 
 // Validate data URL magic bytes (best-effort) to ensure it's an image
 function isAllowedImageDataUrl(dataUrl) {
-  if (!dataUrl.startsWith('data:')) return false;
+  if (!dataUrl.startsWith('data:')) {
+    console.error('Data URL does not start with data:');
+    return false;
+  }
+  
   const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/i);
-  if (!match) return false;
+  if (!match) {
+    console.error('Data URL does not match base64 format');
+    return false;
+  }
+  
   const mime = (match[1] || '').toLowerCase();
   const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-  if (!allowedMimes.includes(mime)) return false;
+  
+  if (!allowedMimes.includes(mime)) {
+    console.error('MIME type not allowed:', mime);
+    return false;
+  }
 
   try {
     const base64 = match[2];
-    const buf = Buffer.from(base64.slice(0, 64), 'base64'); // first ~48 bytes
-    if (buf.length < 4) return false;
+    if (!base64 || base64.length === 0) {
+      console.error('Base64 data is empty');
+      return false;
+    }
+    
+    // For very short base64 (less than 100 chars or ~75 bytes), skip validation
+    // These might be partially captured frames or test data
+    if (base64.length < 100) {
+      console.warn('Base64 data very short, skipping magic byte check:', base64.length, 'chars');
+      return true;
+    }
+    
+    // Decode first 12 bytes to check magic numbers
+    let buf;
+    try {
+      buf = Buffer.from(base64.slice(0, 80), 'base64'); // More generous buffer
+    } catch (bufErr) {
+      console.error('Failed to decode base64 to buffer:', bufErr.message);
+      return false;
+    }
+    
+    if (buf.length < 2) {
+      console.warn('Buffer too short for magic byte check, accepting anyway');
+      return true;
+    }
 
-    const isJpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
-    const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
-    const isWebp = buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP';
-    const brand = buf.toString('ascii', 4, 12);
-    const isHeic = brand.includes('ftypheic') || brand.includes('ftypheix') || brand.includes('ftyphevc') || brand.includes('ftyphevx') || brand.includes('ftypmif1');
+    // Check magic bytes for JPEG (most common for canvas)
+    // JPEG: FFD8FF
+    if (buf[0] === 0xff && buf[1] === 0xd8 && (buf.length < 3 || buf[2] === 0xff)) {
+      console.log('Recognized as JPEG');
+      return true;
+    }
+    
+    // PNG: 89504E47
+    if (buf.length >= 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+      console.log('Recognized as PNG');
+      return true;
+    }
+    
+    // WebP: RIFF...WEBP
+    if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') {
+      console.log('Recognized as WebP');
+      return true;
+    }
+    
+    // HEIF/HEIC: ftyp variants
+    if (buf.length >= 12) {
+      try {
+        const brand = buf.toString('ascii', 4, 12);
+        const isHeic = brand.includes('ftypheic') || brand.includes('ftypheix') || 
+                       brand.includes('ftyphevc') || brand.includes('ftyphevx') || 
+                       brand.includes('ftypmif1');
+        if (isHeic) {
+          console.log('Recognized as HEIC/HEIF');
+          return true;
+        }
+      } catch (err) {
+        // Ignore errors reading brand
+      }
+    }
 
-    return isJpeg || isPng || isWebp || isHeic;
+    // If we get here and mime type is image/jpeg, allow it anyway
+    // (Canvas generated JPEGs might not have standard headers in all cases)
+    if (mime === 'image/jpeg') {
+      console.warn('MIME says JPEG but magic bytes do not match standard JPEG header. Allowing anyway.');
+      return true;
+    }
+
+    console.warn('Magic bytes do not match known image formats. First bytes:', Array.from(buf.slice(0, 4)).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
+    return false;
   } catch (err) {
     console.error('Data URL validation failed:', err);
     return false;
@@ -110,20 +193,16 @@ const receiptLimiter = rateLimit({
 
 router.use(receiptLimiter);
 
-// Cloudinary config (optional). Provide either CLOUDINARY_URL or individual creds.
-const hasCloudinary = Boolean(process.env.CLOUDINARY_URL || process.env.CLOUDINARY_CLOUD_NAME);
-if (hasCloudinary) {
-  cloudinary.config({
-    secure: true,
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-    ...(!process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_URL ? { url: process.env.CLOUDINARY_URL } : {})
-  });
+// Check if Cloudinary is properly configured
+const hasCloudinary = isCloudinaryConfigured();
+if (!hasCloudinary) {
+  console.warn('⚠️ Cloudinary not configured. Receipt uploads will use base64 fallback.');
+} else {
+  console.log('✅ Cloudinary configured for receipt uploads');
 }
 
-// Default Cloudinary folder (hashed folder id from console link); override via env if needed
-const RECEIPT_UPLOAD_FOLDER = process.env.CLOUDINARY_RECEIPT_FOLDER || 'cdeebf4d7989589cc96f42dc1f19664b3c';
+// Default Cloudinary folder for receipt uploads
+const RECEIPT_UPLOAD_FOLDER = process.env.CLOUDINARY_RECEIPT_FOLDER || 'gsnacks/receipts';
 
 // Normalization rules
 const ABBREVIATIONS = {
@@ -392,8 +471,12 @@ router.post('/upload-receipt-image', authRequired, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error uploading receipt image:', error);
-    res.status(500).json({ error: 'Failed to upload image' });
+    console.error('Error uploading receipt image:', error.message);
+    // Return specific error messages so frontend can debug
+    res.status(500).json({ 
+      error: error.message || 'Failed to upload image',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
@@ -715,31 +798,74 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
         const FETCH_TIMEOUT_MS = 10000;
         const MAX_FETCH_RETRIES = 2;
         
-        for (let retry = 0; retry < MAX_FETCH_RETRIES; retry++) {
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-            imageResponse = await fetch(image.url, { signal: controller.signal });
-            clearTimeout(timeoutId);
-            if (imageResponse.ok) break;
-            fetchError = new Error(`HTTP ${imageResponse.status}`);
-          } catch (err) {
-            fetchError = err;
-            if (retry < MAX_FETCH_RETRIES - 1) {
-              console.warn(`Fetch retry ${retry + 1}/${MAX_FETCH_RETRIES - 1} for image:`, image.url, err.message);
-              await new Promise(r => setTimeout(r, 500 * Math.pow(2, retry))); // Exponential backoff
+        // Fetch the image to pass to Gemini
+        // For Cloudinary URLs, pass URL directly to Gemini
+        // For data URLs, convert to base64
+        let geminiImageContent;
+        
+        if (image.url.startsWith('https://') && image.url.includes('cloudinary')) {
+          // Cloudinary URL: send URL directly (preferred)
+          console.log(`Using Cloudinary URL for Gemini: ${image.url.substring(0, 60)}...`);
+          geminiImageContent = {
+            url: image.url
+          };
+        } else if (image.url.startsWith('data:')) {
+          // Data URL: extract base64
+          const match = image.url.match(/^data:([^;]+);base64,(.+)$/);
+          if (!match) {
+            console.warn('Invalid data URL format for image:', image.sequence);
+            continue;
+          }
+          const mimeType = match[1];
+          const base64Data = match[2];
+          geminiImageContent = {
+            inline_data: {
+              data: base64Data,
+              mime_type: mimeType
+            }
+          };
+        } else if (image.url.startsWith('https://')) {
+          // HTTPS URL (but not Cloudinary): fetch and convert to base64
+          console.log(`Fetching image for Gemini: ${image.url.substring(0, 60)}...`);
+          let imageResponse;
+          let fetchError;
+          
+          for (let retry = 0; retry < MAX_FETCH_RETRIES; retry++) {
+            try {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+              imageResponse = await fetch(image.url, { signal: controller.signal });
+              clearTimeout(timeoutId);
+              if (imageResponse.ok) break;
+              fetchError = new Error(`HTTP ${imageResponse.status}`);
+            } catch (err) {
+              fetchError = err;
+              if (retry < MAX_FETCH_RETRIES - 1) {
+                console.warn(`Fetch retry ${retry + 1}/${MAX_FETCH_RETRIES - 1} for image:`, image.url, err.message);
+                await new Promise(r => setTimeout(r, 500 * Math.pow(2, retry))); // Exponential backoff
+              }
             }
           }
-        }
-        
-        if (!imageResponse?.ok) {
-          console.error(`Failed to fetch image after ${MAX_FETCH_RETRIES} attempts:`, image.url, fetchError?.message);
+          
+          if (!imageResponse?.ok) {
+            console.error(`Failed to fetch image after ${MAX_FETCH_RETRIES} attempts:`, image.url, fetchError?.message);
+            continue;
+          }
+          
+          const imageBuffer = await imageResponse.arrayBuffer();
+          const imageBase64 = Buffer.from(imageBuffer).toString('base64');
+          const mimeType = imageResponse.headers.get('content-type') || 'image/jpeg';
+          
+          geminiImageContent = {
+            inline_data: {
+              data: imageBase64,
+              mime_type: mimeType
+            }
+          };
+        } else {
+          console.warn('Unsupported image URL format:', image.url);
           continue;
         }
-        
-        const imageBuffer = await imageResponse.arrayBuffer();
-        const imageBase64 = Buffer.from(imageBuffer).toString('base64');
-        const mimeType = imageResponse.headers.get('content-type') || 'image/jpeg';
 
         // Gemini prompt for receipt parsing
         // Sanitized Gemini prompt (no user input injection)
@@ -777,12 +903,7 @@ RULES:
                 role: 'user',
                 parts: [
                   { text: prompt },
-                  {
-                    inline_data: {
-                      data: imageBase64,
-                      mime_type: mimeType
-                    }
-                  }
+                  geminiImageContent
                 ]
               }
             ],

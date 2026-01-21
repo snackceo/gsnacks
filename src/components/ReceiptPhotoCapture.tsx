@@ -94,6 +94,12 @@ export default function ReceiptPhotoCapture({ storeId: initialStoreId, storeName
 
     const base64Data = await base64Promise;
     
+    if (!base64Data || base64Data.length === 0) {
+      throw new Error('Failed to convert image file to base64');
+    }
+
+    console.log(`Uploading image, base64 length: ${base64Data.length} bytes`);
+    
     const response = await fetch(`${BACKEND_URL}/api/driver/upload-receipt-image`, {
       method: 'POST',
       headers: {
@@ -107,7 +113,7 @@ export default function ReceiptPhotoCapture({ storeId: initialStoreId, storeName
       let errorMsg = 'Failed to upload image';
       try {
         const errorData = await response.json();
-        errorMsg = errorData.error || errorMsg;
+        errorMsg = errorData.error || errorData.details || errorMsg;
       } catch {
         errorMsg = `Upload failed: ${response.status} ${response.statusText}`;
       }

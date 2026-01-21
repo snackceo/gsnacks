@@ -66,18 +66,32 @@ export default function LiveReceiptScanner({
     const now = Date.now();
     if (now - lastParseTimeRef.current < PARSE_INTERVAL_MS) return; // Rate limit
 
+    // Ensure video has dimensions
+    if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) {
+      console.warn('Video not ready yet (dimensions 0)');
+      return;
+    }
+
     setParsing(true);
     try {
       // Capture frame
       const ctx = canvasRef.current.getContext('2d');
-      if (!ctx) return;
+      if (!ctx) {
+        console.error('Failed to get canvas context');
+        return;
+      }
 
       canvasRef.current.width = videoRef.current.videoWidth;
       canvasRef.current.height = videoRef.current.videoHeight;
       ctx.drawImage(videoRef.current, 0, 0);
 
-      // Convert to base64
-      const base64 = canvasRef.current.toDataURL('image/jpeg', 0.8);
+      // Convert to base64 - ensure it's a valid JPEG
+      const base64 = canvasRef.current.toDataURL('image/jpeg', 0.85);
+      
+      if (!base64 || base64.length < 100) {
+        console.warn('Canvas toDataURL returned very short result:', base64.length);
+        return;
+      }
 
       // Send to backend for Gemini parsing
       const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse-frame`, {
@@ -87,7 +101,10 @@ export default function LiveReceiptScanner({
         body: JSON.stringify({ image: base64 })
       });
 
-      if (!resp.ok) throw new Error('Failed to parse frame');
+      if (!resp.ok) {
+        const errorData = await resp.json().catch(() => ({}));
+        throw new Error(`Failed to parse frame: ${resp.status} - ${errorData.error || 'unknown error'}`);
+      }
 
       const data = await resp.json();
       if (data.items && Array.isArray(data.items)) {
@@ -108,7 +125,8 @@ export default function LiveReceiptScanner({
         lastParseTimeRef.current = now;
       }
     } catch (err: any) {
-      console.error('Parse error:', err);
+      console.error('Parse error:', err.message || err);
+      setError(`Parse failed: ${err.message || 'unknown error'}`);
     } finally {
       setParsing(false);
     }
@@ -219,6 +237,9 @@ export default function LiveReceiptScanner({
                 ref={videoRef}
                 autoPlay
                 playsInline
+                onLoadedMetadata={() => {
+                  console.log('Video ready, dimensions:', videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight);
+                }}
                 className="w-full h-full object-cover"
               />
               <canvas ref={canvasRef} className="hidden" />
