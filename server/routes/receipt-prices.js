@@ -183,6 +183,37 @@ function isAllowedImageDataUrl(dataUrl) {
 
 const ALIAS_CONFIDENCE_HALF_LIFE_DAYS = 90;
 const ALIAS_CONFIDENCE_MATCH_THRESHOLD = 0.6;
+// Price delta policy: if last price is fresh (<= 30 days), block/review updates
+// when the change exceeds 30% or $1.00. Stale prices bypass the delta guard.
+const PRICE_DELTA_POLICY = {
+  pctThreshold: 0.30,
+  absThreshold: 1.00,
+  stalenessDays: 30
+};
+
+const evaluatePriceDelta = ({ lastPrice, newPrice, lastObservedAt, now = new Date() }) => {
+  if (!lastPrice) {
+    return {
+      isStale: false,
+      exceedsThreshold: false,
+      pctDelta: 0,
+      absDelta: 0,
+      daysSinceUpdate: null
+    };
+  }
+
+  const pctDelta = Math.abs(newPrice - lastPrice) / lastPrice;
+  const absDelta = Math.abs(newPrice - lastPrice);
+  const daysSinceUpdate = lastObservedAt
+    ? (now.getTime() - new Date(lastObservedAt).getTime()) / (1000 * 60 * 60 * 24)
+    : Number.POSITIVE_INFINITY;
+  const isStale = daysSinceUpdate > PRICE_DELTA_POLICY.stalenessDays;
+  const exceedsThreshold = !isStale && (
+    pctDelta > PRICE_DELTA_POLICY.pctThreshold || absDelta >= PRICE_DELTA_POLICY.absThreshold
+  );
+
+  return { isStale, exceedsThreshold, pctDelta, absDelta, daysSinceUpdate };
+};
 
 const getAliasEffectiveConfidence = (alias, now = new Date()) => {
   const confirmedCount = Number(alias?.confirmedCount || 0);
@@ -1494,11 +1525,13 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
         if (existingInventory?.observedPrice) {
           const currentPrice = existingInventory.observedPrice;
           const newPrice = item.unitPrice;
-          const pctDelta = Math.abs((newPrice - currentPrice) / currentPrice);
-          const absDelta = Math.abs(newPrice - currentPrice);
-          
-          // Flag extreme deltas (>100% or >$5) for safety
-          if (pctDelta > 1.0 || absDelta > 5.0) {
+          const { exceedsThreshold, pctDelta } = evaluatePriceDelta({
+            lastPrice: currentPrice,
+            newPrice,
+            lastObservedAt: existingInventory.observedAt
+          });
+
+          if (exceedsThreshold) {
             errors.push({
               lineIndex: item.lineIndex,
               error: `Price delta too large: $${currentPrice} → $${newPrice} (${(pctDelta * 100).toFixed(0)}%)`
@@ -1868,41 +1901,32 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
 
           // STEP 3: Safety gates for price updates
           const lastPrice = inventory?.observedPrice;
-          const PRICE_DELTA_THRESHOLD_PCT = 0.30; // 30%
-          const PRICE_DELTA_THRESHOLD_ABS = 1.00; // $1.00
-          const STALENESS_DAYS = 30;
-          
-          // Price delta check (both percentage AND absolute)
-          if (lastPrice) {
-            const pctDelta = Math.abs(unitPrice - lastPrice) / lastPrice;
-            const absDelta = Math.abs(unitPrice - lastPrice);
-            
-            if ((pctDelta > PRICE_DELTA_THRESHOLD_PCT || absDelta >= PRICE_DELTA_THRESHOLD_ABS) && !confirmed) {
-              needsReview++;
-              reviewItems.push({
-                receiptName: name,
-                product: {
-                  id: product._id,
-                  name: product.name,
-                  upc: product.upc
-                },
-                reason: 'large_price_change',
-                oldPrice: lastPrice.toFixed(2),
-                newPrice: unitPrice.toFixed(2),
-                delta: `${(pctDelta * 100).toFixed(1)}%`,
-                absDelta: `$${absDelta.toFixed(2)}`,
-                unitPrice,
-                quantity
-              });
-              continue; // Skip update - needs confirmation
-            }
-          }
+          const { exceedsThreshold, pctDelta, absDelta, isStale } = evaluatePriceDelta({
+            lastPrice,
+            newPrice: unitPrice,
+            lastObservedAt: inventory?.observedAt
+          });
 
-          // Staleness check
-          const daysSinceUpdate = inventory?.observedAt 
-            ? (Date.now() - new Date(inventory.observedAt).getTime()) / (1000 * 60 * 60 * 24)
-            : 999;
-          const isStale = daysSinceUpdate > STALENESS_DAYS;
+          // Price delta check (both percentage AND absolute)
+          if (exceedsThreshold && !confirmed) {
+            needsReview++;
+            reviewItems.push({
+              receiptName: name,
+              product: {
+                id: product._id,
+                name: product.name,
+                upc: product.upc
+              },
+              reason: 'large_price_change',
+              oldPrice: lastPrice.toFixed(2),
+              newPrice: unitPrice.toFixed(2),
+              delta: `${(pctDelta * 100).toFixed(1)}%`,
+              absDelta: `$${absDelta.toFixed(2)}`,
+              unitPrice,
+              quantity
+            });
+            continue; // Skip update - needs confirmation
+          }
 
           // STEP 4: Update price with anti-noise averaging
           const observedAt = new Date();
