@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Order, OrderStatus, ReturnUpcCount, User } from '../../types';
+import { Order, OrderStatus, ReturnUpcCount, ScannerMode, User } from '../../types';
 import ManagementOrderDetailPanel from './ManagementOrderDetailPanel';
 import ManagementReceiptScanner from '../../components/ManagementReceiptScanner';
 import {
@@ -44,6 +44,8 @@ interface ManagementOrdersProps {
   canCancel: (o: Order) => boolean;
   fmtTime: (iso?: string) => string;
   countTotalUpcs: (entries: ReturnUpcCount[]) => number;
+  setScannerMode: (mode: ScannerMode) => void;
+  setScannerModalOpen: (open: boolean) => void;
 }
 
 const ManagementOrders: React.FC<ManagementOrdersProps> = ({
@@ -55,7 +57,9 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
   handleLogisticsUpdate,
   canCancel,
   fmtTime,
-  countTotalUpcs
+  countTotalUpcs,
+  setScannerMode,
+  setScannerModalOpen
 }) => {
   const [openDetail, setOpenDetail] = useState<Record<string, boolean>>({});
   const [receiptCaptures, setReceiptCaptures] = useState<ReceiptCapture[]>([]);
@@ -63,6 +67,11 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
 
   const toggleDetail = (id: string) =>
     setOpenDetail(prev => ({ ...prev, [id]: !prev[id] }));
+
+  const openReceiptScanner = () => {
+    setScannerMode(ScannerMode.RECEIPT_PARSE_LIVE);
+    setScannerModalOpen(true);
+  };
 
   // Fetch receipt captures
   const fetchReceiptCaptures = async () => {
@@ -134,8 +143,8 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
           </div>
           <div className="flex gap-3">
             <button
-              disabled
-              className="px-6 py-3 bg-gray-600 text-gray-400 rounded-lg font-bold text-sm flex items-center gap-2 transition-all opacity-50 cursor-not-allowed"
+              onClick={openReceiptScanner}
+              className="px-6 py-3 bg-white/20 hover:bg-white/30 text-white rounded-lg font-bold text-sm flex items-center gap-2 transition-all"
               title="Use scanner to capture receipts"
             >
               <Camera className="w-5 h-5" />
@@ -158,11 +167,7 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
                 {receiptCaptures.filter(c => c.status === 'parsed').length} pending review
               </span>
               <button
-                onClick={() => {
-                  setCaptureStoreId('');
-                  setCaptureStoreName('Manual Entry');
-                  setShowPhotoCapture(true);
-                }}
+                onClick={openReceiptScanner}
                 className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-white text-sm font-semibold flex items-center gap-2"
               >
                 <Camera className="w-4 h-4" />

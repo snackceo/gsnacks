@@ -664,6 +664,44 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   }, [handleInventoryScannerScan, handleUpcScannerScan, scannerMode]);
 
+  const handleReceiptPhotoCapture = useCallback(async (photoDataUrl: string, mime: string) => {
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          storeId: '',
+          storeName: 'Manual Entry',
+          images: [{
+            dataUrl: photoDataUrl,
+            mime
+          }]
+        })
+      });
+
+      if (!resp.ok) throw new Error('Receipt upload failed');
+
+      const data = await resp.json().catch(() => ({}));
+
+      const parseResp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ captureId: data.captureId })
+      });
+
+      if (parseResp.ok) {
+        addToast('Receipt uploaded & parsing started.', 'success');
+        setScannerModalOpen(false);
+      } else {
+        addToast('Receipt uploaded, but parsing failed. Review in management.', 'info');
+      }
+    } catch (err: any) {
+      addToast(err?.message || 'Receipt upload failed', 'error');
+    }
+  }, [addToast]);
+
   const startEditProduct = (product: Product) => {
     setEditError(null);
     setEditingProduct(product);
@@ -1106,6 +1144,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           canCancel={canCancel}
           fmtTime={fmtTime}
           countTotalUpcs={countTotalUpcs}
+          setScannerMode={setScannerMode}
+          setScannerModalOpen={setScannerModalOpen}
         />
       )
     },
@@ -1690,16 +1730,19 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           title={
             scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan Product' :
             scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC' :
+            scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? 'Capture Receipt' :
             'Scan'
           }
           subtitle={
             scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan UPC to auto-fill product details' :
             scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC to lookup or edit registry entry' :
+            scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? 'Use the camera to capture or parse receipt images' :
             'Scan barcode'
           }
           beepEnabled={settings.beepEnabled ?? true}
           cooldownMs={settings.cooldownMs ?? 1000}
           isOpen={scannerModalOpen}
+          onPhotoCaptured={scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? handleReceiptPhotoCapture : undefined}
           bottomSheetContent={
             scannerMode === ScannerMode.INVENTORY_CREATE ? (
               <InventoryCreateForm
