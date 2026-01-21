@@ -47,25 +47,29 @@ router.put('/', protect, async (req, res) => {
       return res.status(400).json({ error: 'items must be an array' });
     }
 
-    let cart = await Cart.findOne({ userId: req.user._id });
-
-    if (!cart) {
-      cart = await Cart.create({
-        userId: req.user._id,
-        items: items.filter(item => item.productId && item.quantity > 0).map(item => ({
-          productId: item.productId,
-          quantity: item.quantity
-        }))
-      });
-    } else {
-      cart.items = items.filter(item => item.productId && item.quantity > 0).map(item => ({
-        productId: item.productId,
-        quantity: item.quantity,
-        addedAt: new Date()
+    // Filter and normalize items
+    const validItems = items
+      .filter(item => item.productId && item.quantity > 0)
+      .map(item => ({
+        productId: String(item.productId),
+        quantity: Number(item.quantity)
       }));
-      cart.updatedAt = new Date();
-      await cart.save();
-    }
+
+    // Use findOneAndUpdate with upsert for atomic operation
+    const cart = await Cart.findOneAndUpdate(
+      { userId: req.user._id },
+      { 
+        $set: { 
+          items: validItems,
+          updatedAt: new Date()
+        }
+      },
+      { 
+        upsert: true, 
+        new: true,
+        runValidators: true
+      }
+    );
 
     const responseItems = cart.items.map(item => ({
       productId: item.productId,
@@ -80,7 +84,8 @@ router.put('/', protect, async (req, res) => {
     res.json({ items: responseItems });
   } catch (err) {
     console.error('[PUT /api/cart] Error:', err);
-    res.status(500).json({ error: 'Failed to update cart' });
+    console.error('[PUT /api/cart] Stack:', err.stack);
+    res.status(500).json({ error: 'Failed to update cart', details: err.message });
   }
 });
 
