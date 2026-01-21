@@ -274,9 +274,23 @@ router.post('/shopping/quote', authRequired, async (req, res) => {
       _id: { $in: storePlans.map(p => p.storeId) }
     }).lean();
 
-    // Calculate multi-stop route
+    // Get hub location (DB first, fallback to env HUB_LAT/HUB_LNG)
+    let hub = await Store.findOne({ storeType: 'hub' }).lean();
+    if (!hub) {
+      const envLat = Number(process.env.HUB_LAT);
+      const envLng = Number(process.env.HUB_LNG);
+      if (Number.isFinite(envLat) && Number.isFinite(envLng)) {
+        hub = { location: { lat: envLat, lng: envLng }, name: 'Hub (env)' };
+      } else {
+        return res.status(500).json({
+          error: 'Hub not configured. Add a Store with storeType="hub" or set HUB_LAT and HUB_LNG environment variables.'
+        });
+      }
+    }
+
+    // Calculate multi-stop route (hub → stores → customer)
     const route = await calculateMultiStopRoute(
-      stores.map(s => ({ location: s.location })),
+      [{ location: hub.location }, ...stores.map(s => ({ location: s.location }))],
       [deliveryAddress]
     );
 
