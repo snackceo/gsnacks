@@ -320,6 +320,52 @@ function validatePriceQuantity(price, quantity) {
   return { ok: true };
 }
 
+const PRICE_HISTORY_MATCH_METHODS = new Set([
+  'upc',
+  'sku',
+  'alias_confirmed',
+  'fuzzy_confirmed',
+  'fuzzy_suggested',
+  'manual_confirm'
+]);
+const PRICE_HISTORY_PRICE_TYPES = new Set(['regular', 'net_paid', 'promo', 'unknown']);
+
+function normalizePriceHistoryEnum(value, allowedValues, fallback) {
+  return allowedValues.has(value) ? value : fallback;
+}
+
+function buildPriceHistoryEntry({
+  price,
+  observedAt = new Date(),
+  storeId,
+  captureId,
+  orderId,
+  quantity,
+  receiptImageUrl,
+  receiptThumbnailUrl,
+  matchMethod,
+  matchConfidence,
+  confirmedBy,
+  priceType,
+  promoDetected
+}) {
+  return {
+    price,
+    observedAt,
+    storeId,
+    captureId: captureId || undefined,
+    orderId: orderId || undefined,
+    quantity: Number.isFinite(quantity) ? Number(quantity) : undefined,
+    receiptImageUrl: receiptImageUrl || undefined,
+    receiptThumbnailUrl: receiptThumbnailUrl || undefined,
+    matchMethod: normalizePriceHistoryEnum(matchMethod, PRICE_HISTORY_MATCH_METHODS, 'manual_confirm'),
+    matchConfidence: typeof matchConfidence === 'number' ? matchConfidence : undefined,
+    confirmedBy: confirmedBy || undefined,
+    priceType: normalizePriceHistoryEnum(priceType, PRICE_HISTORY_PRICE_TYPES, 'unknown'),
+    promoDetected: Boolean(promoDetected)
+  };
+}
+
 /**
  * Extract critical tokens from normalized name
  */
@@ -1359,6 +1405,8 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'All items must be confirmed before commit' });
     }
 
+    const captureIdKey = capture._id.toString();
+
     const isOwner = isOwnerUsername(username);
     const isDriver = isDriverUsername(username);
     if (!isOwner && !isDriver) {
@@ -1406,6 +1454,12 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
         const existingInventory = await StoreInventory.findOne(
           { storeId: capture.storeId, productId: item.boundProductId }
         ).session(session);
+
+        if (existingInventory?.appliedCaptures?.some(
+          ac => ac.captureId === captureIdKey && ac.lineIndex === item.lineIndex
+        )) {
+          continue;
+        }
         
         if (existingInventory?.observedPrice) {
           const currentPrice = existingInventory.observedPrice;
@@ -1424,34 +1478,38 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
         }
 
         // Update StoreInventory with transaction
+        const observedAt = new Date();
+        const priceEntry = buildPriceHistoryEntry({
+          price: item.unitPrice,
+          observedAt,
+          storeId: capture.storeId,
+          captureId: captureIdKey,
+          orderId: capture.orderId,
+          quantity: item.quantity,
+          receiptImageUrl: capture.images[0]?.url,
+          receiptThumbnailUrl: capture.images[0]?.thumbnailUrl,
+          matchMethod: item.matchMethod || 'manual_confirm',
+          matchConfidence: item.matchConfidence || 1.0,
+          confirmedBy: item.confirmedBy,
+          priceType: item.priceType || 'regular',
+          promoDetected: item.promoDetected || false
+        });
         const inventoryUpdate = {
           $set: {
             observedPrice: item.unitPrice,
-            observedAt: new Date(),
-            updatedAt: new Date()
+            observedAt,
+            updatedAt: observedAt
           },
           $push: {
             priceHistory: {
-              $each: [{
-                price: item.unitPrice,
-                observedAt: new Date(),
-                captureId: capture._id.toString(),
-                receiptImageUrl: capture.images[0]?.url,
-                receiptThumbnailUrl: capture.images[0]?.thumbnailUrl,
-                matchMethod: item.matchMethod || 'manual_confirm',
-                matchConfidence: item.matchConfidence || 1.0,
-                confirmedBy: item.confirmedBy,
-                priceType: item.priceType || 'regular',
-                promoDetected: item.promoDetected || false,
-                workflowType: item.workflowType
-              }],
+              $each: [priceEntry],
               $slice: -20 // Keep last 20
             },
             appliedCaptures: {
               $each: [{
-                captureId: capture._id.toString(),
+                captureId: captureIdKey,
                 lineIndex: item.lineIndex,
-                appliedAt: new Date()
+                appliedAt: observedAt
               }],
               $slice: -50 // Keep last 50
             }
@@ -1813,20 +1871,21 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
           const isStale = daysSinceUpdate > STALENESS_DAYS;
 
           // STEP 4: Update price with anti-noise averaging
-          const priceEntry = {
+          const observedAt = new Date();
+          const priceEntry = buildPriceHistoryEntry({
             price: unitPrice,
-            observedAt: new Date(),
+            observedAt,
             storeId: store._id,
             captureId,
-            orderId: orderId || undefined,
-            quantity: Number(quantity),
-            receiptImageUrl: receiptImageUrl || undefined,
-            receiptThumbnailUrl: receiptThumbnailUrl || undefined,
+            orderId,
+            quantity,
+            receiptImageUrl,
+            receiptThumbnailUrl,
             matchMethod,
             matchConfidence,
             priceType,
             promoDetected
-          };
+          });
 
           if (!inventory) {
             // Create new inventory entry
@@ -1836,12 +1895,12 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
               sku: product.sku,
               cost: unitPrice,
               observedPrice: unitPrice,
-              observedAt: new Date(),
+              observedAt,
               priceHistory: [priceEntry],
-              appliedCaptures: [{ captureId, lineIndex, appliedAt: new Date() }],
+              appliedCaptures: [{ captureId, lineIndex, appliedAt: observedAt }],
               available: true,
               stockLevel: 'in-stock',
-              lastVerified: new Date()
+              lastVerified: observedAt
             }], { session: sessionDb });
             created++;
           } else {
@@ -1856,22 +1915,22 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
             }
 
             inventory.observedPrice = finalPrice;
-            inventory.observedAt = new Date();
+            inventory.observedAt = observedAt;
             inventory.cost = finalPrice;
-            inventory.lastVerified = new Date();
+            inventory.lastVerified = observedAt;
             
             // Add to history (keep last 20 entries)
             if (!inventory.priceHistory) inventory.priceHistory = [];
             inventory.priceHistory.push(priceEntry);
             if (inventory.priceHistory.length > 20) {
               inventory.priceHistory = inventory.priceHistory.slice(-20);
-            
+            }
+
             // Track idempotency
             if (!inventory.appliedCaptures) inventory.appliedCaptures = [];
-            inventory.appliedCaptures.push({ captureId, lineIndex, appliedAt: new Date() });
+            inventory.appliedCaptures.push({ captureId, lineIndex, appliedAt: observedAt });
             if (inventory.appliedCaptures.length > 50) {
               inventory.appliedCaptures = inventory.appliedCaptures.slice(-50);
-            }
             }
 
             await inventory.save({ session: sessionDb });
