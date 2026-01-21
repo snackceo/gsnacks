@@ -65,19 +65,69 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     const products = await Product.find({ frontendId: { $in: productIds } }).lean();
     const productsByFrontendId = new Map(products.map(p => [p.frontendId, p]));
 
+    const roundCurrency = value => Math.round(Number(value || 0) * 100) / 100;
+    const storePricingByProductId = new Map();
+    const storePricingDetails = optimized.storePlans.map(plan => {
+      const items = plan.items.map(item => {
+        const basePrice = Number.isFinite(item.observedPrice)
+          ? item.observedPrice
+          : item.cost * item.markup;
+        const unitPrice = roundCurrency(basePrice);
+        const total = roundCurrency(unitPrice * item.quantity);
+        storePricingByProductId.set(String(item.productId), {
+          storeId: plan.storeId,
+          storeName: plan.storeName,
+          storeType: plan.storeType,
+          cost: item.cost,
+          markup: item.markup,
+          observedPrice: item.observedPrice,
+          unitPrice
+        });
+        return {
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          cost: item.cost,
+          markup: item.markup,
+          observedPrice: item.observedPrice ?? null,
+          unitPrice,
+          total
+        };
+      });
+      const customerTotal = roundCurrency(items.reduce((sum, item) => sum + item.total, 0));
+      return {
+        storeId: plan.storeId,
+        storeName: plan.storeName,
+        storeType: plan.storeType,
+        totalCost: roundCurrency(plan.totalCost),
+        customerTotal,
+        items
+      };
+    });
+
     // Calculate list amount (what customer pays for products)
     let listAmount = 0;
     const itemizedList = [];
     for (const item of cartItems) {
       const product = productsByFrontendId.get(item.productId);
+      const storePricing = storePricingByProductId.get(String(item.productId));
+      const unitPrice = storePricing?.unitPrice ?? product?.price ?? 0;
+      const itemTotal = roundCurrency(unitPrice * item.quantity);
+      listAmount += itemTotal;
       if (product) {
-        const itemTotal = product.price * item.quantity;
-        listAmount += itemTotal;
         itemizedList.push({
           name: product.name,
           quantity: item.quantity,
-          price: product.price,
-          total: itemTotal
+          price: unitPrice,
+          total: itemTotal,
+          store: storePricing ? {
+            id: storePricing.storeId,
+            name: storePricing.storeName,
+            type: storePricing.storeType,
+            cost: storePricing.cost,
+            markup: storePricing.markup,
+            observedPrice: storePricing.observedPrice ?? null
+          } : null
         });
       }
     }
@@ -166,7 +216,8 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
         name: tier,
         discount: fees.routeFeeDiscountPercent
       },
-      stores: stores.map(s => ({ name: s.name, type: s.storeType }))
+      stores: stores.map(s => ({ id: s._id, name: s.name, type: s.storeType })),
+      storePricing: storePricingDetails
     });
   } catch (error) {
     console.error('Checkout preview error:', error);
