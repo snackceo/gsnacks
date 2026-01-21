@@ -7,8 +7,12 @@ import App from './App';
 import './index.css';
 
 // Initialize Sentry for error tracking and performance monitoring
+const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
+if (!sentryDsn) {
+  console.warn('[Sentry] VITE_SENTRY_DSN not set; Sentry events disabled');
+}
 Sentry.init({
-  dsn: import.meta.env.VITE_SENTRY_DSN,
+  dsn: sentryDsn,
   environment: import.meta.env.MODE,
   release: import.meta.env.VITE_APP_VERSION || '1.0.0',
   sendDefaultPii: true,
