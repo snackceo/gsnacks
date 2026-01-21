@@ -27,7 +27,7 @@ interface ManagementInventoryProps {
   offLookupIngredients: string;
   offNutritionEntries: Array<{ label: string; value: string }>;
   handleCancelCreate: () => void;
-  apiCreateProduct: () => Promise<any>;
+  apiCreateProduct: (upcOverride?: string) => Promise<any>;
   isCreating: boolean;
   isDirty: boolean;
   setIsDirty: (dirty: boolean) => void;
