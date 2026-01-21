@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   X,
   ScanLine,
@@ -8,10 +8,17 @@ import {
   FlashlightOff,
   ChevronUp,
   ChevronDown,
-  Zap
+  Zap,
+  Receipt
 } from 'lucide-react';
 // See GLOSSARY.md for authoritative definitions of all scanner modes.
 import { ScannerMode } from '../types';
+
+interface ParsedReceiptItem {
+  receiptName: string;
+  quantity: number;
+  totalPrice: number;
+}
 
 interface ScannerPanelProps {
   mode?: ScannerMode;
@@ -22,6 +29,8 @@ interface ScannerPanelProps {
   beepEnabled?: boolean;
   cooldownMs?: number;
   onPhotoCaptured?: (photoDataUrl: string, mime: string) => void;
+  onReceiptParsed?: (items: ParsedReceiptItem[]) => void;
+  onModeChange?: (mode: ScannerMode) => void;
   closeOnScan?: boolean;
   manualStart?: boolean;
   onClose?: () => void;
@@ -40,12 +49,7 @@ const MAX_LEN = 14;
 
 const normalizeUpc = (raw: string) => raw.replace(/\D/g, '');
 
-const MODE_LABELS: Record<ScannerMode, string> = {
-  [ScannerMode.INVENTORY_CREATE]: 'Inventory Create',
-  [ScannerMode.UPC_LOOKUP]: 'UPC Lookup',
-  [ScannerMode.DRIVER_VERIFY_CONTAINERS]: 'Driver Verify Containers',
-  [ScannerMode.CUSTOMER_RETURN_SCAN]: 'Customer Return Scan'
-};
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
 const ScannerPanel: React.FC<ScannerPanelProps> = ({
   mode,
@@ -58,6 +62,8 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   beepEnabled = true,
   cooldownMs = 1200,
   onPhotoCaptured,
+  onReceiptParsed,
+  onModeChange,
   closeOnScan = false,
   manualStart = false,
   className = '',
@@ -76,6 +82,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const onScanRef = useRef<ScannerPanelProps['onScan']>(onScan);
   const onCloseRef = useRef<ScannerPanelProps['onClose']>(onClose);
   const onCooldownRef = useRef<ScannerPanelProps['onCooldown']>(undefined);
+  const onModeChangeRef = useRef<ScannerPanelProps['onModeChange']>(undefined);
   const closeOnScanRef = useRef<boolean>(closeOnScan);
   const beepEnabledRef = useRef<boolean>(beepEnabled);
   const cooldownMsRef = useRef<number>(cooldownMs);
@@ -89,6 +96,10 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   // Throttle detector calls
   const lastDetectAtRef = useRef<number>(0);
 
+  // Receipt parsing state
+  const lastParseAtRef = useRef<number>(0);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
   const [isScanning, setIsScanning] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannerHint, setScannerHint] = useState<string | null>(null);
@@ -96,19 +107,17 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const [manualUpc, setManualUpc] = useState('');
   const [lastDetectedUpc, setLastDetectedUpc] = useState<string | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [parsedItems, setParsedItems] = useState<ParsedReceiptItem[]>([]);
 
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const torchOnRef = useRef(false);
 
+  const isReceiptMode = mode === ScannerMode.RECEIPT_PARSE_LIVE;
+
   useEffect(() => {
     torchOnRef.current = torchOn;
   }, [torchOn]);
-
-  const modeLabel = useMemo(() => {
-    if (!mode) return null;
-    return MODE_LABELS[mode] ?? String(mode);
-  }, [mode]);
 
   const canCapturePhoto = Boolean(onPhotoCaptured);
 
@@ -116,10 +125,11 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     onScanRef.current = onScan;
     onCloseRef.current = onClose;
     onCooldownRef.current = onCooldown;
+    onModeChangeRef.current = onModeChange;
     closeOnScanRef.current = closeOnScan;
     beepEnabledRef.current = beepEnabled;
     cooldownMsRef.current = cooldownMs;
-  }, [beepEnabled, closeOnScan, cooldownMs, onClose, onCooldown, onScan]);
+  }, [beepEnabled, closeOnScan, cooldownMs, onClose, onCooldown, onScan, onModeChange]);
 
   const playBeep = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -334,6 +344,69 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         return;
       }
 
+      // Receipt parsing mode - parse frames with Gemini
+      if (isReceiptMode) {
+        const PARSE_INTERVAL_MS = 2000; // Parse every 2 seconds
+
+        const captureFrame = (): string | null => {
+          if (!videoRef.current || !canvasRef.current) return null;
+          const video = videoRef.current;
+          const canvas = canvasRef.current;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return null;
+
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0);
+          return canvas.toDataURL('image/jpeg', 0.8);
+        };
+
+        const receiptLoop = async () => {
+          if (cancelledRef.current) return;
+          if (!videoRef.current) return;
+
+          const now = performance.now();
+
+          // Throttle parse calls
+          if (now - lastParseAtRef.current >= PARSE_INTERVAL_MS) {
+            lastParseAtRef.current = now;
+
+            const frame = captureFrame();
+            if (frame) {
+              try {
+                const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse-frame`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({ image: frame })
+                });
+
+                if (resp.ok) {
+                  const data = await resp.json();
+                  if (data.items && Array.isArray(data.items) && data.items.length > 0) {
+                    setParsedItems(data.items);
+                    setScannerHint(`✓ Detected ${data.items.length} items`);
+                  }
+                } else {
+                  const errData = await resp.json().catch(() => ({}));
+                  if (errData.error?.includes('Gemini')) {
+                    setScannerHint('⚠️ Configure GEMINI_API_KEY to enable parsing');
+                  }
+                }
+              } catch (err) {
+                // Silent - continue loop
+              }
+            }
+          }
+
+          rafRef.current = requestAnimationFrame(receiptLoop);
+        };
+
+        rafRef.current = requestAnimationFrame(receiptLoop);
+        return;
+      }
+
+      // Barcode detection mode
       const detector = new (window as any).BarcodeDetector({
         formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e']
       });
@@ -459,6 +532,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
       {/* Full-screen video */}
       <div className="absolute inset-0 flex items-center justify-center">
         <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+        <canvas ref={canvasRef} className="hidden" />
         
         {!isScanning && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60">
@@ -506,6 +580,24 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
           </button>
         )}
         
+        {mode === ScannerMode.INVENTORY_CREATE || mode === ScannerMode.RECEIPT_PARSE_LIVE ? (
+          <button
+            onClick={() => {
+              const newMode = isReceiptMode ? ScannerMode.INVENTORY_CREATE : ScannerMode.RECEIPT_PARSE_LIVE;
+              onModeChange?.(newMode);
+              setParsedItems([]);
+            }}
+            className={`p-3 rounded-full backdrop-blur-sm transition flex items-center justify-center ${
+              isReceiptMode
+                ? 'bg-emerald-500/90 text-white hover:bg-emerald-600'
+                : 'bg-black/60 text-white hover:bg-black/80'
+            }`}
+            title={isReceiptMode ? 'Switch to UPC mode' : 'Switch to receipt parsing'}
+          >
+            {isReceiptMode ? <ScanLine className="w-5 h-5" /> : <Receipt className="w-5 h-5" />}
+          </button>
+        ) : null}
+        
         <button
           onClick={() => void toggleTorch()}
           disabled={!torchSupported}
@@ -523,7 +615,40 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
       </div>
 
       {/* Bottom sheet card with manual expand/collapse handle */}
-      {bottomSheetContent && (
+      {isReceiptMode && parsedItems.length > 0 && (
+        <div className="relative z-10 mt-auto w-full bg-ninpo-black/95 backdrop-blur-xl border-t border-white/10 shadow-2xl max-h-[50vh] flex flex-col">
+          <div className="p-4 border-b border-white/10">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-black uppercase tracking-widest text-white">Receipt Detected</p>
+                <p className="text-xs text-slate-400">{parsedItems.length} items found</p>
+              </div>
+              <button
+                onClick={() => {
+                  if (onReceiptParsed) {
+                    onReceiptParsed(parsedItems);
+                  }
+                }}
+                className="px-6 py-3 rounded-2xl bg-gradient-to-r from-green-500 to-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:from-green-600 hover:to-emerald-700 transition-all"
+              >
+                Save Items
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+            {parsedItems.map((item, idx) => (
+              <div key={idx} className="bg-white/5 rounded-lg p-3 border border-white/10">
+                <p className="text-sm font-medium text-white">{item.receiptName}</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Qty: {item.quantity} × ${(item.totalPrice / item.quantity).toFixed(2)} = ${item.totalPrice.toFixed(2)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {bottomSheetContent && !isReceiptMode && (
         <div
           className={`relative z-10 mt-auto w-full overflow-hidden rounded-t-[2rem] bg-ninpo-black/95 backdrop-blur-xl border-t border-white/10 shadow-2xl transition-all duration-300 ease-out ${
             isSheetOpen ? 'max-h-[70vh]' : 'max-h-[96px]'
@@ -584,5 +709,5 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   );
 };
 
-export type { ScannerPanelProps };
+export type { ScannerPanelProps, ParsedReceiptItem };
 export default ScannerPanel;

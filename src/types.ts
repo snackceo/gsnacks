@@ -44,7 +44,10 @@ export enum ScannerMode {
   DRIVER_VERIFY_CONTAINERS = 'DRIVER_VERIFY_CONTAINERS',
 
   // Customer return scanning
-  CUSTOMER_RETURN_SCAN = 'CUSTOMER_RETURN_SCAN'
+  CUSTOMER_RETURN_SCAN = 'CUSTOMER_RETURN_SCAN',
+
+  // Receipt parsing with live camera
+  RECEIPT_PARSE_LIVE = 'RECEIPT_PARSE_LIVE'
 }
 
 export type PaymentMethod = 'STRIPE_CARD' | 'GOOGLE_PAY' | 'CREDITS';
