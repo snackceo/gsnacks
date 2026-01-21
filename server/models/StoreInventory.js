@@ -45,7 +45,11 @@ const storeInventorySchema = new mongoose.Schema(
         enum: ['regular', 'net_paid', 'promo', 'unknown'], 
         default: 'unknown' 
       },
-      promoDetected: { type: Boolean, default: false }
+      promoDetected: { type: Boolean, default: false },
+      workflowType: {
+        type: String,
+        enum: ['new_product', 'update_price']
+      }
     }],
     
     // Track which captures have been applied (idempotency)
