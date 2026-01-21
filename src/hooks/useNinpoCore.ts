@@ -12,6 +12,23 @@ import {
   ReturnSettlement
 } from '../types';
 import { MOCK_PRODUCTS, BACKEND_URL } from '../constants';
+import { 
+  connectSocket, 
+  disconnectSocket, 
+  onCartUpdate, 
+  onDriverNotFoundUpdate,
+  onDriverNotFoundDelete,
+  onReturnUpcsUpdate,
+  onReturnUpcsDelete,
+  onOrderUpdate,
+  onOrderCreated,
+  onProductUpdate
+} from '../services/socketService';
+import { 
+  registerServiceWorker, 
+  requestNotificationPermission, 
+  subscribeToPush 
+} from '../services/pushService';
 
 const allowPlatinumTier = (import.meta as any).env?.VITE_ALLOW_PLATINUM_TIER === 'true';
 const SETTINGS_STORAGE_KEY = 'ninpo:settings';
@@ -471,6 +488,78 @@ export const useNinpoCore = () => {
     return () => clearTimeout(timeout);
   }, [cart, currentUser, syncCartToServer]);
 
+  // 🚀 WebSocket Real-Time Listeners
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Cart updates from other devices
+    const unsubCart = onCartUpdate((data) => {
+      console.log('[Socket] Cart updated from another device');
+      if (data.items) {
+        setCart(data.items);
+        setLastSyncTime(new Date());
+      }
+    });
+
+    // Order updates (for dashboard)
+    const unsubOrderUpdate = onOrderUpdate((order) => {
+      console.log('[Socket] Order updated:', order._id);
+      setOrders(prev => prev.map(o => o.id === order._id ? { ...o, ...order } : o));
+      setLastSyncTime(new Date());
+    });
+
+    // New orders (for dashboard)
+    const unsubOrderCreate = onOrderCreated((order) => {
+      console.log('[Socket] New order created:', order._id);
+      setOrders(prev => [order, ...prev]);
+      setLastSyncTime(new Date());
+    });
+
+    // Product updates (for dashboard)
+    const unsubProduct = onProductUpdate((product) => {
+      console.log('[Socket] Product updated:', product._id);
+      setProducts(prev => prev.map(p => p.id === product._id ? { ...p, ...product } : p));
+      setLastSyncTime(new Date());
+    });
+
+    // Driver not-found items updates
+    const unsubDriverNotFound = onDriverNotFoundUpdate((data) => {
+      console.log('[Socket] Driver not-found items updated:', data.orderId);
+      // Store in localStorage for now (could be moved to state if needed)
+      localStorage.setItem(`driver-not-found:${data.orderId}`, JSON.stringify(data.items));
+    });
+
+    const unsubDriverNotFoundDelete = onDriverNotFoundDelete((data) => {
+      console.log('[Socket] Driver not-found items deleted:', data.orderId);
+      localStorage.removeItem(`driver-not-found:${data.orderId}`);
+    });
+
+    // Return UPCs updates
+    const unsubReturnUpcs = onReturnUpcsUpdate((data) => {
+      console.log('[Socket] Return UPCs updated');
+      localStorage.setItem('return-upcs', JSON.stringify(data.upcs));
+      localStorage.setItem('return-eligibility-cache', JSON.stringify(data.eligibilityCache));
+    });
+
+    const unsubReturnUpcsDelete = onReturnUpcsDelete(() => {
+      console.log('[Socket] Return UPCs deleted');
+      localStorage.removeItem('return-upcs');
+      localStorage.removeItem('return-eligibility-cache');
+    });
+
+    // Cleanup all listeners
+    return () => {
+      unsubCart();
+      unsubOrderUpdate();
+      unsubOrderCreate();
+      unsubProduct();
+      unsubDriverNotFound();
+      unsubDriverNotFoundDelete();
+      unsubReturnUpcs();
+      unsubReturnUpcsDelete();
+    };
+  }, [currentUser]);
+
   const restoreSession = useCallback(async () => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/auth/me`, {
@@ -504,6 +593,21 @@ export const useNinpoCore = () => {
       };
 
       setCurrentUser(mapped as User);
+      
+      // 🚀 Connect WebSocket for real-time sync (async, non-blocking)
+      if (mapped.id) {
+        connectSocket(mapped.id).catch(e => console.warn('[Socket] Connection failed:', e));
+        
+        // Setup push notifications (optional, non-blocking)
+        registerServiceWorker().then(() => {
+          requestNotificationPermission().then(granted => {
+            if (granted) {
+              subscribeToPush().catch(e => console.warn('[Push] Subscription failed:', e));
+            }
+          });
+        }).catch(e => console.warn('[SW] Registration failed:', e));
+      }
+      
       return true;
     } catch {
       setCurrentUser(null);
@@ -520,6 +624,7 @@ export const useNinpoCore = () => {
     } catch {
       // ignore
     } finally {
+      disconnectSocket(); // 🚀 Disconnect WebSocket on logout
       setCurrentUser(null);
       addToast('SIGNED OUT', 'info');
     }

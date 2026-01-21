@@ -11,6 +11,8 @@ import connectDB, { isDbReady } from './db/connect.js';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { createServer } from 'http';
+import { Server as SocketIOServer } from 'socket.io';
 
 import authRouter from './routes/auth.js';
 import healthRouter from './routes/health.js';
@@ -195,14 +197,44 @@ app.use((err, req, res, next) => {
 });
 
 /* =========================
-   START SERVER
+   START SERVER + WEBSOCKETS
 ========================= */
 
 (async () => {
   try {
     await connectDB();
-    app.listen(PORT, () => {
+    
+    const httpServer = createServer(app);
+    
+    // Setup WebSocket server
+    const io = new SocketIOServer(httpServer, {
+      cors: {
+        origin: allowedOrigins,
+        credentials: true
+      }
+    });
+
+    // WebSocket connection handling
+    io.on('connection', (socket) => {
+      console.log(`[WebSocket] Client connected: ${socket.id}`);
+      
+      socket.on('disconnect', () => {
+        console.log(`[WebSocket] Client disconnected: ${socket.id}`);
+      });
+      
+      // Join user-specific room for targeted updates
+      socket.on('join', (userId) => {
+        socket.join(`user:${userId}`);
+        console.log(`[WebSocket] User ${userId} joined their room`);
+      });
+    });
+
+    // Make io available to routes via app.locals
+    app.locals.io = io;
+    
+    httpServer.listen(PORT, () => {
       console.log(`LOGISTICS HUB ONLINE @ ${PORT}`);
+      console.log(`WebSocket server ready`);
     });
   } catch (err) {
     console.error('FAILED TO START SERVER', err);

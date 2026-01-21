@@ -380,7 +380,13 @@ const createOrdersRouter = ({ stripe }) => {
           });
         }
 
-        return res.json({ ok: true, order: mapOrderForFrontend(updated) });
+        // 🚀 Emit WebSocket event for real-time sync
+        const mappedOrder = mapOrderForFrontend(updated);
+        if (req.app.locals.io && updated.customerId) {
+          req.app.locals.io.to(`user:${updated.customerId}`).emit('order:updated', mappedOrder);
+        }
+
+        return res.json({ ok: true, order: mappedOrder });
       }
 
       let updatedOrderDoc = null;
@@ -610,7 +616,13 @@ const createOrdersRouter = ({ stripe }) => {
         });
       }
 
-      res.json({ ok: true, order: mapOrderForFrontend(updatedOrderDoc) });
+      // 🚀 Emit WebSocket event for real-time sync
+      const mappedOrder = mapOrderForFrontend(updatedOrderDoc);
+      if (req.app.locals.io && updatedOrderDoc.customerId) {
+        req.app.locals.io.to(`user:${updatedOrderDoc.customerId}`).emit('order:updated', mappedOrder);
+      }
+
+      res.json({ ok: true, order: mappedOrder });
     } catch (err) {
       if (err?.code === 'CANNOT_CANCEL_PAID') {
         return res.status(400).json({ error: err.message });
