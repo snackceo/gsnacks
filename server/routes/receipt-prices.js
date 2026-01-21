@@ -1975,7 +1975,6 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
 
             inventory.observedPrice = finalPrice;
             inventory.observedAt = observedAt;
-            inventory.cost = finalPrice;
             inventory.lastVerified = observedAt;
             
             // Add to history (keep last 20 entries)
@@ -2175,7 +2174,6 @@ router.post('/receipt-confirm-match', authRequired, async (req, res) => {
       } else {
         inventory.observedPrice = unitPrice;
         inventory.observedAt = new Date();
-        inventory.cost = unitPrice;
         inventory.lastVerified = new Date();
         
         if (!inventory.priceHistory) inventory.priceHistory = [];
