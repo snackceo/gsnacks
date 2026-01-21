@@ -329,6 +329,7 @@ const PRICE_HISTORY_MATCH_METHODS = new Set([
   'manual_confirm'
 ]);
 const PRICE_HISTORY_PRICE_TYPES = new Set(['regular', 'net_paid', 'promo', 'unknown']);
+const PRICE_HISTORY_WORKFLOW_TYPES = new Set(['new_product', 'update_price']);
 
 function normalizePriceHistoryEnum(value, allowedValues, fallback) {
   return allowedValues.has(value) ? value : fallback;
@@ -347,7 +348,8 @@ function buildPriceHistoryEntry({
   matchConfidence,
   confirmedBy,
   priceType,
-  promoDetected
+  promoDetected,
+  workflowType
 }) {
   return {
     price,
@@ -362,7 +364,8 @@ function buildPriceHistoryEntry({
     matchConfidence: typeof matchConfidence === 'number' ? matchConfidence : undefined,
     confirmedBy: confirmedBy || undefined,
     priceType: normalizePriceHistoryEnum(priceType, PRICE_HISTORY_PRICE_TYPES, 'unknown'),
-    promoDetected: Boolean(promoDetected)
+    promoDetected: Boolean(promoDetected),
+    workflowType: normalizePriceHistoryEnum(workflowType, PRICE_HISTORY_WORKFLOW_TYPES, undefined)
   };
 }
 
@@ -1492,7 +1495,8 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
           matchConfidence: item.matchConfidence || 1.0,
           confirmedBy: item.confirmedBy,
           priceType: item.priceType || 'regular',
-          promoDetected: item.promoDetected || false
+          promoDetected: item.promoDetected || false,
+          workflowType: item.workflowType
         });
         const inventoryUpdate = {
           $set: {
@@ -1884,7 +1888,8 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
             matchMethod,
             matchConfidence,
             priceType,
-            promoDetected
+            promoDetected,
+            workflowType: 'update_price'
           });
 
           if (!inventory) {
@@ -2097,7 +2102,8 @@ router.post('/receipt-confirm-match', authRequired, async (req, res) => {
         matchConfidence: alias.matchConfidence,
         confirmedBy: req.user?.username || req.user?.id,
         priceType: 'unknown',
-        promoDetected: false
+        promoDetected: false,
+        workflowType: 'update_price'
       };
 
       if (!inventory) {
