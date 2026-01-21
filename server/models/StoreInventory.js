@@ -36,7 +36,7 @@ const storeInventorySchema = new mongoose.Schema(
       receiptThumbnailUrl: { type: String }, // Small preview
       matchMethod: { 
         type: String, 
-        enum: ['upc', 'sku', 'alias_confirmed', 'fuzzy_confirmed', 'fuzzy_suggested'] 
+        enum: ['upc', 'sku', 'alias_confirmed', 'fuzzy_confirmed', 'fuzzy_suggested', 'manual_confirm'] 
       },
       matchConfidence: { type: Number, min: 0, max: 1 },
       confirmedBy: { type: String }, // User ID
