@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Order, OrderStatus, ReturnUpcCount, ScannerMode, User } from '../../types';
 import ManagementOrderDetailPanel from './ManagementOrderDetailPanel';
-import ManagementReceiptScanner from '../../components/ManagementReceiptScanner';
 import {
   CheckCircle2,
   Loader2,
@@ -63,7 +62,6 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
 }) => {
   const [openDetail, setOpenDetail] = useState<Record<string, boolean>>({});
   const [receiptCaptures, setReceiptCaptures] = useState<ReceiptCapture[]>([]);
-  const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
 
   const toggleDetail = (id: string) =>
     setOpenDetail(prev => ({ ...prev, [id]: !prev[id] }));
@@ -103,9 +101,6 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
 
       if (resp.ok) {
         setReceiptCaptures(prev => prev.filter(c => c._id !== captureId));
-        if (selectedCaptureId === captureId) {
-          setSelectedCaptureId(null);
-        }
       } else {
         alert('Failed to delete receipt');
       }
@@ -183,10 +178,7 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
                 className="bg-white/10 backdrop-blur-sm rounded-lg p-4 hover:bg-white/20 transition-all border border-white/10 group"
               >
                 <div className="flex items-center justify-between mb-2">
-                  <div 
-                    onClick={() => setSelectedCaptureId(capture._id)}
-                    className="flex-1 cursor-pointer"
-                  >
+                  <div className="flex-1">
                     <span className="text-white font-bold text-sm">{capture.storeName}</span>
                   </div>
                   
@@ -212,10 +204,7 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
                   </div>
                 </div>
                 
-                <div 
-                  onClick={() => setSelectedCaptureId(capture._id)}
-                  className="cursor-pointer"
-                >
+                <div>
                   <div className="text-xs text-purple-100 space-y-1">
                     <div>{capture.imageCount} photo{capture.imageCount !== 1 ? 's' : ''}</div>
                     <div>
@@ -278,18 +267,6 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
           Refresh Orders
         </button>
       </div>
-
-      {/* Receipt Scanner Modal */}
-      {selectedCaptureId && (
-        <ManagementReceiptScanner
-          captureId={selectedCaptureId}
-          onClose={() => setSelectedCaptureId(null)}
-          onCommit={() => {
-            fetchReceiptCaptures();
-            apiRefreshOrders();
-          }}
-        />
-      )}
 
       {ordersError && (
         <div className="bg-ninpo-card p-6 rounded-[2rem] border border-ninpo-red/20 text-[11px] text-ninpo-red">
