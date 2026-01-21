@@ -27,7 +27,7 @@ interface ManagementReturnsProps {
   offLookupIngredients: string;
   offNutritionEntries: Array<{ label: string; value: string }>;
   handleCancelCreate: () => void;
-  apiCreateProduct: () => Promise<any>;
+  apiCreateProduct: (upcOverride?: string) => Promise<any>;
   isCreating: boolean;
   inventorySort: 'alpha' | 'price' | 'brand' | 'type' | 'storage-zone' | 'storage-bin';
   setInventorySort: (

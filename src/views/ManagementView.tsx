@@ -1656,7 +1656,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 sizeOz: productData.sizeOz,
                 sizeUnit: productData.sizeUnit
               }));
-              const newProd = await apiCreateProduct();
+              const newProd = await apiCreateProduct(unmappedUpcPayload.upc);
               if (newProd) {
                 await apiLinkUpc(unmappedUpcPayload.upc, newProd.id);
               }

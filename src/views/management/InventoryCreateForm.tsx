@@ -21,7 +21,7 @@ interface InventoryCreateFormProps {
   offLookupIngredients: string;
   offNutritionEntries: Array<{ label: string; value: string }>;
   handleCancelCreate: () => void;
-  apiCreateProduct: () => Promise<any>;
+  apiCreateProduct: (upcOverride?: string) => Promise<any>;
   isCreating: boolean;
   // Draft state management
   isDirty: boolean;

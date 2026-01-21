@@ -283,17 +283,18 @@ export const useInventoryCreate = ({
     [applyOffLookup]
   );
 
-  const apiCreateProduct = useCallback(async () => {
+  const apiCreateProduct = useCallback(async (upcOverride?: string) => {
     setCreateError(null);
     setIsCreating(true);
     try {
+      const resolvedUpc = upcOverride ?? scannedUpcForCreation;
       // Check if UPC is in registry
       let upcInRegistry = false;
       let productIdToEdit = '';
-      if (scannedUpcForCreation) {
-        upcInRegistry = upcItemsRef.current.some(item => item.upc === scannedUpcForCreation);
+      if (resolvedUpc) {
+        upcInRegistry = upcItemsRef.current.some(item => item.upc === resolvedUpc);
         // Try to find product by UPC
-        const productMatch = products.find((p: any) => p.upc === scannedUpcForCreation);
+        const productMatch = products.find((p: any) => p.upc === resolvedUpc);
         if (productMatch && productMatch.id) {
           productIdToEdit = productMatch.id;
         }
@@ -321,7 +322,7 @@ export const useInventoryCreate = ({
             image: newProduct.image,
             isGlass: !!newProduct.isGlass,
             isHeavy: !!newProduct.isHeavy,
-            upc: scannedUpcForCreation
+            upc: resolvedUpc
           })
         });
       } else {
@@ -346,7 +347,7 @@ export const useInventoryCreate = ({
             image: newProduct.image,
             isGlass: !!newProduct.isGlass,
             isHeavy: !!newProduct.isHeavy,
-            upc: scannedUpcForCreation
+            upc: resolvedUpc
           })
         });
       }
@@ -361,13 +362,13 @@ export const useInventoryCreate = ({
       setProducts(prev => [created, ...prev]);
 
       // Link UPC to SKU if scanned
-      if (scannedUpcForCreation) {
+      if (resolvedUpc) {
         try {
           await fetch(`${BACKEND_URL}/api/upc/link`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ upc: scannedUpcForCreation, productId: created.id })
+            body: JSON.stringify({ upc: resolvedUpc, productId: created.id })
           });
 
           const canWriteRegistry =
@@ -378,7 +379,7 @@ export const useInventoryCreate = ({
               : Number(upcDraft.sizeOz || 0);
             const sizeUnit = newProduct.sizeUnit || upcDraft.sizeUnit;
             const registryPayload = {
-              upc: scannedUpcForCreation,
+              upc: resolvedUpc,
               name: upcDraft.name || newProduct.name.trim(),
               brand: newProduct.brand,
               productType: newProduct.productType,
@@ -390,7 +391,7 @@ export const useInventoryCreate = ({
               containerType: upcDraft.containerType
             };
             const registryExists = upcItemsRef.current.some(
-              item => item.upc === scannedUpcForCreation
+              item => item.upc === resolvedUpc
             );
 
             if (!registryExists) {
@@ -407,7 +408,7 @@ export const useInventoryCreate = ({
             }
 
             // Update UPC metadata
-            await fetch(`${BACKEND_URL}/api/upc/${scannedUpcForCreation}`, {
+            await fetch(`${BACKEND_URL}/api/upc/${resolvedUpc}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               credentials: 'include',
@@ -429,8 +430,8 @@ export const useInventoryCreate = ({
       }
 
       // Mark UPC as recently handled to prevent immediate re-read
-      if (scannedUpcForCreation) {
-        recentUpcSetRef.current.set(scannedUpcForCreation, Date.now());
+      if (resolvedUpc) {
+        recentUpcSetRef.current.set(resolvedUpc, Date.now());
       }
 
       // Set status and auto-reset after 500ms (fast intake UX)
@@ -451,13 +452,13 @@ export const useInventoryCreate = ({
     activeModule,
     newProduct,
     resetCreateForm,
-    scannedUpcForCreation,
     scannerMode,
     setProducts,
     setScannerModalOpen,
     setScannerMode,
     upcDraft,
-    upcItemsRef
+    upcItemsRef,
+    scannedUpcForCreation
   ]);
 
   const handleScannerScan = useCallback(
