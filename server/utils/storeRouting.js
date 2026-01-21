@@ -2,8 +2,21 @@
 import Store from '../models/Store.js';
 import StoreInventory from '../models/StoreInventory.js';
 import Product from '../models/Product.js';
+import mongoose from 'mongoose';
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY;
+
+const resolveProductForCartItem = async (productId) => {
+  const candidate = String(productId || '').trim();
+  if (!candidate) return null;
+
+  if (mongoose.Types.ObjectId.isValid(candidate)) {
+    const byId = await Product.findById(candidate).lean();
+    if (byId) return byId;
+  }
+
+  return Product.findOne({ frontendId: candidate }).lean();
+};
 
 /**
  * Find cheapest stores to fulfill a cart
@@ -15,7 +28,7 @@ export const findCheapestStores = async (cartItems) => {
   const unfulfilled = [];
 
   for (const item of cartItems) {
-    const product = await Product.findById(item.productId).lean();
+    const product = await resolveProductForCartItem(item.productId);
     if (!product) {
       unfulfilled.push({ ...item, reason: 'Product not found' });
       continue;
@@ -23,7 +36,7 @@ export const findCheapestStores = async (cartItems) => {
 
     // Find all stores that carry this product
     const inventory = await StoreInventory.find({
-      productId: item.productId,
+      productId: product._id,
       available: true
     })
       .populate('storeId')
@@ -54,7 +67,7 @@ export const findCheapestStores = async (cartItems) => {
 
     const plan = storePlans.get(storeId);
     plan.items.push({
-      productId: item.productId,
+      productId: product.frontendId,
       productName: product.name,
       quantity: item.quantity,
       cost: cheapest.cost,
@@ -96,9 +109,11 @@ export const optimizeStoreSelection = async (fulfillmentResult) => {
   // Check if primary store has these items
   const canConsolidate = await Promise.all(
     otherItems.map(async (item) => {
+      const product = await resolveProductForCartItem(item.productId);
+      if (!product) return null;
       const alt = await StoreInventory.findOne({
         storeId: primaryStoreId,
-        productId: item.productId,
+        productId: product._id,
         available: true
       }).lean();
       
@@ -110,6 +125,7 @@ export const optimizeStoreSelection = async (fulfillmentResult) => {
       
       return { 
         ...item, 
+        productId: product.frontendId,
         cost: alt.cost, 
         markup: alt.markup,
         observedPrice: alt.observedPrice

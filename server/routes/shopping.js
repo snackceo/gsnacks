@@ -8,8 +8,31 @@ import { getDeliveryOptions } from '../utils/deliveryFees.js';
 import StoreInventory from '../models/StoreInventory.js';
 import Store from '../models/Store.js';
 import Product from '../models/Product.js';
+import mongoose from 'mongoose';
 
 const router = express.Router();
+
+const normalizeCartItems = async (cartItems) => {
+  const ids = cartItems.map(item => String(item.productId || '').trim()).filter(Boolean);
+  const objectIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
+  const products = await Product.find({
+    $or: [
+      { frontendId: { $in: ids } },
+      { _id: { $in: objectIds } }
+    ]
+  }).lean();
+  const productsByFrontendId = new Map(products.map(p => [p.frontendId, p]));
+  const productsById = new Map(products.map(p => [p._id.toString(), p]));
+
+  const normalizedItems = cartItems.map(item => {
+    const key = String(item.productId || '').trim();
+    const product = productsByFrontendId.get(key) || productsById.get(key);
+    if (!product) return item;
+    return { ...item, productId: product.frontendId };
+  });
+
+  return { normalizedItems, productsByFrontendId };
+};
 
 // Checkout preview: Calculate route, fees, and total for customer
 router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
@@ -24,8 +47,10 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'Valid delivery address required' });
     }
 
+    const { normalizedItems, productsByFrontendId } = await normalizeCartItems(cartItems);
+
     // Find cheapest stores for fulfillment
-    const fulfillment = await findCheapestStores(cartItems);
+    const fulfillment = await findCheapestStores(normalizedItems);
     const optimized = await optimizeStoreSelection(fulfillment);
 
     if (optimized.unfulfilled.length > 0) {
@@ -61,10 +86,6 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     );
 
     // Get customer-facing prices from Product model
-    const productIds = cartItems.map(item => item.productId);
-    const products = await Product.find({ frontendId: { $in: productIds } }).lean();
-    const productsByFrontendId = new Map(products.map(p => [p.frontendId, p]));
-
     const roundCurrency = value => Math.round(Number(value || 0) * 100) / 100;
     const storePricingByProductId = new Map();
     const storePricingDetails = optimized.storePlans.map(plan => {
@@ -113,7 +134,7 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     // Calculate list amount (what customer pays for products)
     let listAmount = 0;
     const itemizedList = [];
-    for (const item of cartItems) {
+    for (const item of normalizedItems) {
       const product = productsByFrontendId.get(item.productId);
       const storePricing = storePricingByProductId.get(String(item.productId));
       const unitPrice = storePricing?.unitPrice ?? 0;
@@ -142,7 +163,7 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
       orderType: 'DELIVERY_PURCHASE',
       tier,
       distanceMiles: route.distance,
-      items: cartItems,
+      items: normalizedItems,
       productsByFrontendId
     });
 
@@ -150,9 +171,9 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     const grandTotal = listAmount + totalFees;
 
     // Check batch eligibility
-    const { totalLoad, heavyPoints } = await calculateOrderLoad(cartItems);
+    const { totalLoad, heavyPoints } = await calculateOrderLoad(normalizedItems);
     const batch = await findEligibleBatch({
-      items: cartItems,
+      items: normalizedItems,
       deliveryAddress,
       createdAt: new Date(),
       storeIds: stores.map(s => s._id)
@@ -267,7 +288,8 @@ router.post('/shopping/quote', authRequired, async (req, res) => {
     }
 
     // Calculate order load
-    const { totalLoad, heavyPoints } = await calculateOrderLoad(cartItems);
+    const { normalizedItems, productsByFrontendId } = await normalizeCartItems(cartItems);
+    const { totalLoad, heavyPoints } = await calculateOrderLoad(normalizedItems);
 
     // Get store locations
     const stores = await Store.find({
@@ -296,7 +318,7 @@ router.post('/shopping/quote', authRequired, async (req, res) => {
 
     // Check if batch eligible
     const batch = await findEligibleBatch({
-      items: cartItems,
+      items: normalizedItems,
       deliveryAddress,
       createdAt: new Date(),
       storeIds: stores.map(s => s._id)
@@ -307,16 +329,12 @@ router.post('/shopping/quote', authRequired, async (req, res) => {
     const tier = user?.tier || 'COMMON';
 
     // Build product map for heavy item calculation
-    const productIds = cartItems.map(item => item.productId);
-    const products = await Product.find({ frontendId: { $in: productIds } }).lean();
-    const productsByFrontendId = new Map(products.map(p => [p.frontendId, p]));
-
     // Calculate standard delivery fees via centralized calculator
     const standardFees = await getDeliveryOptions({
       orderType: 'DELIVERY_PURCHASE',
       tier,
       distanceMiles: route.distance,
-      items: cartItems,
+      items: normalizedItems,
       productsByFrontendId
     });
 

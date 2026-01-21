@@ -2,6 +2,7 @@
 import Batch from '../models/Batch.js';
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
+import mongoose from 'mongoose';
 
 // Capacity constraints
 const MAX_BATCH_LOAD = 45; // Total handling points
@@ -20,7 +21,15 @@ export const calculateOrderLoad = async (items) => {
   let heavyPoints = 0;
 
   for (const item of items) {
-    const product = await Product.findById(item.productId).lean();
+    const candidate = String(item?.productId || '').trim();
+    if (!candidate) continue;
+    let product = null;
+    if (mongoose.Types.ObjectId.isValid(candidate)) {
+      product = await Product.findById(candidate).lean();
+    }
+    if (!product) {
+      product = await Product.findOne({ frontendId: candidate }).lean();
+    }
     if (!product) continue;
 
     const points = product.handlingPoints || 1;

@@ -285,7 +285,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                   </span>
                   <button
                     onClick={() => {
-                      const productId = (p as any)._id || p.id;
+                      const productId = (p as any).frontendId || p.id || (p as any)._id;
                       addToCart(productId);
                       analytics.trackProductInteraction('add_to_cart', productId, p.name);
                     }}

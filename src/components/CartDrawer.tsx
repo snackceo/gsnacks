@@ -136,6 +136,19 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const [optimizationResult, setOptimizationResult] = useState<any>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
 
+  const findProductByCartId = useCallback((productId: string) => {
+    return products.find(
+      p =>
+        (p as any).frontendId === productId ||
+        p.id === productId ||
+        (p as any)._id === productId
+    );
+  }, [products]);
+
+  const resolveProductId = useCallback((product?: Product | null) => {
+    return (product as any)?.frontendId || product?.id || (product as any)?._id || '';
+  }, []);
+
   const handleOptimizeCart = async () => {
     setIsOptimizing(true);
     try {
@@ -163,7 +176,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
     if (!optimizationResult) return;
 
     const newCartItems = optimizationResult.optimizedCart.items.map(item => ({
-      productId: item.product._id,
+      productId: resolveProductId(item.product),
       quantity: item.quantity,
     }));
 
@@ -315,7 +328,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const lineItems = useMemo(() => {
     return cart
       .map(ci => {
-        const p = products.find(x => x._id === ci.productId);
+        const p = findProductByCartId(ci.productId);
         if (!p) return null;
         const unitPrice = Number(p.price || 0);
         return {
@@ -333,7 +346,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       unitPrice: number;
       lineTotal: number;
     }>;
-  }, [cart, products]);
+  }, [cart, findProductByCartId]);
 
   const subtotal = useMemo(() => lineItems.reduce((sum, li) => sum + li.lineTotal, 0), [lineItems]);
   const depositTotal = useMemo(
