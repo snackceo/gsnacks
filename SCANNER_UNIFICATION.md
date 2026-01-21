@@ -34,6 +34,20 @@ ScannerPanel (Main Interface)
 - **Receipt Processing** → Photo + auto-parse + item binding
 - **Bottle Returns** → Barcode + backup photos
 
+## Scanner Surfaces & Modes
+
+### Management Scanner
+- **Modes:** `INVENTORY_CREATE`, `UPC_LOOKUP`, `RECEIPT_PARSE_LIVE`
+- **Purpose:** Inventory intake/audit, UPC registry maintenance, receipt parsing.
+
+### Driver Scanner
+- **Modes:** `DRIVER_VERIFY_CONTAINERS`, `DRIVER_FULFILL_ORDER`
+- **Purpose:** Return verification (deposit eligibility) and fulfillment validation.
+
+### Customer Scanner
+- **Modes:** `CUSTOMER_RETURN_SCAN`
+- **Purpose:** Customer return list building with eligibility feedback.
+
 ## Key Features Now Integrated
 
 | Feature | Status | Location |
@@ -56,7 +70,6 @@ ScannerPanel (Main Interface)
 ### After:
 - 1 main scanner (ScannerPanel)
 - 1 modal wrapper (ScannerModal)
-- 1 receipt binding interface (ManagementReceiptScanner)
 - Photo capture: Built into main scanner
 
 ## Usage Example
@@ -82,10 +95,6 @@ ScannerPanel (Main Interface)
 - `src/components/ScannerPanel.tsx` - Added photo button
 - `src/views/management/ManagementOrders.tsx` - Removed redundant modals and states
 - `src/components/DriverOrderDetail.tsx` - **NEW:** Automated photo upload with auto-parse
-
-## Files Deleted
-- `src/components/ReceiptPhotoCapture.tsx` - ✅ DELETED - Replaced by ScannerModal with auto-upload
-- `src/components/LiveReceiptScanner.tsx` - ✅ DELETED - Replaced by ScannerModal with auto-parse
 
 ## Files Kept
 - `src/components/CustomerReturnScanner.tsx` - Still used for customer returns workflow

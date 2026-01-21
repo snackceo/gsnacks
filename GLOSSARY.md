@@ -557,7 +557,10 @@ Approval Workflow: Owners must approve certain actions via the Auth Hub. For ins
 
 Scanner Modes & Settings Flags
 
-Scanner Modes (A, C, D): Standardized scanner intents across the app. Mode A (Inventory Create) allows scanning a product’s UPC to create or increment stock (auto-update inventory). Mode C (Driver Verify Returns) is used by drivers to scan returned containers for eligibility and count (with duplicate confirmation prompts). Mode D (Driver Fulfillment) is used by drivers to scan products during order packing to verify the right items against the order’s UPC list.
+Scanner Surfaces & Modes: The app has three scanner surfaces, each using specific ScannerMode values.
+- Management scanner: INVENTORY_CREATE (Mode A) for intake/audit, UPC_LOOKUP for registry maintenance, and RECEIPT_PARSE_LIVE for receipt capture/parsing.
+- Driver scanner: DRIVER_VERIFY_CONTAINERS (Mode C) for return verification and DRIVER_FULFILL_ORDER (Mode D) for fulfillment validation.
+- Customer scanner: CUSTOMER_RETURN_SCAN for building return lists with eligibility feedback.
 These modes are enabled/disabled via scanningModesEnabled flags in settings (inventoryCreate, upcLookup, driverVerifyContainers, customerReturnScan). The unified ScannerModal component adapts its UI and callbacks based on the mode.
 
 AppSettings Flags: Several Boolean toggles control features:

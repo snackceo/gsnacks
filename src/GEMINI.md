@@ -19,6 +19,17 @@ This file documents UI/UX, scanner, and component contract. For all roles, permi
   - Customer returns scan list
 - Only the callback changes; scanning mechanics must be consistent.
 
+## Scanner surfaces & modes
+- **Management scanner**
+  - Modes: `INVENTORY_CREATE`, `UPC_LOOKUP`, `RECEIPT_PARSE_LIVE`
+  - Used for inventory intake/audit, UPC registry maintenance, and receipt parsing.
+- **Driver scanner**
+  - Modes: `DRIVER_VERIFY_CONTAINERS`, `DRIVER_FULFILL_ORDER`
+  - Used for return verification and fulfillment validation.
+- **Customer scanner**
+  - Modes: `CUSTOMER_RETURN_SCAN`
+  - Used for customer return list building with eligibility feedback.
+
 ## “Not off” scanning rules (must implement)
 1) No silent cooldown ignores.
    - If a scan is blocked by cooldown:
