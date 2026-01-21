@@ -1,5 +1,3 @@
-import type { Socket } from 'socket.io-client';
-
 let socket: any = null;
 let socketIo: any = null;
 let socketLoadFailed = false;
@@ -98,7 +96,7 @@ export const disconnectSocket = () => {
 /**
  * Get active socket instance
  */
-export const getSocket = (): Socket | null => {
+export const getSocket = (): any => {
   return socket;
 };
 

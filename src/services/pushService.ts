@@ -18,11 +18,12 @@ export const getNotificationPermission = (): NotificationPermission => {
 };
 
 /**
- * Request permission for push notifications
+ * Request permission for push notifications (works WITHOUT VAPID keys)
+ * Local notifications don't require any backend setup
  */
 export const requestNotificationPermission = async (): Promise<boolean> => {
   if (!isPushSupported()) {
-    console.warn('[Push] Push notifications not supported in this browser');
+    console.log('[Push] Push notifications not supported in this browser');
     return false;
   }
 
@@ -31,7 +32,7 @@ export const requestNotificationPermission = async (): Promise<boolean> => {
   }
 
   if (Notification.permission === 'denied') {
-    console.warn('[Push] Notification permission denied');
+    console.log('[Push] Notification permission was denied by user');
     return false;
   }
 
@@ -40,7 +41,7 @@ export const requestNotificationPermission = async (): Promise<boolean> => {
     console.log('[Push] Permission result:', permission);
     return permission === 'granted';
   } catch (error) {
-    console.error('[Push] Error requesting permission:', error);
+    console.log('[Push] Error requesting permission:', error);
     return false;
   }
 };
@@ -65,11 +66,19 @@ export const registerServiceWorker = async (): Promise<ServiceWorkerRegistration
 };
 
 /**
- * Subscribe to push notifications
- * Note: This uses the browser's Push API - NO external service needed!
+ * Subscribe to push notifications (optional - only if VAPID keys configured)
+ * Works with or without VAPID keys
+ * 
+ * To enable server-side push:
+ * 1. Generate VAPID keys (FREE): npx web-push generate-vapid-keys
+ * 2. Add to .env: VITE_VAPID_PUBLIC_KEY=your-key
+ * 3. Server sends push notifications
+ * 
+ * Without VAPID keys: Local notifications still work perfectly
  */
 export const subscribeToPush = async (): Promise<PushSubscription | null> => {
   if (!isPushSupported()) {
+    console.log('[Push] Push notifications not supported in this browser');
     return null;
   }
 
@@ -77,6 +86,7 @@ export const subscribeToPush = async (): Promise<PushSubscription | null> => {
     // First register service worker
     const registration = await registerServiceWorker();
     if (!registration) {
+      console.log('[Push] Service worker registration failed, local notifications only');
       return null;
     }
 
@@ -87,39 +97,41 @@ export const subscribeToPush = async (): Promise<PushSubscription | null> => {
     let subscription = await swRegistration.pushManager.getSubscription();
     
     if (subscription) {
-      console.log('[Push] Already subscribed');
+      console.log('[Push] Already subscribed to push');
       return subscription;
     }
 
     // Request permission
     const permitted = await requestNotificationPermission();
     if (!permitted) {
+      console.log('[Push] User denied notification permission');
       return null;
     }
 
-    // Subscribe to push
-    // Note: You can generate VAPID keys with: npx web-push generate-vapid-keys
-    // For now, we'll use a placeholder - you should replace this with your own keys
+    // Check if VAPID key is configured
     const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
     
     if (!vapidPublicKey) {
-      console.warn('[Push] VAPID public key not configured - using browser notifications only');
+      console.log('[Push] No VAPID key configured - local notifications enabled, server push disabled');
+      console.log('[Push] To enable server push notifications, generate free VAPID keys:');
+      console.log('[Push]   npx web-push generate-vapid-keys');
       return null;
     }
 
+    // Subscribe to push with VAPID key
     subscription = await swRegistration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
     });
 
-    console.log('[Push] Subscribed successfully:', subscription);
+    console.log('[Push] Successfully subscribed to server push');
     
     // Send subscription to server
     await saveSubscriptionToServer(subscription);
     
     return subscription;
   } catch (error) {
-    console.error('[Push] Subscription failed:', error);
+    console.log('[Push] Push subscription optional - app works without it:', error);
     return null;
   }
 };
@@ -152,15 +164,18 @@ export const unsubscribeFromPush = async (): Promise<boolean> => {
 };
 
 /**
- * Show a local notification (doesn't need push service)
+ * Show a local notification (FREE - no VAPID keys needed!)
+ * Works perfectly without any backend setup
  */
 export const showLocalNotification = async (title: string, options?: NotificationOptions) => {
   if (!isPushSupported()) {
+    console.log('[Push] Notifications not supported in this browser');
     return;
   }
 
   const permitted = await requestNotificationPermission();
   if (!permitted) {
+    console.log('[Push] User notification permission not granted');
     return;
   }
 
@@ -171,8 +186,9 @@ export const showLocalNotification = async (title: string, options?: Notificatio
       badge: '/badge.png',
       ...(options || {}),
     } as NotificationOptions);
+    console.log('[Push] Local notification shown:', title);
   } catch (error) {
-    console.error('[Push] Local notification failed:', error);
+    console.log('[Push] Local notification error:', error);
   }
 };
 
