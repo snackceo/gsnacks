@@ -83,10 +83,14 @@ ScannerPanel (Main Interface)
 - `src/views/management/ManagementOrders.tsx` - Removed redundant modals and states
 - `src/components/DriverOrderDetail.tsx` - **NEW:** Automated photo upload with auto-parse
 
+## Files Deleted
+- `src/components/ReceiptPhotoCapture.tsx` - ✅ DELETED - Replaced by ScannerModal with auto-upload
+- `src/components/LiveReceiptScanner.tsx` - ✅ DELETED - Replaced by ScannerModal with auto-parse
+
 ## Files Kept
-- `src/components/ReceiptPhotoCapture.tsx` - **DEPRECATED** - No longer used, can be removed
 - `src/components/CustomerReturnScanner.tsx` - Still used for customer returns workflow
-- `src/components/LiveReceiptScanner.tsx` - **DEPRECATED** - No longer used, can be removed
+- `src/components/ReceiptCapture.tsx` - Still used for manual receipt entry in DriverOrderDetail
+- `src/components/InlineScanner.tsx` - Still used by CustomerReturnScanner
 
 ## Next Steps (Optional)
 When you modularize your management dashboard:

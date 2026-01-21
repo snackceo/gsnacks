@@ -1,5 +1,7 @@
 # Implementation Summary: Receipt-Based Pricing Production Hardening
 
+> **⚠️ UPDATE (2026-01-21):** Scanner components unified. See [SCANNER_UNIFICATION.md](SCANNER_UNIFICATION.md) for post-implementation consolidation.
+
 **Completion Date**: January 20, 2026  
 **Status**: ✅ COMPLETE & VALIDATED  
 **Test Result**: ✅ All files compile without errors

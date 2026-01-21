@@ -223,11 +223,14 @@ See: [CRITICAL_FIXES_APPLIED.md](CRITICAL_FIXES_APPLIED.md#5--high-frontend-poll
 
 ## ✅ Validation Status
 
-### Compilation
+### Compilation (Updated 2026-01-21)
 - ✅ server/routes/receipt-prices.js
 - ✅ server/models/ReceiptCapture.js
-- ✅ src/components/ReceiptPhotoCapture.tsx
+- ✅ src/components/ScannerPanel.tsx - Unified scanner
 - ✅ src/components/ManagementReceiptScanner.tsx
+- ✅ src/components/DriverOrderDetail.tsx - Auto-upload
+- ❌ src/components/ReceiptPhotoCapture.tsx - DELETED
+- ❌ src/components/LiveReceiptScanner.tsx - DELETED
 
 ### Testing
 - ✅ Authorization paths

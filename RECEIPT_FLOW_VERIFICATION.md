@@ -1,5 +1,7 @@
 # Receipt Upload & Pricing Flow – VERIFIED ✅
 
+> **⚠️ UPDATE (2026-01-21):** Components unified. `ReceiptPhotoCapture.tsx` and `LiveReceiptScanner.tsx` replaced by `ScannerPanel.tsx` with auto-upload. See [SCANNER_UNIFICATION.md](SCANNER_UNIFICATION.md).
+
 **Date**: January 20, 2026  
 **Status**: ✅ COMPLETE & PRODUCTION READY
 

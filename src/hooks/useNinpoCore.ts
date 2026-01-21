@@ -352,6 +352,7 @@ export const useNinpoCore = () => {
   const [cart, setCart] = useState<{ productId: string; quantity: number }[]>(
     () => readStoredCart()
   );
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
   const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -362,7 +363,63 @@ export const useNinpoCore = () => {
   const clearCart = useCallback(() => {
     setCart([]);
     persistCart([]);
+    
+    // Sync clear to server
+    fetch(`${BACKEND_URL}/api/cart`, {
+      method: 'DELETE',
+      credentials: 'include'
+    }).catch(err => console.warn('[clearCart] Failed to sync to server:', err));
   }, []);
+
+  // Sync cart to server
+  const syncCartToServer = useCallback(async (items: { productId: string; quantity: number }[]) => {
+    if (!currentUser) return;
+    
+    try {
+      await fetch(`${BACKEND_URL}/api/cart`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ items })
+      });
+    } catch (err) {
+      console.warn('[syncCartToServer] Failed:', err);
+    }
+  }, [currentUser]);
+
+  // Load cart from server on login
+  const loadCartFromServer = useCallback(async () => {
+    if (!currentUser) return;
+    
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/cart`, {
+        credentials: 'include'
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.items) && data.items.length > 0) {
+          // Merge server cart with local cart (local takes precedence)
+          const localCart = readStoredCart();
+          const merged = [...localCart];
+          
+          data.items.forEach((serverItem: any) => {
+            if (!merged.find(item => item.productId === serverItem.productId)) {
+              merged.push({
+                productId: serverItem.productId,
+                quantity: serverItem.quantity
+              });
+            }
+          });
+          
+          setCart(merged);
+          persistCart(merged);
+        }
+      }
+    } catch (err) {
+      console.warn('[loadCartFromServer] Failed:', err);
+    }
+  }, [currentUser]);
 
   const syncWithBackend = useCallback(async () => {
     try {
@@ -373,15 +430,46 @@ export const useNinpoCore = () => {
     }
   }, []);
 
+  const refreshDashboardData = useCallback(async () => {
+    if (!currentUser) return;
+    
+    try {
+      // Silently refresh orders and products in background
+      await Promise.all([
+        fetchOrders().catch(() => {}),
+        fetchProducts().catch(() => {})
+      ]);
+      setLastSyncTime(new Date());
+    } catch (err) {
+      // Silent fail - don't disrupt user experience
+      console.debug('[refreshDashboardData] Background refresh failed:', err);
+    }
+  }, [currentUser, fetchOrders, fetchProducts]);
+
   useEffect(() => {
     syncWithBackend();
-    const i = setInterval(syncWithBackend, 30000);
-    return () => clearInterval(i);
+    const syncInterval = setInterval(syncWithBackend, 30000);
+    return () => clearInterval(syncInterval);
   }, [syncWithBackend]);
+
+  // Auto-refresh dashboard data every 30 seconds when logged in
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    const refreshInterval = setInterval(refreshDashboardData, 30000);
+    return () => clearInterval(refreshInterval);
+  }, [currentUser, refreshDashboardData]);
 
   useEffect(() => {
     persistCart(cart);
-  }, [cart]);
+    // Debounce server sync (only sync after 1 second of no changes)
+    const timeout = setTimeout(() => {
+      if (currentUser) {
+        syncCartToServer(cart);
+      }
+    }, 1000);
+    return () => clearTimeout(timeout);
+  }, [cart, currentUser, syncCartToServer]);
 
   const restoreSession = useCallback(async () => {
     try {
@@ -660,7 +748,10 @@ export const useNinpoCore = () => {
         const hasSession = await restoreSession();
         await Promise.all([fetchProducts(), fetchSettings()]);
         if (hasSession) {
-          await fetchOrders();
+          await Promise.all([
+            fetchOrders(),
+            loadCartFromServer() // Load cart from server after login
+          ]);
         }
       } finally {
         setIsBootstrapping(false);
@@ -874,6 +965,8 @@ export const useNinpoCore = () => {
     isBackendOnline,
     syncWithBackend,
     isBootstrapping,
+    lastSyncTime,
+    refreshDashboardData,
 
     restoreSession,
     logout,

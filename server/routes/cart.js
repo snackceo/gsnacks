@@ -4,8 +4,96 @@ import Order from '../models/Order.js';
 import Product from '../models/Product.js';
 import Store from '../models/Store.js';
 import { calculateRoute, getHubCoords } from '../utils/routeCalculator.js';
+import Cart from '../models/Cart.js';
 
 const router = express.Router();
+
+// @desc    Get user's synced cart
+// @route   GET /api/cart
+// @access  Private
+router.get('/', protect, async (req, res) => {
+  try {
+    let cart = await Cart.findOne({ userId: req.user._id });
+    
+    if (!cart) {
+      cart = await Cart.create({
+        userId: req.user._id,
+        items: []
+      });
+    }
+
+    res.json({
+      items: cart.items.map(item => ({
+        productId: item.productId,
+        quantity: item.quantity
+      }))
+    });
+  } catch (err) {
+    console.error('[GET /api/cart] Error:', err);
+    res.status(500).json({ error: 'Failed to fetch cart' });
+  }
+});
+
+// @desc    Update user's synced cart
+// @route   PUT /api/cart
+// @access  Private
+router.put('/', protect, async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: 'items must be an array' });
+    }
+
+    let cart = await Cart.findOne({ userId: req.user._id });
+
+    if (!cart) {
+      cart = await Cart.create({
+        userId: req.user._id,
+        items: items.filter(item => item.quantity > 0).map(item => ({
+          productId: item.productId,
+          quantity: item.quantity
+        }))
+      });
+    } else {
+      cart.items = items.filter(item => item.quantity > 0).map(item => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        addedAt: new Date()
+      }));
+      cart.updatedAt = new Date();
+      await cart.save();
+    }
+
+    res.json({
+      items: cart.items.map(item => ({
+        productId: item.productId,
+        quantity: item.quantity
+      }))
+    });
+  } catch (err) {
+    console.error('[PUT /api/cart] Error:', err);
+    res.status(500).json({ error: 'Failed to update cart' });
+  }
+});
+
+// @desc    Clear user's synced cart
+// @route   DELETE /api/cart
+// @access  Private
+router.delete('/', protect, async (req, res) => {
+  try {
+    await Cart.findOneAndUpdate(
+      { userId: req.user._id },
+      { items: [], updatedAt: new Date() },
+      { upsert: true }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[DELETE /api/cart] Error:', err);
+    res.status(500).json({ error: 'Failed to clear cart' });
+  }
+});
 
 // @desc    Optimize the user's cart
 // @route   POST /api/cart/optimize

@@ -28,21 +28,25 @@
 
 ## Step 1: Frontend Captures/Selects Photo
 
-### Components
+### Components (Updated 2026-01-21)
 
-**ReceiptPhotoCapture.tsx**
-- Allow user to upload 1-3 receipt photos
-- Support camera capture or file selection
-- Convert images to base64 data URLs
-- Support custom store name or dropdown selection
+**ScannerPanel.tsx** (Unified Scanner)
+- Single camera interface with UPC scanning + photo capture
+- ⚡ Lightning button for instant photo + auto-upload
+- Auto-parse with Gemini Vision API
+- Used across all roles: Management, Driver, Customer
 
-**LiveReceiptScanner.tsx**
-- Real-time camera feed
-- Auto-capture frames every 3 seconds
-- Parse frames with Gemini for live item detection
-- Accumulate items in sidebar
+**DriverOrderDetail.tsx** (Driver Auto-Upload)
+- "Auto Receipt" button opens unified scanner
+- Driver clicks ⚡ to capture photo
+- Instant upload to Cloudinary → Auto-parse → Success toast
+- No manual steps required
 
-### Code Flow
+**Deprecated (DELETED):**
+- ❌ ReceiptPhotoCapture.tsx - Replaced by ScannerPanel
+- ❌ LiveReceiptScanner.tsx - Replaced by ScannerPanel
+
+### Code Flow (Updated)
 
 ```typescript
 // ReceiptPhotoCapture.tsx

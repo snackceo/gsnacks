@@ -1,5 +1,7 @@
 # 🎉 CRITICAL FIXES DEPLOYMENT COMPLETE
 
+> **⚠️ UPDATE (2026-01-21):** Post-deployment scanner consolidation completed. See [SCANNER_UNIFICATION.md](SCANNER_UNIFICATION.md).
+
 **Receipt-Based Pricing System - Production Hardening**  
 **Date**: January 20, 2026  
 **Status**: ✅ COMPLETE & VALIDATED  
