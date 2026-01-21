@@ -65,6 +65,7 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
   const [capture, setCapture] = useState<ReceiptCapture | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [parsing, setParsing] = useState(false);
   const [scanningLineIndex, setScanningLineIndex] = useState<number | null>(null);
   const [scannedUpc, setScannedUpc] = useState('');
   const [committing, setCommitting] = useState(false);
@@ -172,6 +173,38 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
   const handleSkip = (lineIndex: number) => {
     // Just move to next item
     setScanningLineIndex(null);
+  };
+
+  // Handle parse receipt with Gemini
+  const handleParse = async () => {
+    if (!capture || capture.status !== 'pending_parse') {
+      setError('Receipt must be pending parse');
+      return;
+    }
+
+    setParsing(true);
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ captureId })
+      });
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to parse receipt');
+      }
+
+      // Refresh to get parsed items
+      await fetchCapture();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setParsing(false);
+    }
   };
 
   // Handle commit to StoreInventory
@@ -285,7 +318,18 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
             <div className="text-center py-12 text-gray-500">
               <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
               <p>No items parsed yet</p>
-              {capture.status === 'pending_parse' && <p className="text-sm mt-2">Waiting for Gemini parse...</p>}
+              {capture.status === 'pending_parse' && (
+                <div className="mt-6">
+                  <p className="text-sm mb-4">Click the button below to extract items using Gemini Vision</p>
+                  <button
+                    onClick={handleParse}
+                    disabled={parsing}
+                    className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white font-bold py-2 px-6 rounded-lg transition-all"
+                  >
+                    {parsing ? 'Parsing with Gemini...' : 'Parse Receipt with Gemini'}
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <table className="w-full">
