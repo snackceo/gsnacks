@@ -26,6 +26,8 @@ const resolveProductForCartItem = async (productId) => {
 export const findCheapestStores = async (cartItems) => {
   const storePlans = new Map(); // storeId -> { items: [], totalCost: 0 }
   const unfulfilled = [];
+  const resolvePrice = inventory =>
+    Number.isFinite(inventory?.observedPrice) ? inventory.observedPrice : inventory.cost;
 
   for (const item of cartItems) {
     const product = await resolveProductForCartItem(item.productId);
@@ -48,9 +50,10 @@ export const findCheapestStores = async (cartItems) => {
     }
 
     // Pick cheapest store for this item
-    const cheapest = inventory.reduce((min, curr) => 
-      curr.cost < min.cost ? curr : min
+    const cheapest = inventory.reduce((min, curr) =>
+      resolvePrice(curr) < resolvePrice(min) ? curr : min
     );
+    const basisPrice = resolvePrice(cheapest);
 
     const storeId = cheapest.storeId._id.toString();
     
@@ -73,9 +76,9 @@ export const findCheapestStores = async (cartItems) => {
       cost: cheapest.cost,
       markup: cheapest.markup,
       observedPrice: cheapest.observedPrice,
-      itemTotal: cheapest.cost * item.quantity
+      itemTotal: basisPrice * item.quantity
     });
-    plan.totalCost += cheapest.cost * item.quantity;
+    plan.totalCost += basisPrice * item.quantity;
   }
 
   return {
@@ -119,9 +122,11 @@ export const optimizeStoreSelection = async (fulfillmentResult) => {
       
       if (!alt) return null;
       
-      // Accept if cost difference is < 15%
-      const costDiff = ((alt.cost - item.cost) / item.cost) * 100;
-      if (costDiff > 15) return null;
+      // Accept if price difference is < 15%
+      const altBasisPrice = Number.isFinite(alt.observedPrice) ? alt.observedPrice : alt.cost;
+      const itemBasisPrice = Number.isFinite(item.observedPrice) ? item.observedPrice : item.cost;
+      const priceDiff = ((altBasisPrice - itemBasisPrice) / itemBasisPrice) * 100;
+      if (priceDiff > 15) return null;
       
       return { 
         ...item, 
@@ -141,9 +146,11 @@ export const optimizeStoreSelection = async (fulfillmentResult) => {
       storePlans: [{
         ...primaryStore,
         items: [...primaryStore.items, ...canConsolidate.filter(x => x)],
-        totalCost: primaryStore.totalCost + canConsolidate.reduce((sum, item) => 
-          sum + (item ? item.cost * item.quantity : 0), 0
-        )
+        totalCost: primaryStore.totalCost + canConsolidate.reduce((sum, item) => {
+          if (!item) return sum;
+          const itemBasisPrice = Number.isFinite(item.observedPrice) ? item.observedPrice : item.cost;
+          return sum + (itemBasisPrice * item.quantity);
+        }, 0)
       }],
       unfulfilled: fulfillmentResult.unfulfilled,
       consolidated: true
