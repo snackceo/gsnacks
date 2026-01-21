@@ -181,6 +181,30 @@ function isAllowedImageDataUrl(dataUrl) {
   }
 }
 
+const ALIAS_CONFIDENCE_HALF_LIFE_DAYS = 90;
+const ALIAS_CONFIDENCE_MATCH_THRESHOLD = 0.6;
+
+const getAliasEffectiveConfidence = (alias, now = new Date()) => {
+  const confirmedCount = Number(alias?.confirmedCount || 0);
+  const baseConfidence = Math.min(1.0, 0.7 + confirmedCount * 0.1);
+  const lastActivityAt = alias?.lastConfirmedAt || alias?.lastSeenAt;
+
+  if (!lastActivityAt) {
+    return { baseConfidence, effectiveConfidence: baseConfidence, lastActivityAt: null };
+  }
+
+  const ageMs = now.getTime() - new Date(lastActivityAt).getTime();
+  if (!Number.isFinite(ageMs) || ageMs <= 0) {
+    return { baseConfidence, effectiveConfidence: baseConfidence, lastActivityAt };
+  }
+
+  const ageDays = ageMs / (1000 * 60 * 60 * 24);
+  const decayFactor = Math.pow(0.5, ageDays / ALIAS_CONFIDENCE_HALF_LIFE_DAYS);
+  const effectiveConfidence = Math.max(0, Math.min(1, baseConfidence * decayFactor));
+
+  return { baseConfidence, effectiveConfidence, lastActivityAt };
+};
+
 const router = express.Router();
 
 // Tight rate limit for receipt endpoints to reduce abuse and control OCR costs
@@ -1112,23 +1136,26 @@ RULES:
           });
 
           if (alias && alias.confirmedCount > 0) {
-            const product = await Product.findById(alias.productId);
-            if (product) {
-              suggestedProduct = {
-                id: product._id.toString(),
-                name: product.name,
-                upc: product.upc,
-                sku: product.sku
-              };
-              matchMethod = 'alias_confirmed';
-              matchConfidence = Math.min(1.0, 0.7 + alias.confirmedCount * 0.1);
-              workflowType = 'update_price'; // Item exists - update price
-              
-              // Auto-confirm high-confidence aliases (3+ confirmations)
-              if (alias.confirmedCount >= 3) {
-                needsReview = false;
-              } else {
-                reviewReason = 'low_confirmation_count';
+            const { effectiveConfidence } = getAliasEffectiveConfidence(alias);
+            if (effectiveConfidence >= ALIAS_CONFIDENCE_MATCH_THRESHOLD) {
+              const product = await Product.findById(alias.productId);
+              if (product) {
+                suggestedProduct = {
+                  id: product._id.toString(),
+                  name: product.name,
+                  upc: product.upc,
+                  sku: product.sku
+                };
+                matchMethod = 'alias_confirmed';
+                matchConfidence = effectiveConfidence;
+                workflowType = 'update_price'; // Item exists - update price
+                
+                // Auto-confirm high-confidence aliases (decayed confidence)
+                if (effectiveConfidence >= 0.9) {
+                  needsReview = false;
+                } else {
+                  reviewReason = 'decayed_alias_confidence';
+                }
               }
             }
           }
@@ -1712,13 +1739,16 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
             }).populate('productId').session(sessionDb);
             
             if (aliasMatch && aliasMatch.confirmedCount >= 1) {
-              product = aliasMatch.productId;
-              matchMethod = 'alias_confirmed';
-              matchConfidence = Math.min(1.0, 0.7 + (aliasMatch.confirmedCount * 0.1));
-              
-              // Update lastSeenAt
-              aliasMatch.lastSeenAt = new Date();
-              await aliasMatch.save({ session: sessionDb });
+              const { effectiveConfidence } = getAliasEffectiveConfidence(aliasMatch);
+              if (effectiveConfidence >= ALIAS_CONFIDENCE_MATCH_THRESHOLD) {
+                product = aliasMatch.productId;
+                matchMethod = 'alias_confirmed';
+                matchConfidence = effectiveConfidence;
+                
+                // Update lastSeenAt
+                aliasMatch.lastSeenAt = new Date();
+                await aliasMatch.save({ session: sessionDb });
+              }
             }
           }
 
