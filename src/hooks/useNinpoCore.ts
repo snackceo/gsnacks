@@ -377,6 +377,98 @@ export const useNinpoCore = () => {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   }, []);
 
+  const fetchProducts = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/products`, {
+        credentials: 'include'
+      });
+
+      if (!res.ok) throw new Error('Failed to load products');
+
+      const data = await res.json().catch(() => ({}));
+      const list = Array.isArray(data?.products) ? data.products : [];
+
+      setProducts(list);
+      return list as Product[];
+    } catch (e: any) {
+      setProducts(MOCK_PRODUCTS as any);
+      addToast(e?.message ?? 'Using fallback products', 'warning');
+      return MOCK_PRODUCTS as any;
+    }
+  }, [addToast]);
+
+  const fetchSettings = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/settings`, {
+        credentials: 'include'
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to load settings');
+
+      const payload = data?.settings ?? data;
+      const normalized = normalizeSettings(payload as Partial<AppSettings>);
+      setSettings(normalized);
+      persistSettings(normalized);
+      return normalized;
+    } catch (e: any) {
+      const stored = readStoredSettings();
+      if (stored) {
+        setSettings(stored);
+        return stored;
+      }
+      addToast(e?.message ?? 'Using default settings', 'warning');
+      return null;
+    }
+  }, [addToast]);
+
+  const fetchOrders = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/orders`, {
+        credentials: 'include'
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error('Orders fetch failed.', {
+          status: res.status,
+          statusText: res.statusText,
+          data
+        });
+        throw new Error(data?.error || 'Failed to load orders');
+      }
+
+      const rawOrders = resolveOrdersPayload(data);
+      if (!Array.isArray(rawOrders)) {
+        console.warn('Orders response did not include a list payload.', data);
+      }
+
+      const list = normalizeOrders(rawOrders);
+      setOrders(list);
+      return list;
+    } catch (e: any) {
+      console.error('Orders fetch error.', e);
+      addToast(e?.message ?? 'Orders feed offline', 'warning');
+      return [];
+    }
+  }, [addToast]);
+
+  const refreshDashboardData = useCallback(async () => {
+    if (!currentUser) return;
+    
+    try {
+      // Silently refresh orders and products in background
+      await Promise.all([
+        fetchOrders().catch(() => {}),
+        fetchProducts().catch(() => {})
+      ]);
+      setLastSyncTime(new Date());
+    } catch (err) {
+      // Silent fail - don't disrupt user experience
+      console.debug('[refreshDashboardData] Background refresh failed:', err);
+    }
+  }, [currentUser, fetchOrders, fetchProducts]);
+
   const clearCart = useCallback(() => {
     setCart([]);
     persistCart([]);
@@ -446,22 +538,6 @@ export const useNinpoCore = () => {
       setIsBackendOnline(false);
     }
   }, []);
-
-  const refreshDashboardData = useCallback(async () => {
-    if (!currentUser) return;
-    
-    try {
-      // Silently refresh orders and products in background
-      await Promise.all([
-        fetchOrders().catch(() => {}),
-        fetchProducts().catch(() => {})
-      ]);
-      setLastSyncTime(new Date());
-    } catch (err) {
-      // Silent fail - don't disrupt user experience
-      console.debug('[refreshDashboardData] Background refresh failed:', err);
-    }
-  }, [currentUser, fetchOrders, fetchProducts]);
 
   useEffect(() => {
     syncWithBackend();
@@ -633,51 +709,6 @@ export const useNinpoCore = () => {
     }
   }, [addToast]);
 
-  const fetchProducts = useCallback(async () => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/products`, {
-        credentials: 'include'
-      });
-
-      if (!res.ok) throw new Error('Failed to load products');
-
-      const data = await res.json().catch(() => ({}));
-      const list = Array.isArray(data?.products) ? data.products : [];
-
-      setProducts(list);
-      return list as Product[];
-    } catch (e: any) {
-      setProducts(MOCK_PRODUCTS as any);
-      addToast(e?.message ?? 'Using fallback products', 'warning');
-      return MOCK_PRODUCTS as any;
-    }
-  }, [addToast]);
-
-  const fetchSettings = useCallback(async () => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/settings`, {
-        credentials: 'include'
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to load settings');
-
-      const payload = data?.settings ?? data;
-      const normalized = normalizeSettings(payload as Partial<AppSettings>);
-      setSettings(normalized);
-      persistSettings(normalized);
-      return normalized;
-    } catch (e: any) {
-      const stored = readStoredSettings();
-      if (stored) {
-        setSettings(stored);
-        return stored;
-      }
-      addToast(e?.message ?? 'Using default settings', 'warning');
-      return null;
-    }
-  }, [addToast]);
-
   const createProduct = useCallback(
     async (p: Partial<Product>) => {
       const res = await fetch(`${BACKEND_URL}/api/products`, {
@@ -744,37 +775,6 @@ export const useNinpoCore = () => {
     },
     [addToast]
   );
-
-  const fetchOrders = useCallback(async () => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/orders`, {
-        credentials: 'include'
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        console.error('Orders fetch failed.', {
-          status: res.status,
-          statusText: res.statusText,
-          data
-        });
-        throw new Error(data?.error || 'Failed to load orders');
-      }
-
-      const rawOrders = resolveOrdersPayload(data);
-      if (!Array.isArray(rawOrders)) {
-        console.warn('Orders response did not include a list payload.', data);
-      }
-
-      const list = normalizeOrders(rawOrders);
-      setOrders(list);
-      return list;
-    } catch (e: any) {
-      console.error('Orders fetch error.', e);
-      addToast(e?.message ?? 'Orders feed offline', 'warning');
-      return [];
-    }
-  }, [addToast]);
 
   const fetchApprovals = useCallback(async () => {
     try {
