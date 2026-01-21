@@ -594,9 +594,12 @@ export const useNinpoCore = () => {
 
       setCurrentUser(mapped as User);
       
-      // 🚀 Connect WebSocket for real-time sync (async, non-blocking)
+      // 🚀 Connect WebSocket for real-time sync (async, non-blocking, deferred)
       if (mapped.id) {
-        connectSocket(mapped.id).catch(e => console.warn('[Socket] Connection failed:', e));
+        // Defer socket connection to next tick to ensure React hydration
+        Promise.resolve().then(() => {
+          connectSocket(mapped.id).catch(e => console.warn('[Socket] Connection failed:', e));
+        });
         
         // Setup push notifications (optional, non-blocking)
         registerServiceWorker().then(() => {

@@ -1,51 +1,71 @@
 import type { Socket } from 'socket.io-client';
 
-let socket: Socket | null = null;
-let socketIo: typeof import('socket.io-client').io | null = null;
+let socket: any = null;
+let socketIo: any = null;
+let socketLoadFailed = false;
+let socketLoadAttempted = false;
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
 /**
  * Lazy-load socket.io-client to avoid initialization errors
+ * Wrapped in try-catch to prevent app crashes
  */
 const getIoClient = async () => {
-  if (!socketIo) {
-    try {
-      const module = await import('socket.io-client');
-      socketIo = module.io;
-    } catch (error) {
-      console.error('[Socket] Failed to load socket.io-client:', error);
-      return null;
-    }
+  if (socketLoadFailed || socketLoadAttempted) {
+    return null; // Don't retry
   }
-  return socketIo;
+
+  socketLoadAttempted = true;
+
+  try {
+    // Use a timeout to prevent hanging
+    const loadPromise = import('socket.io-client');
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('socket.io-client load timeout')), 5000)
+    );
+
+    const module = await Promise.race([loadPromise, timeoutPromise]);
+    socketIo = (module as any).io;
+    return socketIo;
+  } catch (error) {
+    console.warn('[Socket] socket.io-client unavailable, sync features disabled:', error);
+    socketLoadFailed = true;
+    return null;
+  }
 };
 
 /**
  * Initialize WebSocket connection and join user-specific room
+ * Fully deferred and defensive - won't crash app if socket fails
  */
 export const connectSocket = async (userId: string) => {
-  if (socket?.connected) {
-    console.log('[Socket] Already connected');
-    return socket;
-  }
-
   try {
+    if (socket?.connected) {
+      console.log('[Socket] Already connected');
+      return socket;
+    }
+
+    // Defer to next tick
+    await new Promise(resolve => setTimeout(resolve, 500));
+
     const io = await getIoClient();
     if (!io) {
-      console.warn('[Socket] socket.io-client not available');
+      console.log('[Socket] WebSocket not available, sync features disabled');
       return null;
     }
 
     socket = io(API_URL, {
       withCredentials: true,
       transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: 5
     });
 
     socket.on('connect', () => {
       console.log('[Socket] Connected:', socket?.id);
-      
-      // Join user-specific room for targeted updates
       socket?.emit('join', userId);
     });
 
@@ -54,12 +74,12 @@ export const connectSocket = async (userId: string) => {
     });
 
     socket.on('connect_error', (error: any) => {
-      console.error('[Socket] Connection error:', error.message);
+      console.error('[Socket] Connection error:', error?.message || error);
     });
 
     return socket;
   } catch (error) {
-    console.error('[Socket] Connection failed:', error);
+    console.warn('[Socket] Connection skipped, app will work without real-time sync:', error);
     return null;
   }
 };
