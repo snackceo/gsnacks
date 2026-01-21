@@ -59,6 +59,7 @@ export const findCheapestStores = async (cartItems) => {
       quantity: item.quantity,
       cost: cheapest.cost,
       markup: cheapest.markup,
+      observedPrice: cheapest.observedPrice,
       itemTotal: cheapest.cost * item.quantity
     });
     plan.totalCost += cheapest.cost * item.quantity;
@@ -107,7 +108,12 @@ export const optimizeStoreSelection = async (fulfillmentResult) => {
       const costDiff = ((alt.cost - item.cost) / item.cost) * 100;
       if (costDiff > 15) return null;
       
-      return { ...item, cost: alt.cost, markup: alt.markup };
+      return { 
+        ...item, 
+        cost: alt.cost, 
+        markup: alt.markup,
+        observedPrice: alt.observedPrice
+      };
     })
   );
 

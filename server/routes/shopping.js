@@ -69,11 +69,13 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     const storePricingByProductId = new Map();
     const storePricingDetails = optimized.storePlans.map(plan => {
       const items = plan.items.map(item => {
-        const basePrice = Number.isFinite(item.observedPrice)
-          ? item.observedPrice
+        const useObservedPrice = Number.isFinite(item.observedPrice);
+        const basePrice = useObservedPrice
+          ? item.observedPrice + item.markup
           : item.cost * item.markup;
         const unitPrice = roundCurrency(basePrice);
         const total = roundCurrency(unitPrice * item.quantity);
+        const priceSource = useObservedPrice ? 'observedPrice' : 'costMarkup';
         storePricingByProductId.set(String(item.productId), {
           storeId: plan.storeId,
           storeName: plan.storeName,
@@ -81,7 +83,9 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
           cost: item.cost,
           markup: item.markup,
           observedPrice: item.observedPrice,
-          unitPrice
+          unitPrice,
+          priceSource,
+          productName: item.productName
         });
         return {
           productId: item.productId,
@@ -90,6 +94,7 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
           cost: item.cost,
           markup: item.markup,
           observedPrice: item.observedPrice ?? null,
+          priceSource,
           unitPrice,
           total
         };
@@ -111,25 +116,24 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     for (const item of cartItems) {
       const product = productsByFrontendId.get(item.productId);
       const storePricing = storePricingByProductId.get(String(item.productId));
-      const unitPrice = storePricing?.unitPrice ?? product?.price ?? 0;
+      const unitPrice = storePricing?.unitPrice ?? 0;
       const itemTotal = roundCurrency(unitPrice * item.quantity);
       listAmount += itemTotal;
-      if (product) {
-        itemizedList.push({
-          name: product.name,
-          quantity: item.quantity,
-          price: unitPrice,
-          total: itemTotal,
-          store: storePricing ? {
-            id: storePricing.storeId,
-            name: storePricing.storeName,
-            type: storePricing.storeType,
-            cost: storePricing.cost,
-            markup: storePricing.markup,
-            observedPrice: storePricing.observedPrice ?? null
-          } : null
-        });
-      }
+      itemizedList.push({
+        name: storePricing?.productName ?? product?.name ?? 'Unknown',
+        quantity: item.quantity,
+        price: unitPrice,
+        total: itemTotal,
+        store: storePricing ? {
+          id: storePricing.storeId,
+          name: storePricing.storeName,
+          type: storePricing.storeType,
+          cost: storePricing.cost,
+          markup: storePricing.markup,
+          observedPrice: storePricing.observedPrice ?? null,
+          priceSource: storePricing.priceSource
+        } : null
+      });
     }
 
     // Get user tier and compute fees via centralized deliveryFees
