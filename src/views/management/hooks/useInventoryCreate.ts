@@ -320,7 +320,8 @@ export const useInventoryCreate = ({
             storageBin: newProduct.storageBin,
             image: newProduct.image,
             isGlass: !!newProduct.isGlass,
-            isHeavy: !!newProduct.isHeavy
+            isHeavy: !!newProduct.isHeavy,
+            upc: scannedUpcForCreation
           })
         });
       } else {
@@ -344,7 +345,8 @@ export const useInventoryCreate = ({
             storageBin: newProduct.storageBin,
             image: newProduct.image,
             isGlass: !!newProduct.isGlass,
-            isHeavy: !!newProduct.isHeavy
+            isHeavy: !!newProduct.isHeavy,
+            upc: scannedUpcForCreation
           })
         });
       }

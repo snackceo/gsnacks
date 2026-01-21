@@ -724,7 +724,8 @@ export const useNinpoCore = () => {
           sizeOz: (p as any).sizeOz ?? 0,
           category: p.category ?? 'DRINK',
           image: p.image ?? '',
-          isGlass: (p as any).isGlass ?? false
+          isGlass: (p as any).isGlass ?? false,
+          upc: p.upc
         })
       });
 
