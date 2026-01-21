@@ -3,6 +3,7 @@ import { Order, OrderStatus, ReturnUpcCount, User } from '../../types';
 import ManagementOrderDetailPanel from './ManagementOrderDetailPanel';
 import ManagementReceiptScanner from '../../components/ManagementReceiptScanner';
 import ReceiptPhotoCapture from '../../components/ReceiptPhotoCapture';
+import LiveReceiptScanner from '../../components/LiveReceiptScanner';
 import {
   CheckCircle2,
   Loader2,
@@ -61,6 +62,7 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
   const [receiptCaptures, setReceiptCaptures] = useState<ReceiptCapture[]>([]);
   const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
   const [showPhotoCapture, setShowPhotoCapture] = useState(false);
+  const [showLiveScanner, setShowLiveScanner] = useState(false);
   const [captureStoreId, setCaptureStoreId] = useState<string>('');
   const [captureStoreName, setCaptureStoreName] = useState<string>('');
 
@@ -109,17 +111,26 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
             </h3>
             <p className="text-sm text-orange-100 mt-2">Capture and process a new receipt</p>
           </div>
-          <button
-            onClick={() => {
-              setCaptureStoreId('');
-              setCaptureStoreName('Manual Entry');
-              setShowPhotoCapture(true);
-            }}
-            className="px-6 py-3 bg-white hover:bg-gray-100 rounded-lg text-orange-600 font-bold text-sm flex items-center gap-2 transition-all"
-          >
-            <Camera className="w-5 h-5" />
-            Start Capture
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowLiveScanner(true)}
+              className="px-6 py-3 bg-amber-400 hover:bg-amber-300 rounded-lg text-orange-800 font-bold text-sm flex items-center gap-2 transition-all"
+            >
+              <Camera className="w-5 h-5" />
+              Live Scan
+            </button>
+            <button
+              onClick={() => {
+                setCaptureStoreId('');
+                setCaptureStoreName('Manual Entry');
+                setShowPhotoCapture(true);
+              }}
+              className="px-6 py-3 bg-white hover:bg-gray-100 rounded-lg text-orange-600 font-bold text-sm flex items-center gap-2 transition-all"
+            >
+              <Camera className="w-5 h-5" />
+              Photo Capture
+            </button>
+          </div>
         </div>
       </div>
 
@@ -237,10 +248,22 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
           onComplete={(captureId) => {
             setShowPhotoCapture(false);
             fetchReceiptCaptures();
-            // Auto-open scanner for newly created capture
             setTimeout(() => setSelectedCaptureId(captureId), 500);
           }}
           onCancel={() => setShowPhotoCapture(false)}
+        />
+      )}
+
+      {/* Live Receipt Scanner Modal */}
+      {showLiveScanner && (
+        <LiveReceiptScanner
+          storeName="Live Receipt Scan"
+          onClose={() => setShowLiveScanner(false)}
+          onSaveReceipt={(captureId) => {
+            setShowLiveScanner(false);
+            fetchReceiptCaptures();
+            setTimeout(() => setSelectedCaptureId(captureId), 500);
+          }}
         />
       )}
 

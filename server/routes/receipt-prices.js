@@ -743,21 +743,28 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
 
         // Gemini prompt for receipt parsing
         // Sanitized Gemini prompt (no user input injection)
-        const prompt = `You are a receipt OCR specialist. Parse this receipt image and extract ALL line items with prices.
+        const prompt = `You are a receipt OCR specialist. Parse this receipt image THOROUGHLY.
 
-For EACH product line item, return ONLY valid JSON array format:
-[
-  {"receiptName": "COCA COLA 12PK", "quantity": 2, "totalPrice": 15.98},
-  {"receiptName": "LAYS CHIPS ORIG", "quantity": 1, "totalPrice": 3.99}
-]
+FIRST, extract the STORE ADDRESS if visible at the top or bottom of receipt. Return it as:
+"address": "123 Main St, City, ST 12345"  (or null if not visible)
+
+THEN, extract ALL line items with prices. Return ONLY valid JSON format:
+{
+  "address": "123 MAIN ST, DEARBORN, MI 48126",
+  "items": [
+    {"receiptName": "COCA COLA 12PK", "quantity": 2, "totalPrice": 15.98},
+    {"receiptName": "LAYS CHIPS ORIG", "quantity": 1, "totalPrice": 3.99}
+  ]
+}
 
 RULES:
-1. Extract ONLY product line items (skip store name, date, tax, subtotal, total, payment, instructions)
-2. Use exact product names from receipt
-3. For multi-buy items, calculate quantity * unit price = totalPrice
-4. Skip discounts, coupons, tax lines
-5. Return empty array [] if no items found
-6. Return ONLY the JSON array, no markdown, no explanation, no comments`;
+1. Extract store address if visible (street, city, state, zip)
+2. Extract ONLY product line items (skip store name, date, tax, subtotal, total, payment, instructions)
+3. Use exact product names from receipt
+4. For multi-buy items, calculate quantity * unit price = totalPrice
+5. Skip discounts, coupons, tax lines
+6. Return empty array [] for items if none found
+7. Return ONLY valid JSON, no markdown, no explanation`;
 
         // Call Gemini Vision API with error handling
         let response;
@@ -808,19 +815,75 @@ RULES:
         }
 
         // Parse JSON response
+        let parsedData = {};
         let extractedItems = [];
+        let extractedAddress = null;
+        
         try {
           // Remove markdown code blocks if present
           const jsonText = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-          extractedItems = JSON.parse(jsonText);
+          parsedData = JSON.parse(jsonText);
+          
+          // Extract address if present
+          if (parsedData.address && typeof parsedData.address === 'string') {
+            extractedAddress = parsedData.address.trim();
+          }
+          
+          // Extract items
+          extractedItems = Array.isArray(parsedData.items) ? parsedData.items : 
+                          Array.isArray(parsedData) ? parsedData : [];
           
           if (!Array.isArray(extractedItems)) {
-            console.warn('Gemini response is not an array:', jsonText);
+            console.warn('Gemini response items is not an array:', jsonText);
             extractedItems = [];
           }
         } catch (parseError) {
           console.error('Failed to parse Gemini JSON:', rawText, parseError);
           continue;
+        }
+
+        // If we found an address on first image, save it to store
+        if (extractedAddress && image.sequence === 1) {
+          try {
+            const store = await Store.findById(capture.storeId);
+            if (store && !store.address?.street) {
+              // Parse the address string into components
+              // Format: "123 Main St, City, ST 12345"
+              const addressParts = extractedAddress.split(',').map(p => p.trim());
+              store.address = {
+                street: addressParts[0] || '',
+                city: addressParts[1] || '',
+                state: addressParts[2]?.split(' ')[0] || '',
+                zip: addressParts[2]?.split(' ')[1] || ''
+              };
+              
+              // Try to geocode the new address
+              const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY;
+              if (apiKey) {
+                try {
+                  const geocodeUrl = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+                  geocodeUrl.searchParams.set('address', extractedAddress);
+                  geocodeUrl.searchParams.set('key', apiKey);
+                  
+                  const geocodeResp = await fetch(geocodeUrl.toString());
+                  const geocodeData = await geocodeResp.json();
+                  
+                  if (geocodeData.status === 'OK' && geocodeData.results?.[0]?.geometry?.location) {
+                    const loc = geocodeData.results[0].geometry.location;
+                    store.location = { lat: loc.lat, lng: loc.lng };
+                    console.log(`Auto-geocoded store address: ${extractedAddress} → ${loc.lat}, ${loc.lng}`);
+                  }
+                } catch (geocodeErr) {
+                  console.warn(`Geocoding failed for ${extractedAddress}:`, geocodeErr.message);
+                }
+              }
+              
+              await store.save();
+              console.log(`Updated store ${store._id} with address from receipt`);
+            }
+          } catch (addressErr) {
+            console.warn('Failed to update store address:', addressErr.message);
+          }
         }
 
         // Sanitize and cap items from Gemini
@@ -2008,6 +2071,156 @@ router.get('/receipt-captures', authRequired, async (req, res) => {
   } catch (error) {
     console.error('Error listing receipt captures:', error);
     res.status(500).json({ error: 'Failed to list receipt captures' });
+  }
+});
+
+/**
+ * POST /api/driver/receipt-parse-frame
+ * Parse a single frame from live camera feed
+ * Returns items extracted from that frame only (non-destructive)
+ */
+router.post('/receipt-parse-frame', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { image } = req.body;
+    
+    if (!image || typeof image !== 'string') {
+      return res.status(400).json({ error: 'Valid base64 image required' });
+    }
+
+    const apiReady = ensureGeminiReady();
+    if (!apiReady.ok) {
+      return res.status(503).json({ error: apiReady.error });
+    }
+
+    // Extract base64 from data URL
+    let imageBase64 = image;
+    let mimeType = 'image/jpeg';
+    
+    if (image.startsWith('data:')) {
+      const match = image.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        mimeType = match[1];
+        imageBase64 = match[2];
+      }
+    }
+
+    // Call Gemini with items extraction prompt
+    const prompt = `Extract ALL product line items from this receipt image ONLY. Return ONLY JSON:
+[
+  {"receiptName": "COCA COLA 12PK", "quantity": 2, "totalPrice": 15.98},
+  {"receiptName": "LAYS CHIPS", "quantity": 1, "totalPrice": 3.99}
+]
+
+Rules: Extract product lines only (skip store, date, tax, total). Return empty [] if unclear. ONLY JSON, no explanation.`;
+
+    let response;
+    try {
+      const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
+      response = await ai.models.generateContent({
+        model: 'gemini-2.0-flash-exp',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+              { inline_data: { data: imageBase64, mime_type: mimeType } }
+            ]
+          }
+        ],
+        generationConfig: { temperature: 0.1 }
+      });
+    } catch (geminiErr) {
+      console.error('Gemini parse error:', geminiErr.message);
+      return res.json({ ok: true, items: [] }); // Non-blocking
+    }
+
+    const rawText = response?.text?.trim?.() ?? '';
+    let items = [];
+    
+    try {
+      const jsonText = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const parsed = JSON.parse(jsonText);
+      
+      if (Array.isArray(parsed)) {
+        items = parsed.filter(item => 
+          item.receiptName && 
+          Number.isFinite(item.quantity) && 
+          Number.isFinite(item.totalPrice) &&
+          item.totalPrice > 0 &&
+          item.quantity > 0
+        ).slice(0, 20); // Limit to 20 items per frame
+      }
+    } catch (e) {
+      // Silent fail for parsing
+    }
+
+    res.json({ ok: true, items });
+
+  } catch (error) {
+    console.error('Receipt frame parse error:', error);
+    res.json({ ok: true, items: [] });
+  }
+});
+
+/**
+ * POST /api/driver/receipt-parse-live
+ * Save live-scanned items to a capture as pre-parsed
+ */
+router.post('/receipt-parse-live', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { captureId, items } = req.body;
+    
+    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
+      return res.status(400).json({ error: 'Valid captureId required' });
+    }
+
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: 'Items array required' });
+    }
+
+    const capture = await ReceiptCapture.findById(captureId);
+    if (!capture) {
+      return res.status(404).json({ error: 'Capture not found' });
+    }
+
+    const isOwner = isOwnerUsername(req.user?.username);
+    if (!isOwner && capture.createdBy !== req.user?.username) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    // Convert live items to draft items for manual UPC binding
+    const draftItems = items.map((item, idx) => ({
+      lineIndex: idx,
+      receiptName: item.receiptName,
+      normalizedName: normalizeReceiptName(item.receiptName),
+      quantity: item.quantity,
+      totalPrice: item.totalPrice,
+      unitPrice: item.totalPrice / item.quantity,
+      needsReview: false,
+      workflowType: 'new_product'
+    }));
+
+    capture.markParsed(draftItems);
+    await capture.save();
+
+    res.json({
+      ok: true,
+      captureId: capture._id.toString(),
+      status: capture.status,
+      itemCount: draftItems.length
+    });
+
+  } catch (error) {
+    console.error('Receipt parse live error:', error);
+    res.status(500).json({ error: 'Failed to save items' });
   }
 });
 
