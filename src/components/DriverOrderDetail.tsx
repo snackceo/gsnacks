@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import ItemNotFoundTracker from './ItemNotFoundTracker';
 import ReceiptCapture from './ReceiptCapture';
-import ReceiptPhotoCapture from './ReceiptPhotoCapture';
+import ScannerModal from './ScannerModal';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
@@ -71,10 +71,60 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' | 'info' } | null>(null);
   const [showReceiptCapture, setShowReceiptCapture] = useState(false);
   const [showPhotoCapture, setShowPhotoCapture] = useState(false);
+  const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   const showToast = (message: string, type: 'error' | 'success' | 'info' = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
+  };
+
+  // Auto-upload and parse receipt photos
+  const handlePhotoCapture = async (photoDataUrl: string, mime: string) => {
+    try {
+      setUploading(true);
+      setCapturedPhotos(prev => [...prev, photoDataUrl]);
+      
+      // Upload photo to backend immediately
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          storeId: currentStoreId || '',
+          storeName: currentStoreId ? getStoreNameFromId(currentStoreId) : 'Unknown Store',
+          orderId: order?.orderId || order?.id,
+          images: [{
+            dataUrl: photoDataUrl,
+            mime: mime
+          }]
+        })
+      });
+
+      if (!resp.ok) throw new Error('Upload failed');
+
+      const data = await resp.json();
+      
+      // Auto-parse immediately
+      const parseResp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ captureId: data.captureId })
+      });
+
+      if (parseResp.ok) {
+        showToast('Receipt auto-uploaded & parsed! Check management to review.', 'success');
+        setShowPhotoCapture(false);
+        setCapturedPhotos([]);
+      } else {
+        showToast('Uploaded but parsing failed. Review in management.', 'info');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Upload failed', 'error');
+    } finally {
+      setUploading(false);
+    }
   };
 
   useEffect(() => {
@@ -543,7 +593,7 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
               className="py-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 rounded-xl font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 text-sm"
             >
               <DollarSign className="w-5 h-5" />
-              Photo Receipt
+              Auto Receipt
             </button>
             <button
               onClick={() => setShowReceiptCapture(true)}
@@ -570,17 +620,19 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
           </div>
         </div>
 
-        {/* Receipt Photo Capture Modal */}
+        {/* Auto-Upload Receipt Scanner */}
         {showPhotoCapture && (
-          <ReceiptPhotoCapture
-            storeId={currentStoreId || ''}
-            storeName={currentStoreId ? getStoreNameFromId(currentStoreId) : 'Unknown Store'}
-            orderId={order?.orderId || order?.id}
-            onComplete={(captureId) => {
+          <ScannerModal
+            onScan={() => {}} // No UPC scanning needed
+            onPhotoCaptured={handlePhotoCapture}
+            onClose={() => {
               setShowPhotoCapture(false);
-              showToast('Receipt uploaded and parsed! Check management scanner to review.', 'success');
+              setCapturedPhotos([]);
             }}
-            onCancel={() => setShowPhotoCapture(false)}
+            isOpen={showPhotoCapture}
+            title="Receipt Photo"
+            subtitle={uploading ? 'Uploading & parsing...' : `${capturedPhotos.length} captured`}
+            beepEnabled={false}
           />
         )}
 

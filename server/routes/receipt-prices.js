@@ -2196,6 +2196,63 @@ router.get('/receipt-captures', authRequired, async (req, res) => {
 });
 
 /**
+ * DELETE /api/driver/receipt-capture/:captureId
+ * Delete a receipt capture and its associated images
+ * SECURITY: Owner can delete any capture; Driver can only delete from their authorized stores
+ */
+router.delete('/receipt-capture/:captureId', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { captureId } = req.params;
+    const username = req.user?.username;
+    const isOwner = isOwnerUsername(username);
+    const isDriver = isDriverUsername(username);
+
+    if (!mongoose.Types.ObjectId.isValid(captureId)) {
+      return res.status(400).json({ error: 'Invalid captureId' });
+    }
+
+    const capture = await ReceiptCapture.findById(captureId);
+    if (!capture) {
+      return res.status(404).json({ error: 'Receipt capture not found' });
+    }
+
+    // Authorization check
+    if (isDriver && !isOwner) {
+      if (!driverCanAccessStore(username, capture.storeId)) {
+        return res.status(403).json({ error: 'Not authorized to delete this receipt' });
+      }
+    } else if (!isOwner && !isDriver) {
+      return res.status(403).json({ error: 'Not authorized to delete receipts' });
+    }
+
+    // Delete from database
+    await ReceiptCapture.deleteOne({ _id: captureId });
+
+    // Note: Images stored in Cloudinary are not deleted (permanent audit trail)
+    // They remain accessible via URL but are orphaned from the receipt
+
+    await recordAuditLog({
+      type: 'receipt_capture_delete',
+      actorId: username || 'unknown',
+      details: `captureId=${captureId} storeName=${capture.storeName}`
+    });
+
+    res.json({
+      ok: true,
+      message: 'Receipt capture deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Error deleting receipt capture:', error);
+    res.status(500).json({ error: 'Failed to delete receipt capture' });
+  }
+});
+
+/**
  * POST /api/driver/receipt-parse-frame
  * Parse a single frame from live camera feed
  * Returns items extracted from that frame only (non-destructive)

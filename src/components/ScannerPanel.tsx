@@ -7,7 +7,8 @@ import {
   Flashlight,
   FlashlightOff,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  Zap
 } from 'lucide-react';
 // See GLOSSARY.md for authoritative definitions of all scanner modes.
 import { ScannerMode } from '../types';
@@ -493,6 +494,16 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
           </button>
         ) : (
           <div className="w-11" />
+        )}
+        
+        {canCapturePhoto && (
+          <button
+            onClick={takePhoto}
+            className="p-3 rounded-full bg-cyan-500/90 text-white hover:bg-cyan-600 backdrop-blur-sm transition flex items-center justify-center"
+            title="Take photo (backup)"
+          >
+            <Zap className="w-5 h-5" />
+          </button>
         )}
         
         <button

@@ -2,8 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Order, OrderStatus, ReturnUpcCount, User } from '../../types';
 import ManagementOrderDetailPanel from './ManagementOrderDetailPanel';
 import ManagementReceiptScanner from '../../components/ManagementReceiptScanner';
-import ReceiptPhotoCapture from '../../components/ReceiptPhotoCapture';
-import LiveReceiptScanner from '../../components/LiveReceiptScanner';
 import {
   CheckCircle2,
   Loader2,
@@ -13,7 +11,8 @@ import {
   RefreshCw,
   UserCheck,
   XCircle,
-  Camera
+  Camera,
+  Trash2
 } from 'lucide-react';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
@@ -61,10 +60,6 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
   const [openDetail, setOpenDetail] = useState<Record<string, boolean>>({});
   const [receiptCaptures, setReceiptCaptures] = useState<ReceiptCapture[]>([]);
   const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
-  const [showPhotoCapture, setShowPhotoCapture] = useState(false);
-  const [showLiveScanner, setShowLiveScanner] = useState(false);
-  const [captureStoreId, setCaptureStoreId] = useState<string>('');
-  const [captureStoreName, setCaptureStoreName] = useState<string>('');
 
   const toggleDetail = (id: string) =>
     setOpenDetail(prev => ({ ...prev, [id]: !prev[id] }));
@@ -82,6 +77,32 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
       }
     } catch (error) {
       console.error('Error fetching receipt captures:', error);
+    }
+  };
+
+  // Delete a receipt capture
+  const deleteReceiptCapture = async (captureId: string) => {
+    if (!window.confirm('Delete this receipt? This cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${captureId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+
+      if (resp.ok) {
+        setReceiptCaptures(prev => prev.filter(c => c._id !== captureId));
+        if (selectedCaptureId === captureId) {
+          setSelectedCaptureId(null);
+        }
+      } else {
+        alert('Failed to delete receipt');
+      }
+    } catch (error) {
+      console.error('Error deleting receipt:', error);
+      alert('Error deleting receipt');
     }
   };
 
@@ -113,22 +134,12 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
           </div>
           <div className="flex gap-3">
             <button
-              onClick={() => setShowLiveScanner(true)}
-              className="px-6 py-3 bg-amber-400 hover:bg-amber-300 rounded-lg text-orange-800 font-bold text-sm flex items-center gap-2 transition-all"
+              disabled
+              className="px-6 py-3 bg-gray-600 text-gray-400 rounded-lg font-bold text-sm flex items-center gap-2 transition-all opacity-50 cursor-not-allowed"
+              title="Use scanner to capture receipts"
             >
               <Camera className="w-5 h-5" />
-              Live Scan
-            </button>
-            <button
-              onClick={() => {
-                setCaptureStoreId('');
-                setCaptureStoreName('Manual Entry');
-                setShowPhotoCapture(true);
-              }}
-              className="px-6 py-3 bg-white hover:bg-gray-100 rounded-lg text-orange-600 font-bold text-sm flex items-center gap-2 transition-all"
-            >
-              <Camera className="w-5 h-5" />
-              Photo Capture
+              Capture / Upload
             </button>
           </div>
         </div>
@@ -164,51 +175,74 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
             {receiptCaptures.slice(0, 6).map(capture => (
               <div
                 key={capture._id}
-                onClick={() => setSelectedCaptureId(capture._id)}
-                className="bg-white/10 backdrop-blur-sm rounded-lg p-4 cursor-pointer hover:bg-white/20 transition-all border border-white/10"
+                className="bg-white/10 backdrop-blur-sm rounded-lg p-4 hover:bg-white/20 transition-all border border-white/10 group"
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-white font-bold text-sm">{capture.storeName}</span>
-                  <span className={`text-xs px-2 py-1 rounded ${
-                    capture.status === 'parsed' ? 'bg-yellow-500 text-yellow-900' :
-                    capture.status === 'review_complete' ? 'bg-green-500 text-green-900' :
-                    'bg-gray-500 text-gray-900'
-                  }`}>
-                    {capture.status.replace(/_/g, ' ')}
-                  </span>
-                </div>
-                
-                <div className="text-xs text-purple-100 space-y-1">
-                  <div>{capture.imageCount} photo{capture.imageCount !== 1 ? 's' : ''}</div>
-                  <div>
-                    {capture.stats.itemsConfirmed}/{capture.stats.totalItems} items confirmed
+                  <div 
+                    onClick={() => setSelectedCaptureId(capture._id)}
+                    className="flex-1 cursor-pointer"
+                  >
+                    <span className="text-white font-bold text-sm">{capture.storeName}</span>
                   </div>
                   
-                  {/* Workflow breakdown */}
-                  {capture.workflowStats && (
-                    <div className="flex items-center gap-2 mt-2">
-                      {capture.workflowStats.newProducts > 0 && (
-                        <span className="bg-orange-500/30 text-orange-200 text-xs px-2 py-1 rounded">
-                          {capture.workflowStats.newProducts} NEW
-                        </span>
-                      )}
-                      {capture.workflowStats.priceUpdates > 0 && (
-                        <span className="bg-blue-500/30 text-blue-200 text-xs px-2 py-1 rounded">
-                          {capture.workflowStats.priceUpdates} PRICES
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  
-                  {capture.stats.itemsNeedingReview > 0 && (
-                    <div className="text-yellow-300 font-semibold">
-                      {capture.stats.itemsNeedingReview} need review
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      capture.status === 'parsed' ? 'bg-yellow-500 text-yellow-900' :
+                      capture.status === 'review_complete' ? 'bg-green-500 text-green-900' :
+                      'bg-gray-500 text-gray-900'
+                    }`}>
+                      {capture.status.replace(/_/g, ' ')}
+                    </span>
+                    
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteReceiptCapture(capture._id);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-500/30 rounded text-red-400 hover:text-red-300"
+                      title="Delete this receipt"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
                 
-                <div className="mt-3 text-xs text-purple-200">
-                  {new Date(capture.createdAt).toLocaleString()}
+                <div 
+                  onClick={() => setSelectedCaptureId(capture._id)}
+                  className="cursor-pointer"
+                >
+                  <div className="text-xs text-purple-100 space-y-1">
+                    <div>{capture.imageCount} photo{capture.imageCount !== 1 ? 's' : ''}</div>
+                    <div>
+                      {capture.stats.itemsConfirmed}/{capture.stats.totalItems} items confirmed
+                    </div>
+                    
+                    {/* Workflow breakdown */}
+                    {capture.workflowStats && (
+                      <div className="flex items-center gap-2 mt-2">
+                        {capture.workflowStats.newProducts > 0 && (
+                          <span className="bg-orange-500/30 text-orange-200 text-xs px-2 py-1 rounded">
+                            {capture.workflowStats.newProducts} NEW
+                          </span>
+                        )}
+                        {capture.workflowStats.priceUpdates > 0 && (
+                          <span className="bg-blue-500/30 text-blue-200 text-xs px-2 py-1 rounded">
+                            {capture.workflowStats.priceUpdates} PRICES
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    
+                    {capture.stats.itemsNeedingReview > 0 && (
+                      <div className="text-yellow-300 font-semibold">
+                        {capture.stats.itemsNeedingReview} need review
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="mt-3 text-xs text-purple-200">
+                    {new Date(capture.createdAt).toLocaleString()}
+                  </div>
                 </div>
               </div>
             ))}
@@ -239,33 +273,6 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
           Refresh Orders
         </button>
       </div>
-
-      {/* Receipt Photo Capture Modal */}
-      {showPhotoCapture && (
-        <ReceiptPhotoCapture
-          storeId={captureStoreId}
-          storeName={captureStoreName}
-          onComplete={(captureId) => {
-            setShowPhotoCapture(false);
-            fetchReceiptCaptures();
-            setTimeout(() => setSelectedCaptureId(captureId), 500);
-          }}
-          onCancel={() => setShowPhotoCapture(false)}
-        />
-      )}
-
-      {/* Live Receipt Scanner Modal */}
-      {showLiveScanner && (
-        <LiveReceiptScanner
-          storeName="Live Receipt Scan"
-          onClose={() => setShowLiveScanner(false)}
-          onSaveReceipt={(captureId) => {
-            setShowLiveScanner(false);
-            fetchReceiptCaptures();
-            setTimeout(() => setSelectedCaptureId(captureId), 500);
-          }}
-        />
-      )}
 
       {/* Receipt Scanner Modal */}
       {selectedCaptureId && (
