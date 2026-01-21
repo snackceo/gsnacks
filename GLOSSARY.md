@@ -1,6 +1,6 @@
 GREEN (UserTier): Active eco-friendly/subscription tier. Green tier rules: flat $1 Route Fee and no Distance Fee; credits can apply to Route Fee since distance fee is always $0. This tier is available now and can be enabled via settings.
 membershipTier (string field): The user’s current membership tier (COMMON, BRONZE, SILVER, GOLD, PLATINUM, GREEN). Tiers gate certain benefits (credits usage, cash-out eligibility, discounts). Platinum is a hidden tier (invite-only), and Green is active. Tier advancement is primarily based on completed orders. Minimum lifetime product spend thresholds exist to ensure fair use and system sustainability. Advancement requirements:
-Feature Toggles: The presence of scanningModesEnabled and flags for Platinum/Green tiers indicate configurable features. Mode D (driver order fulfillment scanning) is present but not actively used (the UI uses an else-case for “Pick/Pack” with no specific ScannerMode constant). The Green tier is defined and active; operators can enable it in settings. Legacy references like deliveryFee (older nomenclature) are deprecated by unified terms (Route Fee) and kept for backward compatibility.
+Feature Toggles: The presence of scanningModesEnabled and flags for Platinum/Green tiers indicate configurable features. Mode D (driver order fulfillment scanning) is active in DriverView via DRIVER_FULFILL_ORDER, alongside returns verification scanning. The Green tier is defined and active; operators can enable it in settings. Legacy references like deliveryFee (older nomenclature) are deprecated by unified terms (Route Fee) and kept for backward compatibility.
 ...verification status using maybeAutoPromote. For example, once a user completes 50 orders and has phone verified, they become Silver. When they hit 100 and have ID verified, they become Gold. Platinum is invite-only (not auto-promoted) – an owner would manually set membershipTier to PLATINUM (which might require allowPlatinumTier flag on). The tiers grant benefits (as described in Payments domain: credits usage and cash-out eligibility, plus route fee discounts for Bronze 10%, Silver 20%, Gold 30%). Green tier is active and can be assigned per operator policy. Documenting these ensures any code branch or query that deals with user tier uses correct values and knows the implications.
 ## Invariant Rule: Frontend API Calls
 
@@ -190,6 +190,8 @@ driverMode (string state): DriverView mode selector for driver workflows. Values
 DRIVER (UserRole): Role for delivery drivers. Drivers have access to the DriverView for verifying returns and completing deliveries. (Currently, the app limits DriverView to users with role DRIVER or OWNER).
 
 DRIVER_VERIFY_CONTAINERS (ScannerMode enum): Scanner mode for verifying returned containers (Driver Mode C). Triggers scanning UPCs from returned bottles to count and validate eligibility. In DriverView, when scannerMode is set to this, the ScannerModal titles reflect “Verify Returns”.
+
+DRIVER_FULFILL_ORDER (ScannerMode enum): Scanner mode for driver fulfillment scanning (Driver Mode D). Drivers scan products to confirm the packed order matches the expected items. The scan logic validates UPCs against the order’s item list and tracks quantities as they are confirmed.
 
 duplicatesCount (number state): In DriverView, tracks how many duplicate UPC scans occurred during a return verification session. Duplicates require special handling (the UI prompts to confirm adding duplicates).
 
@@ -469,7 +471,7 @@ ScannerModal (component): Reusable camera barcode scanner modal. Accepts props: 
 
 Scanner UX System (domain/system): The shared scanning experience across Management, Driver, and Customer flows, including ScannerModal behavior, cooldown rules, scan normalization, and OFF lookup integration.
 
-ScannerMode (enum/type): Defines the context for scanning. Modes include INVENTORY_CREATE (Mode A – add new product via scan), UPC_LOOKUP (scan to populate UPC field in registry), DRIVER_VERIFY_CONTAINERS (Mode C – returns verification scan), and CUSTOMER_RETURN_SCAN (customer return scan list). These modes determine the ScannerModal behavior (e.g., whether it can capture photos, what text it shows, and what the onScan does).
+ScannerMode (enum/type): Defines the context for scanning. Modes include INVENTORY_CREATE (Mode A – add new product via scan), UPC_LOOKUP (scan to populate UPC field in registry), DRIVER_VERIFY_CONTAINERS (Mode C – returns verification scan), DRIVER_FULFILL_ORDER (Mode D – fulfillment scan to confirm packed items), and CUSTOMER_RETURN_SCAN (customer return scan list). These modes determine the ScannerModal behavior (e.g., whether it can capture photos, what text it shows, and what the onScan does).
 
 scanningModesEnabled (settings object): Feature toggles for enabling/disabling certain scanning modes in the UI. Properties include inventoryCreate, upcLookup, driverVerifyContainers, and customerReturnScan. If a mode is disabled (false), the corresponding function might be hidden or inactive. Note: Not currently saved via settings endpoints (no backend handling in settings.js), so this may be a placeholder for future use.
 
@@ -535,11 +537,11 @@ verifiedReturnUpcCounts (array field): List of ReturnUpcCount objects for each U
 
 verifiedReturnUpcs (array field): Simplified list of UPC codes that were verified as returned (could be redundant with counts). Each UPC may appear multiple times if quantity > 1. Used for quick reference or logging.
 
-workflowMode (string state): In DriverView, indicates the current workflow context, e.g., 'verification' vs 'fulfillment'. If workflowMode === 'verification', the UI focuses on scanning returns for verification. If not (likely 'fulfillment'), the UI would pertain to scanning products for order fulfillment (Mode D). This state toggles which set of instructions and buttons the driver sees (e.g., “Start Verification Scan” vs. something like “Start Fulfillment Scan”).
+workflowMode (string state): In DriverView, indicates the current workflow context, e.g., 'verification' vs 'delivery'. When paired with scannerMode, it helps guide drivers between returns verification and fulfillment scanning flows.
 
 ZONE (concept): Storage zones defined in AppSettings (storageZones array). These are custom labels for areas in the storage (e.g., “Fridge”, “Shelf A”). Similarly, productTypes can categorize items (e.g., “Drink”, “Snack”). These lists inform dropdowns for product attributes.
 
-(Above, deprecated terms like “deliveryFee” are marked as such. Green tier and Mode D are included but noted as future/optional features.)
+(Above, deprecated terms like “deliveryFee” are marked as such.)
 
 By Category
 Roles & Permissions
@@ -555,7 +557,7 @@ Approval Workflow: Owners must approve certain actions via the Auth Hub. For ins
 
 Scanner Modes & Settings Flags
 
-Scanner Modes (A, C, D): Standardized scanner intents across the app. Mode A (Inventory Create) allows scanning a product’s UPC to create or increment stock (auto-update inventory). Mode C (Driver Verify Returns) is used by drivers to scan returned containers for eligibility and count (with duplicate confirmation prompts). Mode D (Driver Fulfillment, optional) would be scanning products during order packing to verify the right items (not fully implemented, but planned as “validate items in order by UPC”).
+Scanner Modes (A, C, D): Standardized scanner intents across the app. Mode A (Inventory Create) allows scanning a product’s UPC to create or increment stock (auto-update inventory). Mode C (Driver Verify Returns) is used by drivers to scan returned containers for eligibility and count (with duplicate confirmation prompts). Mode D (Driver Fulfillment) is used by drivers to scan products during order packing to verify the right items against the order’s UPC list.
 These modes are enabled/disabled via scanningModesEnabled flags in settings (inventoryCreate, upcLookup, driverVerifyContainers, customerReturnScan). The unified ScannerModal component adapts its UI and callbacks based on the mode.
 
 AppSettings Flags: Several Boolean toggles control features:
@@ -572,7 +574,7 @@ AppSettings Flags: Several Boolean toggles control features:
 – beepEnabled: whether the device makes a beep sound on scan. The scanner defaults this true. Could be exposed in settings for preference, though not in the persisted defaultSettings snippet. If a user finds beeps disruptive, this could be turned off.
 These flags help tailor the app’s behavior without code changes – an Owner can toggle them in the Settings UI, and the system (both frontend and backend) adjusts accordingly.
 
-Feature Toggles (Deprecated/Unused): The presence of scanningModesEnabled and flags for Platinum/Green tiers indicate planned features. Mode D (driver order fulfillment scanning) is present but not actively used (the UI uses an else-case for “Pick/Pack” with no specific ScannerMode constant). The Green tier is defined in logic but no UI path to achieve it (marked future). The code also had legacy references like deliveryFee (older nomenclature) which is deprecated by unified terms (Route Fee). These terms exist for backward compatibility or future expansion and are clearly marked or default-disabled in the config.
+Feature Toggles (Deprecated/Unused): The presence of scanningModesEnabled and flags for Platinum/Green tiers indicate planned or configurable features. The Green tier is defined in logic but no UI path to achieve it (marked future). The code also had legacy references like deliveryFee (older nomenclature) which is deprecated by unified terms (Route Fee). These terms exist for backward compatibility or future expansion and are clearly marked or default-disabled in the config.
 
 Component & View States
 

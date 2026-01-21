@@ -72,6 +72,21 @@ interface DuplicateScanPrompt {
   recordedAt: number;
 }
 
+interface FulfillmentTarget {
+  key: string;
+  label: string;
+  quantity: number;
+  productId?: string;
+  upcCandidates: string[];
+}
+
+interface FulfillmentScanEntry {
+  key: string;
+  upc: string;
+  quantity: number;
+  productId?: string;
+}
+
 function money(n: any) {
   const v = Number(n);
   if (!Number.isFinite(v)) return '$0.00';
@@ -121,6 +136,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const [unrecognizedCount, setUnrecognizedCount] = useState(0);
   const [duplicatesCount, setDuplicatesCount] = useState(0);
   const [conditionFlags, setConditionFlags] = useState<string[]>([]);
+  const [fulfillmentScans, setFulfillmentScans] = useState<FulfillmentScanEntry[]>([]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -205,6 +221,73 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     const percent = numeric <= 1 ? Math.round(numeric * 100) : Math.round(numeric);
     return `${percent}%`;
   };
+
+  const normalizeUpc = (value: string) => String(value || '').replace(/\D/g, '').trim();
+
+  const extractUpcCandidates = (item: any) => {
+    const candidates: string[] = [];
+    const pushCandidate = (value?: string) => {
+      const normalized = normalizeUpc(value || '');
+      if (normalized) candidates.push(normalized);
+    };
+
+    pushCandidate(item?.upc);
+    pushCandidate(item?.upcCode);
+    pushCandidate(item?.barcode);
+    pushCandidate(item?.product?.upc);
+    pushCandidate(item?.product?.upcCode);
+    pushCandidate(item?.product?.barcode);
+
+    if (Array.isArray(item?.upcs)) {
+      item.upcs.forEach((candidate: string) => pushCandidate(candidate));
+    }
+    if (Array.isArray(item?.product?.upcs)) {
+      item.product.upcs.forEach((candidate: string) => pushCandidate(candidate));
+    }
+
+    if (typeof item?.productId === 'string') {
+      pushCandidate(item.productId);
+    }
+    if (typeof item?.sku === 'string') {
+      pushCandidate(item.sku);
+    }
+
+    const normalized = candidates.filter(candidate => /^\d{8,14}$/.test(candidate));
+    return Array.from(new Set(normalized));
+  };
+
+  const fulfillmentTargets = useMemo<FulfillmentTarget[]>(() => {
+    if (!activeOrder) return [];
+    return (activeOrder.items ?? [])
+      .map((item: any, index: number) => {
+        const upcCandidates = extractUpcCandidates(item);
+        const key = String(item?.productId ?? item?.sku ?? upcCandidates[0] ?? `item-${index}`);
+        const label =
+          item?.name ||
+          item?.product?.name ||
+          item?.productId ||
+          `Item ${index + 1}`;
+        return {
+          key,
+          label,
+          quantity: Number(item?.quantity || 0),
+          productId: item?.productId,
+          upcCandidates
+        };
+      })
+      .filter(target => target.quantity > 0);
+  }, [activeOrder]);
+
+  const fulfillmentProgress = useMemo(() => {
+    return fulfillmentTargets.map(target => {
+      const scanned = fulfillmentScans.find(entry => entry.key === target.key)?.quantity ?? 0;
+      return { ...target, scanned };
+    });
+  }, [fulfillmentScans, fulfillmentTargets]);
+  const fulfillmentMissingUpcs = useMemo(
+    () => fulfillmentTargets.filter(target => target.upcCandidates.length === 0).length,
+    [fulfillmentTargets]
+  );
 
   const getInitialVerifiedCounts = (order: Order) => {
     const verified = Array.isArray(order.verifiedReturnUpcCounts)
@@ -534,11 +617,67 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     }
   };
 
+  const addFulfillmentScan = async (upcRaw: string, source: 'scanner' | 'manual' = 'manual') => {
+    const upc = normalizeUpc(upcRaw || '');
+    if (!upc) return;
+
+    if (!/^\d{8,14}$/.test(upc)) {
+      playScannerTone(220, 240, 0.25);
+      setScannerError('Invalid UPC format. Enter 8–14 digits.');
+      return;
+    }
+
+    if (!activeOrder) {
+      playScannerTone(220, 240, 0.25);
+      setScannerError('Select an order before scanning fulfillment items.');
+      return;
+    }
+
+    if (fulfillmentTargets.length === 0) {
+      playScannerTone(220, 240, 0.25);
+      setScannerError('No fulfillment items available for this order.');
+      return;
+    }
+
+    const match = fulfillmentTargets.find(target => target.upcCandidates.includes(upc));
+    if (!match) {
+      playScannerTone(220, 240, 0.25);
+      setScannerError('Scanned UPC is not part of this order.');
+      return;
+    }
+
+    const currentCount = fulfillmentScans.find(entry => entry.key === match.key)?.quantity ?? 0;
+    if (currentCount >= match.quantity) {
+      playScannerTone(220, 240, 0.25);
+      setScannerError(`Already scanned all ${match.label} items.`);
+      return;
+    }
+
+    setFulfillmentScans(prev => {
+      const existing = prev.find(entry => entry.key === match.key);
+      if (existing) {
+        return prev.map(entry =>
+          entry.key === match.key
+            ? { ...entry, quantity: entry.quantity + 1, upc }
+            : entry
+        );
+      }
+      return [...prev, { key: match.key, upc, quantity: 1, productId: match.productId }];
+    });
+
+    if (source === 'scanner') {
+      playScannerTone(980, 120, 0.2);
+    }
+    setScannerError(null);
+  };
+
   const handleScannerScan = async (upc: string, qty = 1) => {
     setLastBlockedUpc(null);
     setLastBlockedReason(null);
     if (scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS) {
       await addVerificationScan(upc, 'scanner');
+    } else if (scannerMode === ScannerMode.DRIVER_FULFILL_ORDER) {
+      await addFulfillmentScan(upc, 'scanner');
     } else {
       // Original logic for other modes
       for (let i = 0; i < qty; i++) {
@@ -913,6 +1052,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrder]);
 
+  useEffect(() => {
+    setFulfillmentScans([]);
+  }, [activeOrder?.id]);
+
   const isReturnOnly = isReturnOnlyOrder(activeOrder);
   const verifiedReturnCount = useMemo(
     () => verifiedReturnUpcs.reduce((sum, entry) => sum + entry.quantity, 0),
@@ -928,12 +1071,18 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     isVerifying ||
     (requiresReturnPhoto && !returnCapturedPhoto) ||
     (contaminationFlagged && !contaminationConfirmed);
-  const driverScannerTitle = scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS
-    ? 'Verify Return Containers'
-    : 'Scan UPCs';
-  const driverScannerSubtitle = scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS
-    ? 'Scan each container to verify returns.'
-    : 'Scan UPCs to add to the return list.';
+  const driverScannerTitle =
+    scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS
+      ? 'Verify Return Containers'
+      : scannerMode === ScannerMode.DRIVER_FULFILL_ORDER
+        ? 'Fulfillment Scan'
+        : 'Scan UPCs';
+  const driverScannerSubtitle =
+    scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS
+      ? 'Scan each container to verify returns.'
+      : scannerMode === ScannerMode.DRIVER_FULFILL_ORDER
+        ? 'Scan items to confirm the order is packed correctly.'
+        : 'Scan UPCs to add to the return list.';
 
   const completionTitle = !paymentCaptured && !isReturnOnly
     ? 'Capture payment first'
@@ -1141,6 +1290,102 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               </div>
             </div>
           ))}
+        </div>
+
+        <div className="space-y-6">
+          <div className="bg-ninpo-card border border-white/5 rounded-[2.5rem] p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  Scanner Mode
+                </p>
+                <p className="text-white font-black text-lg uppercase">Driver Scan Panel</p>
+              </div>
+              <button
+                onClick={() => setScannerOpen(true)}
+                className="px-4 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+              >
+                <ScanLine className="w-4 h-4" /> Open Scanner
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setScannerMode(ScannerMode.DRIVER_VERIFY_CONTAINERS)}
+                className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
+                  scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS
+                    ? 'bg-ninpo-lime text-ninpo-black'
+                    : 'bg-white/5 text-white'
+                }`}
+              >
+                Returns Verification
+              </button>
+              <button
+                onClick={() => setScannerMode(ScannerMode.DRIVER_FULFILL_ORDER)}
+                className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
+                  scannerMode === ScannerMode.DRIVER_FULFILL_ORDER
+                    ? 'bg-ninpo-lime text-ninpo-black'
+                    : 'bg-white/5 text-white'
+                }`}
+              >
+                Fulfillment Scan
+              </button>
+            </div>
+
+            {scannerError && (
+              <div className="rounded-2xl bg-ninpo-red/10 border border-ninpo-red/30 px-4 py-3 text-[10px] uppercase tracking-widest text-ninpo-red">
+                {scannerError}
+              </div>
+            )}
+
+            {!activeOrder && (
+              <p className="text-[11px] text-slate-400">
+                Select an order from the queue to scan returns or fulfill items.
+              </p>
+            )}
+
+            {activeOrder && scannerMode === ScannerMode.DRIVER_FULFILL_ORDER && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-slate-400">
+                  <span>Fulfillment Progress</span>
+                  <span>
+                    {fulfillmentScans.reduce((sum, entry) => sum + entry.quantity, 0)}/
+                    {fulfillmentTargets.reduce((sum, entry) => sum + entry.quantity, 0)} scanned
+                  </span>
+                </div>
+                {fulfillmentMissingUpcs > 0 && (
+                  <p className="text-[10px] uppercase tracking-widest text-ninpo-red">
+                    {fulfillmentMissingUpcs} items missing UPC mapping.
+                  </p>
+                )}
+                <div className="space-y-2">
+                  {fulfillmentProgress.map(entry => (
+                    <div
+                      key={entry.key}
+                      className="flex items-center justify-between rounded-2xl bg-white/5 border border-white/10 px-4 py-3"
+                    >
+                      <div>
+                        <p className="text-[11px] font-black text-white uppercase">{entry.label}</p>
+                        <p className="text-[9px] uppercase tracking-widest text-slate-500">
+                          {entry.upcCandidates.length > 0
+                            ? `UPC(s): ${entry.upcCandidates.join(', ')}`
+                            : 'UPC missing'}
+                        </p>
+                      </div>
+                      <div className="text-[11px] font-black text-ninpo-lime uppercase">
+                        {entry.scanned}/{entry.quantity}
+                      </div>
+                    </div>
+                  ))}
+                  {fulfillmentProgress.length === 0 && (
+                    <p className="text-[11px] text-slate-400">
+                      No fulfillment items found for this order.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {lastBlockedUpc && lastBlockedReason === 'duplicate' && (
