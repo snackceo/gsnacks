@@ -2,7 +2,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 // See GLOSSARY.md for authoritative definitions of all scanner modes.
 import { ScannerMode } from '../types';
-import ScannerPanel from './ScannerPanel';
+import ScannerPanel, { ParsedReceiptItem } from './ScannerPanel';
 
 interface ScannerModalProps {
   mode?: ScannerMode;
@@ -15,6 +15,8 @@ interface ScannerModalProps {
   cooldownMs?: number;
   isOpen?: boolean;
   onPhotoCaptured?: (photoDataUrl: string, mime: string) => void;
+  onReceiptParsed?: (items: ParsedReceiptItem[]) => void;
+  onModeChange?: (mode: ScannerMode) => void;
   bottomSheetContent?: React.ReactNode;
 
   /**
@@ -41,6 +43,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
   cooldownMs = 1200,
   isOpen = false,
   onPhotoCaptured,
+  onReceiptParsed,
+  onModeChange,
   bottomSheetContent,
   closeOnScan = false,
   manualStart = false
@@ -60,6 +64,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
         beepEnabled={beepEnabled}
         cooldownMs={cooldownMs}
         onPhotoCaptured={onPhotoCaptured}
+        onReceiptParsed={onReceiptParsed}
+        onModeChange={onModeChange}
         closeOnScan={closeOnScan}
         manualStart={manualStart}
         bottomSheetContent={bottomSheetContent}

@@ -1743,6 +1743,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           cooldownMs={settings.cooldownMs ?? 1000}
           isOpen={scannerModalOpen}
           onPhotoCaptured={scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? handleReceiptPhotoCapture : undefined}
+          onModeChange={setScannerMode}
           bottomSheetContent={
             scannerMode === ScannerMode.INVENTORY_CREATE ? (
               <InventoryCreateForm
