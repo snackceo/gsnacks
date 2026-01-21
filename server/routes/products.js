@@ -12,6 +12,7 @@ router.get('/', async (req, res) => {
     const products = docs.map(d => ({
       id: d.sku || d.frontendId,
       sku: d.sku || undefined,
+      upc: d.upc || undefined,
       frontendId: d.frontendId,
       name: d.name,
       price: d.price,
@@ -48,8 +49,10 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       productType,
       storageZone,
       storageBin,
-      isHeavy
+      isHeavy,
+      upc
     } = req.body || {};
+    const normalizedUpc = upc ? String(upc).trim() : '';
 
     if (!name) return res.status(400).json({ error: 'name is required' });
     if (price === undefined || price === null || Number.isNaN(Number(price))) {
@@ -73,7 +76,8 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       productType: productType || '',
       storageZone: storageZone || '',
       storageBin: storageBin || '',
-      isHeavy: !!isHeavy
+      isHeavy: !!isHeavy,
+      upc: normalizedUpc || undefined
     });
 
     res.json({
@@ -81,6 +85,7 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       product: {
         id: created.sku || created.frontendId,
         sku: created.sku || undefined,
+        upc: created.upc || undefined,
         frontendId: created.frontendId,
         name: created.name,
         price: created.price,
@@ -93,7 +98,8 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
         productType: created.productType || '',
         storageZone: created.storageZone || '',
         storageBin: created.storageBin || '',
-        isGlass: !!created.isGlass
+        isGlass: !!created.isGlass,
+        isHeavy: !!created.isHeavy
       }
     });
   } catch (err) {
@@ -123,7 +129,8 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
       'storageBin',
       'image',
       'isGlass',
-      'isHeavy'
+      'isHeavy',
+      'upc'
     ];
 
     for (const k of allowed) {
@@ -136,6 +143,14 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
     if (updates.sizeOz !== undefined) updates.sizeOz = Number(updates.sizeOz);
     if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
     if (updates.isHeavy !== undefined) updates.isHeavy = !!updates.isHeavy;
+    if (updates.upc !== undefined) {
+      const normalizedUpc = String(updates.upc).trim();
+      if (normalizedUpc) {
+        updates.upc = normalizedUpc;
+      } else {
+        delete updates.upc;
+      }
+    }
 
     const updated = await Product.findOneAndUpdate(
       { $or: [{ frontendId: paramId }, { sku: paramId }] },
@@ -152,6 +167,7 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
       product: {
         id: updated.sku || updated.frontendId,
         sku: updated.sku || undefined,
+        upc: updated.upc || undefined,
         frontendId: updated.frontendId,
         name: updated.name,
         price: updated.price,
