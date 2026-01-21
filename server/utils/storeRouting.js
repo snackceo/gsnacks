@@ -124,29 +124,41 @@ export const optimizeStoreSelection = async (fulfillmentResult) => {
       // Accept if price difference is < 15%
       const altBasisPrice = alt.cost;
       const itemBasisPrice = item.cost;
+      if (itemBasisPrice <= 0) {
+        return {
+          consolidatable: false,
+          reason: 'Invalid basis price for comparison',
+          item
+        };
+      }
       const priceDiff = ((altBasisPrice - itemBasisPrice) / itemBasisPrice) * 100;
       if (priceDiff > 15) return null;
       
-      return { 
-        ...item, 
-        productId: product.frontendId,
-        cost: alt.cost, 
-        markup: alt.markup,
-        observedPrice: alt.observedPrice
+      return {
+        consolidatable: true,
+        item: { 
+          ...item, 
+          productId: product.frontendId,
+          cost: alt.cost, 
+          markup: alt.markup,
+          observedPrice: alt.observedPrice
+        }
       };
     })
   );
 
-  const allConsolidated = canConsolidate.every(x => x !== null);
+  const allConsolidated = canConsolidate.every(entry => entry && entry.consolidatable);
 
   if (allConsolidated) {
+    const consolidatedItems = canConsolidate
+      .filter(entry => entry && entry.consolidatable)
+      .map(entry => entry.item);
     // Use single store
     return {
       storePlans: [{
         ...primaryStore,
-        items: [...primaryStore.items, ...canConsolidate.filter(x => x)],
-        totalCost: primaryStore.totalCost + canConsolidate.reduce((sum, item) => {
-          if (!item) return sum;
+        items: [...primaryStore.items, ...consolidatedItems],
+        totalCost: primaryStore.totalCost + consolidatedItems.reduce((sum, item) => {
           return sum + (item.cost * item.quantity);
         }, 0)
       }],
