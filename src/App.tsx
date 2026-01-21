@@ -34,6 +34,19 @@ function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
 
+  const findProductByCartId = (productId: string) =>
+    core.products.find(
+      p =>
+        (p as any).frontendId === productId ||
+        p.id === productId ||
+        (p as any)._id === productId
+    );
+
+  const normalizeCartProductId = (productId: string) => {
+    const product = findProductByCartId(productId);
+    return (product as any)?.frontendId || product?.id || (product as any)?._id || productId;
+  };
+
   // Track page views
   useEffect(() => {
     analytics.trackPageView(location.pathname, core.currentUser?._id);
@@ -72,7 +85,7 @@ function App() {
     
     // Track payment initiation
     const total = core.cart.reduce((sum, item) => {
-      const product = core.products.find(p => p._id === item.productId);
+      const product = findProductByCartId(item.productId);
       return sum + (product?.price || 0) * item.quantity;
     }, 0);
     
@@ -130,7 +143,7 @@ function App() {
     setIsProcessingOrder(true);
     
     const total = core.cart.reduce((sum, item) => {
-      const product = core.products.find(p => p._id === item.productId);
+      const product = findProductByCartId(item.productId);
       return sum + (product?.price || 0) * item.quantity;
     }, 0);
     
@@ -245,10 +258,11 @@ function App() {
                     }
                   }
 
-                  const product = core.products.find(p => p._id === productId || (p as any).frontendId === productId);
+                  const product = findProductByCartId(productId);
                   const stock = (product as any)?.stock ?? 0;
+                  const normalizedProductId = normalizeCartProductId(productId);
                   const inCart =
-                    core.cart.find(i => i.productId === productId)?.quantity ??
+                    core.cart.find(i => i.productId === normalizedProductId)?.quantity ??
                     0;
 
                   // Enforce stock locally (prevents adding beyond available stock)
@@ -263,14 +277,14 @@ function App() {
                   }
 
                   core.setCart(prev => {
-                    const existing = prev.find(i => i.productId === productId);
+                    const existing = prev.find(i => i.productId === normalizedProductId);
                     return existing
                       ? prev.map(i =>
-                          i.productId === productId
+                          i.productId === normalizedProductId
                             ? { ...i, quantity: i.quantity + 1 }
                             : i
                         )
-                      : [...prev, { productId, quantity: 1 }];
+                      : [...prev, { productId: normalizedProductId, quantity: 1 }];
                   });
 
                   core.addToast('ADDED TO CARGO', 'success');
