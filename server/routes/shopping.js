@@ -306,7 +306,7 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
       }
     }
 
-    const fulfillment = scheduledItems.length > 0 ? {
+    const fulfillmentStatus = scheduledItems.length > 0 ? {
       status: 'scheduled',
       message: 'Some items are only available when stores reopen. Checkout will schedule fulfillment for the next opening time.',
       scheduledItems
@@ -356,7 +356,7 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
         orderLoad: totalLoad,
         heavyPoints
       },
-      fulfillment,
+      fulfillment: fulfillmentStatus,
       tier: {
         name: tier,
         discount: fees.routeFeeDiscountPercent
