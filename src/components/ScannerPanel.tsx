@@ -31,6 +31,9 @@ interface ScannerPanelProps {
   onPhotoCaptured?: (photoDataUrl: string, mime: string) => void;
   onReceiptParsed?: (items: ParsedReceiptItem[], frame?: string) => void;
   onModeChange?: (mode: ScannerMode) => void;
+  receiptHeaderContent?: React.ReactNode;
+  receiptSaveDisabled?: boolean;
+  receiptSaveDisabledReason?: string;
   closeOnScan?: boolean;
   manualStart?: boolean;
   onClose?: () => void;
@@ -64,6 +67,9 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   onPhotoCaptured,
   onReceiptParsed,
   onModeChange,
+  receiptHeaderContent,
+  receiptSaveDisabled = false,
+  receiptSaveDisabledReason,
   closeOnScan = false,
   manualStart = false,
   className = '',
@@ -599,6 +605,14 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         </button>
       </div>
 
+      {isReceiptMode && receiptHeaderContent && (
+        <div className="relative z-10 px-4">
+          <div className="mt-2 rounded-2xl bg-black/70 border border-white/10 p-3 shadow-lg">
+            {receiptHeaderContent}
+          </div>
+        </div>
+      )}
+
       {/* Bottom sheet card with manual expand/collapse handle */}
       {isReceiptMode && parsedItems.length > 0 && (
         <div className="relative z-10 mt-auto w-full bg-ninpo-black/95 backdrop-blur-xl border-t border-white/10 shadow-2xl max-h-[50vh] flex flex-col">
@@ -614,11 +628,21 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
                     onReceiptParsed(parsedItems, lastParsedFrame ?? undefined);
                   }
                 }}
-                className="px-6 py-3 rounded-2xl bg-gradient-to-r from-green-500 to-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:from-green-600 hover:to-emerald-700 transition-all"
+                disabled={receiptSaveDisabled}
+                className={`px-6 py-3 rounded-2xl text-white text-xs font-black uppercase tracking-widest transition-all ${
+                  receiptSaveDisabled
+                    ? 'bg-gray-500/70 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700'
+                }`}
               >
                 Save Items
               </button>
             </div>
+            {receiptSaveDisabled && receiptSaveDisabledReason && (
+              <p className="mt-2 text-[10px] font-semibold uppercase tracking-widest text-amber-300">
+                {receiptSaveDisabledReason}
+              </p>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
             {parsedItems.map((item, idx) => (

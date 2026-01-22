@@ -47,7 +47,6 @@ import ScannerModal from '../components/ScannerModal';
 import type { ParsedReceiptItem } from '../components/ScannerPanel';
 import UnmappedUpcModal from '../components/UnmappedUpcModal';
 import { UnmappedUpcData } from '../types';
-import type { ParsedReceiptItem } from '../components/ScannerPanel';
 import {
   getAdvancedInventoryInsights,
   getAvailableAuditModels,
@@ -150,7 +149,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [lastBlockedReason, setLastBlockedReason] = useState<'cooldown' | 'duplicate' | null>(null);
   const [unmappedUpcModalOpen, setUnmappedUpcModalOpen] = useState(false);
   const [unmappedUpcPayload, setUnmappedUpcPayload] = useState<UnmappedUpcData | null>(null);
-  const [isReceiptSaving, setIsReceiptSaving] = useState(false);
 
   // Return verifications state
   const [returnVerifications, setReturnVerifications] = useState<ReturnVerification[]>([]);
@@ -164,6 +162,11 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [isLoadingStores, setIsLoadingStores] = useState(false);
   const [storeError, setStoreError] = useState<string | null>(null);
   const ACTIVE_STORE_STORAGE_KEY = 'management.activeStoreId';
+
+  const activeStore = useMemo(
+    () => stores.find(store => store.id === activeStoreId) || null,
+    [activeStoreId, stores]
+  );
 
   const upcRegistry = useUpcRegistry({ activeModule });
 
@@ -782,14 +785,18 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
   const handleReceiptPhotoCapture = useCallback(async (photoDataUrl: string, mime: string) => {
     try {
+      if (!activeStoreId || !activeStore) {
+        addToast('Select a store before capturing a receipt.', 'error');
+        return;
+      }
       const captureRequestId = generateCaptureRequestId();
       const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          storeId: '',
-          storeName: 'Manual Entry',
+          storeId: activeStoreId,
+          storeName: activeStore.name || 'Unknown Store',
           captureRequestId,
           images: [{
             url: photoDataUrl,
@@ -821,7 +828,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     } catch (err: any) {
       addToast(err?.message || 'Receipt upload failed', 'error');
     }
-  }, [addToast, dispatchReceiptQueueRefresh, generateCaptureRequestId, setScannerModalOpen]);
+  }, [activeStore, activeStoreId, addToast, dispatchReceiptQueueRefresh, generateCaptureRequestId, setScannerModalOpen]);
 
   const handleReceiptParsed = useCallback(async (items: ParsedReceiptItem[], frame?: string) => {
     if (!items.length) {
@@ -832,6 +839,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       addToast('Capture a receipt image before saving items.', 'error');
       return;
     }
+    if (!activeStoreId || !activeStore) {
+      addToast('Select a store before saving receipt items.', 'error');
+      return;
+    }
 
     try {
       const captureRequestId = generateCaptureRequestId();
@@ -840,8 +851,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          storeId: '',
-          storeName: 'Manual Entry',
+          storeId: activeStoreId,
+          storeName: activeStore.name || 'Unknown Store',
           captureRequestId,
           images: [{
             url: frame,
@@ -878,69 +889,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     } catch (err: any) {
       addToast(err?.message || 'Receipt save failed', 'error');
     }
-  }, [addToast, dispatchReceiptQueueRefresh, generateCaptureRequestId, setScannerModalOpen]);
-
-  const refreshStoreInventory = useCallback(async () => {
-    if (!activeStoreId) return [];
-    const res = await fetch(`${BACKEND_URL}/api/driver/store-inventory/${activeStoreId}`, {
-      credentials: 'include'
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error || 'Failed to refresh store inventory');
-    return Array.isArray(data.inventory) ? data.inventory : [];
-  }, [activeStoreId]);
-
-  const handleReceiptParsed = useCallback(async (items: ParsedReceiptItem[]) => {
-    if (!items.length) {
-      addToast('No receipt items to save yet.', 'info');
-      return;
-    }
-    if (!activeStoreId) {
-      addToast('Select an active store before saving receipt items.', 'error');
-      return;
-    }
-    if (isReceiptSaving) return;
-
-    const storeName = stores.find(store => store.id === activeStoreId)?.name || 'Manual Entry';
-    const captureId =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `receipt-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-
-    setIsReceiptSaving(true);
-    try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-price-update`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          storeId: activeStoreId,
-          storeName,
-          captureId,
-          items: items.map((item, index) => ({
-            name: item.receiptName,
-            totalPrice: item.totalPrice,
-            quantity: item.quantity,
-            lineIndex: index
-          }))
-        })
-      });
-
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data?.error || 'Receipt price update failed');
-
-      const inventory = await refreshStoreInventory();
-      addToast(
-        `Saved ${items.length} item${items.length === 1 ? '' : 's'} and refreshed ${inventory.length} inventory record${inventory.length === 1 ? '' : 's'}.`,
-        'success'
-      );
-      setScannerModalOpen(false);
-    } catch (err: any) {
-      addToast(err?.message || 'Failed to save receipt items', 'error');
-    } finally {
-      setIsReceiptSaving(false);
-    }
-  }, [activeStoreId, addToast, isReceiptSaving, refreshStoreInventory, stores]);
+  }, [activeStore, activeStoreId, addToast, dispatchReceiptQueueRefresh, generateCaptureRequestId, setScannerModalOpen]);
 
   const startEditProduct = (product: Product) => {
     setEditError(null);
@@ -967,6 +916,31 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setEditError(null);
     setEditingProduct(null);
   };
+
+  const receiptStoreSelector = scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? (
+    <div className="space-y-2 text-white">
+      <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-slate-300">
+        <span>Store for Receipt</span>
+        {isLoadingStores ? <span className="text-slate-400">Loading…</span> : null}
+      </div>
+      <select
+        value={activeStoreId}
+        onChange={event => setActiveStoreId(event.target.value)}
+        disabled={isLoadingStores}
+        className="w-full rounded-xl bg-black/70 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/70"
+      >
+        <option value="">Select a store</option>
+        {stores.map(store => (
+          <option key={store.id} value={store.id}>
+            {store.name}
+          </option>
+        ))}
+      </select>
+      {storeError ? (
+        <p className="text-[10px] uppercase tracking-widest text-red-300">{storeError}</p>
+      ) : null}
+    </div>
+  ) : null;
 
   const apiUpdateProduct = async () => {
     if (!editingProduct) return;
@@ -2008,6 +1982,13 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           onPhotoCaptured={scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? handleReceiptPhotoCapture : undefined}
           onReceiptParsed={scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? handleReceiptParsed : undefined}
           onModeChange={handleScannerModeChange}
+          receiptHeaderContent={receiptStoreSelector || undefined}
+          receiptSaveDisabled={scannerMode === ScannerMode.RECEIPT_PARSE_LIVE && !activeStoreId}
+          receiptSaveDisabledReason={
+            scannerMode === ScannerMode.RECEIPT_PARSE_LIVE && !activeStoreId
+              ? 'Select a store before saving receipt items.'
+              : undefined
+          }
           bottomSheetContent={
             scannerMode === ScannerMode.INVENTORY_CREATE ? (
               <InventoryCreateForm
