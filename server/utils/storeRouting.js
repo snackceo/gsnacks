@@ -26,7 +26,9 @@ const resolveProductForCartItem = async (productId) => {
 export const findCheapestStores = async (cartItems) => {
   const storePlans = new Map(); // storeId -> { items: [], totalCost: 0 }
   const unfulfilled = [];
-  const resolvePrice = inventory => inventory.cost;
+  const resolvePrice = inventory => (
+    Number.isFinite(inventory.observedPrice) ? inventory.observedPrice : inventory.cost
+  );
 
   for (const item of cartItems) {
     const product = await resolveProductForCartItem(item.productId);
@@ -75,6 +77,7 @@ export const findCheapestStores = async (cartItems) => {
       cost: cheapest.cost,
       markup: cheapest.markup,
       observedPrice: cheapest.observedPrice,
+      basisPrice,
       itemTotal: basisPrice * item.quantity
     });
     plan.totalCost += basisPrice * item.quantity;
@@ -93,6 +96,9 @@ export const findCheapestStores = async (cartItems) => {
  */
 export const optimizeStoreSelection = async (fulfillmentResult) => {
   const { storePlans } = fulfillmentResult;
+  const resolveItemPrice = item => (
+    Number.isFinite(item.observedPrice) ? item.observedPrice : item.cost
+  );
 
   if (storePlans.length <= 1) {
     return fulfillmentResult; // Already optimal
@@ -122,8 +128,8 @@ export const optimizeStoreSelection = async (fulfillmentResult) => {
       if (!alt) return null;
       
       // Accept if price difference is < 15%
-      const altBasisPrice = alt.cost;
-      const itemBasisPrice = item.cost;
+      const altBasisPrice = Number.isFinite(alt.observedPrice) ? alt.observedPrice : alt.cost;
+      const itemBasisPrice = resolveItemPrice(item);
       if (itemBasisPrice <= 0) {
         return {
           consolidatable: false,
@@ -141,7 +147,9 @@ export const optimizeStoreSelection = async (fulfillmentResult) => {
           productId: product.frontendId,
           cost: alt.cost, 
           markup: alt.markup,
-          observedPrice: alt.observedPrice
+          observedPrice: alt.observedPrice,
+          basisPrice: altBasisPrice,
+          itemTotal: altBasisPrice * item.quantity
         }
       };
     })
@@ -159,7 +167,7 @@ export const optimizeStoreSelection = async (fulfillmentResult) => {
         ...primaryStore,
         items: [...primaryStore.items, ...consolidatedItems],
         totalCost: primaryStore.totalCost + consolidatedItems.reduce((sum, item) => {
-          return sum + (item.cost * item.quantity);
+          return sum + (resolveItemPrice(item) * item.quantity);
         }, 0)
       }],
       unfulfilled: fulfillmentResult.unfulfilled,
