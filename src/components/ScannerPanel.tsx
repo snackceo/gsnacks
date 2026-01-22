@@ -576,19 +576,6 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
           </button>
         )}
         
-        {mode === ScannerMode.INVENTORY_CREATE || mode === ScannerMode.RECEIPT_PARSE_LIVE ? (
-          <button
-            onClick={handleParseOnce}
-            disabled={isParsing}
-            className={`p-3 rounded-full backdrop-blur-sm transition flex items-center justify-center bg-emerald-500/90 text-white hover:bg-emerald-600 ${
-              isParsing ? 'opacity-60 cursor-not-allowed' : ''
-            }`}
-            title="Capture & Analyze"
-          >
-            <Receipt className="w-5 h-5" />
-          </button>
-        ) : null}
-        
         <button
           onClick={() => void toggleTorch()}
           disabled={!torchSupported}
@@ -615,34 +602,12 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
       {/* Bottom sheet card with manual expand/collapse handle */}
       {isReceiptMode && parsedItems.length > 0 && (
-        <div className="relative z-10 mt-auto w-full bg-ninpo-black/95 backdrop-blur-xl border-t border-white/10 shadow-2xl max-h-[50vh] flex flex-col">
+        <div className="relative z-10 mt-auto mb-24 w-full bg-ninpo-black/95 backdrop-blur-xl border-t border-white/10 shadow-2xl max-h-[50vh] flex flex-col">
           <div className="p-4 border-b border-white/10">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-black uppercase tracking-widest text-white">Receipt Detected</p>
-                <p className="text-xs text-slate-400">{parsedItems.length} items found</p>
-              </div>
-              <button
-                onClick={() => {
-                  if (onReceiptParsed) {
-                    onReceiptParsed(parsedItems, lastParsedFrame ?? undefined);
-                  }
-                }}
-                disabled={receiptSaveDisabled}
-                className={`px-6 py-3 rounded-2xl text-white text-xs font-black uppercase tracking-widest transition-all ${
-                  receiptSaveDisabled
-                    ? 'bg-gray-500/70 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700'
-                }`}
-              >
-                Save Items
-              </button>
+            <div>
+              <p className="text-sm font-black uppercase tracking-widest text-white">Receipt Detected</p>
+              <p className="text-xs text-slate-400">{parsedItems.length} items found</p>
             </div>
-            {receiptSaveDisabled && receiptSaveDisabledReason && (
-              <p className="mt-2 text-[10px] font-semibold uppercase tracking-widest text-amber-300">
-                {receiptSaveDisabledReason}
-              </p>
-            )}
           </div>
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
             {parsedItems.map((item, idx) => (
@@ -653,6 +618,46 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
                 </p>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {isReceiptMode && (
+        <div className="absolute bottom-0 left-0 right-0 z-20 px-4 pb-4">
+          <div className="rounded-2xl bg-black/80 backdrop-blur-xl border border-white/10 shadow-xl p-3">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleParseOnce}
+                disabled={isParsing}
+                className={`flex-1 px-4 py-3 rounded-2xl text-white text-xs font-black uppercase tracking-widest transition-all bg-emerald-500/90 hover:bg-emerald-600 ${
+                  isParsing ? 'opacity-60 cursor-not-allowed' : ''
+                }`}
+              >
+                <span className="inline-flex items-center justify-center gap-2">
+                  <Receipt className="w-4 h-4" />
+                  {isParsing ? 'Analyzing...' : 'Capture/Upload Receipt'}
+                </span>
+              </button>
+
+              {parsedItems.length > 0 && onReceiptParsed && (
+                <button
+                  onClick={() => onReceiptParsed(parsedItems, lastParsedFrame ?? undefined)}
+                  disabled={receiptSaveDisabled}
+                  className={`flex-1 px-4 py-3 rounded-2xl text-white text-xs font-black uppercase tracking-widest transition-all ${
+                    receiptSaveDisabled
+                      ? 'bg-gray-500/70 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700'
+                  }`}
+                >
+                  Save Items
+                </button>
+              )}
+            </div>
+            {parsedItems.length > 0 && receiptSaveDisabled && receiptSaveDisabledReason && (
+              <p className="mt-2 text-[10px] font-semibold uppercase tracking-widest text-amber-300">
+                {receiptSaveDisabledReason}
+              </p>
+            )}
           </div>
         </div>
       )}
