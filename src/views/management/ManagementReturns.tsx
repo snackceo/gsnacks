@@ -93,7 +93,7 @@ const ManagementReturns: React.FC<ManagementReturnsProps> = ({
           <div className="flex items-center gap-3">
             <button
               onClick={() => {
-                setScannerMode(ScannerMode.INVENTORY_CREATE);
+                setScannerMode(ScannerMode.CUSTOMER_RETURN_SCAN);
                 setScannerModalOpen(true);
               }}
               className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-neon"
@@ -109,7 +109,7 @@ const ManagementReturns: React.FC<ManagementReturnsProps> = ({
                 Add anyway
               </button>
             )}
-            {scannerModalOpen && scannerMode === ScannerMode.INVENTORY_CREATE && (
+            {scannerModalOpen && scannerMode === ScannerMode.CUSTOMER_RETURN_SCAN && (
               <button
                 onClick={() => {
                   setScannerModalOpen(false);
