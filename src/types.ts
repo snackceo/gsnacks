@@ -1,13 +1,13 @@
-// Types
 export type ReceiptItemClassification = 'A' | 'B' | 'C' | 'D';
 
-// ... previous lines
-// ... other types
-// ... after line 350
+// ... other existing lines in types.ts ...
 
-export interface bucketCounts {
-    A: number;
-    B: number;
-    C: number;
-    D: number; // Noise (coupons, taxes, subtotals)
+interface ParsedReceipt {
+  // ... other existing members ...
+  bucketCounts: {
+      A: number;
+      B: number;
+      C: number;
+      D: number; // added for noise items
+  };
 }
