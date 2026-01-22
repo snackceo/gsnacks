@@ -191,7 +191,7 @@ DRIVER (UserRole): Role for delivery drivers. Drivers have access to the DriverV
 
 DRIVER_VERIFY_CONTAINERS (ScannerMode enum): Scanner mode for verifying returned containers (Driver Mode C). Triggers scanning UPCs from returned bottles to count and validate eligibility. In DriverView, when scannerMode is set to this, the ScannerModal titles reflect “Verify Returns”.
 
-DRIVER_FULFILL_ORDER (ScannerMode enum): Scanner mode for driver fulfillment scanning (Driver Mode D). Drivers scan products to confirm the packed order matches the expected items. The scan logic validates UPCs against the order’s item list and tracks quantities as they are confirmed.
+DRIVER_FULFILL_ORDER (ScannerMode enum): Scanner mode for driver fulfillment scanning (Driver Mode D). Drivers scan products to confirm the packed order matches the expected items. The scan logic validates UPCs against the order’s item list, routes scans to remaining quantities, and tracks confirmation counts as they are scanned.
 
 duplicatesCount (number state): In DriverView, tracks how many duplicate UPC scans occurred during a return verification session. Duplicates require special handling (the UI prompts to confirm adding duplicates).
 

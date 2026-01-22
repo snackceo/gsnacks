@@ -42,7 +42,7 @@ export enum ScannerMode {
 
   // Driver verification
   DRIVER_VERIFY_CONTAINERS = 'DRIVER_VERIFY_CONTAINERS',
-  // Driver fulfillment scanning
+  // Driver fulfillment scanning (Mode D)
   DRIVER_FULFILL_ORDER = 'DRIVER_FULFILL_ORDER',
 
   // Customer return scanning
