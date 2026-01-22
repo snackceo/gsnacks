@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { MapPin } from 'lucide-react';
 import ScannerModal from '../components/ScannerModal';
+import type { ParsedReceiptItem } from '../components/ScannerPanel';
 import UnmappedUpcModal from '../components/UnmappedUpcModal';
 import { UnmappedUpcData } from '../types';
 import type { ParsedReceiptItem } from '../components/ScannerPanel';
@@ -766,8 +767,22 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setScannerModalOpen(true);
   }, []);
 
+  const dispatchReceiptQueueRefresh = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('receipt-queue-refresh'));
+    }
+  }, []);
+
+  const generateCaptureRequestId = useCallback(() => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `receipt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }, []);
+
   const handleReceiptPhotoCapture = useCallback(async (photoDataUrl: string, mime: string) => {
     try {
+      const captureRequestId = generateCaptureRequestId();
       const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -775,8 +790,10 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         body: JSON.stringify({
           storeId: '',
           storeName: 'Manual Entry',
+          captureRequestId,
           images: [{
-            dataUrl: photoDataUrl,
+            url: photoDataUrl,
+            thumbnailUrl: photoDataUrl,
             mime
           }]
         })
@@ -796,13 +813,72 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       if (parseResp.ok) {
         addToast('Receipt uploaded & parsing started.', 'success');
         setScannerModalOpen(false);
+        dispatchReceiptQueueRefresh();
       } else {
         addToast('Receipt uploaded, but parsing failed. Review in management.', 'info');
+        dispatchReceiptQueueRefresh();
       }
     } catch (err: any) {
       addToast(err?.message || 'Receipt upload failed', 'error');
     }
-  }, [addToast]);
+  }, [addToast, dispatchReceiptQueueRefresh, generateCaptureRequestId, setScannerModalOpen]);
+
+  const handleReceiptParsed = useCallback(async (items: ParsedReceiptItem[], frame?: string) => {
+    if (!items.length) {
+      addToast('No receipt items detected.', 'info');
+      return;
+    }
+    if (!frame) {
+      addToast('Capture a receipt image before saving items.', 'error');
+      return;
+    }
+
+    try {
+      const captureRequestId = generateCaptureRequestId();
+      const captureResp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          storeId: '',
+          storeName: 'Manual Entry',
+          captureRequestId,
+          images: [{
+            url: frame,
+            thumbnailUrl: frame
+          }]
+        })
+      });
+
+      if (!captureResp.ok) {
+        const errData = await captureResp.json().catch(() => ({}));
+        throw new Error(errData.error || 'Receipt upload failed');
+      }
+
+      const captureData = await captureResp.json().catch(() => ({}));
+
+      const parseResp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse-live`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          captureId: captureData.captureId,
+          items
+        })
+      });
+
+      if (!parseResp.ok) {
+        const errData = await parseResp.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to save parsed items');
+      }
+
+      addToast('Receipt items saved for review.', 'success');
+      setScannerModalOpen(false);
+      dispatchReceiptQueueRefresh();
+    } catch (err: any) {
+      addToast(err?.message || 'Receipt save failed', 'error');
+    }
+  }, [addToast, dispatchReceiptQueueRefresh, generateCaptureRequestId, setScannerModalOpen]);
 
   const refreshStoreInventory = useCallback(async () => {
     if (!activeStoreId) return [];

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Order, OrderStatus, ReturnUpcCount, ScannerMode, User } from '../../types';
 import ManagementOrderDetailPanel from './ManagementOrderDetailPanel';
 import {
@@ -75,7 +75,7 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
   };
 
   // Fetch receipt captures
-  const fetchReceiptCaptures = async () => {
+  const fetchReceiptCaptures = useCallback(async () => {
     try {
       const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-captures?status=pending_parse&status=parsed&status=review_complete&limit=20`, {
         credentials: 'include'
@@ -88,7 +88,7 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
     } catch (error) {
       console.error('Error fetching receipt captures:', error);
     }
-  };
+  }, []);
 
   // Delete a receipt capture
   const deleteReceiptCapture = async (captureId: string) => {
@@ -120,12 +120,21 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
       fetchReceiptCaptures();
     }, 30000);
     return () => clearInterval(id);
-  }, [apiRefreshOrders]);
+  }, [apiRefreshOrders, fetchReceiptCaptures]);
 
   // Initial fetch
   useEffect(() => {
     fetchReceiptCaptures();
-  }, []);
+  }, [fetchReceiptCaptures]);
+
+  useEffect(() => {
+    const handleQueueRefresh = () => {
+      fetchReceiptCaptures();
+    };
+
+    window.addEventListener('receipt-queue-refresh', handleQueueRefresh);
+    return () => window.removeEventListener('receipt-queue-refresh', handleQueueRefresh);
+  }, [fetchReceiptCaptures]);
 
   return (
     <div className="space-y-6">

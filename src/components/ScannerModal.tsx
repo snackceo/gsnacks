@@ -15,7 +15,7 @@ export interface ScannerModalProps {
   cooldownMs?: number;
   isOpen?: boolean;
   onPhotoCaptured?: (photoDataUrl: string, mime: string) => void;
-  onReceiptParsed?: (items: ParsedReceiptItem[]) => void;
+  onReceiptParsed?: (items: ParsedReceiptItem[], frame?: string) => void;
   onModeChange?: (mode: ScannerMode) => void;
   bottomSheetContent?: React.ReactNode;
 
