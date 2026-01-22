@@ -18,6 +18,9 @@ export interface ScannerModalProps {
   onReceiptParsed?: (items: ParsedReceiptItem[], frame?: string) => void;
   onModeChange?: (mode: ScannerMode) => void;
   bottomSheetContent?: React.ReactNode;
+  receiptHeaderContent?: React.ReactNode;
+  receiptSaveDisabled?: boolean;
+  receiptSaveDisabledReason?: string;
 
   /**
    * Optional: if true, the modal closes after a successful scan.
@@ -46,6 +49,9 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
   onReceiptParsed,
   onModeChange,
   bottomSheetContent,
+  receiptHeaderContent,
+  receiptSaveDisabled = false,
+  receiptSaveDisabledReason,
   closeOnScan = false,
   manualStart = false
 }) => {
@@ -68,6 +74,9 @@ const ScannerModal: React.FC<ScannerModalProps> = ({
         onModeChange={onModeChange}
         closeOnScan={closeOnScan}
         manualStart={manualStart}
+        receiptHeaderContent={receiptHeaderContent}
+        receiptSaveDisabled={receiptSaveDisabled}
+        receiptSaveDisabledReason={receiptSaveDisabledReason}
         bottomSheetContent={bottomSheetContent}
         className=""
       />
