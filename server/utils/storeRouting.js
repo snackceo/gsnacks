@@ -3,7 +3,7 @@ import Store from '../models/Store.js';
 import StoreInventory from '../models/StoreInventory.js';
 import Product from '../models/Product.js';
 import mongoose from 'mongoose';
-import { getNextOpenWindow, isStoreOpen } from './storeHours.js';
+import { getStoreOpenStatus, isStoreOpen } from './storeHours.js';
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY;
 
@@ -48,16 +48,7 @@ export const findCheapestStores = async (cartItems, options = {}) => {
       .populate('storeId')
       .lean();
 
-    const openInventory = inventory.filter(entry => {
-      const storeHours = entry.storeId?.hours;
-      return isStoreOpen({
-        hours: storeHours,
-        timestamp: requestTimestamp,
-        timeZone: requestTimeZone ?? storeHours?.timezone
-      });
-    });
-
-    if (openInventory.length === 0 && inventory.length === 0) {
+    if (inventory.length === 0) {
       unfulfilled.push({
         ...item,
         productName: product.name,
@@ -66,22 +57,35 @@ export const findCheapestStores = async (cartItems, options = {}) => {
       continue;
     }
 
-    const candidateInventory = openInventory.length > 0 ? openInventory : inventory;
-    const cheapest = candidateInventory.reduce((min, curr) =>
-      resolvePrice(curr) < resolvePrice(min) ? curr : min
-    );
-    const storeHours = cheapest.storeId?.hours;
-    const availability = openInventory.length > 0 ? {
-      status: 'open'
-    } : {
-      status: 'scheduled',
-      reason: 'No stores are open right now',
-      nextOpen: getNextOpenWindow({
+    const inventoryWithStatus = inventory.map(entry => {
+      const storeHours = entry.storeId?.hours;
+      const status = getStoreOpenStatus({
         hours: storeHours,
         timestamp: requestTimestamp,
         timeZone: requestTimeZone ?? storeHours?.timezone
-      })
-    };
+      });
+      return { ...entry, storeOpenStatus: status };
+    });
+
+    const openInventory = inventoryWithStatus.filter(entry => entry.storeOpenStatus.isOpen);
+
+    if (openInventory.length === 0) {
+      const nextOpen = inventoryWithStatus
+        .map(entry => entry.storeOpenStatus.nextOpen)
+        .find(Boolean) || null;
+      unfulfilled.push({
+        ...item,
+        productName: product.name,
+        reason: 'No open stores available',
+        nextOpen
+      });
+      continue;
+    }
+
+    const cheapest = openInventory.reduce((min, curr) =>
+      resolvePrice(curr) < resolvePrice(min) ? curr : min
+    );
+    const availability = { status: 'open' };
     const basisPrice = resolvePrice(cheapest);
 
     const storeId = cheapest.storeId._id.toString();
@@ -101,12 +105,6 @@ export const findCheapestStores = async (cartItems, options = {}) => {
     }
 
     const plan = storePlans.get(storeId);
-    if (availability.status === 'scheduled') {
-      plan.availability = {
-        ...plan.availability,
-        status: 'scheduled'
-      };
-    }
     plan.items.push({
       productId: product.frontendId,
       productName: product.name,

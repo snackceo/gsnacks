@@ -22,6 +22,14 @@ const weekHoursSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const storeHoursSchema = new mongoose.Schema(
+  {
+    timezone: { type: String, default: 'America/New_York' },
+    weekly: { type: weekHoursSchema, default: () => ({}) }
+  },
+  { _id: false }
+);
+
 const storeSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, unique: true },
@@ -53,10 +61,7 @@ const storeSchema = new mongoose.Schema(
     reliabilityScore: { type: Number, default: 100, min: 0, max: 100 },
     outOfStockRate: { type: Number, default: 0, min: 0, max: 100 },
     isActive: { type: Boolean, default: true },
-    hours: {
-      timezone: { type: String, default: 'America/New_York' },
-      weekly: { type: weekHoursSchema, default: () => ({}) }
-    }
+    hours: { type: storeHoursSchema, default: () => ({}) }
   },
   { timestamps: true }
 );
