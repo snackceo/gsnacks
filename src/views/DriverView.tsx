@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BACKEND_URL } from '../constants';
 import { createPortal } from 'react-dom';
 import { Order, OrderStatus, ReturnUpcCount, User, UserRole, ScannerMode } from '../types';
@@ -150,6 +150,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const [driverMode, setDriverMode] = useState<'RETURNS_INTAKE' | 'PICK_PACK'>('RETURNS_INTAKE');
   const [scannerMode, setScannerMode] = useState<ScannerMode>(ScannerMode.DRIVER_VERIFY_CONTAINERS);
   const [workflowMode, setWorkflowMode] = useState<'verification' | 'delivery'>('delivery');
+
+  const handleScannerModeChange = useCallback((mode: ScannerMode) => {
+    setScannerMode(mode);
+  }, []);
 
   const handleAccept = (orderId: string) => {
     if (!orderId) return;
@@ -1424,7 +1428,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
             setLastBlockedUpc(null);
             setLastBlockedReason(null);
           }}
-          onModeChange={setScannerMode}
+          onModeChange={handleScannerModeChange}
           onCooldown={(upc, reason) => {
             addToast('Same UPC — tap to add again', 'info');
             if (reason === 'duplicate') {

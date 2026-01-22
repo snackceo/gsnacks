@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { ScannerMode } from '../types';
 import ScannerPanel, { ParsedReceiptItem } from './ScannerPanel';
 
-interface ScannerModalProps {
+export interface ScannerModalProps {
   mode?: ScannerMode;
   onScan: (upc: string) => void;
   onCooldown?: (upc: string, reason: 'cooldown' | 'duplicate') => void;
