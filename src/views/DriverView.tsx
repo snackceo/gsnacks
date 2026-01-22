@@ -617,7 +617,11 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     }
   };
 
-  const addFulfillmentScan = async (upcRaw: string, source: 'scanner' | 'manual' = 'manual') => {
+  const addFulfillmentScan = async (
+    upcRaw: string,
+    source: 'scanner' | 'manual' = 'manual',
+    quantity = 1
+  ) => {
     const upc = normalizeUpc(upcRaw || '');
     if (!upc) return;
 
@@ -646,43 +650,64 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       return;
     }
 
-    const match = matchingTargets.find(target => {
-      const currentCount = fulfillmentScans.find(entry => entry.key === target.key)?.quantity ?? 0;
-      return currentCount < target.quantity;
+    let addedCount = 0;
+    setFulfillmentScans(prev => {
+      const counts = new Map(prev.map(entry => [entry.key, entry.quantity]));
+      const next = [...prev];
+
+      for (let i = 0; i < quantity; i += 1) {
+        const match = matchingTargets.find(target => {
+          const currentCount = counts.get(target.key) ?? 0;
+          return currentCount < target.quantity;
+        });
+
+        if (!match) {
+          break;
+        }
+
+        const existingIndex = next.findIndex(entry => entry.key === match.key);
+        if (existingIndex >= 0) {
+          next[existingIndex] = {
+            ...next[existingIndex],
+            quantity: next[existingIndex].quantity + 1,
+            upc
+          };
+        } else {
+          next.push({ key: match.key, upc, quantity: 1, productId: match.productId });
+        }
+        counts.set(match.key, (counts.get(match.key) ?? 0) + 1);
+        addedCount += 1;
+      }
+
+      return next;
     });
 
-    if (!match) {
+    if (addedCount === 0) {
       playScannerTone(220, 240, 0.25);
       setScannerError('All matching items have already been scanned.');
       return;
     }
 
-    const currentCount = fulfillmentScans.find(entry => entry.key === match.key)?.quantity ?? 0;
-    setFulfillmentScans(prev => {
-      const existing = prev.find(entry => entry.key === match.key);
-      if (existing) {
-        return prev.map(entry =>
-          entry.key === match.key
-            ? { ...entry, quantity: entry.quantity + 1, upc }
-            : entry
-        );
-      }
-      return [...prev, { key: match.key, upc, quantity: 1, productId: match.productId }];
-    });
+    if (addedCount < quantity) {
+      setScannerError('Some items were already fully scanned.');
+    } else {
+      setScannerError(null);
+    }
 
     if (source === 'scanner') {
       playScannerTone(980, 120, 0.2);
     }
-    setScannerError(null);
   };
 
   const handleScannerScan = async (upc: string, qty = 1) => {
     setLastBlockedUpc(null);
     setLastBlockedReason(null);
     if (scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS) {
-      await addVerificationScan(upc, 'scanner');
+      for (let i = 0; i < qty; i += 1) {
+        await addVerificationScan(upc, 'scanner');
+      }
     } else if (scannerMode === ScannerMode.DRIVER_FULFILL_ORDER) {
-      await addFulfillmentScan(upc, 'scanner');
+      await addFulfillmentScan(upc, 'scanner', qty);
     } else {
       // Original logic for other modes
       for (let i = 0; i < qty; i++) {
@@ -1067,6 +1092,15 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setLastBlockedReason(null);
   }, [scannerMode]);
 
+  useEffect(() => {
+    if (scannerMode === ScannerMode.DRIVER_FULFILL_ORDER && driverMode !== 'PICK_PACK') {
+      setDriverMode('PICK_PACK');
+    }
+    if (scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS && driverMode !== 'RETURNS_INTAKE') {
+      setDriverMode('RETURNS_INTAKE');
+    }
+  }, [driverMode, scannerMode]);
+
   const isReturnOnly = isReturnOnlyOrder(activeOrder);
   const verifiedReturnCount = useMemo(
     () => verifiedReturnUpcs.reduce((sum, entry) => sum + entry.quantity, 0),
@@ -1328,7 +1362,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={() => setScannerMode(ScannerMode.DRIVER_VERIFY_CONTAINERS)}
+                onClick={() => {
+                  setScannerMode(ScannerMode.DRIVER_VERIFY_CONTAINERS);
+                  setDriverMode('RETURNS_INTAKE');
+                }}
                 className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
                   scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS
                     ? 'bg-ninpo-lime text-ninpo-black'
@@ -1338,7 +1375,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
                 Returns Verification
               </button>
               <button
-                onClick={() => setScannerMode(ScannerMode.DRIVER_FULFILL_ORDER)}
+                onClick={() => {
+                  setScannerMode(ScannerMode.DRIVER_FULFILL_ORDER);
+                  setDriverMode('PICK_PACK');
+                }}
                 className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
                   scannerMode === ScannerMode.DRIVER_FULFILL_ORDER
                     ? 'bg-ninpo-lime text-ninpo-black'
