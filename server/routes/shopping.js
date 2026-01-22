@@ -91,12 +91,15 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     const storePricingDetails = optimized.storePlans.map(plan => {
       const items = plan.items.map(item => {
         const useObservedPrice = Number.isFinite(item.observedPrice);
+        const observedPriceIsCost = item.observedPriceIsCost === true;
         const basePrice = useObservedPrice
-          ? item.observedPrice
+          ? (observedPriceIsCost ? item.observedPrice * item.markup : item.observedPrice)
           : item.cost * item.markup;
         const unitPrice = roundCurrency(basePrice);
         const total = roundCurrency(unitPrice * item.quantity);
-        const priceSource = useObservedPrice ? 'observedShelfPrice' : 'costMarkup';
+        const priceSource = useObservedPrice
+          ? (observedPriceIsCost ? 'observedCostMarkup' : 'observedShelfPrice')
+          : 'costMarkup';
         storePricingByProductId.set(String(item.productId), {
           storeId: plan.storeId,
           storeName: plan.storeName,
