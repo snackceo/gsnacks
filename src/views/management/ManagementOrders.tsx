@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Order, OrderStatus, ReturnUpcCount, ScannerMode, User } from '../../types';
+import { Order, OrderStatus, ReturnUpcCount, User } from '../../types';
 import ManagementOrderDetailPanel from './ManagementOrderDetailPanel';
 import {
   CheckCircle2,
@@ -11,8 +11,7 @@ import {
   UserCheck,
   XCircle,
   Camera,
-  Trash2,
-  ScanLine
+  Trash2
 } from 'lucide-react';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
@@ -44,9 +43,6 @@ interface ManagementOrdersProps {
   canCancel: (o: Order) => boolean;
   fmtTime: (iso?: string) => string;
   countTotalUpcs: (entries: ReturnUpcCount[]) => number;
-  setScannerMode: (mode: ScannerMode) => void;
-  setScannerModalOpen: (open: boolean) => void;
-  openReturnProcessingScanner: () => void;
 }
 
 const ManagementOrders: React.FC<ManagementOrdersProps> = ({
@@ -58,21 +54,13 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
   handleLogisticsUpdate,
   canCancel,
   fmtTime,
-  countTotalUpcs,
-  setScannerMode,
-  setScannerModalOpen,
-  openReturnProcessingScanner
+  countTotalUpcs
 }) => {
   const [openDetail, setOpenDetail] = useState<Record<string, boolean>>({});
   const [receiptCaptures, setReceiptCaptures] = useState<ReceiptCapture[]>([]);
 
   const toggleDetail = (id: string) =>
     setOpenDetail(prev => ({ ...prev, [id]: !prev[id] }));
-
-  const openReceiptScanner = () => {
-    setScannerMode(ScannerMode.RECEIPT_PARSE_LIVE);
-    setScannerModalOpen(true);
-  };
 
   // Fetch receipt captures
   const fetchReceiptCaptures = useCallback(async () => {
@@ -138,52 +126,6 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Receipt Capture Quick Access */}
-      <div className="bg-gradient-to-r from-orange-600 to-amber-600 rounded-2xl p-6 border border-white/20">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-black uppercase text-white tracking-widest flex items-center gap-2">
-              <Camera className="w-5 h-5" />
-              Upload Receipt
-            </h3>
-            <p className="text-sm text-orange-100 mt-2">Capture and process a new receipt</p>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={openReceiptScanner}
-              className="px-6 py-3 bg-white/20 hover:bg-white/30 text-white rounded-lg font-bold text-sm flex items-center gap-2 transition-all"
-              title="Use scanner to capture receipts"
-            >
-              <Camera className="w-5 h-5" />
-              Capture / Upload
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Return Processing Quick Access */}
-      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-6 border border-white/20">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-black uppercase text-white tracking-widest flex items-center gap-2">
-              <ScanLine className="w-5 h-5" />
-              Return Processing
-            </h3>
-            <p className="text-sm text-emerald-100 mt-2">Scan containers for return verification</p>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={openReturnProcessingScanner}
-              className="px-6 py-3 bg-white/20 hover:bg-white/30 text-white rounded-lg font-bold text-sm flex items-center gap-2 transition-all"
-              title="Scan return containers"
-            >
-              <ScanLine className="w-5 h-5" />
-              Scan Returns
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* Receipt Captures Section */}
       {receiptCaptures.length > 0 && (
         <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-2xl p-6 border border-white/20">
@@ -192,18 +134,9 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
               <Camera className="w-5 h-5" />
               Receipt Scanner Queue
             </h3>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-purple-100">
-                {receiptCaptures.filter(c => c.status === 'parsed').length} pending review
-              </span>
-              <button
-                onClick={openReceiptScanner}
-                className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-white text-sm font-semibold flex items-center gap-2"
-              >
-                <Camera className="w-4 h-4" />
-                New Receipt
-              </button>
-            </div>
+            <span className="text-sm text-purple-100">
+              {receiptCaptures.filter(c => c.status === 'parsed').length} pending review
+            </span>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

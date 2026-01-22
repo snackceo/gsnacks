@@ -37,10 +37,7 @@ import {
   Terminal,
   Sliders,
   EyeOff,
-  Plus,
-  ScanLine,
-  X,
-  TrendingUp
+  ScanLine
 } from 'lucide-react';
 import { MapPin } from 'lucide-react';
 import ScannerModal from '../components/ScannerModal';
@@ -764,11 +761,15 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
   }, []);
 
-  const openReturnProcessingScanner = useCallback(() => {
-    setReturnScanEntries([]);
-    setScannerMode(ScannerMode.CUSTOMER_RETURN_SCAN);
-    setScannerModalOpen(true);
-  }, []);
+  const scannerModeOptions = useMemo(
+    () => [
+      { value: ScannerMode.INVENTORY_CREATE, label: 'Inventory create' },
+      { value: ScannerMode.UPC_LOOKUP, label: 'UPC lookup' },
+      { value: ScannerMode.RECEIPT_PARSE_LIVE, label: 'Receipt capture' },
+      { value: ScannerMode.CUSTOMER_RETURN_SCAN, label: 'Return processing' }
+    ],
+    []
+  );
 
   const dispatchReceiptQueueRefresh = useCallback(() => {
     if (typeof window !== 'undefined') {
@@ -1358,9 +1359,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           canCancel={canCancel}
           fmtTime={fmtTime}
           countTotalUpcs={countTotalUpcs}
-          setScannerMode={setScannerMode}
-          setScannerModalOpen={setScannerModalOpen}
-          openReturnProcessingScanner={openReturnProcessingScanner}
         />
       )
     },
@@ -1387,15 +1385,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       icon: Package,
       render: () => (
         <ManagementInventory
-          scannerMode={scannerMode}
-          setScannerMode={setScannerMode}
-          scannerModalOpen={scannerModalOpen}
-          setScannerModalOpen={setScannerModalOpen}
-          lastBlockedUpc={lastBlockedUpc}
-          lastBlockedReason={lastBlockedReason}
-          handleScannerScan={handleScannerScan}
-          setLastBlockedUpc={setLastBlockedUpc}
-          setLastBlockedReason={setLastBlockedReason}
           scannedUpcForCreation={scannedUpcForCreation}
           setScannedUpcForCreation={setScannedUpcForCreation}
           handleManualUpcChange={handleManualUpcChange}
@@ -1612,6 +1601,56 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         </aside>
 
         <div className="flex-1 w-full space-y-8 pb-32">
+          <div className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  Management Scanner
+                </p>
+                <p className="text-xl font-black uppercase text-white tracking-widest">
+                  Scan
+                </p>
+              </div>
+              <div className="flex flex-col md:flex-row md:items-center gap-3">
+                <select
+                  value={scannerMode}
+                  onChange={event =>
+                    handleScannerModeChange(event.target.value as ScannerMode)
+                  }
+                  className="bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-white"
+                >
+                  {scannerModeOptions.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setScannerModalOpen(true)}
+                    className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-neon"
+                  >
+                    <ScanLine className="w-4 h-4" />
+                    Scan
+                  </button>
+                  {scannerMode === ScannerMode.INVENTORY_CREATE &&
+                    lastBlockedUpc &&
+                    lastBlockedReason === 'duplicate' && (
+                      <button
+                        onClick={() => handleScannerScan(lastBlockedUpc)}
+                        className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-white/10"
+                      >
+                        Add anyway
+                      </button>
+                    )}
+                </div>
+              </div>
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+              Choose a scan mode to handle inventory, UPC lookups, receipts, or return processing.
+            </p>
+          </div>
           {activeSection?.render()}
         </div>
 

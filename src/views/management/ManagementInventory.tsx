@@ -1,18 +1,8 @@
 import React from 'react';
-import { Plus, Loader2, ScanLine, X } from 'lucide-react';
+import { Plus, Loader2 } from 'lucide-react';
 import { Product, SizeUnit, UpcItem } from '../../types';
-import { ScannerMode } from '../../types';
 
 interface ManagementInventoryProps {
-  scannerMode: ScannerMode;
-  setScannerMode: (mode: ScannerMode) => void;
-  scannerModalOpen: boolean;
-  setScannerModalOpen: (open: boolean) => void;
-  lastBlockedUpc: string | null;
-  lastBlockedReason: 'cooldown' | 'duplicate' | null;
-  handleScannerScan: (upc: string) => void;
-  setLastBlockedUpc: (upc: string | null) => void;
-  setLastBlockedReason: (reason: 'cooldown' | 'duplicate' | null) => void;
   scannedUpcForCreation: string;
   handleManualUpcChange: (value: string) => void;
   fetchOffLookup: (upc: string) => void;
@@ -57,15 +47,6 @@ interface ManagementInventoryProps {
 }
 
 const ManagementInventory: React.FC<ManagementInventoryProps> = ({
-  scannerMode,
-  setScannerMode,
-  scannerModalOpen,
-  setScannerModalOpen,
-  lastBlockedUpc,
-  lastBlockedReason,
-  handleScannerScan,
-  setLastBlockedUpc,
-  setLastBlockedReason,
   scannedUpcForCreation,
   handleManualUpcChange,
   fetchOffLookup,
@@ -119,50 +100,9 @@ const ManagementInventory: React.FC<ManagementInventoryProps> = ({
       </div>
 
       <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-            Scanner controls
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                setScannerMode(ScannerMode.INVENTORY_CREATE);
-                setScannerModalOpen(true);
-              }}
-              className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-neon"
-            >
-              <ScanLine className="w-4 h-4" />
-              Scan
-            </button>
-            {lastBlockedUpc && lastBlockedReason === 'duplicate' && (
-              <button
-                onClick={() => handleScannerScan(lastBlockedUpc)}
-                className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-white/10"
-              >
-                Add anyway
-              </button>
-            )}
-            {scannerModalOpen && scannerMode === ScannerMode.INVENTORY_CREATE && (
-              <button
-                onClick={() => {
-                  setScannerModalOpen(false);
-                  setLastBlockedUpc(null);
-                  setLastBlockedReason(null);
-                }}
-                className="px-4 py-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
-              >
-                <X className="w-4 h-4" />
-                Close
-              </button>
-            )}
-          </div>
-        </div>
-
-
-
         <div className="flex flex-col md:flex-row gap-4 items-center">
           <div className="flex-1 text-[10px] text-slate-500 uppercase tracking-widest">
-            Scan a UPC to create products via the bottom sheet scanner interface. All product creation now happens in the scanner modal.
+            Use the Scan entry point above to capture UPCs and create inventory items in the shared scanner modal.
           </div>
         </div>
 
