@@ -88,6 +88,23 @@ type QuoteResponse = {
   heavyItemFee?: number;
 };
 
+type CheckoutPreviewFulfillment = {
+  status: 'open' | 'scheduled';
+  message: string;
+  scheduledItems: Array<{
+    productId: string;
+    productName: string;
+    storeId: string;
+    storeName: string;
+    nextOpenLabel: string | null;
+    timeZone: string | null;
+  }>;
+};
+
+type CheckoutPreviewResponse = {
+  fulfillment?: CheckoutPreviewFulfillment;
+};
+
 function money(n: number) {
   const v = Number.isFinite(n) ? n : 0;
   return `$${v.toFixed(2)}`;
@@ -126,6 +143,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [isQuoteLoading, setIsQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [checkoutPreview, setCheckoutPreview] = useState<CheckoutPreviewResponse | null>(null);
+  const [isCheckoutPreviewLoading, setIsCheckoutPreviewLoading] = useState(false);
+  const [checkoutPreviewError, setCheckoutPreviewError] = useState<string | null>(null);
 
   // Address validation state
   const [addressValidation, setAddressValidation] = useState<AddressValidationResult | null>(null);
@@ -321,6 +341,59 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       window.clearTimeout(timeoutId);
     };
   }, [address, cart, currentUserId, payoutMethod, returnUpcs, totalReturnContainers]);
+
+  // Checkout preview (store availability + fallback timing)
+  useEffect(() => {
+    const trimmedAddress = address.trim();
+    if (!trimmedAddress || cart.length === 0) {
+      setCheckoutPreview(null);
+      setCheckoutPreviewError(null);
+      setIsCheckoutPreviewLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setIsCheckoutPreviewLoading(true);
+      setCheckoutPreviewError(null);
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/shopping/checkout-preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          signal: controller.signal,
+          body: JSON.stringify({
+            cartItems: cart,
+            deliveryAddress: {
+              address: trimmedAddress
+            },
+            timestamp: new Date().toISOString(),
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+          })
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || 'Checkout preview failed');
+        }
+
+        setCheckoutPreview({
+          fulfillment: data?.fulfillment
+        });
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        setCheckoutPreview(null);
+        setCheckoutPreviewError(err?.message || 'Checkout preview failed');
+      } finally {
+        setIsCheckoutPreviewLoading(false);
+      }
+    }, 700);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [address, cart]);
 
   // ----------------------------
   // Cart totals
@@ -656,6 +729,49 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 </p>
               )}
             </div>
+
+            {(checkoutPreview?.fulfillment?.status === 'scheduled' || checkoutPreviewError) && (
+              <div className="rounded-2xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-4 text-xs text-yellow-200 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 text-yellow-400 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-yellow-300">
+                      Store availability update
+                    </p>
+                    {checkoutPreview?.fulfillment?.message ? (
+                      <p className="text-[11px] text-yellow-100">
+                        {checkoutPreview.fulfillment.message}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-yellow-100">
+                        Store availability details are unavailable right now.
+                      </p>
+                    )}
+                  </div>
+                  {isCheckoutPreviewLoading && (
+                    <Loader2 className="h-4 w-4 animate-spin text-yellow-300 ml-auto" />
+                  )}
+                </div>
+                {checkoutPreview?.fulfillment?.status === 'scheduled' && checkoutPreview.fulfillment.scheduledItems?.length > 0 && (
+                  <ul className="space-y-1 text-[11px] text-yellow-100">
+                    {checkoutPreview.fulfillment.scheduledItems.map(item => (
+                      <li key={`${item.productId}-${item.storeId}`} className="flex flex-col">
+                        <span className="font-semibold text-yellow-200">{item.productName}</span>
+                        <span className="text-yellow-300/80">
+                          {item.storeName} • {item.nextOpenLabel || 'Next opening time unavailable'}
+                          {item.timeZone ? ` (${item.timeZone})` : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {checkoutPreviewError && (
+                  <p className="text-[10px] text-yellow-200/80">
+                    {checkoutPreviewError}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Policy checkbox */}
             <label className="flex items-center gap-3 text-[10px] font-black uppercase text-slate-500 cursor-pointer select-none">
