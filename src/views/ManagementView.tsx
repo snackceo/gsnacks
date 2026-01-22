@@ -46,6 +46,7 @@ import { MapPin } from 'lucide-react';
 import ScannerModal from '../components/ScannerModal';
 import UnmappedUpcModal from '../components/UnmappedUpcModal';
 import { UnmappedUpcData } from '../types';
+import type { ParsedReceiptItem } from '../components/ScannerPanel';
 import {
   getAdvancedInventoryInsights,
   getAvailableAuditModels,
@@ -148,6 +149,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [lastBlockedReason, setLastBlockedReason] = useState<'cooldown' | 'duplicate' | null>(null);
   const [unmappedUpcModalOpen, setUnmappedUpcModalOpen] = useState(false);
   const [unmappedUpcPayload, setUnmappedUpcPayload] = useState<UnmappedUpcData | null>(null);
+  const [isReceiptSaving, setIsReceiptSaving] = useState(false);
 
   // Return verifications state
   const [returnVerifications, setReturnVerifications] = useState<ReturnVerification[]>([]);
@@ -801,6 +803,68 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       addToast(err?.message || 'Receipt upload failed', 'error');
     }
   }, [addToast]);
+
+  const refreshStoreInventory = useCallback(async () => {
+    if (!activeStoreId) return [];
+    const res = await fetch(`${BACKEND_URL}/api/driver/store-inventory/${activeStoreId}`, {
+      credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || 'Failed to refresh store inventory');
+    return Array.isArray(data.inventory) ? data.inventory : [];
+  }, [activeStoreId]);
+
+  const handleReceiptParsed = useCallback(async (items: ParsedReceiptItem[]) => {
+    if (!items.length) {
+      addToast('No receipt items to save yet.', 'info');
+      return;
+    }
+    if (!activeStoreId) {
+      addToast('Select an active store before saving receipt items.', 'error');
+      return;
+    }
+    if (isReceiptSaving) return;
+
+    const storeName = stores.find(store => store.id === activeStoreId)?.name || 'Manual Entry';
+    const captureId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `receipt-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+
+    setIsReceiptSaving(true);
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-price-update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          storeId: activeStoreId,
+          storeName,
+          captureId,
+          items: items.map((item, index) => ({
+            name: item.receiptName,
+            totalPrice: item.totalPrice,
+            quantity: item.quantity,
+            lineIndex: index
+          }))
+        })
+      });
+
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data?.error || 'Receipt price update failed');
+
+      const inventory = await refreshStoreInventory();
+      addToast(
+        `Saved ${items.length} item${items.length === 1 ? '' : 's'} and refreshed ${inventory.length} inventory record${inventory.length === 1 ? '' : 's'}.`,
+        'success'
+      );
+      setScannerModalOpen(false);
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to save receipt items', 'error');
+    } finally {
+      setIsReceiptSaving(false);
+    }
+  }, [activeStoreId, addToast, isReceiptSaving, refreshStoreInventory, stores]);
 
   const startEditProduct = (product: Product) => {
     setEditError(null);
@@ -1866,6 +1930,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           cooldownMs={settings.cooldownMs ?? 1000}
           isOpen={scannerModalOpen}
           onPhotoCaptured={scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? handleReceiptPhotoCapture : undefined}
+          onReceiptParsed={scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? handleReceiptParsed : undefined}
           onModeChange={handleScannerModeChange}
           bottomSheetContent={
             scannerMode === ScannerMode.INVENTORY_CREATE ? (
