@@ -171,7 +171,7 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
         const unitPrice = roundCurrency(basePrice);
         const total = roundCurrency(unitPrice * item.quantity);
         const priceSource = useObservedPrice
-          ? (observedPriceIsCost ? 'observedCostMarkup' : 'observedShelfPrice')
+          ? (observedPriceIsCost ? 'observedCostWithMarkup' : 'observedShelfPrice')
           : 'costMarkup';
         storePricingByProductId.set(String(item.productId), {
           storeId: plan.storeId,
