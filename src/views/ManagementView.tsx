@@ -12,7 +12,8 @@ import type {
   AppSettings,
   ApprovalRequest,
   ReturnVerification,
-  SizeUnit
+  SizeUnit,
+  ReturnUpcCount
 } from '../types';
 import { ScannerMode, OrderStatus } from '../types';
 import ManagementDashboard from './management/ManagementDashboard';
@@ -139,6 +140,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [isOpsSummaryLoading, setIsOpsSummaryLoading] = useState(false);
   const [scannerModalOpen, setScannerModalOpen] = useState(false);
   const [scannerMode, setScannerMode] = useState<ScannerMode>(ScannerMode.INVENTORY_CREATE);
+  const [returnScanEntries, setReturnScanEntries] = useState<ReturnUpcCount[]>([]);
   const [lastBlockedUpc, setLastBlockedUpc] = useState<string | null>(null);
   const [lastBlockedReason, setLastBlockedReason] = useState<'cooldown' | 'duplicate' | null>(null);
   const [unmappedUpcModalOpen, setUnmappedUpcModalOpen] = useState(false);
@@ -661,8 +663,37 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
     if (scannerMode === ScannerMode.UPC_LOOKUP) {
       handleUpcScannerScan(upc);
+      return;
+    }
+    if (scannerMode === ScannerMode.CUSTOMER_RETURN_SCAN) {
+      setReturnScanEntries(prev => {
+        const existing = prev.find(entry => entry.upc === upc);
+        if (!existing) {
+          return [{ upc, quantity: 1 }, ...prev];
+        }
+        return prev.map(entry =>
+          entry.upc === upc ? { ...entry, quantity: entry.quantity + 1 } : entry
+        );
+      });
     }
   }, [handleInventoryScannerScan, handleUpcScannerScan, scannerMode]);
+
+  const totalReturnScanCount = useMemo(() => {
+    return returnScanEntries.reduce((sum, entry) => sum + entry.quantity, 0);
+  }, [returnScanEntries]);
+
+  const handleScannerModeChange = useCallback((mode: ScannerMode) => {
+    setScannerMode(mode);
+    if (mode !== ScannerMode.CUSTOMER_RETURN_SCAN) {
+      setReturnScanEntries([]);
+    }
+  }, []);
+
+  const openReturnProcessingScanner = useCallback(() => {
+    setReturnScanEntries([]);
+    setScannerMode(ScannerMode.CUSTOMER_RETURN_SCAN);
+    setScannerModalOpen(true);
+  }, []);
 
   const handleReceiptPhotoCapture = useCallback(async (photoDataUrl: string, mime: string) => {
     try {
@@ -1146,6 +1177,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           countTotalUpcs={countTotalUpcs}
           setScannerMode={setScannerMode}
           setScannerModalOpen={setScannerModalOpen}
+          openReturnProcessingScanner={openReturnProcessingScanner}
         />
       )
     },
@@ -1716,6 +1748,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             setScannerModalOpen(false);
             setLastBlockedUpc(null);
             setLastBlockedReason(null);
+            if (scannerMode === ScannerMode.CUSTOMER_RETURN_SCAN) {
+              setReturnScanEntries([]);
+            }
           }}
           onCooldown={(upc, reason) => {
             addToast('Same UPC — tap to add again', 'info');
@@ -1731,19 +1766,21 @@ const ManagementView: React.FC<ManagementViewProps> = ({
             scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan Product' :
             scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC' :
             scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? 'Capture Receipt' :
+            scannerMode === ScannerMode.CUSTOMER_RETURN_SCAN ? 'Scan Return Containers' :
             'Scan'
           }
           subtitle={
             scannerMode === ScannerMode.INVENTORY_CREATE ? 'Scan UPC to auto-fill product details' :
             scannerMode === ScannerMode.UPC_LOOKUP ? 'Scan UPC to lookup or edit registry entry' :
             scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? 'Use the camera to capture or parse receipt images' :
+            scannerMode === ScannerMode.CUSTOMER_RETURN_SCAN ? 'Scan containers to track return processing' :
             'Scan barcode'
           }
           beepEnabled={settings.beepEnabled ?? true}
           cooldownMs={settings.cooldownMs ?? 1000}
           isOpen={scannerModalOpen}
           onPhotoCaptured={scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? handleReceiptPhotoCapture : undefined}
-          onModeChange={setScannerMode}
+          onModeChange={handleScannerModeChange}
           bottomSheetContent={
             scannerMode === ScannerMode.INVENTORY_CREATE ? (
               <InventoryCreateForm
@@ -1777,6 +1814,42 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 setBatchQueue={setBatchQueue}
                 addBatchQueueToRegistry={addBatchQueueToRegistry}
               />
+            ) : scannerMode === ScannerMode.CUSTOMER_RETURN_SCAN ? (
+              <div className="p-6 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-white">
+                      Return Processing
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      {totalReturnScanCount} container{totalReturnScanCount === 1 ? '' : 's'} scanned
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setReturnScanEntries([])}
+                    className="px-4 py-2 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest border border-white/10 hover:bg-white/20 transition"
+                    type="button"
+                  >
+                    Clear
+                  </button>
+                </div>
+                {returnScanEntries.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {returnScanEntries.map(entry => (
+                      <span
+                        key={`return-scan-${entry.upc}`}
+                        className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-[10px] font-bold text-slate-200"
+                      >
+                        {entry.upc} × {entry.quantity}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                    Scan UPCs to begin return processing.
+                  </p>
+                )}
+              </div>
             ) : null
           }
           closeOnScan={false}

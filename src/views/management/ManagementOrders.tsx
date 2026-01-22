@@ -11,7 +11,8 @@ import {
   UserCheck,
   XCircle,
   Camera,
-  Trash2
+  Trash2,
+  ScanLine
 } from 'lucide-react';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
@@ -45,6 +46,7 @@ interface ManagementOrdersProps {
   countTotalUpcs: (entries: ReturnUpcCount[]) => number;
   setScannerMode: (mode: ScannerMode) => void;
   setScannerModalOpen: (open: boolean) => void;
+  openReturnProcessingScanner: () => void;
 }
 
 const ManagementOrders: React.FC<ManagementOrdersProps> = ({
@@ -58,7 +60,8 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
   fmtTime,
   countTotalUpcs,
   setScannerMode,
-  setScannerModalOpen
+  setScannerModalOpen,
+  openReturnProcessingScanner
 }) => {
   const [openDetail, setOpenDetail] = useState<Record<string, boolean>>({});
   const [receiptCaptures, setReceiptCaptures] = useState<ReceiptCapture[]>([]);
@@ -144,6 +147,29 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
             >
               <Camera className="w-5 h-5" />
               Capture / Upload
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Return Processing Quick Access */}
+      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-6 border border-white/20">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-black uppercase text-white tracking-widest flex items-center gap-2">
+              <ScanLine className="w-5 h-5" />
+              Return Processing
+            </h3>
+            <p className="text-sm text-emerald-100 mt-2">Scan containers for return verification</p>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={openReturnProcessingScanner}
+              className="px-6 py-3 bg-white/20 hover:bg-white/30 text-white rounded-lg font-bold text-sm flex items-center gap-2 transition-all"
+              title="Scan return containers"
+            >
+              <ScanLine className="w-5 h-5" />
+              Scan Returns
             </button>
           </div>
         </div>
