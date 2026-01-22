@@ -29,7 +29,7 @@ interface ScannerPanelProps {
   beepEnabled?: boolean;
   cooldownMs?: number;
   onPhotoCaptured?: (photoDataUrl: string, mime: string) => void;
-  onReceiptParsed?: (items: ParsedReceiptItem[]) => void;
+  onReceiptParsed?: (items: ParsedReceiptItem[], frame?: string) => void;
   onModeChange?: (mode: ScannerMode) => void;
   closeOnScan?: boolean;
   manualStart?: boolean;
@@ -106,6 +106,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const [lastDetectedUpc, setLastDetectedUpc] = useState<string | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [parsedItems, setParsedItems] = useState<ParsedReceiptItem[]>([]);
+  const [lastParsedFrame, setLastParsedFrame] = useState<string | null>(null);
 
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
@@ -308,9 +309,9 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
       const data = await resp.json();
       const items: ParsedReceiptItem[] = Array.isArray(data.items) ? data.items : [];
       setParsedItems(items);
+      setLastParsedFrame(frame);
       if (items.length > 0) {
         setScannerHint(`Captured ${items.length} items`);
-        onReceiptParsed?.(items);
       } else {
         setScannerHint('No items detected');
       }
@@ -610,7 +611,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
               <button
                 onClick={() => {
                   if (onReceiptParsed) {
-                    onReceiptParsed(parsedItems);
+                    onReceiptParsed(parsedItems, lastParsedFrame ?? undefined);
                   }
                 }}
                 className="px-6 py-3 rounded-2xl bg-gradient-to-r from-green-500 to-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:from-green-600 hover:to-emerald-700 transition-all"

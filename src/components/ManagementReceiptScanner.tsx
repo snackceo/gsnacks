@@ -229,6 +229,9 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
 
       await fetchCapture();
       if (onCommit) onCommit();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('receipt-queue-refresh'));
+      }
       
       // Auto-close after commit
       setTimeout(onClose, 1500);
