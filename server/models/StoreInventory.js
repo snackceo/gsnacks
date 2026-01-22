@@ -18,11 +18,11 @@ const storeInventorySchema = new mongoose.Schema(
     sku: { type: String, index: true }, // Denormalized for fast lookups
     
     // Store-specific pricing
-    cost: { type: Number, required: true }, // What you pay to buy it
+    cost: { type: Number, required: true }, // Internal base cost (used when no observed price)
     markup: { type: Number, default: 1.2 }, // Multiplier for customer price
     
     // Receipt-based observed pricing (real-world verification)
-    observedPrice: { type: Number }, // Last observed shelf/regular price
+    observedPrice: { type: Number }, // Last observed shelf/regular price (preferred for selection/pricing)
     observedAt: { type: Date }, // When price was last observed
     
     priceHistory: [{
