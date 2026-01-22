@@ -125,6 +125,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   }, [torchOn]);
 
   const canCapturePhoto = Boolean(onPhotoCaptured);
+  const receiptUploadBlocked = isReceiptMode && receiptSaveDisabled;
 
   useEffect(() => {
     onScanRef.current = onScan;
@@ -568,9 +569,14 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         
         {canCapturePhoto && (
           <button
-            onClick={takePhoto}
-            className="p-3 rounded-full bg-cyan-500/90 text-white hover:bg-cyan-600 backdrop-blur-sm transition flex items-center justify-center"
-            title="Take photo (backup)"
+            onClick={receiptUploadBlocked ? undefined : takePhoto}
+            disabled={receiptUploadBlocked}
+            className={`p-3 rounded-full backdrop-blur-sm transition flex items-center justify-center ${
+              receiptUploadBlocked
+                ? 'bg-gray-600/70 text-gray-300 cursor-not-allowed'
+                : 'bg-cyan-500/90 text-white hover:bg-cyan-600'
+            }`}
+            title={receiptUploadBlocked ? 'Select a store before uploading' : 'Take photo (backup)'}
           >
             <Zap className="w-5 h-5" />
           </button>
