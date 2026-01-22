@@ -5,9 +5,9 @@ import { ScannerMode } from '../../types';
 
 interface ManagementInventoryProps {
   scannerMode: ScannerMode;
-  setScannerMode: (mode: ScannerMode) => void;
   scannerModalOpen: boolean;
   setScannerModalOpen: (open: boolean) => void;
+  openUnifiedScannerModal: (mode: ScannerMode) => void;
   lastBlockedUpc: string | null;
   lastBlockedReason: 'cooldown' | 'duplicate' | null;
   handleScannerScan: (upc: string) => void;
@@ -58,9 +58,9 @@ interface ManagementInventoryProps {
 
 const ManagementInventory: React.FC<ManagementInventoryProps> = ({
   scannerMode,
-  setScannerMode,
   scannerModalOpen,
   setScannerModalOpen,
+  openUnifiedScannerModal,
   lastBlockedUpc,
   lastBlockedReason,
   handleScannerScan,
@@ -125,10 +125,7 @@ const ManagementInventory: React.FC<ManagementInventoryProps> = ({
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => {
-                setScannerMode(ScannerMode.INVENTORY_CREATE);
-                setScannerModalOpen(true);
-              }}
+              onClick={() => openUnifiedScannerModal(ScannerMode.INVENTORY_CREATE)}
               className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-neon"
             >
               <ScanLine className="w-4 h-4" />
