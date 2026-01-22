@@ -127,6 +127,16 @@ export const getNextOpenWindow = ({ hours, timestamp, timeZone } = {}) => {
   return null;
 };
 
+export const getStoreOpenStatus = ({ hours, timestamp, timeZone } = {}) => {
+  const zone = timeZone || hours?.timezone || 'UTC';
+  const open = isStoreOpen({ hours, timestamp, timeZone: zone });
+  return {
+    isOpen: open,
+    timeZone: zone,
+    nextOpen: open ? null : getNextOpenWindow({ hours, timestamp, timeZone: zone })
+  };
+};
+
 export const getStoreHoursForDay = (hours, weekdayKey) => {
   if (!hours?.weekly) return null;
   const key = String(weekdayKey || '').toLowerCase().slice(0, 3);

@@ -127,9 +127,14 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     const optimized = await optimizeStoreSelection(fulfillment, storeSelectionContext);
 
     if (optimized.unfulfilled.length > 0) {
-      return res.status(400).json({ 
-        error: 'Some items unavailable', 
-        unfulfilled: optimized.unfulfilled 
+      const hasClosedStore = optimized.unfulfilled.some(item =>
+        item.reason === 'No open stores available'
+      );
+      return res.status(400).json({
+        error: hasClosedStore
+          ? 'Some items are unavailable because no stores are open'
+          : 'Some items unavailable',
+        unfulfilled: optimized.unfulfilled
       });
     }
 
