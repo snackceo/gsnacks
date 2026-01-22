@@ -44,6 +44,52 @@ const resolveStoreSelectionContext = (body, deliveryAddress) => {
   return { timestamp, timeZone };
 };
 
+const formatMinutesToLabel = minutes => {
+  if (!Number.isFinite(minutes)) return null;
+  const hour24 = Math.floor(minutes / 60) % 24;
+  const minute = minutes % 60;
+  const hour12 = ((hour24 + 11) % 12) + 1;
+  const suffix = hour24 >= 12 ? 'PM' : 'AM';
+  const minuteLabel = String(minute).padStart(2, '0');
+  return `${hour12}:${minuteLabel} ${suffix}`;
+};
+
+const formatDayLabel = dayKey => {
+  if (!dayKey) return null;
+  return dayKey.slice(0, 1).toUpperCase() + dayKey.slice(1);
+};
+
+const formatNextOpenLabel = nextOpen => {
+  if (!nextOpen?.dayKey || !Number.isFinite(nextOpen?.minutes)) return null;
+  const timeLabel = formatMinutesToLabel(nextOpen.minutes);
+  if (!timeLabel) return null;
+  const dayLabel = formatDayLabel(nextOpen.dayKey);
+  return `${dayLabel} ${timeLabel}`;
+};
+
+const geocodeDeliveryAddress = async address => {
+  const trimmed = String(address || '').trim();
+  if (!trimmed) return null;
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    throw new Error('Google Maps API key not configured');
+  }
+  const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+  url.searchParams.set('address', trimmed);
+  url.searchParams.set('key', apiKey);
+  const response = await fetch(url.toString());
+  const data = await response.json();
+  if (data.status !== 'OK' || !data.results?.[0]?.geometry?.location) {
+    throw new Error(`Geocode failed: ${data.status}`);
+  }
+  const location = data.results[0].geometry.location;
+  return {
+    lat: location.lat,
+    lng: location.lng,
+    formattedAddress: data.results[0].formatted_address
+  };
+};
+
 // Checkout preview: Calculate route, fees, and total for customer
 router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
   try {
@@ -53,12 +99,28 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'Cart items required' });
     }
 
-    if (!deliveryAddress?.lat || !deliveryAddress?.lng) {
+    let resolvedDeliveryAddress = deliveryAddress;
+    if ((!deliveryAddress?.lat || !deliveryAddress?.lng) && deliveryAddress) {
+      const addressValue = typeof deliveryAddress === 'string'
+        ? deliveryAddress
+        : deliveryAddress?.address || deliveryAddress?.formattedAddress;
+      if (addressValue) {
+        const geocoded = await geocodeDeliveryAddress(addressValue);
+        resolvedDeliveryAddress = {
+          ...deliveryAddress,
+          lat: geocoded.lat,
+          lng: geocoded.lng,
+          formattedAddress: geocoded.formattedAddress || deliveryAddress?.formattedAddress
+        };
+      }
+    }
+
+    if (!resolvedDeliveryAddress?.lat || !resolvedDeliveryAddress?.lng) {
       return res.status(400).json({ error: 'Valid delivery address required' });
     }
 
     const { normalizedItems, productsByFrontendId } = await normalizeCartItems(cartItems);
-    const storeSelectionContext = resolveStoreSelectionContext(req.body, deliveryAddress);
+    const storeSelectionContext = resolveStoreSelectionContext(req.body, resolvedDeliveryAddress);
 
     // Find cheapest stores for fulfillment
     const fulfillment = await findCheapestStores(normalizedItems, storeSelectionContext);
@@ -93,7 +155,7 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     // Calculate route: hub → stores → customer
     const route = await calculateMultiStopRoute(
       [{ location: hub.location }, ...stores.map(s => ({ location: s.location }))],
-      [deliveryAddress]
+      [resolvedDeliveryAddress]
     );
 
     // Get customer-facing prices from Product model
@@ -120,7 +182,8 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
           observedPrice: item.observedPrice,
           unitPrice,
           priceSource,
-          productName: item.productName
+          productName: item.productName,
+          availability: item.availability
         });
         return {
           productId: item.productId,
@@ -131,7 +194,8 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
           observedPrice: item.observedPrice ?? null,
           priceSource,
           unitPrice,
-          total
+          total,
+          availability: item.availability
         };
       });
       const customerTotal = roundCurrency(items.reduce((sum, item) => sum + item.total, 0));
@@ -151,6 +215,8 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     for (const item of normalizedItems) {
       const product = productsByFrontendId.get(item.productId);
       const storePricing = storePricingByProductId.get(String(item.productId));
+      const availability = storePricing?.availability;
+      const nextOpenLabel = availability?.nextOpen ? formatNextOpenLabel(availability.nextOpen) : null;
       const unitPrice = storePricing?.unitPrice ?? 0;
       const itemTotal = roundCurrency(unitPrice * item.quantity);
       listAmount += itemTotal;
@@ -159,6 +225,13 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
         quantity: item.quantity,
         price: unitPrice,
         total: itemTotal,
+        availability: availability ? {
+          status: availability.status,
+          reason: availability.reason,
+          nextOpen: availability.nextOpen,
+          nextOpenLabel,
+          timeZone: availability.nextOpen?.timeZone ?? null
+        } : null,
         store: storePricing ? {
           id: storePricing.storeId,
           name: storePricing.storeName,
@@ -188,7 +261,7 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     const { totalLoad, heavyPoints } = await calculateOrderLoad(normalizedItems);
     const batch = await findEligibleBatch({
       items: normalizedItems,
-      deliveryAddress,
+      deliveryAddress: resolvedDeliveryAddress,
       createdAt: new Date(),
       storeIds: stores.map(s => s._id)
     });
@@ -210,6 +283,33 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
       .update(JSON.stringify(pricingPayload))
       .digest('hex');
     const pricingLock = { payload: pricingPayload, signature };
+
+    const scheduledItems = [];
+    for (const plan of optimized.storePlans) {
+      for (const item of plan.items) {
+        if (item.availability?.status === 'scheduled') {
+          scheduledItems.push({
+            productId: item.productId,
+            productName: item.productName,
+            storeId: plan.storeId,
+            storeName: plan.storeName,
+            nextOpen: item.availability.nextOpen,
+            nextOpenLabel: formatNextOpenLabel(item.availability.nextOpen),
+            timeZone: item.availability.nextOpen?.timeZone ?? null
+          });
+        }
+      }
+    }
+
+    const fulfillment = scheduledItems.length > 0 ? {
+      status: 'scheduled',
+      message: 'Some items are only available when stores reopen. Checkout will schedule fulfillment for the next opening time.',
+      scheduledItems
+    } : {
+      status: 'open',
+      message: 'All items are available for immediate fulfillment.',
+      scheduledItems: []
+    };
 
     // Return customer preview with delivery options and pricing lock
     return res.json({
@@ -251,6 +351,7 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
         orderLoad: totalLoad,
         heavyPoints
       },
+      fulfillment,
       tier: {
         name: tier,
         discount: fees.routeFeeDiscountPercent

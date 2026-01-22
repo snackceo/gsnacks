@@ -87,6 +87,46 @@ export const isStoreOpen = ({ hours, timestamp, timeZone } = {}) => {
   return false;
 };
 
+export const getNextOpenWindow = ({ hours, timestamp, timeZone } = {}) => {
+  if (!hours?.weekly) return null;
+  const zone = timeZone || hours?.timezone || 'UTC';
+  const timeParts = getZonedTimeParts(timestamp ?? new Date(), zone);
+  if (!timeParts) return null;
+
+  const currentIndex = WEEKDAY_KEYS.indexOf(timeParts.weekday);
+  if (currentIndex < 0) return null;
+
+  for (let offset = 0; offset < WEEKDAY_KEYS.length; offset += 1) {
+    const dayKey = WEEKDAY_KEYS[(currentIndex + offset) % WEEKDAY_KEYS.length];
+    const day = hours.weekly[dayKey];
+    if (!day || day.closed) continue;
+
+    const openMinutes = parseTimeToMinutes(day.open);
+    const closeMinutes = parseTimeToMinutes(day.close);
+    if (openMinutes === null || closeMinutes === null) continue;
+    if (openMinutes === closeMinutes) continue;
+
+    if (offset === 0) {
+      if (openMinutes < closeMinutes) {
+        if (timeParts.minutes < openMinutes) {
+          return { dayKey, minutes: openMinutes, timeZone: zone };
+        }
+        if (timeParts.minutes >= closeMinutes) {
+          continue;
+        }
+      } else {
+        if (timeParts.minutes >= closeMinutes && timeParts.minutes < openMinutes) {
+          return { dayKey, minutes: openMinutes, timeZone: zone };
+        }
+      }
+    } else {
+      return { dayKey, minutes: openMinutes, timeZone: zone };
+    }
+  }
+
+  return null;
+};
+
 export const getStoreHoursForDay = (hours, weekdayKey) => {
   if (!hours?.weekly) return null;
   const key = String(weekdayKey || '').toLowerCase().slice(0, 3);

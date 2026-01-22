@@ -3,7 +3,7 @@ import Store from '../models/Store.js';
 import StoreInventory from '../models/StoreInventory.js';
 import Product from '../models/Product.js';
 import mongoose from 'mongoose';
-import { isStoreOpen } from './storeHours.js';
+import { getNextOpenWindow, isStoreOpen } from './storeHours.js';
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY;
 
@@ -57,21 +57,31 @@ export const findCheapestStores = async (cartItems, options = {}) => {
       });
     });
 
-    if (openInventory.length === 0) {
+    if (openInventory.length === 0 && inventory.length === 0) {
       unfulfilled.push({
         ...item,
         productName: product.name,
-        reason: inventory.length === 0
-          ? 'Not available at any store'
-          : 'Not available at any open store'
+        reason: 'Not available at any store'
       });
       continue;
     }
 
-    // Pick cheapest store for this item
-    const cheapest = openInventory.reduce((min, curr) =>
+    const candidateInventory = openInventory.length > 0 ? openInventory : inventory;
+    const cheapest = candidateInventory.reduce((min, curr) =>
       resolvePrice(curr) < resolvePrice(min) ? curr : min
     );
+    const storeHours = cheapest.storeId?.hours;
+    const availability = openInventory.length > 0 ? {
+      status: 'open'
+    } : {
+      status: 'scheduled',
+      reason: 'No stores are open right now',
+      nextOpen: getNextOpenWindow({
+        hours: storeHours,
+        timestamp: requestTimestamp,
+        timeZone: requestTimeZone ?? storeHours?.timezone
+      })
+    };
     const basisPrice = resolvePrice(cheapest);
 
     const storeId = cheapest.storeId._id.toString();
@@ -83,11 +93,20 @@ export const findCheapestStores = async (cartItems, options = {}) => {
         storeType: cheapest.storeId.storeType,
         location: cheapest.storeId.location,
         items: [],
-        totalCost: 0
+        totalCost: 0,
+        availability: {
+          status: availability.status
+        }
       });
     }
 
     const plan = storePlans.get(storeId);
+    if (availability.status === 'scheduled') {
+      plan.availability = {
+        ...plan.availability,
+        status: 'scheduled'
+      };
+    }
     plan.items.push({
       productId: product.frontendId,
       productName: product.name,
@@ -96,7 +115,8 @@ export const findCheapestStores = async (cartItems, options = {}) => {
       markup: cheapest.markup,
       observedPrice: cheapest.observedPrice,
       basisPrice,
-      itemTotal: basisPrice * item.quantity
+      itemTotal: basisPrice * item.quantity,
+      availability
     });
     plan.totalCost += basisPrice * item.quantity;
   }
@@ -179,7 +199,8 @@ export const optimizeStoreSelection = async (fulfillmentResult, options = {}) =>
           markup: alt.markup,
           observedPrice: alt.observedPrice,
           basisPrice: altBasisPrice,
-          itemTotal: altBasisPrice * item.quantity
+          itemTotal: altBasisPrice * item.quantity,
+          availability: { status: 'open' }
         }
       };
     })
