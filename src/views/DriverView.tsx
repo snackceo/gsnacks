@@ -1407,6 +1407,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
             setLastBlockedUpc(null);
             setLastBlockedReason(null);
           }}
+          onModeChange={setScannerMode}
           onCooldown={(upc, reason) => {
             addToast('Same UPC — tap to add again', 'info');
             if (reason === 'duplicate') {
