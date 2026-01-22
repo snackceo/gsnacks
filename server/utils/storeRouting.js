@@ -3,6 +3,7 @@ import Store from '../models/Store.js';
 import StoreInventory from '../models/StoreInventory.js';
 import Product from '../models/Product.js';
 import mongoose from 'mongoose';
+import { isStoreOpen } from './storeHours.js';
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY;
 
@@ -23,9 +24,10 @@ const resolveProductForCartItem = async (productId) => {
  * @param {Array} cartItems - [{ productId, quantity }]
  * @returns {Object} { storePlans, unfulfilled }
  */
-export const findCheapestStores = async (cartItems) => {
+export const findCheapestStores = async (cartItems, options = {}) => {
   const storePlans = new Map(); // storeId -> { items: [], totalCost: 0 }
   const unfulfilled = [];
+  const requestTimestamp = options.timestamp ?? new Date();
   const resolvePrice = inventory => (
     Number.isFinite(inventory.observedPrice) ? inventory.observedPrice : inventory.cost
   );
@@ -45,13 +47,24 @@ export const findCheapestStores = async (cartItems) => {
       .populate('storeId')
       .lean();
 
-    if (inventory.length === 0) {
-      unfulfilled.push({ ...item, productName: product.name, reason: 'Not available at any store' });
+    const openInventory = inventory.filter(entry => {
+      const storeHours = entry.storeId?.hours;
+      return isStoreOpen({ hours: storeHours, timestamp: requestTimestamp, timeZone: storeHours?.timezone });
+    });
+
+    if (openInventory.length === 0) {
+      unfulfilled.push({
+        ...item,
+        productName: product.name,
+        reason: inventory.length === 0
+          ? 'Not available at any store'
+          : 'Not available at any open store'
+      });
       continue;
     }
 
     // Pick cheapest store for this item
-    const cheapest = inventory.reduce((min, curr) =>
+    const cheapest = openInventory.reduce((min, curr) =>
       resolvePrice(curr) < resolvePrice(min) ? curr : min
     );
     const basisPrice = resolvePrice(cheapest);
