@@ -1,5 +1,27 @@
 import mongoose from 'mongoose';
 
+const dayHoursSchema = new mongoose.Schema(
+  {
+    open: { type: String, default: '' },
+    close: { type: String, default: '' },
+    closed: { type: Boolean, default: false }
+  },
+  { _id: false }
+);
+
+const weekHoursSchema = new mongoose.Schema(
+  {
+    mon: { type: dayHoursSchema, default: () => ({}) },
+    tue: { type: dayHoursSchema, default: () => ({}) },
+    wed: { type: dayHoursSchema, default: () => ({}) },
+    thu: { type: dayHoursSchema, default: () => ({}) },
+    fri: { type: dayHoursSchema, default: () => ({}) },
+    sat: { type: dayHoursSchema, default: () => ({}) },
+    sun: { type: dayHoursSchema, default: () => ({}) }
+  },
+  { _id: false }
+);
+
 const storeSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, unique: true },
@@ -30,7 +52,11 @@ const storeSchema = new mongoose.Schema(
     // Reliability metrics
     reliabilityScore: { type: Number, default: 100, min: 0, max: 100 },
     outOfStockRate: { type: Number, default: 0, min: 0, max: 100 },
-    isActive: { type: Boolean, default: true }
+    isActive: { type: Boolean, default: true },
+    hours: {
+      timezone: { type: String, default: 'America/New_York' },
+      weekly: { type: weekHoursSchema, default: () => ({}) }
+    }
   },
   { timestamps: true }
 );
