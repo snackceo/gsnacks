@@ -7,9 +7,7 @@ import {
   Flashlight,
   FlashlightOff,
   ChevronUp,
-  ChevronDown,
-  Zap,
-  Receipt
+  ChevronDown
 } from 'lucide-react';
 // See GLOSSARY.md for authoritative definitions of all scanner modes.
 import { ScannerMode } from '../types';
@@ -51,8 +49,6 @@ const MIN_LEN = 8;
 const MAX_LEN = 14;
 
 const normalizeUpc = (raw: string) => raw.replace(/\D/g, '');
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
 const ScannerPanel: React.FC<ScannerPanelProps> = ({
   mode,
@@ -104,15 +100,12 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [isScanning, setIsScanning] = useState(false);
-  const [isParsing, setIsParsing] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannerHint, setScannerHint] = useState<string | null>(null);
   const [blocked, setBlocked] = useState(false);
   const [manualUpc, setManualUpc] = useState('');
   const [lastDetectedUpc, setLastDetectedUpc] = useState<string | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const [parsedItems, setParsedItems] = useState<ParsedReceiptItem[]>([]);
-  const [lastParsedFrame, setLastParsedFrame] = useState<string | null>(null);
 
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
@@ -275,59 +268,26 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     onPhotoCaptured(dataUrl, 'image/jpeg');
   }, [onPhotoCaptured]);
 
-  const captureFrame = useCallback((): string | null => {
-    if (!videoRef.current) return null;
-    const canvas = canvasRef.current || document.createElement('canvas');
+  const captureReceiptAndParse = useCallback(async () => {
+    if (!videoRef.current || !onPhotoCaptured) return;
+
+    const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
+    if (!ctx) return;
 
     const w = videoRef.current.videoWidth;
     const h = videoRef.current.videoHeight;
-    if (!w || !h) return null;
+    if (!w || !h) return;
 
     canvas.width = w;
     canvas.height = h;
+
     ctx.drawImage(videoRef.current, 0, 0, w, h);
-    return canvas.toDataURL('image/jpeg', 0.85);
-  }, []);
-
-  const handleParseOnce = useCallback(async () => {
-    const frame = captureFrame();
-    if (!frame) {
-      setScannerHint('Point camera at the receipt then tap Analyze again.');
-      return;
-    }
-    setIsParsing(true);
-    setScannerHint('Analyzing...');
-    try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse-frame`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ image: frame })
-      });
-
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        setScannerHint(err.error || 'Analysis failed');
-        return;
-      }
-
-      const data = await resp.json();
-      const items: ParsedReceiptItem[] = Array.isArray(data.items) ? data.items : [];
-      setParsedItems(items);
-      setLastParsedFrame(frame);
-      if (items.length > 0) {
-        setScannerHint(`Captured ${items.length} items`);
-      } else {
-        setScannerHint('No items detected');
-      }
-    } catch (err: any) {
-      setScannerHint(err.message || 'Analysis error');
-    } finally {
-      setIsParsing(false);
-    }
-  }, [captureFrame, onReceiptParsed]);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    
+    // Trigger photo capture callback (which sends to Gemini via backend)
+    onPhotoCaptured(dataUrl, 'image/jpeg');
+  }, [onPhotoCaptured]);
 
   const validateUpc = useCallback((raw: string) => {
     const normalized = normalizeUpc(String(raw || '').trim());
@@ -569,16 +529,16 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         
         {canCapturePhoto && (
           <button
-            onClick={receiptUploadBlocked ? undefined : takePhoto}
+            onClick={receiptUploadBlocked ? undefined : captureReceiptAndParse}
             disabled={receiptUploadBlocked}
             className={`p-3 rounded-full backdrop-blur-sm transition flex items-center justify-center ${
               receiptUploadBlocked
                 ? 'bg-gray-600/70 text-gray-300 cursor-not-allowed'
                 : 'bg-cyan-500/90 text-white hover:bg-cyan-600'
             }`}
-            title={receiptUploadBlocked ? 'Select a store before uploading' : 'Take photo (backup)'}
+            title={receiptUploadBlocked ? 'Select a store before uploading' : 'Capture receipt manually'}
           >
-            <Zap className="w-5 h-5" />
+            <Camera className="w-5 h-5" />
           </button>
         )}
         
@@ -602,68 +562,6 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         <div className="relative z-10 px-4">
           <div className="mt-2 rounded-2xl bg-black/70 border border-white/10 p-3 shadow-lg">
             {receiptHeaderContent}
-          </div>
-        </div>
-      )}
-
-      {/* Bottom sheet card with manual expand/collapse handle */}
-      {isReceiptMode && parsedItems.length > 0 && (
-        <div className="relative z-10 mt-auto mb-24 w-full bg-ninpo-black/95 backdrop-blur-xl border-t border-white/10 shadow-2xl max-h-[50vh] flex flex-col">
-          <div className="p-4 border-b border-white/10">
-            <div>
-              <p className="text-sm font-black uppercase tracking-widest text-white">Receipt Detected</p>
-              <p className="text-xs text-slate-400">{parsedItems.length} items found</p>
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
-            {parsedItems.map((item, idx) => (
-              <div key={idx} className="bg-white/5 rounded-lg p-3 border border-white/10">
-                <p className="text-sm font-medium text-white">{item.receiptName}</p>
-                <p className="text-xs text-slate-400 mt-1">
-                  Qty: {item.quantity} × ${(item.totalPrice / item.quantity).toFixed(2)} = ${item.totalPrice.toFixed(2)}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {isReceiptMode && (
-        <div className="absolute bottom-0 left-0 right-0 z-20 px-4 pb-4">
-          <div className="rounded-2xl bg-black/80 backdrop-blur-xl border border-white/10 shadow-xl p-3">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleParseOnce}
-                disabled={isParsing}
-                className={`flex-1 px-4 py-3 rounded-2xl text-white text-xs font-black uppercase tracking-widest transition-all bg-emerald-500/90 hover:bg-emerald-600 ${
-                  isParsing ? 'opacity-60 cursor-not-allowed' : ''
-                }`}
-              >
-                <span className="inline-flex items-center justify-center gap-2">
-                  <Receipt className="w-4 h-4" />
-                  {isParsing ? 'Analyzing...' : 'Capture/Upload Receipt'}
-                </span>
-              </button>
-
-              {parsedItems.length > 0 && onReceiptParsed && (
-                <button
-                  onClick={() => onReceiptParsed(parsedItems, lastParsedFrame ?? undefined)}
-                  disabled={receiptSaveDisabled}
-                  className={`flex-1 px-4 py-3 rounded-2xl text-white text-xs font-black uppercase tracking-widest transition-all ${
-                    receiptSaveDisabled
-                      ? 'bg-gray-500/70 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700'
-                  }`}
-                >
-                  Save Items
-                </button>
-              )}
-            </div>
-            {parsedItems.length > 0 && receiptSaveDisabled && receiptSaveDisabledReason && (
-              <p className="mt-2 text-[10px] font-semibold uppercase tracking-widest text-amber-300">
-                {receiptSaveDisabledReason}
-              </p>
-            )}
           </div>
         </div>
       )}
