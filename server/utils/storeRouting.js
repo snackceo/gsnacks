@@ -28,6 +28,7 @@ export const findCheapestStores = async (cartItems, options = {}) => {
   const storePlans = new Map(); // storeId -> { items: [], totalCost: 0 }
   const unfulfilled = [];
   const requestTimestamp = options.timestamp ?? new Date();
+  const requestTimeZone = options.timeZone ?? null;
   const resolvePrice = inventory => (
     Number.isFinite(inventory.observedPrice) ? inventory.observedPrice : inventory.cost
   );
@@ -49,7 +50,11 @@ export const findCheapestStores = async (cartItems, options = {}) => {
 
     const openInventory = inventory.filter(entry => {
       const storeHours = entry.storeId?.hours;
-      return isStoreOpen({ hours: storeHours, timestamp: requestTimestamp, timeZone: storeHours?.timezone });
+      return isStoreOpen({
+        hours: storeHours,
+        timestamp: requestTimestamp,
+        timeZone: requestTimeZone ?? storeHours?.timezone
+      });
     });
 
     if (openInventory.length === 0) {
@@ -107,11 +112,13 @@ export const findCheapestStores = async (cartItems, options = {}) => {
  * @param {Object} fulfillmentResult - from findCheapestStores
  * @returns {Object} Optimized plan
  */
-export const optimizeStoreSelection = async (fulfillmentResult) => {
+export const optimizeStoreSelection = async (fulfillmentResult, options = {}) => {
   const { storePlans } = fulfillmentResult;
   const resolveItemPrice = item => (
     Number.isFinite(item.observedPrice) ? item.observedPrice : item.cost
   );
+  const requestTimestamp = options.timestamp ?? new Date();
+  const requestTimeZone = options.timeZone ?? null;
 
   if (storePlans.length <= 1) {
     return fulfillmentResult; // Already optimal
@@ -136,9 +143,19 @@ export const optimizeStoreSelection = async (fulfillmentResult) => {
         storeId: primaryStoreId,
         productId: product._id,
         available: true
-      }).lean();
+      })
+        .populate('storeId')
+        .lean();
       
       if (!alt) return null;
+      const storeHours = alt.storeId?.hours;
+      if (!isStoreOpen({
+        hours: storeHours,
+        timestamp: requestTimestamp,
+        timeZone: requestTimeZone ?? storeHours?.timezone
+      })) {
+        return null;
+      }
       
       // Accept if price difference is < 15%
       const altBasisPrice = Number.isFinite(alt.observedPrice) ? alt.observedPrice : alt.cost;

@@ -34,6 +34,16 @@ const normalizeCartItems = async (cartItems) => {
   return { normalizedItems, productsByFrontendId };
 };
 
+const resolveStoreSelectionContext = (body, deliveryAddress) => {
+  const rawTimestamp = body?.timestamp ?? body?.requestedAt;
+  const parsedTimestamp = rawTimestamp ? new Date(rawTimestamp) : null;
+  const timestamp = parsedTimestamp && !Number.isNaN(parsedTimestamp.getTime())
+    ? parsedTimestamp
+    : new Date();
+  const timeZone = body?.timeZone || deliveryAddress?.timeZone || null;
+  return { timestamp, timeZone };
+};
+
 // Checkout preview: Calculate route, fees, and total for customer
 router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
   try {
@@ -48,10 +58,11 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     }
 
     const { normalizedItems, productsByFrontendId } = await normalizeCartItems(cartItems);
+    const storeSelectionContext = resolveStoreSelectionContext(req.body, deliveryAddress);
 
     // Find cheapest stores for fulfillment
-    const fulfillment = await findCheapestStores(normalizedItems);
-    const optimized = await optimizeStoreSelection(fulfillment);
+    const fulfillment = await findCheapestStores(normalizedItems, storeSelectionContext);
+    const optimized = await optimizeStoreSelection(fulfillment, storeSelectionContext);
 
     if (optimized.unfulfilled.length > 0) {
       return res.status(400).json({ 
@@ -263,10 +274,11 @@ router.post('/shopping/find-stores', authRequired, async (req, res) => {
     }
 
     // Find cheapest stores
-    const fulfillment = await findCheapestStores(cartItems);
+    const storeSelectionContext = resolveStoreSelectionContext(req.body);
+    const fulfillment = await findCheapestStores(cartItems, storeSelectionContext);
     
     // Optimize (try to consolidate)
-    const optimized = await optimizeStoreSelection(fulfillment);
+    const optimized = await optimizeStoreSelection(fulfillment, storeSelectionContext);
 
     return res.json({
       ok: true,
