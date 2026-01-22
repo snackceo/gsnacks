@@ -13,7 +13,8 @@ import type {
   ApprovalRequest,
   ReturnVerification,
   SizeUnit,
-  ReturnUpcCount
+  ReturnUpcCount,
+  StoreRecord
 } from '../types';
 import { ScannerMode, OrderStatus } from '../types';
 import ManagementDashboard from './management/ManagementDashboard';
@@ -23,6 +24,7 @@ import ManagementAuditLogs from './management/ManagementAuditLogs';
 import ManagementInventory from './management/ManagementInventory';
 import ManagementUpcRegistry from './management/ManagementUpcRegistry';
 import ManagementSettings from './management/ManagementSettings';
+import ManagementStores from './management/ManagementStores';
 import ManagementApprovals from './management/ManagementApprovals';
 import ManagementAnalytics from './management/ManagementAnalytics';
 import {
@@ -40,6 +42,7 @@ import {
   X,
   TrendingUp
 } from 'lucide-react';
+import { MapPin } from 'lucide-react';
 import ScannerModal from '../components/ScannerModal';
 import UnmappedUpcModal from '../components/UnmappedUpcModal';
 import { UnmappedUpcData } from '../types';
@@ -152,7 +155,37 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   const [returnVerificationsError, setReturnVerificationsError] = useState<string | null>(null);
   const [settlingVerificationId, setSettlingVerificationId] = useState<string | null>(null);
 
+  // Stores (multi-store routing/pricing)
+  const [stores, setStores] = useState<StoreRecord[]>([]);
+  const [activeStoreId, setActiveStoreId] = useState<string>('');
+  const [isLoadingStores, setIsLoadingStores] = useState(false);
+  const [storeError, setStoreError] = useState<string | null>(null);
+  const ACTIVE_STORE_STORAGE_KEY = 'management.activeStoreId';
+
   const upcRegistry = useUpcRegistry({ activeModule });
+
+  const handleProductCreated = useCallback(
+    async (product: Product, upc?: string) => {
+      if (!activeStoreId) return;
+      try {
+        await fetch(`${BACKEND_URL}/api/stores/${activeStoreId}/prices`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            productId: (product as any)._id || product.id,
+            upc,
+            cost: product.price,
+            observedPrice: product.price,
+            priceType: 'regular'
+          })
+        });
+      } catch (err) {
+        console.error('Store price update failed', err);
+      }
+    },
+    [activeStoreId]
+  );
 
   const {
     upcItems,
@@ -188,7 +221,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     upcDraft,
     setUpcDraft,
     upcItemsRef,
-    products
+    products,
+    onProductCreated: handleProductCreated
   });
 
   const {
@@ -653,6 +687,41 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setIsRefreshingOrders(false);
     }
   };
+
+  const loadStores = useCallback(async () => {
+    setStoreError(null);
+    setIsLoadingStores(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/stores`, { credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to load stores');
+      const fetched: StoreRecord[] = Array.isArray(data.stores)
+        ? data.stores.map((s: any) => ({ ...s, id: s.id || s._id || '' }))
+        : [];
+      setStores(fetched);
+
+      const storedActive = localStorage.getItem(ACTIVE_STORE_STORAGE_KEY) || '';
+      if (storedActive && fetched.some(s => s.id === storedActive)) {
+        setActiveStoreId(storedActive);
+      } else if (!activeStoreId && fetched.length > 0) {
+        setActiveStoreId(fetched[0].id);
+      }
+    } catch (err: any) {
+      setStoreError(err?.message || 'Failed to load stores');
+    } finally {
+      setIsLoadingStores(false);
+    }
+  }, [ACTIVE_STORE_STORAGE_KEY, activeStoreId]);
+
+  useEffect(() => {
+    void loadStores();
+  }, [loadStores]);
+
+  useEffect(() => {
+    if (activeStoreId) {
+      localStorage.setItem(ACTIVE_STORE_STORAGE_KEY, activeStoreId);
+    }
+  }, [ACTIVE_STORE_STORAGE_KEY, activeStoreId]);
 
   const handleScannerScan = useCallback(async (upc: string) => {
     setLastBlockedUpc(null);
@@ -1248,6 +1317,23 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           apiRestockPlus10={apiRestockPlus10}
           apiDeleteProduct={apiDeleteProduct}
           formatSize={formatSize}
+          activeStoreName={stores.find(s => s.id === activeStoreId)?.name || ''}
+        />
+      )
+    },
+    stores: {
+      id: 'stores',
+      label: 'Stores',
+      icon: MapPin,
+      render: () => (
+        <ManagementStores
+          stores={stores}
+          activeStoreId={activeStoreId}
+          setActiveStoreId={setActiveStoreId}
+          refreshStores={loadStores}
+          isLoading={isLoadingStores}
+          error={storeError}
+          setError={setStoreError}
         />
       )
     },

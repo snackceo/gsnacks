@@ -82,7 +82,6 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const onScanRef = useRef<ScannerPanelProps['onScan']>(onScan);
   const onCloseRef = useRef<ScannerPanelProps['onClose']>(onClose);
   const onCooldownRef = useRef<ScannerPanelProps['onCooldown']>(undefined);
-  const onModeChangeRef = useRef<ScannerPanelProps['onModeChange']>(undefined);
   const closeOnScanRef = useRef<boolean>(closeOnScan);
   const beepEnabledRef = useRef<boolean>(beepEnabled);
   const cooldownMsRef = useRef<number>(cooldownMs);
@@ -96,11 +95,10 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   // Throttle detector calls
   const lastDetectAtRef = useRef<number>(0);
 
-  // Receipt parsing state
-  const lastParseAtRef = useRef<number>(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [isScanning, setIsScanning] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannerHint, setScannerHint] = useState<string | null>(null);
   const [blocked, setBlocked] = useState(false);
@@ -125,11 +123,10 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     onScanRef.current = onScan;
     onCloseRef.current = onClose;
     onCooldownRef.current = onCooldown;
-    onModeChangeRef.current = onModeChange;
     closeOnScanRef.current = closeOnScan;
     beepEnabledRef.current = beepEnabled;
     cooldownMsRef.current = cooldownMs;
-  }, [beepEnabled, closeOnScan, cooldownMs, onClose, onCooldown, onScan, onModeChange]);
+  }, [beepEnabled, closeOnScan, cooldownMs, onClose, onCooldown, onScan]);
 
   const playBeep = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -270,6 +267,60 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     onPhotoCaptured(dataUrl, 'image/jpeg');
   }, [onPhotoCaptured]);
 
+  const captureFrame = useCallback((): string | null => {
+    if (!videoRef.current) return null;
+    const canvas = canvasRef.current || document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    const w = videoRef.current.videoWidth;
+    const h = videoRef.current.videoHeight;
+    if (!w || !h) return null;
+
+    canvas.width = w;
+    canvas.height = h;
+    ctx.drawImage(videoRef.current, 0, 0, w, h);
+    return canvas.toDataURL('image/jpeg', 0.85);
+  }, []);
+
+  const handleParseOnce = useCallback(async () => {
+    const frame = captureFrame();
+    if (!frame) {
+      setScannerHint('Point camera at the receipt then tap Analyze again.');
+      return;
+    }
+    setIsParsing(true);
+    setScannerHint('Analyzing...');
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse-frame`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ image: frame })
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        setScannerHint(err.error || 'Analysis failed');
+        return;
+      }
+
+      const data = await resp.json();
+      const items: ParsedReceiptItem[] = Array.isArray(data.items) ? data.items : [];
+      setParsedItems(items);
+      if (items.length > 0) {
+        setScannerHint(`Captured ${items.length} items`);
+        onReceiptParsed?.(items);
+      } else {
+        setScannerHint('No items detected');
+      }
+    } catch (err: any) {
+      setScannerHint(err.message || 'Analysis error');
+    } finally {
+      setIsParsing(false);
+    }
+  }, [captureFrame, onReceiptParsed]);
+
   const validateUpc = useCallback((raw: string) => {
     const normalized = normalizeUpc(String(raw || '').trim());
     if (!normalized) return { ok: false as const, upc: '' };
@@ -341,68 +392,6 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         stream.getTracks().forEach(t => t.stop());
         streamRef.current = null;
         videoTrackRef.current = null;
-        return;
-      }
-
-      // Receipt parsing mode - parse frames with Gemini
-      if (isReceiptMode) {
-        const PARSE_INTERVAL_MS = 2000; // Parse every 2 seconds
-
-        const captureFrame = (): string | null => {
-          if (!videoRef.current || !canvasRef.current) return null;
-          const video = videoRef.current;
-          const canvas = canvasRef.current;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return null;
-
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          ctx.drawImage(video, 0, 0);
-          return canvas.toDataURL('image/jpeg', 0.8);
-        };
-
-        const receiptLoop = async () => {
-          if (cancelledRef.current) return;
-          if (!videoRef.current) return;
-
-          const now = performance.now();
-
-          // Throttle parse calls
-          if (now - lastParseAtRef.current >= PARSE_INTERVAL_MS) {
-            lastParseAtRef.current = now;
-
-            const frame = captureFrame();
-            if (frame) {
-              try {
-                const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse-frame`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  credentials: 'include',
-                  body: JSON.stringify({ image: frame })
-                });
-
-                if (resp.ok) {
-                  const data = await resp.json();
-                  if (data.items && Array.isArray(data.items) && data.items.length > 0) {
-                    setParsedItems(data.items);
-                    setScannerHint(`✓ Detected ${data.items.length} items`);
-                  }
-                } else {
-                  const errData = await resp.json().catch(() => ({}));
-                  if (errData.error?.includes('Gemini')) {
-                    setScannerHint('⚠️ Configure GEMINI_API_KEY to enable parsing');
-                  }
-                }
-              } catch (err) {
-                // Silent - continue loop
-              }
-            }
-          }
-
-          rafRef.current = requestAnimationFrame(receiptLoop);
-        };
-
-        rafRef.current = requestAnimationFrame(receiptLoop);
         return;
       }
 
@@ -582,19 +571,14 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         
         {mode === ScannerMode.INVENTORY_CREATE || mode === ScannerMode.RECEIPT_PARSE_LIVE ? (
           <button
-            onClick={() => {
-              const newMode = isReceiptMode ? ScannerMode.INVENTORY_CREATE : ScannerMode.RECEIPT_PARSE_LIVE;
-              onModeChange?.(newMode);
-              setParsedItems([]);
-            }}
-            className={`p-3 rounded-full backdrop-blur-sm transition flex items-center justify-center ${
-              isReceiptMode
-                ? 'bg-emerald-500/90 text-white hover:bg-emerald-600'
-                : 'bg-black/60 text-white hover:bg-black/80'
+            onClick={handleParseOnce}
+            disabled={isParsing}
+            className={`p-3 rounded-full backdrop-blur-sm transition flex items-center justify-center bg-emerald-500/90 text-white hover:bg-emerald-600 ${
+              isParsing ? 'opacity-60 cursor-not-allowed' : ''
             }`}
-            title={isReceiptMode ? 'Switch to UPC mode' : 'Switch to receipt parsing'}
+            title="Capture & Analyze"
           >
-            {isReceiptMode ? <ScanLine className="w-5 h-5" /> : <Receipt className="w-5 h-5" />}
+            <Receipt className="w-5 h-5" />
           </button>
         ) : null}
         

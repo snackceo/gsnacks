@@ -130,6 +130,23 @@ export interface UpcItem {
   updatedAt?: string;
 }
 
+export interface StoreRecord {
+  id: string;
+  name: string;
+  phone?: string;
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+    country?: string;
+  };
+  storeType?: string;
+  createdFrom?: string;
+  createdAt?: string;
+  location?: { lat?: number; lng?: number };
+}
+
 export interface UnmappedUpcData {
   upc: string;
   name?: string;

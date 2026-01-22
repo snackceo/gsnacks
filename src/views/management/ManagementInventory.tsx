@@ -53,6 +53,7 @@ interface ManagementInventoryProps {
   apiRestockPlus10: (id: string, currentStock: number) => void;
   apiDeleteProduct: (id: string) => void;
   formatSize: (value: number, unit?: SizeUnit) => string;
+  activeStoreName?: string;
 }
 
 const ManagementInventory: React.FC<ManagementInventoryProps> = ({
@@ -98,7 +99,8 @@ const ManagementInventory: React.FC<ManagementInventoryProps> = ({
   startEditProduct,
   apiRestockPlus10,
   apiDeleteProduct,
-  formatSize
+  formatSize,
+  activeStoreName
 }) => {
   return (
     <div className="space-y-6">
@@ -109,6 +111,11 @@ const ManagementInventory: React.FC<ManagementInventoryProps> = ({
         <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
           Manage products, stock, and create new items.
         </p>
+        {activeStoreName && (
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+            Active store: {activeStoreName}
+          </p>
+        )}
       </div>
 
       <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">

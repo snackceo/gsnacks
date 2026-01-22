@@ -23,6 +23,7 @@ interface UseInventoryCreateParams {
   setUpcDraft: React.Dispatch<React.SetStateAction<UpcItem>>;
   upcItemsRef: React.MutableRefObject<UpcItem[]>;
   products: Product[];
+  onProductCreated?: (product: Product, upc?: string) => void | Promise<void>;
 }
 
 export const useInventoryCreate = ({
@@ -35,7 +36,8 @@ export const useInventoryCreate = ({
   upcDraft,
   setUpcDraft,
   upcItemsRef,
-  products
+  products,
+  onProductCreated
 }: UseInventoryCreateParams) => {
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -360,6 +362,14 @@ export const useInventoryCreate = ({
         nutritionNote: data.product?.nutritionNote || newProduct.nutritionNote
       };
       setProducts(prev => [created, ...prev]);
+
+      if (onProductCreated) {
+        try {
+          await onProductCreated(created, scannedUpcForCreation || undefined);
+        } catch (err) {
+          console.error('onProductCreated failed', err);
+        }
+      }
 
       // Link UPC to SKU if scanned
       if (resolvedUpc) {
