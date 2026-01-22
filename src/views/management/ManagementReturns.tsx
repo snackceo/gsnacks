@@ -5,9 +5,9 @@ import { ScannerMode } from '../../types';
 
 interface ManagementReturnsProps {
   scannerMode: ScannerMode;
-  setScannerMode: (mode: ScannerMode) => void;
   scannerModalOpen: boolean;
   setScannerModalOpen: (open: boolean) => void;
+  openUnifiedScannerModal: (mode: ScannerMode) => void;
   lastBlockedUpc: string | null;
   lastBlockedReason: 'cooldown' | 'duplicate' | null;
   handleScannerScan: (upc: string) => void;
@@ -42,9 +42,9 @@ interface ManagementReturnsProps {
 
 const ManagementReturns: React.FC<ManagementReturnsProps> = ({
   scannerMode,
-  setScannerMode,
   scannerModalOpen,
   setScannerModalOpen,
+  openUnifiedScannerModal,
   lastBlockedUpc,
   lastBlockedReason,
   handleScannerScan,
@@ -92,10 +92,7 @@ const ManagementReturns: React.FC<ManagementReturnsProps> = ({
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => {
-                setScannerMode(ScannerMode.CUSTOMER_RETURN_SCAN);
-                setScannerModalOpen(true);
-              }}
+              onClick={() => openUnifiedScannerModal(ScannerMode.UPC_LOOKUP)}
               className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-neon"
             >
               <ScanLine className="w-4 h-4" />
@@ -109,7 +106,7 @@ const ManagementReturns: React.FC<ManagementReturnsProps> = ({
                 Add anyway
               </button>
             )}
-            {scannerModalOpen && scannerMode === ScannerMode.CUSTOMER_RETURN_SCAN && (
+            {scannerModalOpen && scannerMode === ScannerMode.UPC_LOOKUP && (
               <button
                 onClick={() => {
                   setScannerModalOpen(false);

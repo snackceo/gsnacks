@@ -770,6 +770,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setScannerModalOpen(true);
   }, []);
 
+  const openUnifiedScannerModal = useCallback(
+    (mode: ScannerMode) => {
+      setScannerMode(mode);
+      setScannerModalOpen(true);
+    },
+    [setScannerModalOpen, setScannerMode]
+  );
+
   const dispatchReceiptQueueRefresh = useCallback(() => {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('receipt-queue-refresh'));
@@ -1388,9 +1396,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       render: () => (
         <ManagementInventory
           scannerMode={scannerMode}
-          setScannerMode={setScannerMode}
           scannerModalOpen={scannerModalOpen}
           setScannerModalOpen={setScannerModalOpen}
+          openUnifiedScannerModal={openUnifiedScannerModal}
           lastBlockedUpc={lastBlockedUpc}
           lastBlockedReason={lastBlockedReason}
           handleScannerScan={handleScannerScan}
