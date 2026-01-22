@@ -639,20 +639,25 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       return;
     }
 
-    const match = fulfillmentTargets.find(target => target.upcCandidates.includes(upc));
-    if (!match) {
+    const matchingTargets = fulfillmentTargets.filter(target => target.upcCandidates.includes(upc));
+    if (matchingTargets.length === 0) {
       playScannerTone(220, 240, 0.25);
       setScannerError('Scanned UPC is not part of this order.');
       return;
     }
 
-    const currentCount = fulfillmentScans.find(entry => entry.key === match.key)?.quantity ?? 0;
-    if (currentCount >= match.quantity) {
+    const match = matchingTargets.find(target => {
+      const currentCount = fulfillmentScans.find(entry => entry.key === target.key)?.quantity ?? 0;
+      return currentCount < target.quantity;
+    });
+
+    if (!match) {
       playScannerTone(220, 240, 0.25);
-      setScannerError(`Already scanned all ${match.label} items.`);
+      setScannerError('All matching items have already been scanned.');
       return;
     }
 
+    const currentCount = fulfillmentScans.find(entry => entry.key === match.key)?.quantity ?? 0;
     setFulfillmentScans(prev => {
       const existing = prev.find(entry => entry.key === match.key);
       if (existing) {
@@ -1056,6 +1061,12 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setFulfillmentScans([]);
   }, [activeOrder?.id]);
 
+  useEffect(() => {
+    setScannerError(null);
+    setLastBlockedUpc(null);
+    setLastBlockedReason(null);
+  }, [scannerMode]);
+
   const isReturnOnly = isReturnOnlyOrder(activeOrder);
   const verifiedReturnCount = useMemo(
     () => verifiedReturnUpcs.reduce((sum, entry) => sum + entry.quantity, 0),
@@ -1177,7 +1188,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
       <div className="flex gap-4">
         <button
-          onClick={() => setDriverMode('RETURNS_INTAKE')}
+          onClick={() => {
+            setDriverMode('RETURNS_INTAKE');
+            setScannerMode(ScannerMode.DRIVER_VERIFY_CONTAINERS);
+          }}
           className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
             driverMode === 'RETURNS_INTAKE' ? 'bg-ninpo-lime text-ninpo-black' : 'bg-white/5 text-white'
           }`}
@@ -1185,7 +1199,10 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
           Returns Intake
         </button>
         <button
-          onClick={() => setDriverMode('PICK_PACK')}
+          onClick={() => {
+            setDriverMode('PICK_PACK');
+            setScannerMode(ScannerMode.DRIVER_FULFILL_ORDER);
+          }}
           className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest ${
             driverMode === 'PICK_PACK' ? 'bg-ninpo-lime text-ninpo-black' : 'bg-white/5 text-white'
           }`}
