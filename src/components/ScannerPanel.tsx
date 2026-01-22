@@ -38,6 +38,9 @@ interface ScannerPanelProps {
   showClose?: boolean;
   className?: string;
   bottomSheetContent?: React.ReactNode;
+  // Store context
+  selectedStoreName?: string;
+  selectedStoreLocation?: string;
 }
 
 // Allow UPC/EAN lengths commonly encountered.
@@ -69,7 +72,9 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   closeOnScan = false,
   manualStart = false,
   className = '',
-  bottomSheetContent
+  bottomSheetContent,
+  selectedStoreName,
+  selectedStoreLocation
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -106,6 +111,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const [manualUpc, setManualUpc] = useState('');
   const [lastDetectedUpc, setLastDetectedUpc] = useState<string | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
@@ -268,8 +274,8 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     onPhotoCaptured(dataUrl, 'image/jpeg');
   }, [onPhotoCaptured]);
 
-  const captureReceiptAndParse = useCallback(async () => {
-    if (!videoRef.current || !onPhotoCaptured) return;
+  const captureReceiptAndParse = useCallback(() => {
+    if (!videoRef.current) return;
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -285,15 +291,25 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     ctx.drawImage(videoRef.current, 0, 0, w, h);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
     
-    // Trigger photo capture callback (which sends to Gemini via backend)
-    onPhotoCaptured(dataUrl, 'image/jpeg');
-  }, [onPhotoCaptured]);
+    // Show preview instead of immediately uploading
+    setPreviewImage(dataUrl);
+  }, []);
 
   const validateUpc = useCallback((raw: string) => {
     const normalized = normalizeUpc(String(raw || '').trim());
     if (!normalized) return { ok: false as const, upc: '' };
     if (normalized.length < MIN_LEN || normalized.length > MAX_LEN) return { ok: false as const, upc: '' };
     return { ok: true as const, upc: normalized };
+  }, []);
+
+  const handleUsePhoto = useCallback(() => {
+    if (!previewImage || !onPhotoCaptured) return;
+    onPhotoCaptured(previewImage, 'image/jpeg');
+    setPreviewImage(null);
+  }, [previewImage, onPhotoCaptured]);
+
+  const handleRetakePhoto = useCallback(() => {
+    setPreviewImage(null);
   }, []);
 
   const startScanner = useCallback(async () => {
@@ -514,48 +530,46 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         )}
       </div>
 
-      {/* Top bar with back and torch */}
-      <div className="relative z-10 flex items-center justify-between p-4">
-        {showClose && onClose ? (
+      {/* Top bar with back, torch, and store display */}
+      <div className="relative z-10 flex flex-col gap-2 p-4">
+        <div className="flex items-center justify-between">
+          {showClose && onClose ? (
+            <button
+              onClick={onClose}
+              className="p-3 rounded-full bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          ) : (
+            <div className="w-11" />
+          )}
+          
           <button
-            onClick={onClose}
-            className="p-3 rounded-full bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        ) : (
-          <div className="w-11" />
-        )}
-        
-        {canCapturePhoto && (
-          <button
-            onClick={receiptUploadBlocked ? undefined : captureReceiptAndParse}
-            disabled={receiptUploadBlocked}
+            onClick={() => void toggleTorch()}
+            disabled={!torchSupported}
             className={`p-3 rounded-full backdrop-blur-sm transition flex items-center justify-center ${
-              receiptUploadBlocked
-                ? 'bg-gray-600/70 text-gray-300 cursor-not-allowed'
-                : 'bg-cyan-500/90 text-white hover:bg-cyan-600'
+              torchSupported
+                ? torchOn
+                  ? 'bg-yellow-400/90 text-black'
+                  : 'bg-black/60 text-white hover:bg-black/80'
+                : 'bg-gray-600/60 text-gray-400 cursor-not-allowed'
             }`}
-            title={receiptUploadBlocked ? 'Select a store before uploading' : 'Capture receipt manually'}
+            title={torchSupported ? (torchOn ? 'Turn off torch' : 'Turn on torch') : 'Torch not supported'}
           >
-            <Camera className="w-5 h-5" />
+            {torchOn ? <FlashlightOff className="w-5 h-5" /> : <Flashlight className="w-5 h-5" />}
           </button>
+        </div>
+
+        {/* Store context header */}
+        {selectedStoreName && (
+          <div className="rounded-xl bg-black/70 border border-white/10 px-3 py-2 text-center">
+            <p className="text-xs text-slate-400 font-semibold uppercase tracking-widest">Current Store</p>
+            <p className="text-sm text-white font-bold truncate">{selectedStoreName}</p>
+            {selectedStoreLocation && (
+              <p className="text-xs text-slate-500 truncate">{selectedStoreLocation}</p>
+            )}
+          </div>
         )}
-        
-        <button
-          onClick={() => void toggleTorch()}
-          disabled={!torchSupported}
-          className={`p-3 rounded-full backdrop-blur-sm transition flex items-center justify-center ${
-            torchSupported
-              ? torchOn
-                ? 'bg-yellow-400/90 text-black'
-                : 'bg-black/60 text-white hover:bg-black/80'
-              : 'bg-gray-600/60 text-gray-400 cursor-not-allowed'
-          }`}
-          title={torchSupported ? (torchOn ? 'Turn off torch' : 'Turn on torch') : 'Torch not supported'}
-        >
-          {torchOn ? <FlashlightOff className="w-5 h-5" /> : <Flashlight className="w-5 h-5" />}
-        </button>
       </div>
 
       {isReceiptMode && receiptHeaderContent && (
@@ -563,6 +577,58 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
           <div className="mt-2 rounded-2xl bg-black/70 border border-white/10 p-3 shadow-lg">
             {receiptHeaderContent}
           </div>
+        </div>
+      )}
+
+      {/* Preview overlay */}
+      {previewImage && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-ninpo-black/95 backdrop-blur-md p-4">
+          <div className="flex flex-col items-center gap-4 w-full max-w-sm">
+            <h2 className="text-lg font-bold text-white">Review Photo</h2>
+            
+            {/* Thumbnail preview */}
+            <img
+              src={previewImage}
+              alt="Receipt preview"
+              className="w-full rounded-xl border border-white/20 shadow-lg max-h-[50vh] object-contain"
+            />
+            
+            {/* Action buttons */}
+            <div className="flex gap-3 w-full">
+              <button
+                onClick={handleRetakePhoto}
+                className="flex-1 px-4 py-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-semibold transition flex items-center justify-center gap-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Retake
+              </button>
+              <button
+                onClick={handleUsePhoto}
+                className="flex-1 px-4 py-3 rounded-lg bg-ninpo-lime text-ninpo-black font-semibold transition hover:bg-ninpo-lime/90 flex items-center justify-center gap-2"
+              >
+                <span>✓</span>
+                Use Photo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom capture button (receipt mode) */}
+      {canCapturePhoto && isReceiptMode && (
+        <div className="relative z-10 mt-auto flex justify-center p-4">
+          <button
+            onClick={receiptUploadBlocked ? undefined : captureReceiptAndParse}
+            disabled={receiptUploadBlocked}
+            className={`p-4 rounded-full backdrop-blur-sm transition flex items-center justify-center shadow-lg ${
+              receiptUploadBlocked
+                ? 'bg-gray-600/70 text-gray-300 cursor-not-allowed'
+                : 'bg-cyan-500/90 text-white hover:bg-cyan-600'
+            }`}
+            title={receiptUploadBlocked ? 'Select a store before uploading' : 'Capture receipt manually'}
+          >
+            <Camera className="w-6 h-6" />
+          </button>
         </div>
       )}
 

@@ -343,3 +343,43 @@ export interface ReturnSettlement {
   settledAt: string;
   settledBy: string;
 }
+
+/**
+ * Receipt item classification buckets for workflow
+ */
+export type ReceiptItemClassification = 'A' | 'B' | 'C';
+
+export interface ClassifiedReceiptItem {
+  receiptName: string;
+  quantity: number;
+  totalPrice: number;
+  unitPrice: number;
+  classification: ReceiptItemClassification;
+  reason: string;
+  suggestedProduct?: {
+    id: string;
+    name: string;
+    upc?: string;
+    sku?: string;
+  };
+  matchConfidence?: number;
+  matchMethod?: string;
+}
+
+/**
+ * Parsed receipt data after Gemini extraction
+ */
+export interface ParsedReceipt {
+  storeId: string;
+  storeName: string;
+  imageUrl: string;
+  publicId: string;
+  items: ClassifiedReceiptItem[];
+  bucketCounts: {
+    A: number; // Auto-update OK
+    B: number; // Needs review
+    C: number; // No match
+  };
+  parsedAt: string;
+}
+

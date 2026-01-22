@@ -1,8 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Wand2, MapPin, RefreshCw, Loader2, CheckCircle2 } from 'lucide-react';
+import { Wand2, MapPin, RefreshCw, Loader2, CheckCircle2, Camera, Check } from 'lucide-react';
 import { BACKEND_URL } from '../../constants';
-import { StoreRecord } from '../../types';
+import { StoreRecord, ScannerMode, ClassifiedReceiptItem } from '../../types';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
+import ReceiptCaptureFlow from '../../components/ReceiptCaptureFlow';
+import ReceiptItemBucket from '../../components/ReceiptItemBucket';
+import { uploadReceiptPhoto } from '../../utils/cloudinaryUtils';
+import { classifyItems } from '../../utils/classificationUtils';
 
 interface ManagementStoresProps {
   stores: StoreRecord[];
@@ -29,6 +33,11 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   const [rawInput, setRawInput] = useState('');
   const [isEnriching, setIsEnriching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showReceiptScanner, setShowReceiptScanner] = useState(false);
+  const [classifiedItems, setClassifiedItems] = useState<ClassifiedReceiptItem[]>([]);
+  const [showReceiptReview, setShowReceiptReview] = useState(false);
+  const [selectedItemsForCommit, setSelectedItemsForCommit] = useState<Map<string, boolean>>(new Map());
+  const [isCommitting, setIsCommitting] = useState(false);
   const [draft, setDraft] = useState<StoreRecord>({
     id: '',
     name: '',
@@ -105,6 +114,154 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       setIsSaving(false);
     }
   }, [addToast, draft.address, draft.phone, draft.location, draft.storeType, draft.name, refreshStores, setActiveStoreId, setError]);
+
+  const handleOpenReceiptScanner = useCallback(() => {
+    if (!activeStoreId) {
+      setError('Please set an active store before capturing receipts');
+      return;
+    }
+    setShowReceiptScanner(true);
+  }, [activeStoreId, setError]);
+
+  const handleCloseReceiptScanner = useCallback(() => {
+    setShowReceiptScanner(false);
+  }, []);
+
+  const handlePhotoCaptured = useCallback(async (photoDataUrl: string, _mime: string) => {
+    if (!activeStoreId || !activeStore) return;
+
+    try {
+      // Upload to Cloudinary
+      const uploadResult = await uploadReceiptPhoto(photoDataUrl, activeStoreId, activeStore.name);
+      
+      if (!uploadResult) {
+        setError('Cloudinary not configured. Please set up image uploads.');
+        return;
+      }
+
+      addToast({ title: 'Uploaded', description: 'Receipt image uploaded to Cloudinary', tone: 'success' });
+
+      // Send to backend for Gemini parsing
+      const parseRes = await fetch(`${BACKEND_URL}/api/driver/receipt-parse-frame`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          imageUrl: uploadResult.secureUrl,
+          publicId: uploadResult.publicId,
+          storeId: activeStoreId,
+          storeName: activeStore.name
+        })
+      });
+
+      const parseData = await parseRes.json().catch(() => ({}));
+
+      if (!parseRes.ok) {
+        throw new Error(parseData?.error || 'Receipt parsing failed');
+      }
+
+      if (!parseData.items || parseData.items.length === 0) {
+        addToast({ 
+          title: 'No items', 
+          description: 'No items were found in this receipt', 
+          tone: 'info' 
+        });
+        setShowReceiptScanner(false);
+        return;
+      }
+
+      // Classify items into buckets
+      const { items: classified, bucketCounts } = classifyItems(parseData.items);
+      setClassifiedItems(classified);
+
+      addToast({ 
+        title: 'Parsed & Classified', 
+        description: `Found ${parseData.items.length} items: ${bucketCounts.A} auto-update, ${bucketCounts.B} review, ${bucketCounts.C} no-match`, 
+        tone: 'success' 
+      });
+
+      // Show review screen
+      setShowReceiptScanner(false);
+      setShowReceiptReview(true);
+    } catch (err: any) {
+      console.error('Receipt capture error:', err);
+      setError(err?.message || 'Failed to process receipt');
+    }
+  }, [activeStoreId, activeStore, addToast, setError]);
+
+  const handleStoreSelected = useCallback(
+    (storeId: string) => {
+      setActiveStoreId(storeId);
+    },
+    [setActiveStoreId]
+  );
+
+  const handleItemToggle = useCallback(
+    (item: ClassifiedReceiptItem, _classification: string, checked: boolean) => {
+      const key = JSON.stringify(item);
+      const newSelected = new Map(selectedItemsForCommit);
+      if (checked) {
+        newSelected.set(key, true);
+      } else {
+        newSelected.delete(key);
+      }
+      setSelectedItemsForCommit(newSelected);
+    },
+    [selectedItemsForCommit]
+  );
+
+  const handleCommitReceipt = useCallback(async () => {
+    if (!activeStoreId || selectedItemsForCommit.size === 0) {
+      setError('No items selected for commit');
+      return;
+    }
+
+    setIsCommitting(true);
+    try {
+      // Collect selected items
+      const itemsToCommit = classifiedItems.filter(item => 
+        selectedItemsForCommit.has(JSON.stringify(item))
+      );
+
+      // Send to backend for two-phase commit
+      const commitRes = await fetch(`${BACKEND_URL}/api/stores/${activeStoreId}/prices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          items: itemsToCommit.map(item => ({
+            receiptName: item.receiptName,
+            quantity: item.quantity,
+            totalPrice: item.totalPrice,
+            unitPrice: item.unitPrice,
+            classification: item.classification
+          }))
+        })
+      });
+
+      const commitData = await commitRes.json().catch(() => ({}));
+
+      if (!commitRes.ok) {
+        throw new Error(commitData?.error || 'Commit failed');
+      }
+
+      addToast({
+        title: 'Committed',
+        description: `${itemsToCommit.length} items added to ${activeStore?.name} inventory`,
+        tone: 'success'
+      });
+
+      // Close review and reset
+      setShowReceiptReview(false);
+      setClassifiedItems([]);
+      setSelectedItemsForCommit(new Map());
+    } catch (err: any) {
+      console.error('Commit error:', err);
+      setError(err?.message || 'Failed to commit items');
+    } finally {
+      setIsCommitting(false);
+    }
+  }, [activeStoreId, activeStore, classifiedItems, selectedItemsForCommit, addToast, setError]);
 
   return (
     <div className="space-y-6">
@@ -287,6 +444,102 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
           )}
         </div>
       </div>
+
+      {/* Receipt Capture Section */}
+      {activeStore && (
+        <div className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-white font-black uppercase text-xs tracking-widest">
+              <Camera className="w-4 h-4" /> Capture Receipt
+            </div>
+          </div>
+          <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-widest">
+            Capture and scan receipts for <span className="text-ninpo-lime">{activeStore.name}</span>. Items will be automatically classified for review.
+          </p>
+          <button
+            onClick={handleOpenReceiptScanner}
+            className="w-full px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-ninpo-lime/90 shadow-neon"
+          >
+            <Camera className="w-4 h-4" />
+            Open Receipt Scanner
+          </button>
+        </div>
+      )}
+
+      {/* Receipt Capture Flow Modal */}
+      {showReceiptScanner && (
+        <ReceiptCaptureFlow
+          isOpen={showReceiptScanner}
+          mode={ScannerMode.RECEIPT_PARSE_LIVE}
+          stores={stores}
+          defaultStoreId={activeStoreId}
+          title="Receipt Scanner"
+          subtitle="Capture receipt with barcode"
+          onPhotoCaptured={handlePhotoCaptured}
+          onClose={handleCloseReceiptScanner}
+          showClose={true}
+          onStoreSelected={handleStoreSelected}
+        />
+      )}
+
+      {/* Receipt Review Section */}
+      {showReceiptReview && classifiedItems.length > 0 && (
+        <div className="fixed inset-0 z-50 bg-ninpo-black/95 backdrop-blur-sm p-4 flex items-center justify-center overflow-y-auto">
+          <div className="bg-ninpo-card rounded-[2.5rem] border border-white/10 max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="border-b border-white/10 p-6 space-y-2">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-black uppercase text-white tracking-widest">Receipt Review</h2>
+                <button
+                  onClick={() => setShowReceiptReview(false)}
+                  className="text-slate-400 hover:text-white transition p-2"
+                >
+                  ✕
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400 uppercase tracking-widest">
+                Items from <span className="text-ninpo-lime">{activeStore?.name}</span> classified into three buckets
+              </p>
+            </div>
+
+            {/* Items */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <ReceiptItemBucket 
+                items={classifiedItems}
+                selectedItems={selectedItemsForCommit}
+                onItemToggle={handleItemToggle}
+                isReadOnly={false}
+              />
+            </div>
+
+            {/* Summary */}
+            <div className="border-t border-white/10 px-6 py-4 bg-white/5">
+              <p className="text-[10px] text-slate-400 uppercase tracking-widest">
+                Selected {selectedItemsForCommit.size} of {classifiedItems.length} items for commit
+              </p>
+            </div>
+
+            {/* Footer with actions */}
+            <div className="border-t border-white/10 p-6 flex gap-3">
+              <button
+                onClick={() => setShowReceiptReview(false)}
+                disabled={isCommitting}
+                className="flex-1 px-6 py-3 rounded-2xl bg-slate-700 hover:bg-slate-600 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCommitReceipt}
+                disabled={isCommitting || selectedItemsForCommit.size === 0}
+                className="flex-1 px-6 py-3 rounded-2xl bg-ninpo-lime hover:bg-ninpo-lime/90 disabled:opacity-60 disabled:cursor-not-allowed text-ninpo-black text-[10px] font-black uppercase tracking-widest transition shadow-neon flex items-center justify-center gap-2"
+              >
+                {isCommitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                {isCommitting ? 'Committing…' : 'Commit to Inventory'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
