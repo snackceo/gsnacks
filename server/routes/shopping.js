@@ -123,8 +123,8 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     const storeSelectionContext = resolveStoreSelectionContext(req.body, resolvedDeliveryAddress);
 
     // Find cheapest stores for fulfillment
-    const fulfillment = await findCheapestStores(normalizedItems, storeSelectionContext);
-    const optimized = await optimizeStoreSelection(fulfillment, storeSelectionContext);
+    const fulfillmentPlan = await findCheapestStores(normalizedItems, storeSelectionContext);
+    const optimized = await optimizeStoreSelection(fulfillmentPlan, storeSelectionContext);
 
     if (optimized.unfulfilled.length > 0) {
       const hasClosedStore = optimized.unfulfilled.some(item =>
