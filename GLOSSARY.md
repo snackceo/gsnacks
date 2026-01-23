@@ -81,7 +81,7 @@ A: Add it here first, then update code and docs to reference the glossary.
 ---
 A-Z Glossary
 
-activeModule (string state): UI section identifier in ManagementView (e.g., "analytics", "orders", "inventory", etc.). Determines which management module is active.
+activeModule (string state): UI section identifier in ManagementView (e.g., "analytics", "orders", "inventory", "pricing-intelligence", etc.). Determines which management module is active.
 
 address (string state): Delivery address input by the user, stored in App state and passed to components like CartDrawer. Used when creating orders (sent to backend on checkout).
 
@@ -339,7 +339,7 @@ MI-Eligible Container (concept): A container that qualifies for Michigan’s $0.
 
 modalOpen (suffix for state): Convention for tracking modals, e.g., scannerModalOpen, unmappedUpcModalOpen in ManagementView state. True when the corresponding modal is visible.
 
-modules (management): The admin UI is divided into modules: Dashboard (analytics), Orders, Auth Hub (approvals), Inventory, UPC Registry, Users, Audit Logs, Settings. Each module corresponds to a section of ManagementView controlled by activeModule.
+modules (management): The admin UI is divided into modules: Dashboard (analytics), Orders, Inventory, Pricing Intelligence (receipts, approvals/review queue, price updates, alias bindings/UPC Registry, audit history), Users, Settings. Each module corresponds to a section of ManagementView controlled by activeModule.
 
 normalizeCart (function): Backend helper that de-duplicates and cleans an incoming cart items array. Sums quantities per product and filters out invalid entries. Ensures the cart stored on the order has consolidated lines.
 
@@ -591,7 +591,7 @@ App Level State: The main App component holds critical UI state:
 – hideCustomerUi (computed): true when admin/driver pages are active (hides the cart button).
 
 ManagementView State: The admin dashboard (ManagementView) manages many UI states:
-– activeModule (string): which section is active (analytics, orders, approvals, inventory, etc.). Controls conditional rendering of each module’s JSX.
+– activeModule (string): which section is active (analytics, orders, inventory, pricing-intelligence, etc.). Controls conditional rendering of each module’s JSX.
 – Inventory A states: e.g., newProduct (object for the form when creating a product for unmapped UPC), upcDraft (draft info for a new UPC entry), isCreating (loading state for creating a product). These manage the form in “Product Creation” panel.
 – scannerModalOpen (bool): controls the ScannerModal in management. True when scanning for inventory creation or UPC lookup. Paired with scannerMode to specify context (INVENTORY_CREATE, UPC_LOOKUP).
 – scannerMode (ScannerMode or string): as above, holds which scanning mode is active.

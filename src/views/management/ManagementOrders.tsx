@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Order, OrderStatus, ReturnUpcCount, ScannerMode, User } from '../../types';
+import React, { useState } from 'react';
+import { Order, OrderStatus, ReturnUpcCount, User } from '../../types';
 import ManagementOrderDetailPanel from './ManagementOrderDetailPanel';
 import {
   CheckCircle2,
@@ -10,29 +10,8 @@ import {
   RefreshCw,
   UserCheck,
   XCircle,
-  Camera,
-  Trash2,
   ScanLine
 } from 'lucide-react';
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
-
-interface ReceiptCapture {
-  _id: string;
-  storeId: string;
-  storeName: string;
-  orderId?: string;
-  status: string;
-  imageCount: number;
-  stats: {
-    totalItems: number;
-    itemsNeedingReview: number;
-    itemsConfirmed: number;
-    itemsCommitted: number;
-  };
-  createdAt: string;
-  reviewExpiresAt?: string;
-}
 
 interface ManagementOrdersProps {
   orders: Order[];
@@ -44,8 +23,6 @@ interface ManagementOrdersProps {
   canCancel: (o: Order) => boolean;
   fmtTime: (iso?: string) => string;
   countTotalUpcs: (entries: ReturnUpcCount[]) => number;
-  setScannerMode: (mode: ScannerMode) => void;
-  setScannerModalOpen: (open: boolean) => void;
   openReturnProcessingScanner: () => void;
 }
 
@@ -59,109 +36,15 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
   canCancel,
   fmtTime,
   countTotalUpcs,
-  setScannerMode,
-  setScannerModalOpen,
   openReturnProcessingScanner
 }) => {
   const [openDetail, setOpenDetail] = useState<Record<string, boolean>>({});
-  const [receiptCaptures, setReceiptCaptures] = useState<ReceiptCapture[]>([]);
 
   const toggleDetail = (id: string) =>
     setOpenDetail(prev => ({ ...prev, [id]: !prev[id] }));
 
-  const openReceiptScanner = () => {
-    setScannerMode(ScannerMode.RECEIPT_PARSE_LIVE);
-    setScannerModalOpen(true);
-  };
-
-  // Fetch receipt captures
-  const fetchReceiptCaptures = useCallback(async () => {
-    try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-captures?status=pending_parse&status=parsed&status=review_complete&limit=20`, {
-        credentials: 'include'
-      });
-      
-      if (resp.ok) {
-        const data = await resp.json();
-        setReceiptCaptures(data.captures || []);
-      }
-    } catch (error) {
-      console.error('Error fetching receipt captures:', error);
-    }
-  }, []);
-
-  // Delete a receipt capture
-  const deleteReceiptCapture = async (captureId: string) => {
-    if (!window.confirm('Delete this receipt? This cannot be undone.')) {
-      return;
-    }
-
-    try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${captureId}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      });
-
-      if (resp.ok) {
-        setReceiptCaptures(prev => prev.filter(c => c._id !== captureId));
-      } else {
-        alert('Failed to delete receipt');
-      }
-    } catch (error) {
-      console.error('Error deleting receipt:', error);
-      alert('Error deleting receipt');
-    }
-  };
-
-  // Periodic refresh of orders for live updates
-  useEffect(() => {
-    const id = setInterval(() => {
-      apiRefreshOrders();
-      fetchReceiptCaptures();
-    }, 30000);
-    return () => clearInterval(id);
-  }, [apiRefreshOrders, fetchReceiptCaptures]);
-
-  // Initial fetch
-  useEffect(() => {
-    fetchReceiptCaptures();
-  }, [fetchReceiptCaptures]);
-
-  useEffect(() => {
-    const handleQueueRefresh = () => {
-      fetchReceiptCaptures();
-    };
-
-    window.addEventListener('receipt-queue-refresh', handleQueueRefresh);
-    return () => window.removeEventListener('receipt-queue-refresh', handleQueueRefresh);
-  }, [fetchReceiptCaptures]);
-
   return (
     <div className="space-y-6">
-      {/* Receipt Capture Quick Access */}
-      <div className="bg-gradient-to-r from-orange-600 to-amber-600 rounded-2xl p-6 border border-white/20">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-black uppercase text-white tracking-widest flex items-center gap-2">
-              <Camera className="w-5 h-5" />
-              Upload Receipt
-            </h3>
-            <p className="text-sm text-orange-100 mt-2">Capture and process a new receipt</p>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={openReceiptScanner}
-              className="px-6 py-3 bg-white/20 hover:bg-white/30 text-white rounded-lg font-bold text-sm flex items-center gap-2 transition-all"
-              title="Use scanner to capture receipts"
-            >
-              <Camera className="w-5 h-5" />
-              Capture / Upload
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Return Processing Quick Access */}
       <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-6 border border-white/20">
         <div className="flex items-center justify-between">
           <div>
@@ -183,101 +66,6 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Receipt Captures Section */}
-      {receiptCaptures.length > 0 && (
-        <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-2xl p-6 border border-white/20">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-black uppercase text-white tracking-widest flex items-center gap-2">
-              <Camera className="w-5 h-5" />
-              Receipt Scanner Queue
-            </h3>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-purple-100">
-                {receiptCaptures.filter(c => c.status === 'parsed').length} pending review
-              </span>
-              <button
-                onClick={openReceiptScanner}
-                className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-white text-sm font-semibold flex items-center gap-2"
-              >
-                <Camera className="w-4 h-4" />
-                New Receipt
-              </button>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {receiptCaptures.slice(0, 6).map(capture => (
-              <div
-                key={capture._id}
-                className="bg-white/10 backdrop-blur-sm rounded-lg p-4 hover:bg-white/20 transition-all border border-white/10 group"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex-1">
-                    <span className="text-white font-bold text-sm">{capture.storeName}</span>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs px-2 py-1 rounded ${
-                      capture.status === 'parsed' ? 'bg-yellow-500 text-yellow-900' :
-                      capture.status === 'review_complete' ? 'bg-green-500 text-green-900' :
-                      'bg-gray-500 text-gray-900'
-                    }`}>
-                      {capture.status.replace(/_/g, ' ')}
-                    </span>
-                    
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteReceiptCapture(capture._id);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-500/30 rounded text-red-400 hover:text-red-300"
-                      title="Delete this receipt"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-                
-                <div>
-                  <div className="text-xs text-purple-100 space-y-1">
-                    <div>{capture.imageCount} photo{capture.imageCount !== 1 ? 's' : ''}</div>
-                    <div>
-                      {capture.stats.itemsConfirmed}/{capture.stats.totalItems} items confirmed
-                    </div>
-                    
-                    {/* Workflow breakdown */}
-                    {capture.workflowStats && (
-                      <div className="flex items-center gap-2 mt-2">
-                        {capture.workflowStats.newProducts > 0 && (
-                          <span className="bg-orange-500/30 text-orange-200 text-xs px-2 py-1 rounded">
-                            {capture.workflowStats.newProducts} NEW
-                          </span>
-                        )}
-                        {capture.workflowStats.priceUpdates > 0 && (
-                          <span className="bg-blue-500/30 text-blue-200 text-xs px-2 py-1 rounded">
-                            {capture.workflowStats.priceUpdates} PRICES
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    
-                    {capture.stats.itemsNeedingReview > 0 && (
-                      <div className="text-yellow-300 font-semibold">
-                        {capture.stats.itemsNeedingReview} need review
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="mt-3 text-xs text-purple-200">
-                    {new Date(capture.createdAt).toLocaleString()}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -519,72 +307,71 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
                 <div className="flex flex-col md:flex-row gap-4 border-t border-white/5 pt-6">
                   {(o.status === OrderStatus.PENDING ||
                     o.status === OrderStatus.AUTHORIZED ||
-                    o.status === OrderStatus.PAID) && (
+                    o.status === OrderStatus.ASSIGNED) && (
                     <button
-                      onClick={() =>
-                        handleLogisticsUpdate(o.id, OrderStatus.ASSIGNED, {
-                          driverId: users?.username || users?.id || 'OWNER'
-                        })
-                      }
-                      className="flex-1 py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] transition-all shadow-neon"
+                      className="flex-1 px-6 py-4 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3"
+                      onClick={() => handleLogisticsUpdate(o.id, OrderStatus.PAID)}
                     >
-                      <UserCheck className="w-5 h-5" /> Assign to Me
+                      <CheckCircle2 className="w-4 h-4" />
+                      Mark Paid
                     </button>
                   )}
 
-                  {o.status === OrderStatus.ASSIGNED && (
+                  {(o.status === OrderStatus.PAID || o.status === OrderStatus.ASSIGNED) && (
                     <button
-                      onClick={() => handleLogisticsUpdate(o.id, OrderStatus.PICKED_UP)}
-                      className="flex-1 py-5 bg-white/10 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] transition-all"
+                      className="flex-1 px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3"
+                      onClick={() => handleLogisticsUpdate(o.id, OrderStatus.OUT_FOR_DELIVERY)}
                     >
-                      <PackageCheck className="w-5 h-5" /> Mark Picked Up
+                      <Navigation2 className="w-4 h-4" />
+                      Out for Delivery
                     </button>
                   )}
 
-                  {o.status === OrderStatus.PICKED_UP && (
+                  {o.status === OrderStatus.OUT_FOR_DELIVERY && (
                     <button
-                      onClick={() => handleLogisticsUpdate(o.id, OrderStatus.ARRIVING)}
-                      className="flex-1 py-5 bg-white/10 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] transition-all"
-                    >
-                      <Navigation2 className="w-5 h-5" /> Mark Arriving
-                    </button>
-                  )}
-
-                  {o.status === OrderStatus.ARRIVING && (
-                    <button
+                      className="flex-1 px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3"
                       onClick={() => handleLogisticsUpdate(o.id, OrderStatus.DELIVERED)}
-                      className="flex-1 py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] transition-all shadow-neon"
                     >
-                      <CheckCircle2 className="w-5 h-5" /> Mark Delivered
+                      <UserCheck className="w-4 h-4" />
+                      Mark Delivered
+                    </button>
+                  )}
+
+                  {o.status === OrderStatus.DELIVERED && (
+                    <button
+                      className="flex-1 px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3"
+                      onClick={() => handleLogisticsUpdate(o.id, OrderStatus.CLOSED)}
+                    >
+                      <PackageCheck className="w-4 h-4" />
+                      Close Order
                     </button>
                   )}
 
                   {canCancel(o) && (
                     <button
-                      onClick={() => {
-                        if (confirm(`Cancel order ${o.id}? Items will be restocked and order marked as closed.`)) {
-                          handleLogisticsUpdate(o.id, OrderStatus.CLOSED);
-                        }
-                      }}
-                      className="md:w-[240px] py-5 bg-ninpo-red/10 text-ninpo-red rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
+                      className="flex-1 px-6 py-4 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 border border-ninpo-red/20"
+                      onClick={() => handleLogisticsUpdate(o.id, OrderStatus.CANCELED)}
                     >
-                      <XCircle className="w-5 h-5" /> Cancel (Restock)
+                      <XCircle className="w-4 h-4" />
+                      Cancel
                     </button>
                   )}
                 </div>
 
-                {/* Management Detail Panel: items-not-found and driver proof */}
-                <div className="mt-4">
+                <div className="pt-6 border-t border-white/5">
                   <button
+                    className="text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition"
                     onClick={() => toggleDetail(o.id)}
-                    className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10"
                   >
-                    {openDetail[o.id] ? 'Hide Driver Artifacts' : 'View Driver Artifacts'}
+                    {openDetail[o.id] ? 'Hide Details' : 'View Details'}
                   </button>
+
                   {openDetail[o.id] && (
-                    <div className="mt-4">
-                      <ManagementOrderDetailPanel order={o} />
-                    </div>
+                    <ManagementOrderDetailPanel
+                      order={o}
+                      users={users}
+                      fmtTime={fmtTime}
+                    />
                   )}
                 </div>
               </div>

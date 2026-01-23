@@ -19,30 +19,20 @@ import type {
 import { ScannerMode, OrderStatus } from '../types';
 import ManagementDashboard from './management/ManagementDashboard';
 import ManagementOrders from './management/ManagementOrders';
+import ManagementPricingIntelligence from './management/ManagementPricingIntelligence';
 import ManagementUsers from './management/ManagementUsers';
-import ManagementAuditLogs from './management/ManagementAuditLogs';
 import ManagementInventory from './management/ManagementInventory';
-import ManagementUpcRegistry from './management/ManagementUpcRegistry';
 import ManagementSettings from './management/ManagementSettings';
-import ManagementStores from './management/ManagementStores';
-import ManagementApprovals from './management/ManagementApprovals';
-import ManagementAnalytics from './management/ManagementAnalytics';
 import {
   Truck,
   Package,
   Users,
   BarChart3,
-  ShieldCheck,
   Loader2,
-  Terminal,
   Sliders,
   EyeOff,
-  Plus,
-  ScanLine,
-  X,
   TrendingUp
 } from 'lucide-react';
-import { MapPin } from 'lucide-react';
 import ScannerModal from '../components/ScannerModal';
 import type { ParsedReceiptItem } from '../components/ScannerPanel';
 import UnmappedUpcModal from '../components/UnmappedUpcModal';
@@ -457,7 +447,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   }, [activeModule]);
 
   useEffect(() => {
-    if (activeModule !== 'logs') return;
+    if (activeModule !== 'pricing-intelligence') return;
 
     let isActive = true;
     const loadAuditLogs = async () => {
@@ -484,7 +474,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   }, [activeModule, fetchAuditLogs]);
 
   useEffect(() => {
-    if (activeModule !== 'reviews') return;
+    if (activeModule !== 'pricing-intelligence') return;
     fetchApprovals().catch(() => {});
   }, [activeModule, fetchApprovals]);
 
@@ -1181,9 +1171,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     };
   }, [activeModule, fetchUsers, users.length]);
 
-  // Load return verifications when reviews module is active
+  // Load return verifications when pricing intelligence module is active
   useEffect(() => {
-    if (activeModule !== 'reviews') return;
+    if (activeModule !== 'pricing-intelligence') return;
 
     let mounted = true;
     setIsReturnVerificationsLoading(true);
@@ -1366,26 +1356,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           canCancel={canCancel}
           fmtTime={fmtTime}
           countTotalUpcs={countTotalUpcs}
-          setScannerMode={setScannerMode}
-          setScannerModalOpen={setScannerModalOpen}
           openReturnProcessingScanner={openReturnProcessingScanner}
-        />
-      )
-    },
-    reviews: {
-      id: 'reviews',
-      label: 'Reviews',
-      icon: ShieldCheck,
-      render: () => (
-        <ManagementApprovals
-          approvalFilter={approvalFilter}
-          setApprovalFilter={setApprovalFilter}
-          filteredApprovals={filteredApprovals}
-          handleApprove={handleApprove}
-          handleReject={handleReject}
-          setSelectedApproval={setSelectedApproval}
-          setPreviewPhoto={setPreviewPhoto}
-          fmtTime={fmtTime}
         />
       )
     },
@@ -1443,28 +1414,29 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         />
       )
     },
-    stores: {
-      id: 'stores',
-      label: 'Stores',
-      icon: MapPin,
+    'pricing-intelligence': {
+      id: 'pricing-intelligence',
+      label: 'Pricing Intelligence',
+      icon: TrendingUp,
       render: () => (
-        <ManagementStores
+        <ManagementPricingIntelligence
+          setScannerMode={setScannerMode}
+          setScannerModalOpen={setScannerModalOpen}
+          approvalFilter={approvalFilter}
+          setApprovalFilter={setApprovalFilter}
+          filteredApprovals={filteredApprovals}
+          handleApprove={handleApprove}
+          handleReject={handleReject}
+          setSelectedApproval={setSelectedApproval}
+          setPreviewPhoto={setPreviewPhoto}
+          fmtTime={fmtTime}
           stores={stores}
           activeStoreId={activeStoreId}
           setActiveStoreId={setActiveStoreId}
           refreshStores={loadStores}
-          isLoading={isLoadingStores}
-          error={storeError}
-          setError={setStoreError}
-        />
-      )
-    },
-    upc: {
-      id: 'upc',
-      label: 'UPC Registry',
-      icon: ScanLine,
-      render: () => (
-        <ManagementUpcRegistry
+          isLoadingStores={isLoadingStores}
+          storeError={storeError}
+          setStoreError={setStoreError}
           upcItems={upcItems}
           setUpcItems={setUpcItems}
           upcInput={upcInput}
@@ -1489,8 +1461,20 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           setUnmappedUpcModalOpen={setUnmappedUpcModalOpen}
           unmappedUpcPayload={unmappedUpcPayload}
           setUnmappedUpcPayload={setUnmappedUpcPayload}
-          ScannerModal={null}
-          UPC_CONTAINER_LABELS={UPC_CONTAINER_LABELS}
+          filteredAuditLogs={filteredAuditLogs}
+          auditTypeFilter={auditTypeFilter}
+          setAuditTypeFilter={setAuditTypeFilter}
+          auditActorFilter={auditActorFilter}
+          setAuditActorFilter={setAuditActorFilter}
+          auditRangeFilter={auditRangeFilter}
+          setAuditRangeFilter={setAuditRangeFilter}
+          auditTypeOptions={auditTypeOptions}
+          isAuditLogsLoading={isAuditLogsLoading}
+          auditLogsError={auditLogsError}
+          handleDownloadAuditCsv={handleDownloadAuditCsv}
+          runAuditSummary={runAuditSummary}
+          auditSummary={auditSummary}
+          isAuditSummaryLoading={isAuditSummaryLoading}
         />
       )
     },
@@ -1527,30 +1511,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           fmtDelta={fmtDelta}
           getTierStyles={getTierStyles}
           isNewSignupWithBonus={isNewSignupWithBonus}
-        />
-      )
-    },
-    logs: {
-      id: 'logs',
-      label: 'Audit Logs',
-      icon: Terminal,
-      render: () => (
-        <ManagementAuditLogs
-          filteredAuditLogs={filteredAuditLogs}
-          auditTypeFilter={auditTypeFilter}
-          setAuditTypeFilter={setAuditTypeFilter}
-          auditActorFilter={auditActorFilter}
-          setAuditActorFilter={setAuditActorFilter}
-          auditRangeFilter={auditRangeFilter}
-          setAuditRangeFilter={setAuditRangeFilter}
-          auditTypeOptions={auditTypeOptions}
-          isAuditLogsLoading={isAuditLogsLoading}
-          auditLogsError={auditLogsError}
-          handleDownloadAuditCsv={handleDownloadAuditCsv}
-          runAuditSummary={runAuditSummary}
-          auditSummary={auditSummary}
-          isAuditSummaryLoading={isAuditSummaryLoading}
-          fmtTime={fmtTime}
         />
       )
     },
