@@ -7,7 +7,8 @@ import {
   Flashlight,
   FlashlightOff,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  Upload
 } from 'lucide-react';
 // See GLOSSARY.md for authoritative definitions of all scanner modes.
 import { ScannerMode } from '../types';
@@ -112,6 +113,8 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const [lastDetectedUpc, setLastDetectedUpc] = useState<string | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [previewMime, setPreviewMime] = useState('image/jpeg');
+  const [isDragActive, setIsDragActive] = useState(false);
 
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
@@ -290,9 +293,10 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
     ctx.drawImage(videoRef.current, 0, 0, w, h);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    
+
     // Show preview instead of immediately uploading
     setPreviewImage(dataUrl);
+    setPreviewMime('image/jpeg');
   }, []);
 
   const validateUpc = useCallback((raw: string) => {
@@ -304,12 +308,68 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
   const handleUsePhoto = useCallback(() => {
     if (!previewImage || !onPhotoCaptured) return;
-    onPhotoCaptured(previewImage, 'image/jpeg');
+    onPhotoCaptured(previewImage, previewMime);
     setPreviewImage(null);
-  }, [previewImage, onPhotoCaptured]);
+  }, [previewImage, previewMime, onPhotoCaptured]);
 
   const handleRetakePhoto = useCallback(() => {
     setPreviewImage(null);
+  }, []);
+
+  const handleReceiptFile = useCallback((file: File) => {
+    if (!file) return;
+
+    if (file.type === 'application/pdf') {
+      setScannerError('PDF uploads are coming soon.');
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setScannerError('Unsupported file type. Please upload an image.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      if (!dataUrl) return;
+      setPreviewImage(dataUrl);
+      setPreviewMime(file.type || 'image/jpeg');
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const handleReceiptFileInput = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (file) {
+        handleReceiptFile(file);
+      }
+      event.target.value = '';
+    },
+    [handleReceiptFile]
+  );
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      setIsDragActive(false);
+      const file = event.dataTransfer.files?.[0];
+      if (file) {
+        handleReceiptFile(file);
+      }
+    },
+    [handleReceiptFile]
+  );
+
+  const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragActive(true);
+  }, []);
+
+  const handleDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragActive(false);
   }, []);
 
   const startScanner = useCallback(async () => {
@@ -506,7 +566,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
       <div className="absolute inset-0 flex items-center justify-center">
         <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
         <canvas ref={canvasRef} className="hidden" />
-        
+
         {!isScanning && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60">
             <div className="text-center px-8 flex flex-col items-center gap-3">
@@ -543,7 +603,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
           ) : (
             <div className="w-11" />
           )}
-          
+
           <button
             onClick={() => void toggleTorch()}
             disabled={!torchSupported}
@@ -585,14 +645,14 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-ninpo-black/95 backdrop-blur-md p-4">
           <div className="flex flex-col items-center gap-4 w-full max-w-sm">
             <h2 className="text-lg font-bold text-white">Review Photo</h2>
-            
+
             {/* Thumbnail preview */}
             <img
               src={previewImage}
               alt="Receipt preview"
               className="w-full rounded-xl border border-white/20 shadow-lg max-h-[50vh] object-contain"
             />
-            
+
             {/* Action buttons */}
             <div className="flex gap-3 w-full">
               <button
@@ -616,19 +676,66 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
       {/* Bottom capture button (receipt mode) */}
       {canCapturePhoto && isReceiptMode && (
-        <div className="relative z-10 mt-auto flex justify-center p-4">
-          <button
-            onClick={receiptUploadBlocked ? undefined : captureReceiptAndParse}
-            disabled={receiptUploadBlocked}
-            className={`p-4 rounded-full backdrop-blur-sm transition flex items-center justify-center shadow-lg ${
-              receiptUploadBlocked
-                ? 'bg-gray-600/70 text-gray-300 cursor-not-allowed'
-                : 'bg-cyan-500/90 text-white hover:bg-cyan-600'
+        <div className="relative z-10 mt-auto px-4 pb-4 space-y-3">
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            className={`rounded-2xl border-2 border-dashed p-4 text-center transition ${
+              isDragActive
+                ? 'border-ninpo-lime bg-ninpo-lime/10 text-ninpo-lime'
+                : 'border-white/20 bg-black/60 text-white/70'
             }`}
-            title={receiptUploadBlocked ? 'Select a store before uploading' : 'Capture receipt manually'}
           >
-            <Camera className="w-6 h-6" />
-          </button>
+            <p className="text-xs font-semibold uppercase tracking-widest">
+              Drag & drop a receipt image
+            </p>
+            <p className="text-[10px] text-white/50 mt-2">
+              Use the camera below, or upload an image file.
+            </p>
+            <div className="mt-3 flex flex-col sm:flex-row items-center justify-center gap-2">
+              <label
+                className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 cursor-pointer transition ${
+                  receiptUploadBlocked
+                    ? 'bg-gray-600/70 text-gray-300 cursor-not-allowed'
+                    : 'bg-ninpo-lime text-ninpo-black hover:bg-ninpo-lime/90'
+                }`}
+              >
+                <Upload className="w-3 h-3" />
+                Upload image
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleReceiptFileInput}
+                  disabled={receiptUploadBlocked}
+                  className="hidden"
+                />
+              </label>
+              <button
+                type="button"
+                disabled
+                className="px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest bg-white/5 text-white/40 border border-white/10 cursor-not-allowed"
+                title="PDF upload coming soon"
+              >
+                PDF (coming soon)
+              </button>
+            </div>
+          </div>
+
+          <div className="flex justify-center">
+            <button
+              onClick={receiptUploadBlocked ? undefined : captureReceiptAndParse}
+              disabled={receiptUploadBlocked}
+              className={`p-4 rounded-full backdrop-blur-sm transition flex items-center justify-center shadow-lg ${
+                receiptUploadBlocked
+                  ? 'bg-gray-600/70 text-gray-300 cursor-not-allowed'
+                  : 'bg-cyan-500/90 text-white hover:bg-cyan-600'
+              }`}
+              title={receiptUploadBlocked ? 'Select a store before uploading' : 'Capture receipt manually'}
+            >
+              <Camera className="w-6 h-6" />
+            </button>
+          </div>
         </div>
       )}
 
