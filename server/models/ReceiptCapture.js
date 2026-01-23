@@ -47,6 +47,21 @@ const receiptCaptureSchema = new mongoose.Schema({
     totalPrice: Number,
     quantity: Number,
     unitPrice: Number,
+    tokens: {
+      brand: String,
+      size: String,
+      flavor: [String]
+    },
+    priceDelta: Number,
+    matchHistory: [{
+      price: Number,
+      observedAt: Date,
+      matchMethod: String,
+      matchConfidence: Number,
+      priceType: String,
+      promoDetected: Boolean,
+      workflowType: String
+    }],
     
     // Matching results
     suggestedProduct: {

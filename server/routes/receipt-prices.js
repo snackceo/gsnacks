@@ -464,6 +464,39 @@ function extractTokens(normalizedName) {
   return tokens;
 }
 
+function summarizeTokens(tokens) {
+  return {
+    brand: tokens.brand || null,
+    size: tokens.sizes[0] || null,
+    flavor: tokens.flavors.length > 0 ? tokens.flavors : []
+  };
+}
+
+function buildMatchHistory(inventory, limit = 3) {
+  if (!inventory?.priceHistory || inventory.priceHistory.length === 0) {
+    return [];
+  }
+  return [...inventory.priceHistory]
+    .filter(entry => entry?.price && entry?.observedAt)
+    .sort((a, b) => new Date(b.observedAt) - new Date(a.observedAt))
+    .slice(0, limit)
+    .map(entry => ({
+      price: entry.price,
+      observedAt: entry.observedAt,
+      matchMethod: entry.matchMethod,
+      matchConfidence: entry.matchConfidence,
+      priceType: entry.priceType,
+      promoDetected: entry.promoDetected,
+      workflowType: entry.workflowType
+    }));
+}
+
+function computePriceDelta(unitPrice, matchHistory, fallbackPrice) {
+  const lastPrice = matchHistory?.[0]?.price ?? (Number.isFinite(fallbackPrice) ? fallbackPrice : undefined);
+  if (!Number.isFinite(lastPrice)) return undefined;
+  return Number((unitPrice - lastPrice).toFixed(2));
+}
+
 /**
  * Check if critical tokens match between two names
  */
@@ -554,7 +587,7 @@ function advancedMatch(receiptName, productName) {
  */
 router.post('/upload-receipt-image', authRequired, async (req, res) => {
   try {
-    const { image } = req.body;
+    const { image, storeId } = req.body;
 
     if (!image) {
       return res.status(400).json({ error: 'Image data required' });
@@ -1159,6 +1192,7 @@ RULES:
           let needsReview = true;
           let reviewReason = 'no_match';
           let workflowType = 'new_product'; // 'new_product' or 'update_price'
+          let matchedInventory = null;
 
           // Step 1: Check ReceiptNameAlias for confirmed mappings
           const alias = await ReceiptNameAlias.findOne({
@@ -1180,6 +1214,10 @@ RULES:
                 matchMethod = 'alias_confirmed';
                 matchConfidence = effectiveConfidence;
                 workflowType = 'update_price'; // Item exists - update price
+                matchedInventory = await StoreInventory.findOne({
+                  storeId: capture.storeId,
+                  productId: product._id
+                });
                 
                 // Auto-confirm high-confidence aliases (decayed confidence)
                 if (effectiveConfidence >= 0.9) {
@@ -1200,6 +1238,7 @@ RULES:
             let bestScore = 0;
             let bestMatch = null;
             let bestMatchResult = null;
+            let bestInventory = null;
 
             for (const inv of storeInventories) {
               if (!inv.productId || !inv.productId.name) continue;
@@ -1216,6 +1255,7 @@ RULES:
                 bestScore = matchResult.score;
                 bestMatch = inv.productId;
                 bestMatchResult = matchResult;
+                bestInventory = inv;
               }
             }
 
@@ -1228,6 +1268,7 @@ RULES:
               };
               matchConfidence = bestScore;
               workflowType = 'update_price'; // Item exists - update price
+              matchedInventory = bestInventory;
 
               // Gate A: Size token missing = always needs review
               if (!tokens.hasSizeToken) {
@@ -1265,6 +1306,12 @@ RULES:
               : 'price_out_of_bounds';
           }
 
+          const tokenSummary = summarizeTokens(tokens);
+          const matchHistory = matchedInventory ? buildMatchHistory(matchedInventory) : [];
+          const priceDelta = matchedInventory
+            ? computePriceDelta(unitPrice, matchHistory, matchedInventory.observedPrice)
+            : undefined;
+
           // Add to draft items
           draftItems.push({
             lineIndex: draftItems.length,
@@ -1273,6 +1320,9 @@ RULES:
             totalPrice,
             quantity,
             unitPrice,
+            tokens: tokenSummary,
+            priceDelta,
+            matchHistory,
             suggestedProduct,
             matchMethod: matchMethod || 'no_match',
             matchConfidence,
@@ -1815,6 +1865,7 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
                 bestScore = matchResult.score;
                 bestMatch = inv.productId;
                 bestMatchResult = matchResult;
+                bestInventory = inv;
               }
             }
 
@@ -2380,10 +2431,14 @@ router.post('/receipt-parse-frame', authRequired, async (req, res) => {
   }
 
   try {
-    const { image } = req.body;
+    const { image, storeId } = req.body;
     
     if (!image || typeof image !== 'string') {
       return res.status(400).json({ error: 'Valid base64 image required' });
+    }
+
+    if (storeId && !mongoose.Types.ObjectId.isValid(storeId)) {
+      return res.status(400).json({ error: 'Valid storeId required' });
     }
 
     const apiReady = ensureGeminiReady();
@@ -2453,7 +2508,109 @@ Rules: Extract product lines only (skip store, date, tax, total). Return empty [
       // Silent fail for parsing
     }
 
-    res.json({ ok: true, items });
+    let storeInventories = [];
+    if (storeId) {
+      storeInventories = await StoreInventory.find({ storeId })
+        .populate('productId')
+        .limit(500);
+    }
+
+    const enrichedItems = [];
+    for (const item of items) {
+      const receiptName = String(item.receiptName || '').trim();
+      const quantity = Number(item.quantity) || 1;
+      const totalPrice = Number(item.totalPrice) || 0;
+      const unitPrice = totalPrice / quantity;
+      const normalizedName = normalizeReceiptName(receiptName);
+      const tokens = extractTokens(normalizedName);
+      const tokenSummary = summarizeTokens(tokens);
+
+      let suggestedProduct = null;
+      let matchMethod = 'no_match';
+      let matchConfidence = 0;
+      let matchedInventory = null;
+
+      if (storeId) {
+        const alias = await ReceiptNameAlias.findOne({
+          storeId,
+          normalizedName
+        });
+
+        if (alias && alias.confirmedCount > 0) {
+          const { effectiveConfidence } = getAliasEffectiveConfidence(alias);
+          if (effectiveConfidence >= ALIAS_CONFIDENCE_MATCH_THRESHOLD) {
+            const product = await Product.findById(alias.productId);
+            if (product) {
+              suggestedProduct = {
+                id: product._id.toString(),
+                name: product.name,
+                upc: product.upc,
+                sku: product.sku
+              };
+              matchMethod = 'alias_confirmed';
+              matchConfidence = effectiveConfidence;
+              matchedInventory = await StoreInventory.findOne({
+                storeId,
+                productId: product._id
+              });
+            }
+          }
+        }
+
+        if (!suggestedProduct && storeInventories.length > 0) {
+          const category = classifyCategory(normalizedName);
+          let bestScore = 0;
+          let bestMatch = null;
+          let bestInventory = null;
+
+          for (const inv of storeInventories) {
+            if (!inv.productId || !inv.productId.name) continue;
+            const matchResult = advancedMatch(receiptName, inv.productId.name);
+            const productCategory = classifyCategory(normalizeReceiptName(inv.productId.name));
+            if (category !== 'other' && productCategory !== 'other' && category !== productCategory) {
+              continue;
+            }
+            if (matchResult.score > bestScore && matchResult.tokensMatch) {
+              bestScore = matchResult.score;
+              bestMatch = inv.productId;
+              bestInventory = inv;
+            }
+          }
+
+          if (bestMatch && bestScore >= 0.75) {
+            suggestedProduct = {
+              id: bestMatch._id.toString(),
+              name: bestMatch.name,
+              upc: bestMatch.upc,
+              sku: bestMatch.sku
+            };
+            matchConfidence = bestScore;
+            matchMethod = bestScore >= 0.9 ? 'fuzzy_high' : 'fuzzy_suggested';
+            matchedInventory = bestInventory;
+          }
+        }
+      }
+
+      const matchHistory = matchedInventory ? buildMatchHistory(matchedInventory) : [];
+      const priceDelta = matchedInventory
+        ? computePriceDelta(unitPrice, matchHistory, matchedInventory.observedPrice)
+        : undefined;
+
+      enrichedItems.push({
+        receiptName,
+        quantity,
+        totalPrice,
+        unitPrice: Number(unitPrice.toFixed(2)),
+        tokens: tokenSummary,
+        priceDelta,
+        matchHistory,
+        suggestedProduct,
+        matchMethod,
+        matchConfidence: matchConfidence > 0 ? matchConfidence : undefined
+      });
+    }
+
+    res.json({ ok: true, items: enrichedItems });
 
   } catch (error) {
     console.error('Receipt frame parse error:', error);

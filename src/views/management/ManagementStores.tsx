@@ -158,10 +158,11 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          imageUrl: uploadResult.secureUrl,
-          publicId: uploadResult.publicId,
+          image: photoDataUrl,
           storeId: activeStoreId,
-          storeName: activeStore.name
+          storeName: activeStore.name,
+          receiptImageUrl: uploadResult.secureUrl,
+          receiptPublicId: uploadResult.publicId
         })
       });
 
