@@ -9,6 +9,12 @@ interface RawReceiptItem {
   receiptName: string;
   quantity: number;
   totalPrice: number;
+  tokens?: ClassifiedReceiptItem['tokens'];
+  priceDelta?: ClassifiedReceiptItem['priceDelta'];
+  matchHistory?: ClassifiedReceiptItem['matchHistory'];
+  suggestedProduct?: ClassifiedReceiptItem['suggestedProduct'];
+  matchConfidence?: ClassifiedReceiptItem['matchConfidence'];
+  matchMethod?: ClassifiedReceiptItem['matchMethod'];
 }
 
 interface ClassificationConfig {
@@ -37,7 +43,8 @@ export function classifyItem(
   // In production, this would call product lookup APIs
   let classification: ReceiptItemClassification;
   let reason: string;
-  let matchConfidence = 0;
+  const hasProvidedConfidence = typeof item.matchConfidence === 'number';
+  let matchConfidence = hasProvidedConfidence ? item.matchConfidence : 0;
 
   // Heuristic 1: Price validation
   if (unitPrice < 0.50 || unitPrice > 500) {
@@ -51,7 +58,9 @@ export function classifyItem(
   }
   // Heuristic 3: Common brand keywords
   else if (isCommonBrand(item.receiptName)) {
-    matchConfidence = 0.9;
+    if (!hasProvidedConfidence) {
+      matchConfidence = 0.9;
+    }
     classification = matchConfidence >= autoUpdateThreshold ? 'A' : 'B';
     reason = 'common_brand_match';
   }
@@ -62,10 +71,19 @@ export function classifyItem(
   }
   // Default: Medium confidence - needs review
   else {
-    matchConfidence = 0.7;
+    if (!hasProvidedConfidence) {
+      matchConfidence = 0.7;
+    }
     classification = 'B';
     reason = 'unconfirmed_match';
   }
+
+  const resolvedMatchConfidence =
+    typeof item.matchConfidence === 'number'
+      ? item.matchConfidence
+      : matchConfidence > 0
+        ? matchConfidence
+        : undefined;
 
   return {
     receiptName: item.receiptName,
@@ -74,7 +92,12 @@ export function classifyItem(
     unitPrice: Number(unitPrice.toFixed(2)),
     classification,
     reason,
-    matchConfidence: matchConfidence > 0 ? matchConfidence : undefined
+    tokens: item.tokens,
+    priceDelta: item.priceDelta,
+    matchHistory: item.matchHistory,
+    suggestedProduct: item.suggestedProduct,
+    matchConfidence: resolvedMatchConfidence,
+    matchMethod: item.matchMethod
   };
 }
 

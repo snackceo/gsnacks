@@ -19,6 +19,28 @@ const getBucketIcon = (classification: ReceiptItemClassification) => {
   return icons[classification];
 };
 
+const formatTokens = (tokens?: ClassifiedReceiptItem['tokens']) => {
+  if (!tokens) return null;
+  const parts: string[] = [];
+  if (tokens.brand) parts.push(`Brand: ${tokens.brand}`);
+  if (tokens.size) parts.push(`Size: ${tokens.size}`);
+  if (tokens.flavor && tokens.flavor.length > 0) {
+    parts.push(`Flavor: ${tokens.flavor.join(', ')}`);
+  }
+  return parts.length > 0 ? parts.join(' • ') : null;
+};
+
+const formatHistoryEntry = (entry: NonNullable<ClassifiedReceiptItem['matchHistory']>[number]) => {
+  const date = entry.observedAt ? new Date(entry.observedAt) : null;
+  const dateLabel = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString() : 'Unknown date';
+  const confidence =
+    typeof entry.matchConfidence === 'number'
+      ? ` • ${(entry.matchConfidence * 100).toFixed(0)}%`
+      : '';
+  const method = entry.matchMethod ? ` • ${entry.matchMethod}` : '';
+  return `$${entry.price.toFixed(2)} on ${dateLabel}${method}${confidence}`;
+};
+
 const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
   items = [],
   selectedItems = new Map(),
@@ -67,6 +89,9 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                 {bucketItems.map((item, idx) => {
                   const itemKey = JSON.stringify(item);
                   const isSelected = selectedItems.get(itemKey) ?? (bucket === 'A' && !isReadOnly);
+                  const tokenSummary = formatTokens(item.tokens);
+                  const history = item.matchHistory?.slice(0, 3) ?? [];
+                  const priceDelta = typeof item.priceDelta === 'number' ? item.priceDelta : undefined;
 
                   return (
                     <div
@@ -94,10 +119,34 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                             <span>Total: ${item.totalPrice.toFixed(2)}</span>
                             <span>Unit: ${item.unitPrice.toFixed(2)}</span>
                           </div>
+                          {tokenSummary && (
+                            <p className="text-xs text-slate-500 mt-1">
+                              Tokens: {tokenSummary}
+                            </p>
+                          )}
+                          {priceDelta !== undefined && (
+                            <p
+                              className={
+                                `text-xs mt-1 ${priceDelta >= 0 ? 'text-red-400' : 'text-green-400'}`
+                              }
+                            >
+                              Δ {priceDelta >= 0 ? '+' : '-'}${Math.abs(priceDelta).toFixed(2)} vs last price
+                            </p>
+                          )}
                           {item.matchConfidence !== undefined && (
                             <p className="text-xs text-slate-500 mt-1">
                               Confidence: {(item.matchConfidence * 100).toFixed(0)}%
                             </p>
+                          )}
+                          {history.length > 0 && (
+                            <div className="text-[10px] text-slate-500 mt-1">
+                              <p>Match history:</p>
+                              <ul className="mt-1 space-y-0.5">
+                                {history.map((entry, historyIdx) => (
+                                  <li key={historyIdx}>{formatHistoryEntry(entry)}</li>
+                                ))}
+                              </ul>
+                            </div>
                           )}
                           {item.suggestedProduct && (
                             <div className="text-xs text-ninpo-lime mt-1">

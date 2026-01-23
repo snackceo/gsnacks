@@ -350,6 +350,22 @@ export interface ReturnSettlement {
  */
 export type ReceiptItemClassification = 'A' | 'B' | 'C';
 
+export interface ReceiptItemTokens {
+  brand?: string | null;
+  size?: string | null;
+  flavor?: string[];
+}
+
+export interface ReceiptMatchHistoryEntry {
+  price: number;
+  observedAt: string;
+  matchMethod?: string;
+  matchConfidence?: number;
+  priceType?: string;
+  promoDetected?: boolean;
+  workflowType?: string;
+}
+
 export interface ClassifiedReceiptItem {
   receiptName: string;
   quantity: number;
@@ -357,6 +373,9 @@ export interface ClassifiedReceiptItem {
   unitPrice: number;
   classification: ReceiptItemClassification;
   reason: string;
+  tokens?: ReceiptItemTokens;
+  priceDelta?: number;
+  matchHistory?: ReceiptMatchHistoryEntry[];
   suggestedProduct?: {
     id: string;
     name: string;
