@@ -915,6 +915,21 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     setEditingProduct(null);
   };
 
+  const formatStoreOptionLabel = (store: StoreRecord) => {
+    const meta = [];
+    if (store.storeType) {
+      meta.push(store.storeType.charAt(0).toUpperCase() + store.storeType.slice(1));
+    }
+    const locationParts = [store.address?.city, store.address?.state, store.address?.zip].filter(Boolean);
+    if (locationParts.length) {
+      meta.push(locationParts.join(', '));
+    }
+    if (store.isPrimarySupplier) {
+      meta.push('Primary supplier');
+    }
+    return meta.length ? `${store.name} • ${meta.join(' • ')}` : store.name;
+  };
+
   const receiptStoreSelector = scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? (
     <div className="space-y-2 text-white">
       <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-slate-300">
@@ -930,7 +945,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         <option value="">Select a store</option>
         {stores.map(store => (
           <option key={store.id} value={store.id}>
-            {store.name}
+            {formatStoreOptionLabel(store)}
           </option>
         ))}
       </select>

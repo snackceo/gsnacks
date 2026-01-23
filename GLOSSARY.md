@@ -419,6 +419,8 @@ pickupOnlyMultiplier (number setting): Discount multiplier applied to route-leve
 
 Pickup-Only Discount (policy): Route-level discount applied via pickupOnlyMultiplier when an order is pickup-only (returns-only). Applies to Route Fee and Distance Fee.
 
+primarySupplier (boolean field): Store flag indicating the primary supplier location for pricing context and receipt capture. Only one store should be marked primary at a time; setting a new primary clears the previous one.
+
 PLUS (icon): UI icon for adding items. E.g., used on “Add” buttons or the “Create” button (shows a plus sign when not loading).
 
 Point Eligible Tiers: Tiers that earn loyalty points on purchases. Defined by POINT_ELIGIBLE_TIERS = {COMMON, BRONZE, SILVER, GOLD} – notably Platinum is excluded (likely because Platinum might get other perks instead of points). Purchases by eligible tier users convert spending into points at a rate defined in POINT_EARNING_RATES.

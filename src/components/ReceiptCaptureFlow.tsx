@@ -23,6 +23,12 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   const [showStoreSelector, setShowStoreSelector] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
 
+  useEffect(() => {
+    if (defaultStoreId) {
+      setSelectedStoreId(defaultStoreId);
+    }
+  }, [defaultStoreId]);
+
   // When isOpen changes, handle showing store selector or camera
   useEffect(() => {
     if (isOpen) {
@@ -85,11 +91,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
           selectedStoreName={selectedStore?.name}
           selectedStoreLocation={
             selectedStore?.address
-              ? [
-                  selectedStore.address.street,
-                  selectedStore.address.city,
-                  selectedStore.address.state
-                ]
+              ? [selectedStore.address.street, selectedStore.address.city, selectedStore.address.state]
                   .filter(Boolean)
                   .join(', ')
               : undefined
