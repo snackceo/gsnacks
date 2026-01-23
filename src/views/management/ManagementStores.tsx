@@ -20,6 +20,16 @@ interface ManagementStoresProps {
 
 const emptyAddress = { street: '', city: '', state: '', zip: '', country: '' };
 
+const formatStoreType = (storeType?: string) => {
+  if (!storeType) return 'Other';
+  return storeType.charAt(0).toUpperCase() + storeType.slice(1);
+};
+
+const formatLocation = (store: StoreRecord) =>
+  [store.address?.street, store.address?.city, store.address?.state, store.address?.zip, store.address?.country]
+    .filter(Boolean)
+    .join(', ');
+
 const ManagementStores: React.FC<ManagementStoresProps> = ({
   stores,
   activeStoreId,
@@ -38,6 +48,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   const [showReceiptReview, setShowReceiptReview] = useState(false);
   const [selectedItemsForCommit, setSelectedItemsForCommit] = useState<Map<string, boolean>>(new Map());
   const [isCommitting, setIsCommitting] = useState(false);
+  const [primarySupplierUpdatingId, setPrimarySupplierUpdatingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<StoreRecord>({
     id: '',
     name: '',
@@ -133,7 +144,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
     try {
       // Upload to Cloudinary
       const uploadResult = await uploadReceiptPhoto(photoDataUrl, activeStoreId, activeStore.name);
-      
+
       if (!uploadResult) {
         setError('Cloudinary not configured. Please set up image uploads.');
         return;
@@ -161,10 +172,10 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       }
 
       if (!parseData.items || parseData.items.length === 0) {
-        addToast({ 
-          title: 'No items', 
-          description: 'No items were found in this receipt', 
-          tone: 'info' 
+        addToast({
+          title: 'No items',
+          description: 'No items were found in this receipt',
+          tone: 'info'
         });
         setShowReceiptScanner(false);
         return;
@@ -174,10 +185,10 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       const { items: classified, bucketCounts } = classifyItems(parseData.items);
       setClassifiedItems(classified);
 
-      addToast({ 
-        title: 'Parsed & Classified', 
-        description: `Found ${parseData.items.length} items: ${bucketCounts.A} auto-update, ${bucketCounts.B} review, ${bucketCounts.C} no-match`, 
-        tone: 'success' 
+      addToast({
+        title: 'Parsed & Classified',
+        description: `Found ${parseData.items.length} items: ${bucketCounts.A} auto-update, ${bucketCounts.B} review, ${bucketCounts.C} no-match`,
+        tone: 'success'
       });
 
       // Show review screen
@@ -219,7 +230,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
     setIsCommitting(true);
     try {
       // Collect selected items
-      const itemsToCommit = classifiedItems.filter(item => 
+      const itemsToCommit = classifiedItems.filter(item =>
         selectedItemsForCommit.has(JSON.stringify(item))
       );
 
@@ -262,6 +273,32 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       setIsCommitting(false);
     }
   }, [activeStoreId, activeStore, classifiedItems, selectedItemsForCommit, addToast, setError]);
+
+  const handlePrimarySupplierToggle = useCallback(async (store: StoreRecord) => {
+    setPrimarySupplierUpdatingId(store.id);
+    setError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/stores/${store.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ isPrimarySupplier: !store.isPrimarySupplier })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to update primary supplier');
+
+      await refreshStores();
+      addToast({
+        title: 'Updated',
+        description: `${store.name} ${store.isPrimarySupplier ? 'removed from' : 'set as'} primary supplier`,
+        tone: 'success'
+      });
+    } catch (err: any) {
+      setError(err?.message || 'Failed to update primary supplier');
+    } finally {
+      setPrimarySupplierUpdatingId(null);
+    }
+  }, [addToast, refreshStores, setError]);
 
   return (
     <div className="space-y-6">
@@ -397,41 +434,63 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
           </div>
 
           <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-            {stores.map(store => (
-              <div
-                key={store.id}
-                className={`p-4 rounded-2xl border text-sm text-white flex items-start justify-between gap-3 ${
-                  activeStoreId === store.id
-                    ? 'border-ninpo-lime/60 bg-ninpo-lime/10'
-                    : 'border-white/10 bg-white/5'
-                }`}
-              >
-                <div>
-                  <p className="font-black text-white">{store.name}</p>
-                  <p className="text-xs text-slate-400">{store.storeType || 'other'}</p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {[store.address?.street, store.address?.city, store.address?.state, store.address?.zip, store.address?.country]
-                      .filter(Boolean)
-                      .join(', ')}
-                  </p>
+            {stores.map(store => {
+              const location = formatLocation(store);
+              const isUpdating = primarySupplierUpdatingId === store.id;
+
+              return (
+                <div
+                  key={store.id}
+                  className={`p-4 rounded-2xl border text-sm text-white flex items-start justify-between gap-3 ${
+                    activeStoreId === store.id
+                      ? 'border-ninpo-lime/60 bg-ninpo-lime/10'
+                      : 'border-white/10 bg-white/5'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-black text-white">{store.name}</p>
+                      {store.isPrimarySupplier && (
+                        <span className="text-[10px] uppercase tracking-widest bg-ninpo-lime/20 text-ninpo-lime px-2 py-0.5 rounded-full">
+                          Primary supplier
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400">{formatStoreType(store.storeType)}</p>
+                    <p className="text-xs text-slate-400 mt-1">{location || 'No location metadata'}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-2">
+                    <button
+                      onClick={() => setActiveStoreId(store.id)}
+                      className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                        activeStoreId === store.id
+                          ? 'bg-ninpo-lime text-ninpo-black border-ninpo-lime'
+                          : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+                      }`}
+                    >
+                      {activeStoreId === store.id ? 'Active' : 'Set Active'}
+                    </button>
+                    <button
+                      onClick={() => void handlePrimarySupplierToggle(store)}
+                      disabled={isUpdating}
+                      className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                        store.isPrimarySupplier
+                          ? 'bg-ninpo-lime/20 text-ninpo-lime border-ninpo-lime/40'
+                          : 'bg-white/5 text-slate-200 border-white/10 hover:bg-white/10'
+                      } ${isUpdating ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    >
+                      {isUpdating ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                      <span className={isUpdating ? 'ml-2' : ''}>
+                        {store.isPrimarySupplier ? 'Primary supplier' : 'Set primary'}
+                      </span>
+                    </button>
+                    {store.createdFrom && (
+                      <p className="text-[10px] text-slate-500 uppercase tracking-widest">{store.createdFrom}</p>
+                    )}
+                  </div>
                 </div>
-                <div className="flex flex-col items-end gap-2">
-                  <button
-                    onClick={() => setActiveStoreId(store.id)}
-                    className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border ${
-                      activeStoreId === store.id
-                        ? 'bg-ninpo-lime text-ninpo-black border-ninpo-lime'
-                        : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
-                    }`}
-                  >
-                    {activeStoreId === store.id ? 'Active' : 'Set Active'}
-                  </button>
-                  {store.createdFrom && (
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">{store.createdFrom}</p>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {!stores.length && !isLoading && (
               <div className="text-xs text-slate-400">No stores yet. Create your first store above.</div>
             )}
@@ -504,7 +563,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
 
             {/* Items */}
             <div className="flex-1 overflow-y-auto p-6">
-              <ReceiptItemBucket 
+              <ReceiptItemBucket
                 items={classifiedItems}
                 selectedItems={selectedItemsForCommit}
                 onItemToggle={handleItemToggle}
@@ -519,22 +578,25 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
               </p>
             </div>
 
-            {/* Footer with actions */}
-            <div className="border-t border-white/10 p-6 flex gap-3">
+            {/* Actions */}
+            <div className="border-t border-white/10 px-6 py-4 flex gap-3">
               <button
                 onClick={() => setShowReceiptReview(false)}
-                disabled={isCommitting}
-                className="flex-1 px-6 py-3 rounded-2xl bg-slate-700 hover:bg-slate-600 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest transition"
+                className="flex-1 px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCommitReceipt}
                 disabled={isCommitting || selectedItemsForCommit.size === 0}
-                className="flex-1 px-6 py-3 rounded-2xl bg-ninpo-lime hover:bg-ninpo-lime/90 disabled:opacity-60 disabled:cursor-not-allowed text-ninpo-black text-[10px] font-black uppercase tracking-widest transition shadow-neon flex items-center justify-center gap-2"
+                className={`flex-1 px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 ${
+                  selectedItemsForCommit.size === 0
+                    ? 'bg-white/5 text-slate-500 border border-white/10'
+                    : 'bg-ninpo-lime text-ninpo-black'
+                } ${isCommitting ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
                 {isCommitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                {isCommitting ? 'Committing…' : 'Commit to Inventory'}
+                {isCommitting ? 'Committing…' : 'Commit Selected'}
               </button>
             </div>
           </div>

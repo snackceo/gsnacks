@@ -145,6 +145,7 @@ export interface StoreRecord {
   createdFrom?: string;
   createdAt?: string;
   location?: { lat?: number; lng?: number };
+  isPrimarySupplier?: boolean;
 }
 
 export interface UnmappedUpcData {

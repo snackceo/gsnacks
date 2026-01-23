@@ -26,6 +26,18 @@ const coerceNumber = value => {
   return Number.isFinite(num) ? num : null;
 };
 
+const toStoreResponse = store => ({
+  id: store._id.toString(),
+  name: store.name,
+  phone: store.phone,
+  address: store.address,
+  storeType: store.storeType,
+  createdFrom: store.createdFrom,
+  createdAt: store.createdAt ? new Date(store.createdAt).toISOString() : undefined,
+  location: store.location,
+  isPrimarySupplier: store.isPrimarySupplier
+});
+
 // Enrich store details using Gemini (normalize address + store type)
 router.post('/enrich', authRequired, async (req, res) => {
   const { text = '', name = '', address = {} } = req.body || {};
@@ -108,7 +120,15 @@ ${input}`;
 // Create or update a store record
 router.post('/', authRequired, async (req, res) => {
   try {
-    const { name, phone = '', address = {}, storeType = 'other', location = {}, createdFrom } = req.body || {};
+    const {
+      name,
+      phone = '',
+      address = {},
+      storeType = 'other',
+      location = {},
+      createdFrom,
+      isPrimarySupplier
+    } = req.body || {};
     const trimmedName = String(name || '').trim();
     if (!trimmedName) {
       return res.status(400).json({ error: 'Store name is required.' });
@@ -133,6 +153,10 @@ router.post('/', authRequired, async (req, res) => {
       isActive: true
     };
 
+    if (typeof isPrimarySupplier === 'boolean') {
+      payload.isPrimarySupplier = isPrimarySupplier;
+    }
+
     const lat = coerceNumber(location.lat);
     const lng = coerceNumber(location.lng);
     if (lat !== null && lng !== null) {
@@ -148,10 +172,43 @@ router.post('/', authRequired, async (req, res) => {
       store = await Store.create(payload);
     }
 
+    if (store?.isPrimarySupplier) {
+      await Store.updateMany({ _id: { $ne: store._id } }, { $set: { isPrimarySupplier: false } });
+    }
+
     return res.json({ ok: true, store: { ...store, id: store._id?.toString?.() } });
   } catch (err) {
     console.error('STORE UPSERT ERROR', err);
     return res.status(500).json({ error: 'Failed to save store' });
+  }
+});
+
+// Update store metadata (primary supplier toggle)
+router.patch('/:storeId', authRequired, async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const { isPrimarySupplier } = req.body || {};
+
+    if (typeof isPrimarySupplier !== 'boolean') {
+      return res.status(400).json({ error: 'isPrimarySupplier must be a boolean.' });
+    }
+
+    const store = await Store.findById(storeId);
+    if (!store) return res.status(404).json({ error: 'Store not found' });
+
+    store.isPrimarySupplier = isPrimarySupplier;
+    await store.save();
+
+    if (isPrimarySupplier) {
+      await Store.updateMany({ _id: { $ne: store._id } }, { $set: { isPrimarySupplier: false } });
+    }
+
+    const updated = await Store.findById(store._id).lean();
+
+    return res.json({ ok: true, store: toStoreResponse(updated) });
+  } catch (err) {
+    console.error('STORE UPDATE ERROR', err);
+    return res.status(500).json({ error: 'Failed to update store' });
   }
 });
 
@@ -168,13 +225,7 @@ router.get('/', authRequired, async (req, res) => {
 
     res.json({
       ok: true,
-      stores: stores.map(store => ({
-        id: store._id.toString(),
-        name: store.name,
-        address: store.address,
-        createdFrom: store.createdFrom,
-        createdAt: store.createdAt ? new Date(store.createdAt).toISOString() : undefined
-      }))
+      stores: stores.map(store => toStoreResponse(store))
     });
   } catch (err) {
     console.error('GET STORES ERROR:', err);
@@ -219,55 +270,28 @@ router.post('/:storeId/prices', authRequired, async (req, res) => {
 
     if (!product) return res.status(404).json({ error: 'Product not found for pricing' });
 
-    const resolvedCost = coerceNumber(cost) ?? coerceNumber(product.price) ?? 0;
-    if (!Number.isFinite(resolvedCost)) {
-      return res.status(400).json({ error: 'Invalid cost value' });
-    }
-
-    const observed = coerceNumber(observedPrice);
-    const now = new Date();
-
-    const priceHistoryEntry = observed
-      ? {
-          price: observed,
-          observedAt: now,
-          storeId,
-          captureId,
-          orderId,
-          quantity: coerceNumber(quantity) ?? undefined,
-          receiptImageUrl,
-          receiptThumbnailUrl,
-          matchMethod,
-          matchConfidence: 1,
-          priceType,
-          promoDetected: false
-        }
-      : null;
-
-    const update = {
-      sku: product.sku || undefined,
-      cost: resolvedCost,
-      lastVerified: now
+    const payload = {
+      storeId,
+      productId: product._id,
+      sku: product.sku,
+      upc,
+      cost,
+      observedPrice,
+      priceType,
+      quantity,
+      captureId,
+      orderId,
+      receiptImageUrl,
+      receiptThumbnailUrl,
+      matchMethod
     };
 
-    if (observed !== null && observed !== undefined) {
-      update.observedPrice = observed;
-      update.observedAt = now;
-    }
+    await StoreInventory.create(payload);
 
-    const inventory = await StoreInventory.findOneAndUpdate(
-      { storeId, productId: product._id },
-      {
-        $set: update,
-        ...(priceHistoryEntry ? { $push: { priceHistory: priceHistoryEntry } } : {})
-      },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
-
-    return res.json({ ok: true, inventory });
+    return res.json({ ok: true });
   } catch (err) {
     console.error('STORE PRICE UPDATE ERROR', err);
-    return res.status(500).json({ error: 'Failed to update store pricing' });
+    return res.status(500).json({ error: 'Failed to save store pricing' });
   }
 });
 

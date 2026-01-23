@@ -39,7 +39,7 @@ const storeSchema = new mongoose.Schema(
       city: { type: String, default: '' },
       state: { type: String, default: '' },
       zip: { type: String, default: '' },
-      country: { type: String, default: '' },
+      country: { type: String, default: '' }
     },
     // Location for routing (optional for receipt-uploaded stores)
     location: {
@@ -47,8 +47,8 @@ const storeSchema = new mongoose.Schema(
       lng: { type: Number }
     },
     // Store metadata (optional for receipt-uploaded stores)
-    storeType: { 
-      type: String, 
+    storeType: {
+      type: String,
       enum: ['walmart', 'kroger', 'aldi', 'target', 'meijer', 'hub', 'other']
     },
     // Track how store was created
@@ -61,6 +61,7 @@ const storeSchema = new mongoose.Schema(
     reliabilityScore: { type: Number, default: 100, min: 0, max: 100 },
     outOfStockRate: { type: Number, default: 0, min: 0, max: 100 },
     isActive: { type: Boolean, default: true },
+    isPrimarySupplier: { type: Boolean, default: false },
     hours: { type: storeHoursSchema, default: () => ({}) }
   },
   { timestamps: true }
