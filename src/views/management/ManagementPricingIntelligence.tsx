@@ -1508,11 +1508,11 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                   <Camera className="w-5 h-5" />
                   Review Pending Receipts
                 </h3>
-                <p className="text-sm text-purple-100 mt-2">Receipts waiting for item review.</p>
+                <p className="text-sm text-purple-100 mt-2">Pending receipts awaiting review.</p>
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-purple-100">
-                  {receiptCaptures.filter(c => c.status === 'parsed').length} pending review
+                  {receiptCaptures.filter(c => c.status === 'parsed').length} pending receipts
                 </span>
                 <button
                   onClick={openReceiptScanner}
@@ -1620,7 +1620,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                 ))}
               </div>
             ) : (
-              <div className="text-xs text-purple-100/80">No pending receipts yet.</div>
+              <div className="text-xs text-purple-100/80">No pending receipts awaiting review.</div>
             )}
           </div>
 
