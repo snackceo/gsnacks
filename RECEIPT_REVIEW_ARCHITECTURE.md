@@ -139,7 +139,7 @@ STEP 3: MANAGEMENT REVIEW
 │ • Timestamp                          │
 └──────────────┬──────────────────────┘
                │
-               ├─→ GET /api/receipts?status=NEEDS_REVIEW
+               ├─→ GET /api/receipt-review/receipts?status=NEEDS_REVIEW
                │   Response: [
                │     {
                │       _id, captureId, status,
@@ -165,7 +165,7 @@ STEP 3: MANAGEMENT REVIEW
 STEP 4: APPROVAL & APPLICATION
 ┌──────────────────────────────────────┐
 │ Approval Logic                       │
-│ POST /api/receipts/:id/approve       │
+│ POST /api/receipt-review/receipts/:id/approve       │
 └──────────────┬──────────────────────┘
                │
                ├─→ Check authorization (MANAGER/OWNER)
@@ -241,7 +241,7 @@ STEP 5: RESULT
 │ Clicks "Reject"                  │
 └──────────────┬──────────────────┘
                │
-               └─→ POST /api/receipts/:id/reject
+               └─→ POST /api/receipt-review/receipts/:id/reject
                    {
                      reason: "Price too low, likely scanner error"
                    }

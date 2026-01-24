@@ -34,7 +34,7 @@ const escapeRegex = value => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, 
 
 const toPlain = value => (value?.toObject ? value.toObject() : value);
 
-// GET /api/receipts?status=NEEDS_REVIEW
+// GET /api/receipt-review/receipts?status=NEEDS_REVIEW
 router.get('/receipts', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
@@ -49,7 +49,7 @@ router.get('/receipts', authRequired, async (req, res) => {
   res.json({ ok: true, jobs });
 });
 
-// GET /api/receipts/:id
+// GET /api/receipt-review/receipts/:id
 router.get('/receipts/:id', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
@@ -62,7 +62,7 @@ router.get('/receipts/:id', authRequired, async (req, res) => {
   res.json({ ok: true, job });
 });
 
-// POST /api/receipts/:id/approve
+// POST /api/receipt-review/receipts/:id/approve
 router.post('/receipts/:id/approve', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
@@ -279,7 +279,7 @@ router.post('/receipts/:id/approve', authRequired, async (req, res) => {
   res.json({ ok: true, job });
 });
 
-// POST /api/receipts/:id/reject
+// POST /api/receipt-review/receipts/:id/reject
 router.post('/receipts/:id/reject', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
