@@ -190,7 +190,7 @@ CLOUDINARY_SECRET=your_api_secret
 
 # Queue (optional, for background worker)
 ENABLE_RECEIPT_QUEUE=true
-BULLMQ_URL=redis://localhost:6379
+REDIS_URL=redis://localhost:6379
 RECEIPT_WORKER_CONCURRENCY=2
 ```
 

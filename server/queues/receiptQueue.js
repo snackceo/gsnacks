@@ -1,13 +1,19 @@
 import { Queue, Worker, QueueEvents } from 'bullmq';
 import IORedis from 'ioredis';
 
-const connectionString = process.env.BULLMQ_URL || process.env.REDIS_URL || process.env.REDIS_CONNECTION_URL || '';
+const redisUrl = process.env.REDIS_URL || '';
+const queueName = 'receipt-parse';
+
 let connection = null;
 
-if (connectionString) {
-  connection = new IORedis(connectionString, {
+if (redisUrl) {
+  connection = new IORedis(redisUrl, {
     maxRetriesPerRequest: null,
     enableReadyCheck: true
+  });
+
+  connection.on('ready', () => {
+    console.log('Redis connected for BullMQ receipt queue.');
   });
 
   connection.on('error', err => {
@@ -16,8 +22,6 @@ if (connectionString) {
 } else {
   console.warn('BullMQ connection not configured; receipt queue is disabled.');
 }
-
-const queueName = 'receipt-learning';
 
 const receiptQueue = connection && String(process.env.ENABLE_RECEIPT_QUEUE || 'false').toLowerCase() === 'true'
   ? new Queue(queueName, {
@@ -30,6 +34,10 @@ const receiptQueue = connection && String(process.env.ENABLE_RECEIPT_QUEUE || 'f
       }
     })
   : null;
+
+if (receiptQueue) {
+  console.log('BullMQ receipt queue enabled.');
+}
 
 const receiptQueueEvents = connection ? new QueueEvents(queueName, { connection }) : null;
 

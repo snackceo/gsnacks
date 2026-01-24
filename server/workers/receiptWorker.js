@@ -45,6 +45,7 @@ const worker = registerReceiptWorker(async job => {
 });
 
 if (worker) {
+  console.log('Receipt worker running for receipt-parse queue.');
   worker.on('failed', (job, err) => {
     console.error(`Receipt worker failed job ${job.id}:`, err?.message || err);
   });

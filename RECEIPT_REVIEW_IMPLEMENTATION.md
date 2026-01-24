@@ -175,7 +175,7 @@ Real inventory + pricing data applied
 
 Ensure these env vars:
 - `ENABLE_RECEIPT_QUEUE=true` (if using BullMQ worker)
-- `BULLMQ_URL` or `REDIS_URL` (for queue)
+- `REDIS_URL` (for queue)
 - `GEMINI_API_KEY` (for Gemini Vision parsing)
 - `CLOUDINARY_NAME`, `CLOUDINARY_KEY`, `CLOUDINARY_SECRET` (for image upload)
 
