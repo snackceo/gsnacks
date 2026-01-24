@@ -229,6 +229,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const [receiptAliases, setReceiptAliases] = useState<ReceiptAliasRecord[]>([]);
   const [isAliasLoading, setIsAliasLoading] = useState(false);
   const [aliasError, setAliasError] = useState<string | null>(null);
+  const [aliasServiceStatus, setAliasServiceStatus] = useState<null | 'pricing-disabled' | 'db-not-ready'>(null);
   const [aliasActionId, setAliasActionId] = useState<string | null>(null);
   const [receiptError, setReceiptError] = useState<string | null>(null);
   const [showReceiptScanner, setShowReceiptScanner] = useState(false);
@@ -516,9 +517,21 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     }
   }, []);
 
+  const getAliasServiceStatus = (message?: string | null) => {
+    if (!message) return null;
+    if (message.toLowerCase().includes('pricing learning disabled')) {
+      return 'pricing-disabled' as const;
+    }
+    if (message.toLowerCase().includes('database not ready')) {
+      return 'db-not-ready' as const;
+    }
+    return null;
+  };
+
   const fetchReceiptAliases = useCallback(async () => {
     setIsAliasLoading(true);
     setAliasError(null);
+    setAliasServiceStatus(null);
 
     try {
       const params = new URLSearchParams();
@@ -530,6 +543,16 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-aliases?${params.toString()}`, {
         credentials: 'include'
       });
+
+      if (resp.status === 503) {
+        const errData = await resp.json().catch(() => ({}));
+        const status = getAliasServiceStatus(errData?.error);
+        if (status) {
+          setAliasServiceStatus(status);
+          setReceiptAliases([]);
+          return;
+        }
+      }
 
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
@@ -1772,6 +1795,19 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
               </button>
             </div>
           </div>
+
+          {aliasServiceStatus === 'pricing-disabled' && (
+            <div className="mt-4 text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+              <div className="text-[10px] uppercase tracking-widest text-amber-200 font-bold">Alias service offline</div>
+              <div className="mt-1 text-xs text-amber-100">Pricing learning disabled.</div>
+            </div>
+          )}
+          {aliasServiceStatus === 'db-not-ready' && (
+            <div className="mt-4 text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+              <div className="text-[10px] uppercase tracking-widest text-amber-200 font-bold">Alias service warming up</div>
+              <div className="mt-1 text-xs text-amber-100">Database not ready.</div>
+            </div>
+          )}
 
           {aliasError && (
             <div className="mt-4 text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
