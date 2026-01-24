@@ -1,12 +1,16 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { GoogleGenAI } from '@google/genai';
 import Store from '../models/Store.js';
 import StoreInventory from '../models/StoreInventory.js';
 import Product from '../models/Product.js';
 import UpcItem from '../models/UpcItem.js';
 import { authRequired } from '../utils/helpers.js';
+import { recordAuditLog } from '../utils/audit.js';
 
 const router = express.Router();
+
+const DEFAULT_PRICE_LOCK_DAYS = 7;
 
 const getGeminiApiKey = () => process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
 
@@ -238,6 +242,12 @@ router.post('/:storeId/prices', authRequired, async (req, res) => {
   try {
     const { storeId } = req.params;
     const {
+      items,
+      commitId,
+      lockPrices,
+      lockDurationDays,
+      receiptImageUrl,
+      receiptThumbnailUrl,
       productId,
       sku,
       upc,
@@ -247,13 +257,141 @@ router.post('/:storeId/prices', authRequired, async (req, res) => {
       quantity,
       captureId,
       orderId,
-      receiptImageUrl,
-      receiptThumbnailUrl,
       matchMethod = 'upc'
     } = req.body || {};
 
     const store = await Store.findById(storeId);
     if (!store) return res.status(404).json({ error: 'Store not found' });
+
+    if (Array.isArray(items)) {
+      if (items.length === 0) {
+        return res.status(400).json({ error: 'items array is required' });
+      }
+
+      if (!receiptImageUrl) {
+        return res.status(400).json({ error: 'receiptImageUrl is required for receipt commits' });
+      }
+
+      const session = await mongoose.startSession();
+      const errors = [];
+      let committed = 0;
+      const now = new Date();
+      const commitKey = String(commitId || `commit_${storeId}_${Date.now()}`);
+      const lockDays = coerceNumber(lockDurationDays) || DEFAULT_PRICE_LOCK_DAYS;
+      const lockUntil = lockPrices ? new Date(now.getTime() + lockDays * 24 * 60 * 60 * 1000) : null;
+
+      await session.withTransaction(async () => {
+        for (const [index, item] of items.entries()) {
+          try {
+            const lineIndex = Number.isFinite(item?.lineIndex) ? Number(item.lineIndex) : index;
+            const targetProductId = item?.productId;
+            if (!targetProductId || !mongoose.Types.ObjectId.isValid(targetProductId)) {
+              errors.push({ lineIndex, error: 'Valid productId required' });
+              continue;
+            }
+
+            const product = await Product.findById(targetProductId).session(session);
+            if (!product) {
+              errors.push({ lineIndex, error: 'Product not found' });
+              continue;
+            }
+
+            const qty = Number(item?.quantity) || 1;
+            const unitPrice = Number(item?.unitPrice ?? (Number(item?.totalPrice) / qty));
+
+            if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+              errors.push({ lineIndex, error: 'Valid unit price required' });
+              continue;
+            }
+
+            const existing = await StoreInventory.findOne({
+              storeId: store._id,
+              productId: product._id
+            }).session(session);
+
+            if (existing?.priceLockUntil && existing.priceLockUntil > now) {
+              errors.push({ lineIndex, error: `Price locked until ${existing.priceLockUntil.toISOString()}` });
+              continue;
+            }
+
+            const observedAt = new Date();
+            const priceEntry = {
+              price: unitPrice,
+              observedAt,
+              storeId: store._id,
+              captureId: commitKey,
+              orderId: item?.orderId,
+              quantity: qty,
+              receiptImageUrl,
+              receiptThumbnailUrl,
+              matchMethod: item?.matchMethod || 'manual_confirm',
+              matchConfidence: Number.isFinite(item?.matchConfidence) ? Number(item.matchConfidence) : 1,
+              confirmedBy: req.user?.username || 'unknown',
+              priceType: item?.priceType || 'regular',
+              promoDetected: Boolean(item?.promoDetected),
+              workflowType: item?.workflowType
+            };
+
+            const update = {
+              $set: {
+                observedPrice: unitPrice,
+                observedAt,
+                updatedAt: observedAt,
+                lastVerified: observedAt
+              },
+              $setOnInsert: {
+                storeId: store._id,
+                productId: product._id,
+                sku: product.sku,
+                cost: Number.isFinite(item?.cost) ? Number(item.cost) : unitPrice,
+                markup: 1.2,
+                available: true,
+                stockLevel: 'in-stock'
+              },
+              $push: {
+                priceHistory: {
+                  $each: [priceEntry],
+                  $slice: -20
+                },
+                appliedCaptures: {
+                  $each: [{ captureId: commitKey, lineIndex, appliedAt: observedAt }],
+                  $slice: -50
+                }
+              }
+            };
+
+            if (lockUntil) {
+              update.$set.priceLockUntil = lockUntil;
+            }
+
+            await StoreInventory.updateOne(
+              { storeId: store._id, productId: product._id },
+              update,
+              { upsert: true, session }
+            );
+
+            committed++;
+          } catch (itemError) {
+            errors.push({ lineIndex: item?.lineIndex ?? index, error: itemError.message });
+          }
+        }
+
+        await recordAuditLog({
+          type: 'receipt_commit',
+          actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+          details: `Store receipt commit ${commitKey} for ${store.name}. Items committed: ${committed}. Locked: ${lockUntil ? lockUntil.toISOString() : 'no'}.`
+        });
+      });
+
+      await session.endSession();
+
+      return res.json({
+        ok: true,
+        committed,
+        lockUntil: lockUntil ? lockUntil.toISOString() : undefined,
+        errors: errors.length > 0 ? errors : undefined
+      });
+    }
 
     let product = null;
     if (productId) {

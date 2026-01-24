@@ -36,6 +36,8 @@ interface NoiseRuleEntry {
 
 const emptyAddress = { street: '', city: '', state: '', zip: '', country: '' };
 
+const PRICE_LOCK_DAYS = 7;
+
 const formatStoreType = (storeType?: string) => {
   if (!storeType) return 'Other';
   return storeType.charAt(0).toUpperCase() + storeType.slice(1);
@@ -62,6 +64,10 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   const [isEnriching, setIsEnriching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showReceiptScanner, setShowReceiptScanner] = useState(false);
+  const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
+  const [receiptThumbnailUrl, setReceiptThumbnailUrl] = useState<string | null>(null);
+  const [lockPricesOnCommit, setLockPricesOnCommit] = useState(false);
+  const [commitIntent, setCommitIntent] = useState<'safe' | 'selected' | null>(null);
   const [classifiedItems, setClassifiedItems] = useState<ClassifiedReceiptItem[]>([]);
   const [showReceiptReview, setShowReceiptReview] = useState(false);
   const [selectedItemsForCommit, setSelectedItemsForCommit] = useState<Map<string, boolean>>(new Map());
@@ -98,6 +104,11 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   const canCreateProducts = currentUser?.role === 'OWNER' || currentUser?.role === 'MANAGER';
 
   const filteredProducts = useMemo(() => productSearchResults, [productSearchResults]);
+
+  const safeItemsForCommit = useMemo(
+    () => classifiedItems.filter(item => item.classification === 'A' && item.suggestedProduct),
+    [classifiedItems]
+  );
 
   const updateReceiptItem = useCallback(
     (
@@ -293,6 +304,17 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
 
   const handleCloseReceiptScanner = useCallback(() => {
     setShowReceiptScanner(false);
+    setReceiptImageUrl(null);
+    setReceiptThumbnailUrl(null);
+  }, []);
+
+  const resetReceiptReview = useCallback(() => {
+    setShowReceiptReview(false);
+    setClassifiedItems([]);
+    setSelectedItemsForCommit(new Map());
+    setReceiptImageUrl(null);
+    setReceiptThumbnailUrl(null);
+    setLockPricesOnCommit(false);
   }, []);
 
   const handlePhotoCaptured = useCallback(async (photoDataUrl: string, _mime: string) => {
@@ -308,6 +330,8 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       }
 
       addToast('Receipt image uploaded to Cloudinary', 'success');
+      setReceiptImageUrl(uploadResult.secureUrl);
+      setReceiptThumbnailUrl(uploadResult.secureUrl);
 
       // Send to backend for Gemini parsing
       const parseRes = await fetch(`${BACKEND_URL}/api/driver/receipt-parse-frame`, {
@@ -656,36 +680,54 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
     }
   }, [activeStoreId, addToast, setError, updateReceiptItem]);
 
-  const handleCommitReceipt = useCallback(async () => {
-    if (!activeStoreId || selectedItemsForCommit.size === 0) {
+  const createCommitId = () => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+    return `commit_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  };
+
+  const commitReceiptItems = useCallback(async (itemsToCommit: ClassifiedReceiptItem[], intent: 'safe' | 'selected') => {
+    if (!activeStoreId || itemsToCommit.length === 0) {
       setError('No items selected for commit');
       return;
     }
 
+    if (!receiptImageUrl) {
+      setError('Receipt image is required before commit');
+      return;
+    }
+
+    const unpreparedItems = itemsToCommit.filter(item => !item.suggestedProduct);
+    if (unpreparedItems.length > 0) {
+      setError('Create products for unknown/new items before commit');
+      return;
+    }
+
+    setCommitIntent(intent);
     setIsCommitting(true);
     try {
-      // Collect selected items
-      const itemsToCommit = classifiedItems.filter(item =>
-        selectedItemsForCommit.has(JSON.stringify(item))
-      );
-      const unpreparedItems = itemsToCommit.filter(item => !item.suggestedProduct);
-      if (unpreparedItems.length > 0) {
-        setError('Create products for unknown/new items before commit');
-        return;
-      }
-
-      // Send to backend for two-phase commit
+      const commitId = createCommitId();
       const commitRes = await fetch(`${BACKEND_URL}/api/stores/${activeStoreId}/prices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          items: itemsToCommit.map(item => ({
+          commitId,
+          receiptImageUrl,
+          receiptThumbnailUrl,
+          lockPrices: lockPricesOnCommit,
+          lockDurationDays: PRICE_LOCK_DAYS,
+          items: itemsToCommit.map((item, index) => ({
+            lineIndex: index,
+            productId: item.suggestedProduct?.id,
             receiptName: item.receiptName,
             quantity: item.quantity,
             totalPrice: item.totalPrice,
             unitPrice: item.unitPrice,
-            classification: item.classification
+            classification: item.classification,
+            matchMethod: item.matchMethod,
+            matchConfidence: item.matchConfidence
           }))
         })
       });
@@ -696,19 +738,34 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
         throw new Error(commitData?.error || 'Commit failed');
       }
 
-      addToast(`${itemsToCommit.length} items added to ${activeStore?.name} inventory`, 'success');
+      const committedCount = Number(commitData?.committed ?? itemsToCommit.length);
+      const lockLabel = lockPricesOnCommit ? ` (locked ${PRICE_LOCK_DAYS} days)` : '';
+      addToast(`${committedCount} items added to ${activeStore?.name} inventory${lockLabel}`, 'success');
 
-      // Close review and reset
-      setShowReceiptReview(false);
-      setClassifiedItems([]);
-      setSelectedItemsForCommit(new Map());
+      if (commitData?.errors?.length) {
+        addToast(`Some items were skipped: ${commitData.errors.length} issue(s)`, 'info');
+      }
+
+      resetReceiptReview();
     } catch (err: any) {
       console.error('Commit error:', err);
       setError(err?.message || 'Failed to commit items');
     } finally {
       setIsCommitting(false);
+      setCommitIntent(null);
     }
-  }, [activeStoreId, activeStore, classifiedItems, selectedItemsForCommit, addToast, setError]);
+  }, [activeStoreId, activeStore, addToast, lockPricesOnCommit, receiptImageUrl, receiptThumbnailUrl, resetReceiptReview, setError]);
+
+  const handleCommitSelected = useCallback(async () => {
+    const itemsToCommit = classifiedItems.filter(item =>
+      selectedItemsForCommit.has(JSON.stringify(item))
+    );
+    await commitReceiptItems(itemsToCommit, 'selected');
+  }, [classifiedItems, commitReceiptItems, selectedItemsForCommit]);
+
+  const handleCommitSafeUpdates = useCallback(async () => {
+    await commitReceiptItems(safeItemsForCommit, 'safe');
+  }, [commitReceiptItems, safeItemsForCommit]);
 
   const handlePrimarySupplierToggle = useCallback(async (store: StoreRecord) => {
     setPrimarySupplierUpdatingId(store.id);
@@ -1002,7 +1059,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
                     Manage Noise Rules
                   </button>
                   <button
-                    onClick={() => setShowReceiptReview(false)}
+                    onClick={resetReceiptReview}
                     className="text-slate-400 hover:text-white transition p-2"
                   >
                     ✕
@@ -1037,25 +1094,50 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
             </div>
 
             {/* Actions */}
-            <div className="border-t border-white/10 px-6 py-4 flex gap-3">
-              <button
-                onClick={() => setShowReceiptReview(false)}
-                className="flex-1 px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCommitReceipt}
-                disabled={isCommitting || selectedItemsForCommit.size === 0}
-                className={`flex-1 px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 ${
-                  selectedItemsForCommit.size === 0
-                    ? 'bg-white/5 text-slate-500 border border-white/10'
-                    : 'bg-ninpo-lime text-ninpo-black'
-                } ${isCommitting ? 'opacity-70 cursor-not-allowed' : ''}`}
-              >
-                {isCommitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                {isCommitting ? 'Committing…' : 'Commit Selected'}
-              </button>
+            <div className="border-t border-white/10 px-6 py-4">
+              <div className="flex flex-col gap-3">
+                <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={lockPricesOnCommit}
+                    onChange={e => setLockPricesOnCommit(e.target.checked)}
+                    className="h-4 w-4 rounded border border-white/20 bg-black/30"
+                  />
+                  Commit &amp; Lock Prices (freeze for {PRICE_LOCK_DAYS} days)
+                </label>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    onClick={resetReceiptReview}
+                    className="flex-1 px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleCommitSafeUpdates}
+                    disabled={isCommitting || safeItemsForCommit.length === 0}
+                    className={`flex-1 px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 ${
+                      safeItemsForCommit.length === 0
+                        ? 'bg-white/5 text-slate-500 border border-white/10'
+                        : 'bg-white/10 text-white border border-white/10'
+                    } ${isCommitting ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  >
+                    {isCommitting && commitIntent === 'safe' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    {isCommitting && commitIntent === 'safe' ? 'Committing…' : 'Commit All Safe Updates'}
+                  </button>
+                  <button
+                    onClick={handleCommitSelected}
+                    disabled={isCommitting || selectedItemsForCommit.size === 0}
+                    className={`flex-1 px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 ${
+                      selectedItemsForCommit.size === 0
+                        ? 'bg-white/5 text-slate-500 border border-white/10'
+                        : 'bg-ninpo-lime text-ninpo-black'
+                    } ${isCommitting ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  >
+                    {isCommitting && commitIntent === 'selected' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    {isCommitting && commitIntent === 'selected' ? 'Committing…' : 'Commit Selected Items'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
