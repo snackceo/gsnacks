@@ -1,6 +1,9 @@
 // Centralized feature flags for pricing/learning controls
 export const isPricingLearningEnabled = () => String(process.env.PRICING_LEARNING_ENABLED || 'false').toLowerCase() === 'true';
 
+export const isStoreInventoryPricingEnabled = () =>
+  String(process.env.USE_STORE_INVENTORY_PRICING || 'false').toLowerCase() === 'true';
+
 export const receiptIngestionMode = () => {
   const mode = String(process.env.RECEIPT_INGESTION_MODE || 'draft').toLowerCase();
   return ['draft', 'disabled'].includes(mode) ? mode : 'draft';

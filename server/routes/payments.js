@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
+import StoreInventory from '../models/StoreInventory.js';
 import UpcItem from '../models/UpcItem.js';
 import AppSettings from '../models/AppSettings.js';
 import User from '../models/User.js';
@@ -24,6 +25,7 @@ import { isDbReady } from '../db/connect.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { resolveDistanceMiles } from '../utils/distance.js';
 import { getDeliveryOptions } from '../utils/deliveryFees.js';
+import { isStoreInventoryPricingEnabled } from '../utils/featureFlags.js';
 
 const CREDIT_DELIVERY_ELIGIBLE_TIERS = new Set(['SILVER', 'GOLD', 'PLATINUM', 'GREEN']);
 const CASH_PAYOUT_ELIGIBLE_TIERS = new Set(['GOLD', 'PLATINUM', 'GREEN']);
@@ -49,13 +51,118 @@ const DEFAULT_DISTANCE_FEES = {
 const STALENESS_DAYS_STABLE = 45;
 const STALENESS_DAYS_VOLATILE = 10;
 
-const evaluatePriceStaleness = (product, isVolatileStore = false) => {
+const resolvePriceTimestamp = (record) =>
+  record?.lastVerified || record?.observedAt || record?.updatedAt || record?.createdAt || null;
+
+const evaluatePriceStaleness = (record, isVolatileStore = false) => {
   const thresholdDays = isVolatileStore ? STALENESS_DAYS_VOLATILE : STALENESS_DAYS_STABLE;
-  const updatedAt = product?.updatedAt || product?.createdAt || null;
+  const updatedAt = resolvePriceTimestamp(record);
   if (!updatedAt) return { stale: true, updatedAt: null, days: Number.POSITIVE_INFINITY };
   const updated = new Date(updatedAt);
   const ageDays = (Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24);
   return { stale: ageDays > thresholdDays, updatedAt: updated, days: ageDays };
+};
+
+const resolvePricingContext = async (items, { session = null, useStoreInventoryPricing = false } = {}) => {
+  const frontendIds = Array.from(new Set((items || []).map(it => it.productId))).filter(Boolean);
+  if (frontendIds.length === 0) {
+    return {
+      ok: true,
+      pricingByFrontendId: new Map(),
+      productMap: new Map(),
+      stalenessWarnings: [],
+      pricingWarnings: []
+    };
+  }
+
+  const products = await Product.find(
+    { frontendId: { $in: frontendIds } },
+    { price: 1, frontendId: 1, isHeavy: 1, name: 1, updatedAt: 1, createdAt: 1, store: 1 }
+  )
+    .session(session)
+    .lean();
+
+  const productMap = new Map(products.map(product => [product.frontendId, product]));
+  const missing = frontendIds.find(id => !productMap.has(id));
+  if (missing) {
+    return { ok: false, status: 400, error: `Unknown product ${missing}` };
+  }
+
+  let inventoriesByProductId = new Map();
+  if (useStoreInventoryPricing) {
+    const productIds = products.map(p => p._id).filter(Boolean);
+    const storeIds = products.map(p => p.store).filter(Boolean);
+    const query = { productId: { $in: productIds } };
+    if (storeIds.length > 0) {
+      query.storeId = { $in: storeIds };
+    }
+
+    const inventories = await StoreInventory.find(query, {
+      observedPrice: 1,
+      observedAt: 1,
+      lastVerified: 1,
+      updatedAt: 1,
+      storeId: 1,
+      productId: 1,
+      cost: 1,
+      markup: 1
+    })
+      .session(session)
+      .lean();
+
+    inventoriesByProductId = new Map();
+    for (const inv of inventories) {
+      const key = String(inv.productId);
+      const list = inventoriesByProductId.get(key) || [];
+      list.push(inv);
+      inventoriesByProductId.set(key, list);
+    }
+  }
+
+  const pricingByFrontendId = new Map();
+  const stalenessWarnings = [];
+  const pricingWarnings = [];
+
+  for (const product of products) {
+    const inventoryList = inventoriesByProductId.get(String(product._id)) || [];
+    const inventory = inventoryList.find(inv => product.store && String(inv.storeId) === String(product.store))
+      || inventoryList[0]
+      || null;
+
+    const basePrice = Number(product.price);
+    const inventoryPrice = Number(inventory?.observedPrice);
+
+    let finalPrice = basePrice;
+    let priceSource = 'catalog';
+
+    if (useStoreInventoryPricing && Number.isFinite(inventoryPrice)) {
+      finalPrice = inventoryPrice;
+      priceSource = 'store_inventory';
+    } else if (useStoreInventoryPricing && Number.isFinite(basePrice)) {
+      priceSource = 'fallback_catalog';
+      pricingWarnings.push(`Using catalog price for ${product.frontendId} (inventory missing/unpriced).`);
+    }
+
+    if (!Number.isFinite(finalPrice)) {
+      return { ok: false, status: 400, code: 'NO_COMMITTED_PRICE', error: `Product ${product.frontendId} has no committed price` };
+    }
+
+    const staleness = evaluatePriceStaleness(inventory || product, false);
+    if (staleness.stale) {
+      const dateStr = staleness.updatedAt ? staleness.updatedAt.toISOString().slice(0, 10) : 'unknown date';
+      stalenessWarnings.push(`Price for ${product.frontendId} last verified on ${dateStr}`);
+    }
+
+    pricingByFrontendId.set(product.frontendId, {
+      product,
+      inventory,
+      price: finalPrice,
+      priceSource,
+      staleness
+    });
+  }
+
+  return { ok: true, pricingByFrontendId, productMap, stalenessWarnings, pricingWarnings };
 };
 
 // Pricing lock helpers
@@ -292,41 +399,47 @@ const createPaymentsRouter = ({ stripe }) => {
       let totalCents = 0;
       let productSubtotalCents = 0;
       const stalenessWarnings = [];
+      const pricingWarnings = [];
       let { largeOrderFeeCents, heavyItemFeeCents } = fees;
 
       if (Array.isArray(items) && items.length > 0) {
-        const products = await Product.find(
-          { frontendId: { $in: items.map(item => item.productId) } },
-          { price: 1, frontendId: 1, isHeavy: 1, updatedAt: 1, createdAt: 1 }
-        ).lean();
-        const productMap = new Map(products.map(product => [product.frontendId, product]));
+        const useStoreInventoryPricing = isStoreInventoryPricingEnabled();
+        const pricingContext = await resolvePricingContext(items, { useStoreInventoryPricing });
+        if (!pricingContext.ok) {
+          return res
+            .status(pricingContext.status || 400)
+            .json({ error: pricingContext.error });
+        }
+
+        const { pricingByFrontendId, stalenessWarnings: staleList, pricingWarnings: priceWarns } = pricingContext;
+        stalenessWarnings.push(...staleList);
+        pricingWarnings.push(...priceWarns);
 
         for (const item of items) {
-          const product = productMap.get(item.productId);
-          if (!product) {
+          const pricing = pricingByFrontendId.get(item.productId);
+          if (!pricing) {
             return res.status(400).json({ error: `Unknown product ${item.productId}` });
           }
-          if (!Number.isFinite(Number(product.price))) {
-            return res.status(400).json({ error: `Product ${item.productId} has no committed price` });
-          }
-          const staleness = evaluatePriceStaleness(product, false);
-          if (staleness.stale) {
-            const dateStr = staleness.updatedAt ? staleness.updatedAt.toISOString().slice(0, 10) : 'unknown date';
-            stalenessWarnings.push(`Price for ${item.productId} last verified on ${dateStr}`);
-          }
-          const unit = Math.round(Number(product.price || 0) * 100);
+
+          const unit = Math.round(Number(pricing.price || 0) * 100);
           const lineTotal = unit * item.quantity;
           totalCents += lineTotal;
           productSubtotalCents += lineTotal;
         }
         // Large Order Handling (applies to purchase orders only)
         // Recalculate handling fees with actual product map
+        const productsForFees = new Map(
+          Array.from(pricingContext.pricingByFrontendId.entries()).map(([frontendId, ctx]) => [
+            frontendId,
+            { ...ctx.product, price: ctx.price }
+          ])
+        );
         const recalculated = await getDeliveryOptions({
           orderType,
           tier: tierLookupUser?.membershipTier,
           distanceMiles,
           items,
-          productsByFrontendId: productMap
+          productsByFrontendId: productsForFees
         });
         largeOrderFeeCents = orderType === 'DELIVERY_PURCHASE' ? recalculated.largeOrderFeeCents : 0;
         heavyItemFeeCents = orderType === 'DELIVERY_PURCHASE' ? recalculated.heavyItemFeeCents : 0;
@@ -357,7 +470,10 @@ const createPaymentsRouter = ({ stripe }) => {
         orderType,
         largeOrderFee: largeOrderFeeCents / 100,
         heavyItemFee: heavyItemFeeCents / 100,
-        stalenessWarnings: stalenessWarnings.length > 0 ? stalenessWarnings : undefined
+        stalenessWarnings:
+          stalenessWarnings.length + pricingWarnings.length > 0
+            ? [...stalenessWarnings, ...pricingWarnings]
+            : undefined
       });
     } catch (err) {
       console.error('QUOTE ERROR:', err);
@@ -444,10 +560,40 @@ const createPaymentsRouter = ({ stripe }) => {
       let totalCents = 0;
       let productSubtotalCents = 0;
       const stalenessWarnings = [];
+      const pricingWarnings = [];
+      const useStoreInventoryPricing = isStoreInventoryPricingEnabled();
 
       await sessionDb.withTransaction(async () => {
+        const pricingContext = await resolvePricingContext(items, {
+          session: sessionDb,
+          useStoreInventoryPricing
+        });
+
+        if (!pricingContext.ok) {
+          const err = new Error(pricingContext.error || 'Pricing resolution failed');
+          err.code = pricingContext.code || 'PRICING_RESOLUTION_FAILED';
+          err.status = pricingContext.status || 400;
+          throw err;
+        }
+
+        const {
+          pricingByFrontendId,
+          stalenessWarnings: staleList,
+          pricingWarnings: priceWarns
+        } = pricingContext;
+        stalenessWarnings.push(...staleList);
+        pricingWarnings.push(...priceWarns);
+
         const products = await Promise.all(
           items.map(async item => {
+            const pricing = pricingByFrontendId.get(item.productId);
+            if (!pricing) {
+              const err = new Error(`Unknown product ${item.productId}`);
+              err.code = 'UNKNOWN_PRODUCT';
+              err.status = 400;
+              throw err;
+            }
+
             const updated = await Product.findOneAndUpdate(
               { frontendId: item.productId, stock: { $gte: item.quantity } },
               { $inc: { stock: -item.quantity } },
@@ -468,24 +614,13 @@ const createPaymentsRouter = ({ stripe }) => {
               err.meta = { productId: item.productId, available };
               throw err;
             }
-            if (!Number.isFinite(Number(updated.price))) {
-              const e = new Error(`Product ${item.productId} has no committed price`);
-              e.code = 'NO_COMMITTED_PRICE';
-              throw e;
-            }
 
-            const staleness = evaluatePriceStaleness(updated, false);
-            if (staleness.stale) {
-              const dateStr = staleness.updatedAt ? staleness.updatedAt.toISOString().slice(0, 10) : 'unknown date';
-              stalenessWarnings.push(`Price for ${item.productId} last verified on ${dateStr}`);
-            }
-
-            return { updated, item };
+            return { updated, item, pricing };
           })
         );
 
-        products.forEach(({ updated, item }) => {
-          const unit = Math.round(Number(updated.price) * 100);
+        products.forEach(({ updated, item, pricing }) => {
+          const unit = Math.round(Number(pricing.price) * 100);
           const lineTotal = unit * item.quantity;
           totalCents += lineTotal;
           productSubtotalCents += lineTotal;
@@ -501,7 +636,12 @@ const createPaymentsRouter = ({ stripe }) => {
         });
 
         // Recalculate handling fees using actual product map
-        const byFrontendId = new Map(products.map(({ updated }) => [updated.frontendId, updated]));
+        const byFrontendId = new Map(
+          products.map(({ updated, pricing }) => [
+            updated.frontendId,
+            { ...(updated.toObject ? updated.toObject() : updated), price: pricing.price }
+          ])
+        );
         const refined = await getDeliveryOptions({
           orderType,
           tier: tierLookupUser?.membershipTier,
@@ -630,8 +770,8 @@ const createPaymentsRouter = ({ stripe }) => {
       await Order.findOneAndUpdate({ orderId }, { stripeSessionId: stripeSession.id });
 
       const responsePayload = { sessionUrl: stripeSession.url };
-      if (stalenessWarnings.length > 0) {
-        responsePayload.stalenessWarnings = stalenessWarnings;
+      if (stalenessWarnings.length + pricingWarnings.length > 0) {
+        responsePayload.stalenessWarnings = [...stalenessWarnings, ...pricingWarnings];
       }
       const uniqueIneligibleUpcs = [...new Set(ineligibleUpcs)];
       if (uniqueIneligibleUpcs.length > 0) {
@@ -664,6 +804,9 @@ const createPaymentsRouter = ({ stripe }) => {
       if (err?.code === 'NO_COMMITTED_PRICE') {
         return res.status(400).json({ error: err.message });
       }
+      if (err?.status) {
+        return res.status(err.status).json({ error: err.message || 'Stripe session failed' });
+      }
 
       res.status(500).json({ error: 'Stripe session failed' });
     } finally {
@@ -688,6 +831,9 @@ const createPaymentsRouter = ({ stripe }) => {
     try {
       const rawItems = req.body?.items;
       const address = String(req.body?.address || '').trim();
+      const stalenessWarnings = [];
+      const pricingWarnings = [];
+      const useStoreInventoryPricing = isStoreInventoryPricingEnabled();
 
       const items = normalizeCart(rawItems);
       const rawReturnUpcs = req.body?.returnUpcCounts ?? req.body?.returnUpcs;
@@ -757,8 +903,36 @@ const createPaymentsRouter = ({ stripe }) => {
       await user.save({ session: sessionDb });
       await sessionDb.withTransaction(async () => {
         if (!isReturnOnly) {
+          const pricingContext = await resolvePricingContext(items, {
+            session: sessionDb,
+            useStoreInventoryPricing
+          });
+
+          if (!pricingContext.ok) {
+            const err = new Error(pricingContext.error || 'Pricing resolution failed');
+            err.code = pricingContext.code || 'PRICING_RESOLUTION_FAILED';
+            err.status = pricingContext.status || 400;
+            throw err;
+          }
+
+          const {
+            pricingByFrontendId,
+            stalenessWarnings: staleList,
+            pricingWarnings: priceWarns
+          } = pricingContext;
+          stalenessWarnings.push(...staleList);
+          pricingWarnings.push(...priceWarns);
+
           const products = await Promise.all(
             items.map(async item => {
+              const pricing = pricingByFrontendId.get(item.productId);
+              if (!pricing) {
+                const err = new Error(`Unknown product ${item.productId}`);
+                err.code = 'UNKNOWN_PRODUCT';
+                err.status = 400;
+                throw err;
+              }
+
               const updated = await Product.findOneAndUpdate(
                 { frontendId: item.productId, stock: { $gte: item.quantity } },
                 { $inc: { stock: -item.quantity } },
@@ -779,31 +953,25 @@ const createPaymentsRouter = ({ stripe }) => {
                 err.meta = { productId: item.productId, available };
                 throw err;
               }
-              if (!Number.isFinite(Number(updated.price))) {
-                const e = new Error(`Product ${item.productId} has no committed price`);
-                e.code = 'NO_COMMITTED_PRICE';
-                throw e;
-              }
 
-              const staleness = evaluatePriceStaleness(updated, false);
-              if (staleness.stale) {
-                const dateStr = staleness.updatedAt ? staleness.updatedAt.toISOString().slice(0, 10) : 'unknown date';
-                stalenessWarnings.push(`Price for ${item.productId} last verified on ${dateStr}`);
-              }
-
-              return { updated, item };
+              return { updated, item, pricing };
             })
           );
 
-          products.forEach(({ updated, item }) => {
-            const unit = Math.round(Number(updated.price) * 100);
+          products.forEach(({ updated, item, pricing }) => {
+            const unit = Math.round(Number(pricing.price) * 100);
             const lineTotal = unit * item.quantity;
             totalCents += lineTotal;
             productSubtotalCents += lineTotal;
           });
 
           // Recalculate handling fees using actual product map  
-          const byFrontendId = new Map(products.map(({ updated }) => [updated.frontendId, updated]));
+          const byFrontendId = new Map(
+            products.map(({ updated, pricing }) => [
+              updated.frontendId,
+              { ...(updated.toObject ? updated.toObject() : updated), price: pricing.price }
+            ])
+          );
           const refined = await getDeliveryOptions({
             orderType,
             tier: user?.membershipTier,
@@ -957,8 +1125,8 @@ const createPaymentsRouter = ({ stripe }) => {
           order: mapOrderForFrontend(remainingOrder),
           creditBalance: Number(user.creditBalance || 0) // Return available balance
         };
-        if (stalenessWarnings.length > 0) {
-          responsePayload.stalenessWarnings = stalenessWarnings;
+        if (stalenessWarnings.length + pricingWarnings.length > 0) {
+          responsePayload.stalenessWarnings = [...stalenessWarnings, ...pricingWarnings];
         }
         if (uniqueIneligibleUpcs.length > 0) {
           responsePayload.warning = 'Some return UPCs are ineligible and were removed.';
@@ -1004,8 +1172,8 @@ const createPaymentsRouter = ({ stripe }) => {
         creditsAuthorized: Number(remainingOrder.creditAuthorizedCents || 0) / 100,
         creditBalance: Number(user.creditBalance || 0)
       };
-      if (stalenessWarnings.length > 0) {
-        responsePayload.stalenessWarnings = stalenessWarnings;
+        if (stalenessWarnings.length + pricingWarnings.length > 0) {
+          responsePayload.stalenessWarnings = [...stalenessWarnings, ...pricingWarnings];
       }
       if (uniqueIneligibleUpcs.length > 0) {
         responsePayload.warning = 'Some return UPCs are ineligible and were removed.';
@@ -1023,6 +1191,9 @@ const createPaymentsRouter = ({ stripe }) => {
       }
       if (err?.code === 'NO_COMMITTED_PRICE') {
         return res.status(400).json({ error: err.message });
+      }
+      if (err?.status) {
+        return res.status(err.status).json({ error: err.message || 'Credits checkout failed' });
       }
 
       res.status(500).json({ error: 'Credits checkout failed' });
