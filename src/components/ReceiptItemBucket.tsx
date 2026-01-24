@@ -13,6 +13,7 @@ interface ReceiptItemBucketProps {
   onItemCreateProduct?: (item: ClassifiedReceiptItem) => void;
   onItemAttachExisting?: (item: ClassifiedReceiptItem) => void;
   onItemNeverMatch?: (item: ClassifiedReceiptItem) => void;
+  getItemKey?: (item: ClassifiedReceiptItem) => string;
   isReadOnly?: boolean;
 }
 
@@ -60,6 +61,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
   onItemCreateProduct,
   onItemAttachExisting,
   onItemNeverMatch,
+  getItemKey,
   isReadOnly = false
 }) => {
   const buckets = useMemo(() => {
@@ -107,7 +109,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
             {bucketItems.length > 0 ? (
               <div className="space-y-2 pl-3 border-l-2 border-white/10">
                 {bucketItems.map((item, idx) => {
-                  const itemKey = JSON.stringify(item);
+                  const itemKey = getItemKey ? getItemKey(item) : JSON.stringify(item);
                   const isSelected = selectedItems.get(itemKey) ?? (bucket === 'A' && !isReadOnly);
                   const tokenSummary = formatTokens(item.tokens);
                   const history = item.matchHistory?.slice(0, 3) ?? [];

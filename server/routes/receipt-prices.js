@@ -9,6 +9,7 @@ import Store from '../models/Store.js';
 import ReceiptNameAlias from '../models/ReceiptNameAlias.js';
 import ReceiptNoiseRule from '../models/ReceiptNoiseRule.js';
 import ReceiptCapture from '../models/ReceiptCapture.js';
+import AppSettings from '../models/AppSettings.js';
 import { authRequired, isDriverUsername, isOwnerUsername, driverCanAccessStore } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { isDbReady } from '../db/connect.js';
@@ -22,6 +23,13 @@ const ensureGeminiReady = () => {
     return { ok: false, error: 'Gemini API key not configured.' };
   }
   return { ok: true, apiKey };
+};
+
+const DEFAULT_PRICE_LOCK_DAYS = 7;
+
+const coerceNumber = value => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
 };
 
 // Extract base64 and mime from data URL
@@ -636,11 +644,14 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
   try {
     const { storeId, storeName, orderId, images, captureRequestId } = req.body;
     const username = req.user?.username;
+    const isOwnerRole = req.user?.role === 'OWNER';
+    const isManagerRole = req.user?.role === 'MANAGER';
 
     // Authorization check
-    const isOwner = isOwnerUsername(username);
+    const isOwner = isOwnerRole || isOwnerUsername(username);
     const isDriver = isDriverUsername(username);
-    if (!isOwner && !isDriver) {
+    const isManagement = isOwner || isManagerRole;
+    if (!isManagement && !isDriver) {
       return res.status(403).json({ error: 'Not authorized to upload receipts' });
     }
 
@@ -845,10 +856,13 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
       return res.status(404).json({ error: 'Receipt capture not found' });
     }
 
-    // Authorize: only owner or driver can parse for their stores
-    const isOwner = isOwnerUsername(req.user?.username);
+    // Authorize: only management or driver can parse for their stores
+    const isOwnerRole = req.user?.role === 'OWNER';
+    const isManagerRole = req.user?.role === 'MANAGER';
+    const isOwner = isOwnerRole || isOwnerUsername(req.user?.username);
     const isDriver = isDriverUsername(req.user?.username);
-    if (!isOwner && !isDriver) {
+    const isManagement = isOwner || isManagerRole;
+    if (!isManagement && !isDriver) {
       return res.status(403).json({ error: 'Not authorized to parse receipts' });
     }
 
@@ -1412,9 +1426,12 @@ router.post('/receipt-confirm-item', authRequired, async (req, res) => {
     }
 
     // Enforce driver-store binding
-    const isOwner = isOwnerUsername(username);
+    const isOwnerRole = req.user?.role === 'OWNER';
+    const isManagerRole = req.user?.role === 'MANAGER';
+    const isOwner = isOwnerRole || isOwnerUsername(username);
     const isDriver = isDriverUsername(username);
-    if (!isOwner && !isDriver) {
+    const isManagement = isOwner || isManagerRole;
+    if (!isManagement && !isDriver) {
       return res.status(403).json({ error: 'Not authorized to confirm receipts' });
     }
     if (isDriver && !driverCanAccessStore(username, capture.storeId)) {
@@ -1485,7 +1502,7 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
   session.startTransaction();
 
   try {
-    const { captureId } = req.body;
+    const { captureId, commitMode, selectedLineIndices, lockPrices, lockDurationDays } = req.body;
     const username = req.user?.username;
 
     if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
@@ -1501,17 +1518,35 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
       return res.status(404).json({ error: 'Receipt capture not found' });
     }
 
-    if (capture.status !== 'review_complete') {
+    const normalizedMode = typeof commitMode === 'string' ? commitMode : 'all';
+    const selectedSet = Array.isArray(selectedLineIndices)
+      ? new Set(selectedLineIndices.map(value => Number(value)).filter(value => Number.isFinite(value) && value >= 0))
+      : null;
+    const requiresFullReview = !selectedSet || selectedSet.size === 0;
+
+    if (requiresFullReview && capture.status !== 'review_complete') {
       await session.abortTransaction();
       await session.endSession();
       return res.status(400).json({ error: 'All items must be confirmed before commit' });
     }
 
+    const settings = await AppSettings.findOne({ key: 'default' }).session(session);
+    const settingsLockDays = coerceNumber(settings?.priceLockDays);
+    const requestLockDays = coerceNumber(lockDurationDays);
+    const lockDays = settingsLockDays || requestLockDays || DEFAULT_PRICE_LOCK_DAYS;
+    const lockUntil = lockPrices
+      ? new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000)
+      : null;
+    const now = new Date();
+
     const captureIdKey = capture._id.toString();
 
-    const isOwner = isOwnerUsername(username);
+    const isOwnerRole = req.user?.role === 'OWNER';
+    const isManagerRole = req.user?.role === 'MANAGER';
+    const isOwner = isOwnerRole || isOwnerUsername(username);
     const isDriver = isDriverUsername(username);
-    if (!isOwner && !isDriver) {
+    const isManagement = isOwner || isManagerRole;
+    if (!isManagement && !isDriver) {
       await session.abortTransaction();
       await session.endSession();
       return res.status(403).json({ error: 'Not authorized to commit receipts' });
@@ -1527,7 +1562,13 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
     const errors = [];
 
     for (const item of capture.draftItems) {
-      if (!item.boundProductId) continue; // Skip unconfirmed items
+      if (selectedSet && !selectedSet.has(item.lineIndex)) {
+        continue;
+      }
+      if (!item.boundProductId) {
+        errors.push({ lineIndex: item.lineIndex, error: 'Item not confirmed' });
+        continue;
+      }
 
       try {
         let product = await Product.findById(item.boundProductId).session(session);
@@ -1556,6 +1597,14 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
         const existingInventory = await StoreInventory.findOne(
           { storeId: capture.storeId, productId: item.boundProductId }
         ).session(session);
+
+        if (existingInventory?.priceLockUntil && existingInventory.priceLockUntil > now) {
+          errors.push({
+            lineIndex: item.lineIndex,
+            error: `Price locked until ${existingInventory.priceLockUntil.toISOString()}`
+          });
+          continue;
+        }
 
         if (existingInventory?.appliedCaptures?.some(
           ac => ac.captureId === captureIdKey && ac.lineIndex === item.lineIndex
@@ -1599,12 +1648,16 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
           promoDetected: item.promoDetected || false,
           workflowType: item.workflowType
         });
+        const inventorySet = {
+          observedPrice: item.unitPrice,
+          observedAt,
+          updatedAt: observedAt
+        };
+        if (lockUntil) {
+          inventorySet.priceLockUntil = lockUntil;
+        }
         const inventoryUpdate = {
-          $set: {
-            observedPrice: item.unitPrice,
-            observedAt,
-            updatedAt: observedAt
-          },
+          $set: inventorySet,
           $push: {
             priceHistory: {
               $each: [priceEntry],
@@ -1661,11 +1714,15 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
       }
     }
 
-    // Mark capture as committed
-    capture.status = 'committed';
-    capture.committedBy = username || 'unknown';
-    capture.committedAt = new Date();
-    capture.itemsCommitted = committed;
+    const previousCommitted = Number(capture.itemsCommitted || 0);
+    capture.itemsCommitted = Math.min(capture.totalItems, previousCommitted + committed);
+    if (committed > 0) {
+      capture.committedBy = username || 'unknown';
+      capture.committedAt = new Date();
+    }
+    if (requiresFullReview) {
+      capture.status = 'committed';
+    }
     await capture.save({ session });
 
     // Commit transaction atomically
@@ -1674,7 +1731,7 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
     await recordAuditLog({
       type: 'receipt_commit',
       actorId: username || 'unknown',
-      details: `capture=${capture._id.toString()} committed=${committed} errors=${errors.length} receipt=${capture.images?.[0]?.url || 'none'} thumb=${capture.images?.[0]?.thumbnailUrl || 'none'}`
+      details: `capture=${capture._id.toString()} committed=${committed} errors=${errors.length} mode=${normalizedMode} selected=${selectedSet ? selectedSet.size : 0} receipt=${capture.images?.[0]?.url || 'none'} thumb=${capture.images?.[0]?.thumbnailUrl || 'none'}`
     });
 
     res.json({

@@ -390,6 +390,8 @@ export interface ClassifiedReceiptItem {
   matchMethod?: string;
   isNoiseRule?: boolean;
   scannedUpc?: string;
+  lineIndex?: number;
+  captureId?: string;
 }
 
 /**
