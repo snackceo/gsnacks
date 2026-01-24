@@ -1,0 +1,8 @@
+{
+  "name": "fast-levenshtein",
+  "version": "3.0.0",
+  "description": "Local vendored build of fast-levenshtein for offline installs",
+  "main": "index.js",
+  "type": "module",
+  "license": "MIT"
+}
