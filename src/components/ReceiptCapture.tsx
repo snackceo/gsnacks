@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
-import { Camera, Plus, X, DollarSign, Package, Check, AlertCircle } from 'lucide-react';
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Camera, Plus, X, Package, Check, AlertCircle, Upload } from 'lucide-react';
+import { BACKEND_URL } from '../constants';
 
 interface ReceiptItem {
   upc?: string;
@@ -21,6 +20,9 @@ interface ReceiptCaptureProps {
   onCancel: () => void;
 }
 
+const PDF_UPLOAD_MESSAGE = 'PDF upload coming soon.';
+const STORE_REQUIRED_MESSAGE = 'Select a store before uploading a receipt image.';
+
 const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
   orderId,
   storeId,
@@ -29,6 +31,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
   onCancel
 }) => {
   const [receiptPhoto, setReceiptPhoto] = useState<string | null>(null);
+  const [receiptPhotoMime, setReceiptPhotoMime] = useState('image/jpeg');
   const [items, setItems] = useState<ReceiptItem[]>([]);
   const [currentItem, setCurrentItem] = useState<Partial<ReceiptItem>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -38,17 +41,65 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
   const [upcScanInput, setUpcScanInput] = useState('');
   const [reviewItems, setReviewItems] = useState<any[]>([]);
   const [keepScannerOpen, setKeepScannerOpen] = useState(false);
+  const [isDragActive, setIsDragActive] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState<string | null>(null);
 
-  const handlePhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setReceiptPhoto(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+  const storeLabel = useMemo(() => storeName || storeId || 'Unknown Store', [storeId, storeName]);
+
+  const handlePhotoFile = useCallback((file: File) => {
+    if (!file) return;
+
+    if (!storeId) {
+      setError(STORE_REQUIRED_MESSAGE);
+      return;
     }
-  };
+
+    if (file.type === 'application/pdf') {
+      setError(PDF_UPLOAD_MESSAGE);
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setError('Unsupported file type. Please upload an image.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      if (!dataUrl) return;
+      setReceiptPhoto(dataUrl);
+      setReceiptPhotoMime(file.type || 'image/jpeg');
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const handlePhotoCapture = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      handlePhotoFile(file);
+    }
+    event.target.value = '';
+  }, [handlePhotoFile]);
+
+  const handleDrop = useCallback((event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setIsDragActive(false);
+    const file = event.dataTransfer.files?.[0];
+    if (file) {
+      handlePhotoFile(file);
+    }
+  }, [handlePhotoFile]);
+
+  const handleDragOver = useCallback((event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setIsDragActive(true);
+  }, []);
+
+  const handleDragLeave = useCallback((event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setIsDragActive(false);
+  }, []);
 
   const handleAddItem = () => {
     if (!currentItem.totalPrice || !currentItem.quantity) {
@@ -84,7 +135,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
     updated[index] = { ...updated[index], upc: upc.trim() };
     setItems(updated);
     playBeep();
-    
+
     if (keepScannerOpen) {
       setUpcScanInput('');
       // Keep scanner open for next item
@@ -104,16 +155,105 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
     setItems(items.filter((_, i) => i !== index));
   };
 
+  const generateCaptureId = () => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `receipt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  };
+
+  const uploadReceiptImage = async () => {
+    if (!receiptPhoto) return null;
+    if (!storeId) {
+      throw new Error('Store selection required before uploading a receipt image.');
+    }
+
+    setUploadPhase('Uploading receipt image…');
+    const uploadResp = await fetch(`${BACKEND_URL}/api/driver/upload-receipt-image`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        image: receiptPhoto,
+        storeId
+      })
+    });
+
+    const uploadData = await uploadResp.json().catch(() => ({}));
+    if (!uploadResp.ok) {
+      throw new Error(uploadData.error || 'Failed to upload receipt image');
+    }
+
+    return uploadData as { url: string; thumbnailUrl?: string };
+  };
+
+  const createReceiptCapture = async (imageUrl: string, thumbnailUrl?: string) => {
+    if (!storeId) {
+      throw new Error('Store selection required before capturing receipts.');
+    }
+
+    setUploadPhase('Creating receipt capture…');
+    const captureRequestId = generateCaptureId();
+    const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        storeId,
+        storeName: storeLabel,
+        orderId,
+        captureRequestId,
+        images: [
+          {
+            url: imageUrl,
+            thumbnailUrl: thumbnailUrl || imageUrl,
+            mime: receiptPhotoMime
+          }
+        ]
+      })
+    });
+
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(data.error || 'Receipt upload failed');
+    }
+
+    return data.captureId as string;
+  };
+
   const handleSubmit = async () => {
     if (items.length === 0) {
       setError('Add at least one item');
       return;
     }
 
+    if (!storeId && !storeName) {
+      setError('Store selection is required');
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
+    setUploadPhase(null);
 
     try {
+      let receiptImageUrl: string | undefined;
+      let receiptThumbnailUrl: string | undefined;
+      let captureId = generateCaptureId();
+
+      if (receiptPhoto) {
+        const uploadData = await uploadReceiptImage();
+        if (!uploadData?.url) {
+          throw new Error('Receipt image upload failed');
+        }
+        receiptImageUrl = uploadData.url;
+        receiptThumbnailUrl = uploadData.thumbnailUrl || uploadData.url;
+        captureId = await createReceiptCapture(receiptImageUrl, receiptThumbnailUrl);
+      }
+
+      setUploadPhase('Submitting receipt items…');
       const res = await fetch(`${BACKEND_URL}/api/driver/receipt-price-update`, {
         method: 'POST',
         credentials: 'include',
@@ -124,7 +264,9 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
           storeId,
           storeName,
           orderId,
-          receiptPhoto,
+          captureId,
+          receiptImageUrl,
+          receiptThumbnailUrl,
           items
         })
       });
@@ -135,7 +277,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
       }
 
       const result = await res.json();
-      
+
       if (result.reviewItems && result.reviewItems.length > 0) {
         // Show review UI for confirmation
         setReviewItems(result.reviewItems);
@@ -154,6 +296,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
       setError(err.message || 'Failed to submit receipt');
     } finally {
       setSubmitting(false);
+      setUploadPhase(null);
     }
   };
 
@@ -164,7 +307,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
           <div>
             <h2 className="text-2xl font-black text-ninpo-lime">Receipt Price Update</h2>
             <p className="text-sm text-white/60 mt-1">
-              {storeName || storeId} • Order {orderId?.slice(0, 8)}
+              {storeLabel} • Order {orderId?.slice(0, 8)}
             </p>
           </div>
           <button
@@ -196,6 +339,11 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
               <Camera className="w-4 h-4" />
               Receipt Photo (Optional)
             </label>
+            {!storeId && (
+              <p className="text-xs text-orange-200 mb-3">
+                {STORE_REQUIRED_MESSAGE}
+              </p>
+            )}
             {receiptPhoto ? (
               <div className="relative">
                 <img src={receiptPhoto} alt="Receipt" className="w-full rounded-lg" />
@@ -207,170 +355,127 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
                 </button>
               </div>
             ) : (
-              <label className="flex flex-col items-center justify-center h-40 border-2 border-dashed border-white/20 rounded-lg cursor-pointer hover:border-ninpo-lime/50 transition-all">
-                <Camera className="w-8 h-8 text-white/40 mb-2" />
-                <span className="text-sm text-white/60">Tap to capture receipt</span>
+              <label
+                className={`flex flex-col items-center justify-center gap-2 h-48 border-2 border-dashed rounded-lg cursor-pointer transition-all text-center px-4 ${
+                  isDragActive
+                    ? 'border-ninpo-lime bg-ninpo-lime/10 text-ninpo-lime'
+                    : 'border-white/20 text-white/60 hover:border-ninpo-lime/50'
+                }`}
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+              >
+                <Camera className="w-8 h-8 text-white/40" />
+                <span className="text-sm text-white/70">Drag & drop a receipt image</span>
+                <span className="text-xs text-white/40">Or use the upload options below.</span>
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
+                  <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest bg-ninpo-lime text-ninpo-black">
+                    <Upload className="w-3 h-3" />
+                    Upload image
+                  </span>
+                  <button
+                    type="button"
+                    disabled
+                    className="px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest bg-white/5 text-white/40 border border-white/10 cursor-not-allowed"
+                    title={PDF_UPLOAD_MESSAGE}
+                  >
+                    PDF (coming soon)
+                  </button>
+                </div>
                 <input
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   onChange={handlePhotoCapture}
                   className="hidden"
                 />
               </label>
             )}
+            {uploadPhase && (
+              <p className="mt-3 text-xs text-slate-300">{uploadPhase}</p>
+            )}
           </div>
 
-          {/* Add Item Form */}
-          <div className="bg-white/5 border border-white/10 rounded-xl p-4">
-            <h3 className="text-lg font-black text-white mb-4">Add Item</h3>
-            <div className="grid grid-cols-1 gap-3 mb-3">
-              <div>
-                <label className="text-xs font-bold text-white/70 mb-1 block">Product Name / Description *</label>
+          {/* Receipt Items */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black text-white flex items-center gap-2">
+                <Package className="w-5 h-5 text-ninpo-lime" />
+                Receipt Items ({items.length})
+              </h3>
+              <div className="flex items-center gap-2 text-xs text-white/50">
                 <input
-                  type="text"
-                  value={currentItem.name || ''}
-                  onChange={(e) => setCurrentItem({ ...currentItem, name: e.target.value })}
-                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white"
-                  placeholder="e.g., Coca Cola 12pk or Great Value Milk"
+                  type="checkbox"
+                  checked={keepScannerOpen}
+                  onChange={e => setKeepScannerOpen(e.target.checked)}
+                  className="rounded border-white/20"
                 />
-                <p className="text-xs text-white/50 mt-1">Exact name from receipt helps auto-match future purchases</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-white/70 mb-1 block">UPC (Optional - can scan later)</label>
-                  <input
-                    type="text"
-                    value={currentItem.upc || ''}
-                    onChange={(e) => setCurrentItem({ ...currentItem, upc: e.target.value })}
-                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white"
-                    placeholder="012345678901"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-white/70 mb-1 block">SKU (Optional)</label>
-                  <input
-                    type="text"
-                    value={currentItem.sku || ''}
-                    onChange={(e) => setCurrentItem({ ...currentItem, sku: e.target.value })}
-                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white"
-                    placeholder="SKU123"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-white/70 mb-1 block">Total Price *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={currentItem.totalPrice || ''}
-                  onChange={(e) => setCurrentItem({ ...currentItem, totalPrice: parseFloat(e.target.value) })}
-                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white"
-                  placeholder="9.99"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-white/70 mb-1 block">Quantity *</label>
-                <input
-                  type="number"
-                  value={currentItem.quantity || ''}
-                  onChange={(e) => setCurrentItem({ ...currentItem, quantity: parseInt(e.target.value) })}
-                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white"
-                  placeholder="1"
-                />
+                Keep scanner open
               </div>
             </div>
-            <button
-              onClick={handleAddItem}
-              className="w-full py-3 bg-ninpo-lime text-ninpo-black rounded-lg font-black uppercase tracking-widest hover:bg-white transition-all flex items-center justify-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              Add Item
-            </button>
-          </div>
 
-          {/* Items List */}
-          {items.length > 0 && (
-            <div className="bg-white/5 border border-white/10 rounded-xl p-4">
-              <h3 className="text-lg font-black text-white mb-4 flex items-center gap-2">
-                <Package className="w-5 h-5" />
-                Items ({items.length})
-              </h3>
+            {items.length === 0 ? (
+              <div className="text-center py-8 text-white/40">
+                <Package className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p>No items added yet</p>
+              </div>
+            ) : (
               <div className="space-y-2">
-                {items.map((item, idx) => (
-                  <div key={idx} className="p-3 bg-white/5 rounded-lg border border-white/10">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex-1">
-                        <p className="text-sm font-bold text-white">{item.name}</p>
-                        <p className="text-xs text-white/60">
-                          ${item.totalPrice.toFixed(2)} ÷ {item.quantity} = ${(item.totalPrice / item.quantity).toFixed(2)}/unit
+                {items.map((item, index) => (
+                  <div key={index} className="bg-white/5 rounded-xl p-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-bold text-white">{item.name}</p>
+                        <p className="text-sm text-white/50">
+                          ${item.totalPrice} × {item.quantity} = ${item.totalPrice * item.quantity}
                         </p>
+                        {item.upc && (
+                          <p className="text-xs text-ninpo-lime mt-1">UPC: {item.upc}</p>
+                        )}
+                        {item.autoMatched && (
+                          <p className="text-xs text-blue-400 mt-1">Auto-matched</p>
+                        )}
                       </div>
                       <button
-                        onClick={() => handleRemoveItem(idx)}
-                        className="p-2 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-all"
+                        onClick={() => handleRemoveItem(index)}
+                        className="p-1 hover:bg-red-500/20 rounded"
                       >
-                        <X className="w-4 h-4" />
+                        <X className="w-4 h-4 text-red-400" />
                       </button>
                     </div>
-                    {scanningForIndex === idx ? (
-                      <div className="space-y-2 mt-2">
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={upcScanInput}
-                            onChange={(e) => setUpcScanInput(e.target.value)}
-                            onKeyPress={(e) => handleUpcScanKeyPress(e, idx)}
-                            placeholder="Scan or enter UPC..."
-                            autoFocus
-                            className="flex-1 px-3 py-2 bg-white/10 border border-ninpo-lime rounded-lg text-white text-sm"
-                          />
+
+                    {!item.upc && (
+                      <div className="mt-3">
+                        {scanningForIndex === index ? (
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={upcScanInput}
+                              onChange={e => setUpcScanInput(e.target.value)}
+                              onKeyPress={e => handleUpcScanKeyPress(e, index)}
+                              placeholder="Scan or enter UPC"
+                              className="flex-1 bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white"
+                            />
+                            <button
+                              onClick={() => handleScanUpc(index, upcScanInput)}
+                              className="px-4 py-2 bg-ninpo-lime text-ninpo-black rounded-lg font-bold"
+                            >
+                              Set
+                            </button>
+                            {!keepScannerOpen && (
+                              <button
+                                onClick={() => setScanningForIndex(null)}
+                                className="px-3 py-2 bg-white/10 text-white rounded-lg"
+                              >
+                                Cancel
+                              </button>
+                            )}
+                          </div>
+                        ) : (
                           <button
-                            onClick={() => handleScanUpc(idx, upcScanInput)}
-                            disabled={!upcScanInput.trim()}
-                            className="px-3 py-2 bg-ninpo-lime text-ninpo-black rounded-lg font-bold text-xs hover:bg-white transition-all disabled:opacity-50"
+                            onClick={() => setScanningForIndex(index)}
+                            className="text-xs text-ninpo-lime hover:text-ninpo-lime/80 font-bold"
                           >
-                            Save
-                          </button>
-                          <button
-                            onClick={() => {
-                              setScanningForIndex(null);
-                              setUpcScanInput('');
-                              setKeepScannerOpen(false);
-                            }}
-                            className="px-3 py-2 bg-white/10 rounded-lg text-xs hover:bg-white/20 transition-all"
-                          >
-                            Done
-                          </button>
-                        </div>
-                        <label className="flex items-center gap-2 text-xs text-white/70 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={keepScannerOpen}
-                            onChange={(e) => setKeepScannerOpen(e.target.checked)}
-                            className="rounded"
-                          />
-                          Keep scanner open for rapid entry
-                        </label>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
-                        <span className="text-xs text-white/50">
-                          {item.upc ? (
-                            <span className="text-ninpo-lime">UPC: {item.upc}</span>
-                          ) : item.sku ? (
-                            <span className="text-white/70">SKU: {item.sku}</span>
-                          ) : (
-                            <span className="text-yellow-400">⚠ No UPC - will match by name only</span>
-                          )}
-                        </span>
-                        {!item.upc && (
-                          <button
-                            onClick={() => setScanningForIndex(idx)}
-                            className="px-3 py-1 bg-ninpo-lime/20 text-ninpo-lime rounded text-xs font-bold hover:bg-ninpo-lime/30 transition-all flex items-center gap-1"
-                          >
-                            <Camera className="w-3 h-3" />
-                            Scan UPC
+                            + Add UPC
                           </button>
                         )}
                       </div>
@@ -378,82 +483,110 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Review Items (needs confirmation) */}
+            {/* Add New Item Form */}
+            <div className="bg-white/5 rounded-xl p-4 space-y-4">
+              <h4 className="font-bold text-white flex items-center gap-2">
+                <Plus className="w-4 h-4 text-ninpo-lime" />
+                Add Item
+              </h4>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-white/60">Product Name/Description *</label>
+                  <input
+                    type="text"
+                    value={currentItem.name || ''}
+                    onChange={e => setCurrentItem({ ...currentItem, name: e.target.value })}
+                    placeholder="e.g. Coke 12pk"
+                    className="w-full mt-1 bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/60">Total Price *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={currentItem.totalPrice || ''}
+                    onChange={e => setCurrentItem({ ...currentItem, totalPrice: parseFloat(e.target.value) })}
+                    placeholder="0.00"
+                    className="w-full mt-1 bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/60">Quantity *</label>
+                  <input
+                    type="number"
+                    value={currentItem.quantity || ''}
+                    onChange={e => setCurrentItem({ ...currentItem, quantity: parseInt(e.target.value) })}
+                    placeholder="1"
+                    className="w-full mt-1 bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/60">Pack Size</label>
+                  <input
+                    type="number"
+                    value={currentItem.packSize || ''}
+                    onChange={e => setCurrentItem({ ...currentItem, packSize: parseInt(e.target.value) })}
+                    placeholder="Optional"
+                    className="w-full mt-1 bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white"
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={handleAddItem}
+                className="w-full py-3 bg-ninpo-lime text-ninpo-black rounded-xl font-black uppercase tracking-widest hover:bg-ninpo-lime/90 transition-all"
+              >
+                Add Item
+              </button>
+              <p className="text-xs text-white/50 mt-1">Exact name from receipt helps auto-match future purchases</p>
+            </div>
+          </div>
+
+          {/* Review Items */}
           {reviewItems.length > 0 && (
-            <div className="bg-yellow-900/20 border border-yellow-600/50 rounded-xl p-4 mb-6">
-              <h3 className="text-lg font-black text-yellow-400 mb-4 flex items-center gap-2">
-                <AlertCircle className="w-5 h-5" />
-                Review Required ({reviewItems.length})
-              </h3>
-              <div className="space-y-3">
-                {reviewItems.map((review, idx) => (
-                  <div key={idx} className="bg-white/5 rounded-lg p-3 border border-yellow-600/30">
+            <div className="bg-yellow-900/20 border border-yellow-600 rounded-xl p-4">
+              <h4 className="font-bold text-yellow-300 mb-3">Items Needing Review</h4>
+              <div className="space-y-2">
+                {reviewItems.map((review, index) => (
+                  <div key={index} className="bg-black/30 rounded-lg p-3">
                     <p className="text-sm font-bold text-white mb-2">{review.receiptName}</p>
-                    {review.suggestedProduct && (
-                      <div className="mb-2">
-                        <p className="text-xs text-white/70">
-                          Suggested: <span className="text-ninpo-lime">{review.suggestedProduct.name}</span>
-                        </p>
-                        <p className="text-xs text-white/50">
-                          Match: {(parseFloat(review.matchScore) * 100).toFixed(0)}% • UPC: {review.suggestedProduct.upc || 'N/A'}
-                        </p>
-                      </div>
-                    )}
-                    {review.reason === 'large_price_change' && (
-                      <div className="mb-2">
-                        <p className="text-xs text-yellow-400">
-                          ⚠ Price changed {review.delta}: ${review.oldPrice} → ${review.newPrice}
-                        </p>
-                      </div>
-                    )}
-                    <div className="flex gap-2 mt-3">
-                      <button
-                        onClick={async () => {
-                          try {
-                            await fetch(`${BACKEND_URL}/api/driver/receipt-confirm-match`, {
-                              method: 'POST',
-                              credentials: 'include',
-                              headers: {
-                                'Content-Type': 'application/json'
-                              },
-                              body: JSON.stringify({
-                                storeId,
-                                productId: review.suggestedProduct?.id || review.product?.id,
-                                receiptName: review.receiptName,
-                                unitPrice: review.unitPrice,
-                                quantity: review.quantity,
-                                orderId,
-                                receiptPhoto
-                              })
-                            });
-                            // Remove from review list
-                            setReviewItems(reviewItems.filter((_, i) => i !== idx));
-                            if (reviewItems.length === 1) {
-                              setSuccess(true);
-                              setTimeout(() => onComplete(), 1500);
+                    <p className="text-xs text-white/50 mb-3">Multiple matches found</p>
+                    <div className="space-y-2">
+                      {review.matches?.map((match: any, matchIndex: number) => (
+                        <button
+                          key={matchIndex}
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(`${BACKEND_URL}/api/driver/receipt-confirm-match`, {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: {
+                                  'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                  receiptName: review.receiptName,
+                                  sku: match.sku,
+                                  storeId
+                                })
+                              });
+
+                              if (res.ok) {
+                                setReviewItems(prev => prev.filter((_, i) => i !== index));
+                                setError(null);
+                              }
+                            } catch {
+                              setError('Failed to confirm match');
                             }
-                          } catch (err) {
-                            console.error('Confirm failed:', err);
-                          }
-                        }}
-                        className="flex-1 py-2 bg-ninpo-lime text-ninpo-black rounded-lg font-bold text-xs hover:bg-white transition-all flex items-center justify-center gap-1"
-                      >
-                        <Check className="w-4 h-4" />
-                        Confirm Match
-                      </button>
-                      <button
-                        onClick={() => {
-                          // Remove from review and allow manual UPC entry
-                          setReviewItems(reviewItems.filter((_, i) => i !== idx));
-                          setError(`Skipped "${review.receiptName}". Add UPC manually to bind.`);
-                        }}
-                        className="px-4 py-2 bg-white/10 rounded-lg text-xs hover:bg-white/20 transition-all"
-                      >
-                        Skip
-                      </button>
+                          }}
+                          className="w-full text-left p-2 bg-white/5 hover:bg-white/10 rounded text-xs text-white"
+                        >
+                          {match.name} (SKU: {match.sku})
+                        </button>
+                      ))}
                     </div>
                   </div>
                 ))}
@@ -461,7 +594,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
             </div>
           )}
 
-          {/* Submit */}
+          {/* Actions */}
           <div className="flex gap-3">
             <button
               onClick={onCancel}
@@ -472,16 +605,9 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
             <button
               onClick={handleSubmit}
               disabled={submitting || items.length === 0}
-              className="flex-1 py-3 bg-ninpo-lime text-ninpo-black hover:bg-white rounded-xl font-black uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="flex-1 py-3 bg-ninpo-lime text-ninpo-black hover:bg-white rounded-xl font-black uppercase tracking-widest transition-all disabled:opacity-50"
             >
-              {submitting ? (
-                <>Processing...</>
-              ) : (
-                <>
-                  <DollarSign className="w-5 h-5" />
-                  Update Prices
-                </>
-              )}
+              {submitting ? 'Submitting...' : 'Submit Receipt'}
             </button>
           </div>
         </div>
