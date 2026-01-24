@@ -877,6 +877,28 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     }
   }, [activeStore, activeStoreId, addToast, createCaptureRequestId, fetchReceiptCaptures, loadReceiptCaptureForReview]);
 
+  const handleOpenCreateProduct = useCallback((item: ClassifiedReceiptItem) => {
+    if (!canCreateProducts) {
+      setReceiptError('Manager or owner access required to create products');
+      return;
+    }
+
+    setDismissedCreateItems(prev => {
+      const next = new Set(prev);
+      next.delete(getReceiptItemKey(item));
+      return next;
+    });
+    setCreateProductItem(item);
+    setCreateProductDraft({
+      name: item.receiptName,
+      category: '',
+      sizeOz: 0,
+      price: Number(item.unitPrice.toFixed(2)),
+      isTaxable: null,
+      depositEligible: null
+    });
+  }, [canCreateProducts, getReceiptItemKey]);
+
   useEffect(() => {
     if (!showReceiptReview || createProductItem || !canCreateProducts) return;
     const pendingItem = classifiedItems.find(item =>
@@ -1102,28 +1124,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       setReceiptError(err?.message || 'Failed to attach product');
     }
   }, [addToast, confirmReceiptItem, linkUpcToProduct, productSearchIntent, productSearchItem, updateReceiptItem]);
-
-  const handleOpenCreateProduct = useCallback((item: ClassifiedReceiptItem) => {
-    if (!canCreateProducts) {
-      setReceiptError('Manager or owner access required to create products');
-      return;
-    }
-
-    setDismissedCreateItems(prev => {
-      const next = new Set(prev);
-      next.delete(getReceiptItemKey(item));
-      return next;
-    });
-    setCreateProductItem(item);
-    setCreateProductDraft({
-      name: item.receiptName,
-      category: '',
-      sizeOz: 0,
-      price: Number(item.unitPrice.toFixed(2)),
-      isTaxable: null,
-      depositEligible: null
-    });
-  }, [canCreateProducts, getReceiptItemKey]);
 
   const dismissCreateProduct = useCallback((markDismissed: boolean = true) => {
     if (createProductItem && markDismissed) {
