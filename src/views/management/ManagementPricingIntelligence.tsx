@@ -234,6 +234,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const [showReceiptScanner, setShowReceiptScanner] = useState(false);
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
   const [receiptThumbnailUrl, setReceiptThumbnailUrl] = useState<string | null>(null);
+  const [isLoadingReceiptCapture, setIsLoadingReceiptCapture] = useState<string | null>(null);
   const [commitIntent, setCommitIntent] = useState<'safe' | 'selected' | 'locked' | null>(null);
   const [classifiedItems, setClassifiedItems] = useState<ClassifiedReceiptItem[]>([]);
   const [showReceiptReview, setShowReceiptReview] = useState(false);
@@ -394,23 +395,29 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       .filter(item => typeof item.priceDelta === 'number' && Math.abs(item.priceDelta) >= priceDeltaThreshold)
       .map(item => {
         const history = item.matchHistory ?? [];
-        const lastPrices = history.slice(-3).map(entry => entry.price);
+        const lastHistory = history.slice(-3);
+        const latestHistory = lastHistory[lastHistory.length - 1];
+        const matchMethod = item.matchMethod ?? latestHistory?.matchMethod;
+        const matchConfidence = item.matchConfidence ?? latestHistory?.matchConfidence;
+        const matchLabel = matchMethod ? matchMethod.replace(/_/g, ' ') : 'unknown';
+        const matchScore =
+          typeof matchConfidence === 'number' ? `${(matchConfidence * 100).toFixed(0)}%` : null;
         return {
           item,
           storeName: activeStore?.name ?? 'Active Store',
-          productName: item.suggestedProduct?.name || item.receiptName,
+          receiptName: item.receiptName,
           priceDelta: item.priceDelta ?? 0,
-          lastPrices
+          lastHistory,
+          matchLabel,
+          matchScore
         };
       });
   }, [activeStore?.name, activeStoreId, classifiedItems, priceDeltaThreshold]);
 
   const handleOpenReceiptReviewForItem = useCallback((item: ClassifiedReceiptItem) => {
-    setSelectedItemsForCommit(prev => {
-      const next = new Map(prev);
-      next.set(JSON.stringify(item), true);
-      return next;
-    });
+    const next = new Map<string, boolean>();
+    next.set(JSON.stringify(item), true);
+    setSelectedItemsForCommit(next);
     setShowReceiptReview(true);
   }, []);
 
@@ -598,6 +605,50 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       alert('Error deleting receipt');
     }
   };
+
+  const handleOpenReceiptCapture = useCallback(async (capture: ReceiptCapture) => {
+    setReceiptError(null);
+    setIsLoadingReceiptCapture(capture._id);
+    try {
+      if (capture.storeId && capture.storeId !== activeStoreId) {
+        setActiveStoreId(capture.storeId);
+      }
+
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${capture._id}`, {
+        credentials: 'include'
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data?.error || 'Failed to load receipt capture');
+
+      const captureData = data?.capture ?? {};
+      const draftItems = Array.isArray(captureData?.draftItems) ? captureData.draftItems : [];
+
+      if (draftItems.length === 0) {
+        addToast('Receipt capture has no parsed items yet.', 'info');
+        return;
+      }
+
+      const { items: classified, bucketCounts } = classifyItems(draftItems);
+      setClassifiedItems(classified);
+      setSelectedItemsForCommit(new Map());
+
+      const firstImage = Array.isArray(captureData?.images) ? captureData.images[0] : null;
+      setReceiptImageUrl(firstImage || null);
+      setReceiptThumbnailUrl(firstImage || null);
+
+      addToast(
+        `Loaded ${draftItems.length} items: ${bucketCounts.A} auto-update, ${bucketCounts.B} review, ${bucketCounts.C} no-match, ${bucketCounts.D} noise`,
+        'success'
+      );
+
+      setShowReceiptReview(true);
+    } catch (error: any) {
+      console.error('Error loading receipt capture:', error);
+      setReceiptError(error?.message || 'Failed to load receipt capture');
+    } finally {
+      setIsLoadingReceiptCapture(null);
+    }
+  }, [activeStoreId, addToast, setActiveStoreId]);
 
   const updateReceiptItem = useCallback(
     (
@@ -1417,45 +1468,48 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       </section>
 
       <section className="space-y-6">
-        <div className="bg-gradient-to-r from-orange-600 to-amber-600 rounded-2xl p-6 border border-white/20">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-black uppercase text-white tracking-widest flex items-center gap-2">
-                <Camera className="w-5 h-5" />
-                Upload Receipt
-              </h3>
-              <p className="text-sm text-orange-100 mt-2">Capture and process a new receipt</p>
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="bg-gradient-to-r from-orange-600 to-amber-600 rounded-2xl p-6 border border-white/20">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-black uppercase text-white tracking-widest flex items-center gap-2">
+                  <Camera className="w-5 h-5" />
+                  Upload Receipt
+                </h3>
+                <p className="text-sm text-orange-100 mt-2">Capture and process a new receipt</p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={openReceiptScanner}
+                  className="px-6 py-3 bg-white/20 hover:bg-white/30 text-white rounded-lg font-bold text-sm flex items-center gap-2 transition-all"
+                  title="Use scanner to capture receipts"
+                >
+                  <Camera className="w-5 h-5" />
+                  Capture / Upload
+                </button>
+              </div>
             </div>
-            <div className="flex gap-3">
-              <button
-                onClick={openReceiptScanner}
-                className="px-6 py-3 bg-white/20 hover:bg-white/30 text-white rounded-lg font-bold text-sm flex items-center gap-2 transition-all"
-                title="Use scanner to capture receipts"
-              >
-                <Camera className="w-5 h-5" />
-                Capture / Upload
-              </button>
-            </div>
+            {activeStore && (
+              <p className="text-xs text-orange-100 mt-3">
+                Active store: <span className="font-semibold">{activeStore.name}</span>
+              </p>
+            )}
+            {receiptError && (
+              <p className="text-xs text-white/80 bg-white/10 border border-white/20 rounded-lg px-3 py-2 mt-3">
+                {receiptError}
+              </p>
+            )}
           </div>
-          {activeStore && (
-            <p className="text-xs text-orange-100 mt-3">
-              Active store: <span className="font-semibold">{activeStore.name}</span>
-            </p>
-          )}
-          {receiptError && (
-            <p className="text-xs text-white/80 bg-white/10 border border-white/20 rounded-lg px-3 py-2 mt-3">
-              {receiptError}
-            </p>
-          )}
-        </div>
 
-        {receiptCaptures.length > 0 && (
           <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-2xl p-6 border border-white/20">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-black uppercase text-white tracking-widest flex items-center gap-2">
-                <Camera className="w-5 h-5" />
-                Receipt Scanner Queue
-              </h3>
+              <div>
+                <h3 className="text-lg font-black uppercase text-white tracking-widest flex items-center gap-2">
+                  <Camera className="w-5 h-5" />
+                  Review Pending Receipts
+                </h3>
+                <p className="text-sm text-purple-100 mt-2">Receipts waiting for item review.</p>
+              </div>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-purple-100">
                   {receiptCaptures.filter(c => c.status === 'parsed').length} pending review
@@ -1470,160 +1524,199 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {receiptCaptures.slice(0, 6).map(capture => (
-                <div
-                  key={capture._id}
-                  className="bg-white/10 backdrop-blur-sm rounded-lg p-4 hover:bg-white/20 transition-all border border-white/10 group"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex-1">
-                      <span className="text-white font-bold text-sm">{capture.storeName}</span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-xs px-2 py-1 rounded ${
-                          capture.status === 'parsed'
-                            ? 'bg-yellow-500 text-yellow-900'
-                            : capture.status === 'review_complete'
-                            ? 'bg-green-500 text-green-900'
-                            : 'bg-gray-500 text-gray-900'
-                        }`}
-                      >
-                        {capture.status.replace(/_/g, ' ')}
-                      </span>
-
-                      <button
-                        onClick={event => {
-                          event.stopPropagation();
-                          deleteReceiptCapture(capture._id);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-500/30 rounded text-red-400 hover:text-red-300"
-                        title="Delete this receipt"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-xs text-purple-100 space-y-1">
-                      <div>
-                        {capture.imageCount} photo{capture.imageCount !== 1 ? 's' : ''}
-                      </div>
-                      <div>
-                        {capture.stats.itemsConfirmed}/{capture.stats.totalItems} items confirmed
-                      </div>
-
-                      {capture.workflowStats && (
-                        <div className="flex items-center gap-2 mt-2">
-                          {capture.workflowStats.newProducts && capture.workflowStats.newProducts > 0 ? (
-                            <span className="bg-orange-500/30 text-orange-200 text-xs px-2 py-1 rounded">
-                              {capture.workflowStats.newProducts} NEW
-                            </span>
-                          ) : null}
-                          {capture.workflowStats.priceUpdates && capture.workflowStats.priceUpdates > 0 ? (
-                            <span className="bg-blue-500/30 text-blue-200 text-xs px-2 py-1 rounded">
-                              {capture.workflowStats.priceUpdates} PRICES
-                            </span>
-                          ) : null}
-                        </div>
-                      )}
-
-                      {capture.stats.itemsNeedingReview > 0 && (
-                        <div className="text-yellow-300 font-semibold">
-                          {capture.stats.itemsNeedingReview} need review
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-3 text-xs text-purple-200">
-                      {new Date(capture.createdAt).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-6 border border-white/20">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h3 className="text-lg font-black uppercase text-white tracking-widest">
-                Review Price Changes
-              </h3>
-              <p className="text-sm text-emerald-100 mt-2">
-                Flagged deltas over ${priceDeltaThreshold.toFixed(2)} from recent receipts.
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-emerald-100">
-                {priceReviewItems.length} flagged
-              </span>
-              <button
-                onClick={() => {
-                  if (priceReviewItems.length > 0) setShowReceiptReview(true);
-                }}
-                disabled={priceReviewItems.length === 0}
-                className={`px-3 py-2 rounded-lg text-xs font-semibold border ${
-                  priceReviewItems.length === 0
-                    ? 'border-white/20 text-white/50 bg-white/10'
-                    : 'border-white/30 text-white bg-white/20 hover:bg-white/30'
-                }`}
-              >
-                Open Review
-              </button>
-            </div>
-          </div>
-
-          {!activeStoreId ? (
-            <div className="mt-4 text-xs text-emerald-100/80">
-              Select an active store to see price deltas.
-            </div>
-          ) : priceReviewItems.length === 0 ? (
-            <div className="mt-4 text-xs text-emerald-100/80">
-              No price changes exceed the threshold yet.
-            </div>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {priceReviewItems.map(({ item, storeName, productName, priceDelta, lastPrices }) => (
-                <div
-                  key={getReceiptItemKey(item)}
-                  className="bg-white/10 backdrop-blur-sm rounded-lg p-4 border border-white/10 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
-                >
-                  <div>
-                    <div className="text-sm font-semibold text-white">
-                      {productName}
-                    </div>
-                    <div className="text-xs text-emerald-100 mt-1">
-                      Store: {storeName}
-                    </div>
-                    <div className="text-xs text-emerald-100 mt-1">
-                      Price delta:{' '}
-                      <span className={priceDelta >= 0 ? 'text-lime-200' : 'text-rose-200'}>
-                        {priceDelta >= 0 ? '+' : ''}
-                        {priceDelta.toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="text-xs text-emerald-100 mt-1">
-                      Last 3 prices:{' '}
-                      {lastPrices.length > 0
-                        ? lastPrices.map(price => `$${price.toFixed(2)}`).join(' • ')
-                        : 'No history'}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleOpenReceiptReviewForItem(item)}
-                    className="px-3 py-2 rounded-lg text-xs font-semibold border border-white/30 text-white bg-white/20 hover:bg-white/30"
+            {receiptCaptures.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {receiptCaptures.slice(0, 6).map(capture => (
+                  <div
+                    key={capture._id}
+                    className="bg-white/10 backdrop-blur-sm rounded-lg p-4 hover:bg-white/20 transition-all border border-white/10 group"
                   >
-                    Review Receipt
-                  </button>
-                </div>
-              ))}
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex-1">
+                        <span className="text-white font-bold text-sm">{capture.storeName}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-xs px-2 py-1 rounded ${
+                            capture.status === 'parsed'
+                              ? 'bg-yellow-500 text-yellow-900'
+                              : capture.status === 'review_complete'
+                              ? 'bg-green-500 text-green-900'
+                              : 'bg-gray-500 text-gray-900'
+                          }`}
+                        >
+                          {capture.status.replace(/_/g, ' ')}
+                        </span>
+
+                        <button
+                          onClick={event => {
+                            event.stopPropagation();
+                            deleteReceiptCapture(capture._id);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-500/30 rounded text-red-400 hover:text-red-300"
+                          title="Delete this receipt"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-xs text-purple-100 space-y-1">
+                        <div>
+                          {capture.imageCount} photo{capture.imageCount !== 1 ? 's' : ''}
+                        </div>
+                        <div>
+                          {capture.stats.itemsConfirmed}/{capture.stats.totalItems} items confirmed
+                        </div>
+
+                        {capture.workflowStats && (
+                          <div className="flex items-center gap-2 mt-2">
+                            {capture.workflowStats.newProducts && capture.workflowStats.newProducts > 0 ? (
+                              <span className="bg-orange-500/30 text-orange-200 text-xs px-2 py-1 rounded">
+                                {capture.workflowStats.newProducts} NEW
+                              </span>
+                            ) : null}
+                            {capture.workflowStats.priceUpdates && capture.workflowStats.priceUpdates > 0 ? (
+                              <span className="bg-blue-500/30 text-blue-200 text-xs px-2 py-1 rounded">
+                                {capture.workflowStats.priceUpdates} PRICES
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
+
+                        {capture.stats.itemsNeedingReview > 0 && (
+                          <div className="text-yellow-300 font-semibold">
+                            {capture.stats.itemsNeedingReview} need review
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-3 text-xs text-purple-200">
+                        {new Date(capture.createdAt).toLocaleString()}
+                      </div>
+
+                      <div className="mt-3 flex items-center gap-2">
+                        <button
+                          onClick={() => handleOpenReceiptCapture(capture)}
+                          disabled={capture.status !== 'parsed' || isLoadingReceiptCapture === capture._id}
+                          className={`px-3 py-2 rounded-lg text-[10px] font-semibold border transition ${
+                            capture.status !== 'parsed' || isLoadingReceiptCapture === capture._id
+                              ? 'border-white/20 text-white/50 bg-white/10 cursor-not-allowed'
+                              : 'border-white/30 text-white bg-white/20 hover:bg-white/30'
+                          }`}
+                        >
+                          {isLoadingReceiptCapture === capture._id ? 'Loading…' : 'Review Items'}
+                        </button>
+                        {capture.status !== 'parsed' && (
+                          <span className="text-[10px] text-purple-100/70">
+                            Awaiting parse
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-purple-100/80">No pending receipts yet.</div>
+            )}
+          </div>
+
+          <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-6 border border-white/20">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-black uppercase text-white tracking-widest">
+                  Review Price Changes
+                </h3>
+                <p className="text-sm text-emerald-100 mt-2">
+                  Flagged deltas over ${priceDeltaThreshold.toFixed(2)} from recent receipts.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-emerald-100">
+                  {priceReviewItems.length} flagged
+                </span>
+                <button
+                  onClick={() => {
+                    if (priceReviewItems.length > 0) setShowReceiptReview(true);
+                  }}
+                  disabled={priceReviewItems.length === 0}
+                  className={`px-3 py-2 rounded-lg text-xs font-semibold border ${
+                    priceReviewItems.length === 0
+                      ? 'border-white/20 text-white/50 bg-white/10'
+                      : 'border-white/30 text-white bg-white/20 hover:bg-white/30'
+                  }`}
+                >
+                  Open Review
+                </button>
+              </div>
             </div>
-          )}
+
+            {!activeStoreId ? (
+              <div className="mt-4 text-xs text-emerald-100/80">
+                Select an active store to see price deltas.
+              </div>
+            ) : priceReviewItems.length === 0 ? (
+              <div className="mt-4 text-xs text-emerald-100/80">
+                No price changes exceed the threshold yet.
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {priceReviewItems.map(({
+                  item,
+                  storeName,
+                  receiptName,
+                  priceDelta,
+                  lastHistory,
+                  matchLabel,
+                  matchScore
+                }) => (
+                  <div
+                    key={getReceiptItemKey(item)}
+                    className="bg-white/10 backdrop-blur-sm rounded-lg p-4 border border-white/10 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div>
+                      <div className="text-sm font-semibold text-white">
+                        {receiptName}
+                      </div>
+                      {item.suggestedProduct?.name && (
+                        <div className="text-xs text-emerald-100 mt-1">
+                          Matched: {item.suggestedProduct.name}
+                        </div>
+                      )}
+                      <div className="text-xs text-emerald-100 mt-1">
+                        Store: {storeName}
+                      </div>
+                      <div className="text-xs text-emerald-100 mt-1">
+                        Price delta:{' '}
+                        <span className={priceDelta >= 0 ? 'text-lime-200' : 'text-rose-200'}>
+                          {priceDelta >= 0 ? '+' : ''}
+                          {priceDelta.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="text-xs text-emerald-100 mt-1">
+                        Match: {matchLabel}{matchScore ? ` • ${matchScore}` : ''}
+                      </div>
+                      <div className="text-xs text-emerald-100 mt-1">
+                        Last 3 prices:{' '}
+                        {lastHistory.length > 0
+                          ? lastHistory.map(entry => `$${entry.price.toFixed(2)}`).join(' • ')
+                          : 'No history'}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleOpenReceiptReviewForItem(item)}
+                      className="px-3 py-2 rounded-lg text-xs font-semibold border border-white/30 text-white bg-white/20 hover:bg-white/30"
+                    >
+                      Review Receipt
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
