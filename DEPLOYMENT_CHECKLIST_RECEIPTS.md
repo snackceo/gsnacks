@@ -21,10 +21,14 @@ CLOUDINARY_API_KEY=___________
 CLOUDINARY_API_SECRET=___________
 GEMINI_API_KEY=___________
 GOOGLE_MAPS_API_KEY=___________
+ENABLE_RECEIPT_QUEUE=true
+REDIS_URL=redis://localhost:6379
 ```
 
 **Production (Render/Railway/etc.)**:
 - [ ] Set each variable in deployment dashboard
+- [ ] Set Redis connection string (`REDIS_URL`)
+- [ ] Set `ENABLE_RECEIPT_QUEUE=true` for background processing
 - [ ] Verified values are NOT in git history
 - [ ] Used `server/.env.example` as reference
 
@@ -79,6 +83,18 @@ Then `CLOUDINARY_*` env vars are not set. Fix:
 export CLOUDINARY_CLOUD_NAME=your_value
 export CLOUDINARY_API_KEY=your_value
 export CLOUDINARY_API_SECRET=your_value
+npm start
+```
+
+If you see:
+```
+⚠️ BullMQ connection not configured; receipt queue is disabled.
+```
+
+Then set the Redis connection string and enable the queue:
+```bash
+export ENABLE_RECEIPT_QUEUE=true
+export REDIS_URL=redis://localhost:6379
 npm start
 ```
 
