@@ -107,6 +107,27 @@ interface StoreInventoryEntry {
   priceHistory?: PriceHistoryEntry[];
 }
 
+type FinalStoreMode = 'USE_MATCHED_STORE' | 'SELECT_EXISTING_STORE' | 'CREATE_DRAFT_STORE';
+
+type ReceiptApprovalAction = 'LINK_EXISTING_PRODUCT' | 'CREATE_PRODUCT' | 'IGNORE' | 'UNDECIDED';
+
+interface ReceiptApprovalDraft {
+  action: ReceiptApprovalAction;
+  productId?: string;
+  upc?: string;
+  createProduct: {
+    name: string;
+    brand: string;
+    category: string;
+    productType: string;
+    sizeOz: number;
+    sizeUnit: string;
+    deposit: number;
+    isGlass: boolean;
+    image: string;
+  };
+}
+
 interface ManagementPricingIntelligenceProps {
   setScannerMode: (mode: ScannerMode) => void;
   setScannerModalOpen: (open: boolean) => void;
@@ -269,6 +290,23 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const [storeInventory, setStoreInventory] = useState<StoreInventoryEntry[]>([]);
   const [isInventoryLoading, setIsInventoryLoading] = useState(false);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
+  const [finalStoreMode, setFinalStoreMode] = useState<FinalStoreMode>('USE_MATCHED_STORE');
+  const [finalStoreId, setFinalStoreId] = useState('');
+  const [finalStoreDraft, setFinalStoreDraft] = useState({
+    name: '',
+    address: {
+      street: '',
+      city: '',
+      state: '',
+      zip: ''
+    },
+    phone: ''
+  });
+  const [receiptApprovalItems, setReceiptApprovalItems] = useState<Record<string, ReceiptApprovalDraft>>({});
+  const [receiptApprovalNotes, setReceiptApprovalNotes] = useState('');
+  const [receiptApprovalIdempotencyKey, setReceiptApprovalIdempotencyKey] = useState('');
+  const [isApprovingReceipt, setIsApprovingReceipt] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
 
   const activeStore = useMemo(
     () => stores.find(store => store.id === activeStoreId) || null,
@@ -291,6 +329,11 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       unitPrice: item.unitPrice,
       totalPrice: item.totalPrice
     });
+  }, []);
+
+  const getReceiptJobItemId = useCallback((item: ClassifiedReceiptItem) => {
+    const anyItem = item as ClassifiedReceiptItem & { id?: string; _id?: string; jobItemId?: string };
+    return anyItem.jobItemId || anyItem.id || anyItem._id || null;
   }, []);
 
   const filteredProducts = useMemo(() => productSearchResults, [productSearchResults]);
@@ -422,6 +465,82 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const pendingReceiptCount = useMemo(() => {
     return receiptCaptures.filter(capture => capture.status === 'parsed').length;
   }, [receiptCaptures]);
+
+  const receiptApprovalStatus = useMemo(() => {
+    const items = classifiedItems.map(item => {
+      const key = getReceiptItemKey(item);
+      const draft = receiptApprovalItems[key];
+      const action = draft?.action ?? 'UNDECIDED';
+      const jobItemId = getReceiptJobItemId(item);
+      const upcValue = (draft?.upc || item.scannedUpc || item.suggestedProduct?.upc || '').trim();
+      const blockingWarnings: string[] = [];
+      const advisoryWarnings: string[] = [];
+
+      if (!jobItemId) {
+        blockingWarnings.push('Missing job item id');
+      }
+
+      if (!draft || action === 'UNDECIDED') {
+        blockingWarnings.push('Select an action');
+      }
+
+      if (action === 'LINK_EXISTING_PRODUCT') {
+        const productId = draft?.productId || item.suggestedProduct?.id;
+        if (!productId) {
+          blockingWarnings.push('Select product');
+        }
+      }
+
+      if (action === 'CREATE_PRODUCT') {
+        if (!draft?.createProduct?.name?.trim()) {
+          blockingWarnings.push('Name required');
+        }
+      }
+
+      if (!upcValue) {
+        advisoryWarnings.push('UPC recommended');
+      }
+
+      return {
+        item,
+        key,
+        action,
+        jobItemId,
+        upcValue,
+        draft,
+        blockingWarnings,
+        advisoryWarnings
+      };
+    });
+
+    const storeBlockingWarnings: string[] = [];
+    if (finalStoreMode === 'SELECT_EXISTING_STORE' && !finalStoreId) {
+      storeBlockingWarnings.push('Select a store');
+    }
+    if (finalStoreMode === 'CREATE_DRAFT_STORE' && !finalStoreDraft.name.trim()) {
+      storeBlockingWarnings.push('Draft store name required');
+    }
+    if (finalStoreMode === 'USE_MATCHED_STORE' && !activeStoreId) {
+      storeBlockingWarnings.push('No matched store detected');
+    }
+
+    const canApprove =
+      storeBlockingWarnings.length === 0 &&
+      items.every(entry => entry.blockingWarnings.length === 0) &&
+      Boolean(activeReceiptCaptureId);
+
+    return { items, storeBlockingWarnings, canApprove };
+  }, [
+    activeReceiptCaptureId,
+    activeStoreId,
+    classifiedItems,
+    finalStoreDraft.name,
+    finalStoreId,
+    finalStoreMode,
+    getReceiptItemKey,
+    getReceiptJobItemId,
+    receiptApprovalItems
+  ]);
 
   const handleOpenReceiptReviewForItem = useCallback((item: ClassifiedReceiptItem) => {
     const next = new Map<string, boolean>();
@@ -838,6 +957,17 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     setReceiptImageUrl(null);
     setReceiptThumbnailUrl(null);
     setActiveReceiptCaptureId(null);
+    setReceiptApprovalItems({});
+    setReceiptApprovalNotes('');
+    setReceiptApprovalIdempotencyKey('');
+    setFinalStoreMode('USE_MATCHED_STORE');
+    setFinalStoreId('');
+    setFinalStoreDraft({
+      name: '',
+      address: { street: '', city: '', state: '', zip: '' },
+      phone: ''
+    });
+    setApprovalError(null);
   }, []);
 
   const createCaptureRequestId = () => {
@@ -955,6 +1085,62 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     [setActiveStoreId]
   );
 
+  useEffect(() => {
+    if (!showReceiptReview) return;
+    setFinalStoreId(activeStoreId || '');
+    if (activeStoreId) {
+      setFinalStoreMode('USE_MATCHED_STORE');
+    }
+  }, [activeStoreId, showReceiptReview]);
+
+  useEffect(() => {
+    if (!showReceiptReview) return;
+    setApprovalError(null);
+  }, [finalStoreId, finalStoreMode, finalStoreDraft.name, showReceiptReview]);
+
+  useEffect(() => {
+    if (!showReceiptReview) return;
+    setReceiptApprovalItems(prev => {
+      const prevKeys = Object.keys(prev);
+      const hasAllKeys =
+        prevKeys.length > 0 &&
+        classifiedItems.every(item => prev[getReceiptItemKey(item)]);
+
+      if (hasAllKeys) {
+        return prev;
+      }
+
+      const next: Record<string, ReceiptApprovalDraft> = {};
+      classifiedItems.forEach(item => {
+        const key = getReceiptItemKey(item);
+        const suggested = item.suggestedProduct;
+        const isNoise = item.isNoiseRule || item.classification === 'D';
+        const action: ReceiptApprovalAction = isNoise
+          ? 'IGNORE'
+          : suggested
+          ? 'LINK_EXISTING_PRODUCT'
+          : 'UNDECIDED';
+        next[key] = {
+          action,
+          productId: suggested?.id,
+          upc: item.scannedUpc || suggested?.upc || '',
+          createProduct: {
+            name: item.receiptName || '',
+            brand: '',
+            category: '',
+            productType: '',
+            sizeOz: 0,
+            sizeUnit: 'oz',
+            deposit: 0.1,
+            isGlass: false,
+            image: ''
+          }
+        };
+      });
+      return next;
+    });
+  }, [classifiedItems, getReceiptItemKey, showReceiptReview]);
+
   const handleItemToggle = useCallback(
     (item: ClassifiedReceiptItem, _classification: ReceiptItemClassification, checked: boolean) => {
       const key = getReceiptItemKey(item);
@@ -974,6 +1160,75 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       updateReceiptItem(item, { classification });
     },
     [updateReceiptItem]
+  );
+
+  const updateApprovalDraft = useCallback(
+    (item: ClassifiedReceiptItem, updates: Partial<ReceiptApprovalDraft>) => {
+      const key = getReceiptItemKey(item);
+      setApprovalError(null);
+      setReceiptApprovalItems(prev => {
+        const existing = prev[key] ?? {
+          action: 'UNDECIDED',
+          productId: item.suggestedProduct?.id,
+          upc: item.scannedUpc || item.suggestedProduct?.upc || '',
+          createProduct: {
+            name: item.receiptName || '',
+            brand: '',
+            category: '',
+            productType: '',
+            sizeOz: 0,
+            sizeUnit: 'oz',
+            deposit: 0.1,
+            isGlass: false,
+            image: ''
+          }
+        };
+        return {
+          ...prev,
+          [key]: {
+            ...existing,
+            ...updates,
+            createProduct: {
+              ...existing.createProduct,
+              ...updates.createProduct
+            }
+          }
+        };
+      });
+    },
+    [getReceiptItemKey]
+  );
+
+  const handleApprovalActionChange = useCallback(
+    (item: ClassifiedReceiptItem, action: ReceiptApprovalAction) => {
+      updateApprovalDraft(item, { action });
+    },
+    [updateApprovalDraft]
+  );
+
+  const handleApprovalUpcChange = useCallback(
+    (item: ClassifiedReceiptItem, upc: string) => {
+      updateApprovalDraft(item, { upc });
+    },
+    [updateApprovalDraft]
+  );
+
+  const handleApprovalProductChange = useCallback(
+    (item: ClassifiedReceiptItem, productId: string) => {
+      updateApprovalDraft(item, { productId });
+    },
+    [updateApprovalDraft]
+  );
+
+  const handleApprovalCreateChange = useCallback(
+    (item: ClassifiedReceiptItem, field: keyof ReceiptApprovalDraft['createProduct'], value: string | number | boolean) => {
+      updateApprovalDraft(item, {
+        createProduct: {
+          [field]: value
+        } as Partial<ReceiptApprovalDraft['createProduct']>
+      });
+    },
+    [updateApprovalDraft]
   );
 
   const linkUpcToProduct = useCallback(async (upc: string, productId: string) => {
@@ -1332,6 +1587,151 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       setReceiptError(err?.message || 'Failed to save noise rule');
     }
   }, [activeStoreId, addToast, updateReceiptItem]);
+
+  const handleApproveReceipt = useCallback(async () => {
+    if (!activeReceiptCaptureId) {
+      setApprovalError('Open a receipt capture before approval.');
+      return;
+    }
+
+    if (!receiptApprovalStatus.canApprove) {
+      setApprovalError('Resolve store selection and item requirements before approval.');
+      return;
+    }
+
+    setIsApprovingReceipt(true);
+    setApprovalError(null);
+
+    try {
+      const draftAddress = finalStoreDraft.address || { street: '', city: '', state: '', zip: '' };
+      const storeCandidateOverride = finalStoreMode === 'CREATE_DRAFT_STORE'
+        ? {
+            name: finalStoreDraft.name.trim() || undefined,
+            address: {
+              street: draftAddress.street.trim() || undefined,
+              city: draftAddress.city.trim() || undefined,
+              state: draftAddress.state.trim() || undefined,
+              zip: draftAddress.zip.trim() || undefined
+            },
+            phone: finalStoreDraft.phone.trim() || undefined
+          }
+        : undefined;
+      const hasStoreCandidateOverride = Boolean(
+        storeCandidateOverride &&
+          (storeCandidateOverride.name ||
+            storeCandidateOverride.phone ||
+            storeCandidateOverride.address?.street ||
+            storeCandidateOverride.address?.city ||
+            storeCandidateOverride.address?.state ||
+            storeCandidateOverride.address?.zip)
+      );
+
+      const approvalItems = receiptApprovalStatus.items.map(entry => {
+        if (!entry.jobItemId || !entry.draft) {
+          throw new Error(`Missing job item data for "${entry.item.receiptName}"`);
+        }
+        if (entry.action === 'UNDECIDED') {
+          throw new Error(`Select an action for "${entry.item.receiptName}"`);
+        }
+
+        const payload: any = {
+          jobItemId: entry.jobItemId,
+          action: entry.action,
+          priceObservation: {
+            unitPrice: entry.item.unitPrice,
+            lineTotal: entry.item.totalPrice,
+            quantity: entry.item.quantity
+          }
+        };
+
+        if (entry.upcValue) {
+          payload.upc = entry.upcValue;
+        }
+
+        if (entry.action === 'LINK_EXISTING_PRODUCT') {
+          const productId = entry.draft.productId || entry.item.suggestedProduct?.id;
+          if (!productId) {
+            throw new Error(`Select a product for "${entry.item.receiptName}"`);
+          }
+          payload.productId = productId;
+        }
+
+        if (entry.action === 'CREATE_PRODUCT') {
+          const createDraft = entry.draft.createProduct;
+          const createPayload: any = {
+            name: createDraft.name.trim(),
+            sizeUnit: createDraft.sizeUnit || 'oz',
+            deposit: Number.isFinite(Number(createDraft.deposit)) ? Number(createDraft.deposit) : 0.1,
+            isGlass: Boolean(createDraft.isGlass)
+          };
+
+          if (createDraft.brand.trim()) createPayload.brand = createDraft.brand.trim();
+          if (createDraft.category.trim()) createPayload.category = createDraft.category.trim();
+          if (createDraft.productType.trim()) createPayload.productType = createDraft.productType.trim();
+          if (Number(createDraft.sizeOz) > 0) createPayload.sizeOz = Number(createDraft.sizeOz);
+          if (createDraft.image.trim()) createPayload.image = createDraft.image.trim();
+
+          payload.createProduct = createPayload;
+        }
+
+        return payload;
+      });
+
+      const payload: any = {
+        finalStore: {
+          mode: finalStoreMode,
+          storeId: finalStoreMode === 'SELECT_EXISTING_STORE' ? finalStoreId : undefined,
+          storeCandidateOverride: hasStoreCandidateOverride ? storeCandidateOverride : undefined
+        },
+        items: approvalItems
+      };
+
+      if (receiptApprovalNotes.trim()) {
+        payload.notes = receiptApprovalNotes.trim();
+      }
+
+      if (receiptApprovalIdempotencyKey.trim()) {
+        payload.idempotencyKey = receiptApprovalIdempotencyKey.trim();
+      }
+
+      const res = await fetch(
+        `${BACKEND_URL}/api/receipts/parse-jobs/${activeReceiptCaptureId}/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(payload)
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Receipt approval failed');
+
+      addToast('Receipt approved and applied', 'success');
+      resetReceiptReview();
+      void fetchReceiptCaptures();
+      void refreshStores();
+      void fetchProducts();
+    } catch (err: any) {
+      setApprovalError(err?.message || 'Failed to approve receipt');
+    } finally {
+      setIsApprovingReceipt(false);
+    }
+  }, [
+    activeReceiptCaptureId,
+    addToast,
+    fetchProducts,
+    fetchReceiptCaptures,
+    finalStoreDraft.address,
+    finalStoreDraft.name,
+    finalStoreDraft.phone,
+    finalStoreId,
+    finalStoreMode,
+    receiptApprovalIdempotencyKey,
+    receiptApprovalNotes,
+    receiptApprovalStatus,
+    refreshStores,
+    resetReceiptReview
+  ]);
 
   const commitReceiptItems = useCallback(async (
     itemsToCommit: ClassifiedReceiptItem[],
@@ -2280,7 +2680,387 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
               </p>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-4">
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-white">Store Candidate</h3>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Finalize the store before approval</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <span>Final Store Mode</span>
+                    <select
+                      value={finalStoreMode}
+                      onChange={e => setFinalStoreMode(e.target.value as FinalStoreMode)}
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 text-xs text-white"
+                    >
+                      <option value="USE_MATCHED_STORE">Use matched store from receipt</option>
+                      <option value="SELECT_EXISTING_STORE">Select existing store</option>
+                      <option value="CREATE_DRAFT_STORE">Create new store draft</option>
+                    </select>
+                  </label>
+
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Matched Store</p>
+                    <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-xs text-white">
+                      {activeStore?.name ? activeStore.name : 'No matched store detected'}
+                    </div>
+                  </div>
+
+                  {finalStoreMode === 'SELECT_EXISTING_STORE' && (
+                    <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-500 md:col-span-2">
+                      <span>Select Store</span>
+                      <select
+                        value={finalStoreId}
+                        onChange={e => setFinalStoreId(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 text-xs text-white"
+                      >
+                        <option value="">Choose store…</option>
+                        {stores.map(store => (
+                          <option key={store.id} value={store.id}>
+                            {store.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+
+                  {finalStoreMode === 'CREATE_DRAFT_STORE' && (
+                    <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-500 md:col-span-2">
+                        <span>Draft Store Name</span>
+                        <input
+                          value={finalStoreDraft.name}
+                          onChange={e =>
+                            setFinalStoreDraft(prev => ({
+                              ...prev,
+                              name: e.target.value
+                            }))
+                          }
+                          className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 text-xs text-white"
+                          placeholder="Store name"
+                        />
+                      </label>
+                      <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        <span>Street</span>
+                        <input
+                          value={finalStoreDraft.address.street}
+                          onChange={e =>
+                            setFinalStoreDraft(prev => ({
+                              ...prev,
+                              address: { ...prev.address, street: e.target.value }
+                            }))
+                          }
+                          className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 text-xs text-white"
+                          placeholder="123 Main St"
+                        />
+                      </label>
+                      <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        <span>City</span>
+                        <input
+                          value={finalStoreDraft.address.city}
+                          onChange={e =>
+                            setFinalStoreDraft(prev => ({
+                              ...prev,
+                              address: { ...prev.address, city: e.target.value }
+                            }))
+                          }
+                          className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 text-xs text-white"
+                          placeholder="City"
+                        />
+                      </label>
+                      <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        <span>State</span>
+                        <input
+                          value={finalStoreDraft.address.state}
+                          onChange={e =>
+                            setFinalStoreDraft(prev => ({
+                              ...prev,
+                              address: { ...prev.address, state: e.target.value }
+                            }))
+                          }
+                          className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 text-xs text-white"
+                          placeholder="MI"
+                        />
+                      </label>
+                      <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        <span>Zip</span>
+                        <input
+                          value={finalStoreDraft.address.zip}
+                          onChange={e =>
+                            setFinalStoreDraft(prev => ({
+                              ...prev,
+                              address: { ...prev.address, zip: e.target.value }
+                            }))
+                          }
+                          className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 text-xs text-white"
+                          placeholder="Zip"
+                        />
+                      </label>
+                      <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-500 md:col-span-2">
+                        <span>Phone</span>
+                        <input
+                          value={finalStoreDraft.phone}
+                          onChange={e =>
+                            setFinalStoreDraft(prev => ({
+                              ...prev,
+                              phone: e.target.value
+                            }))
+                          }
+                          className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 text-xs text-white"
+                          placeholder="Phone"
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                {receiptApprovalStatus.storeBlockingWarnings.length > 0 && (
+                  <div className="rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs text-amber-200">
+                    {receiptApprovalStatus.storeBlockingWarnings.join(' • ')}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-white">Receipt Items</h3>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Choose match/create/ignore actions before approval</p>
+                  </div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-widest">
+                    {receiptApprovalStatus.items.length} items
+                  </div>
+                </div>
+
+                {approvalError && (
+                  <div className="rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-xs text-red-200">
+                    {approvalError}
+                  </div>
+                )}
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-xs text-slate-200">
+                    <thead className="text-[10px] uppercase tracking-widest text-slate-500">
+                      <tr className="border-b border-white/10">
+                        <th className="px-3 py-2 text-left">Item</th>
+                        <th className="px-3 py-2 text-left">Suggested Match</th>
+                        <th className="px-3 py-2 text-left">UPC</th>
+                        <th className="px-3 py-2 text-left">Action</th>
+                        <th className="px-3 py-2 text-left">Details</th>
+                        <th className="px-3 py-2 text-left">Warnings</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {receiptApprovalStatus.items.map(entry => {
+                        const draft = entry.draft;
+                        const action = draft?.action ?? 'UNDECIDED';
+                        return (
+                          <tr key={entry.key} className="align-top">
+                            <td className="px-3 py-3">
+                              <div className="text-white font-semibold">{entry.item.receiptName}</div>
+                              <div className="text-[10px] text-slate-400 mt-1">
+                                Qty {entry.item.quantity} • ${entry.item.unitPrice.toFixed(2)}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3">
+                              {entry.item.suggestedProduct ? (
+                                <div>
+                                  <div className="text-white">{entry.item.suggestedProduct.name}</div>
+                                  <div className="text-[10px] text-slate-400 mt-1">
+                                    {entry.item.suggestedProduct.sku ? `SKU: ${entry.item.suggestedProduct.sku}` : 'SKU: —'}
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-slate-500">No suggestion</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-3">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  value={draft?.upc ?? entry.item.scannedUpc ?? ''}
+                                  onChange={e => handleApprovalUpcChange(entry.item, e.target.value)}
+                                  className="w-28 bg-black/40 border border-white/10 rounded-xl p-2 text-[10px] text-white"
+                                  placeholder="UPC"
+                                />
+                                <button
+                                  onClick={() => handleItemScanUpc(entry.item)}
+                                  className="px-2 py-1 rounded-xl border border-white/10 bg-white/5 text-[10px] uppercase tracking-widest"
+                                >
+                                  Scan
+                                </button>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3">
+                              <select
+                                value={action}
+                                onChange={e => handleApprovalActionChange(entry.item, e.target.value as ReceiptApprovalAction)}
+                                className="w-36 bg-black/40 border border-white/10 rounded-xl p-2 text-[10px] text-white"
+                              >
+                                <option value="UNDECIDED">Select action</option>
+                                <option value="LINK_EXISTING_PRODUCT">Match existing</option>
+                                <option value="CREATE_PRODUCT" disabled={!canCreateProducts}>Create product</option>
+                                <option value="IGNORE">Ignore</option>
+                              </select>
+                            </td>
+                            <td className="px-3 py-3">
+                              {action === 'LINK_EXISTING_PRODUCT' && (
+                                <div className="space-y-2">
+                                  <div className="text-[10px] text-slate-400">
+                                    Product ID: {draft?.productId || entry.item.suggestedProduct?.id || '—'}
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <input
+                                      value={draft?.productId || ''}
+                                      onChange={e => handleApprovalProductChange(entry.item, e.target.value)}
+                                      className="w-32 bg-black/40 border border-white/10 rounded-xl p-2 text-[10px] text-white"
+                                      placeholder="Product ID"
+                                    />
+                                    <button
+                                      onClick={() => handleItemSearchProduct(entry.item)}
+                                      className="px-2 py-1 rounded-xl border border-white/10 bg-white/5 text-[10px] uppercase tracking-widest"
+                                    >
+                                      Search
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                              {action === 'CREATE_PRODUCT' && (
+                                <div className="space-y-2">
+                                  <input
+                                    value={draft?.createProduct.name ?? ''}
+                                    onChange={e => handleApprovalCreateChange(entry.item, 'name', e.target.value)}
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-[10px] text-white"
+                                    placeholder="Name (required)"
+                                  />
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <input
+                                      value={draft?.createProduct.brand ?? ''}
+                                      onChange={e => handleApprovalCreateChange(entry.item, 'brand', e.target.value)}
+                                      className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-[10px] text-white"
+                                      placeholder="Brand"
+                                    />
+                                    <input
+                                      value={draft?.createProduct.category ?? ''}
+                                      onChange={e => handleApprovalCreateChange(entry.item, 'category', e.target.value)}
+                                      className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-[10px] text-white"
+                                      placeholder="Category"
+                                    />
+                                    <input
+                                      value={draft?.createProduct.productType ?? ''}
+                                      onChange={e => handleApprovalCreateChange(entry.item, 'productType', e.target.value)}
+                                      className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-[10px] text-white"
+                                      placeholder="Product type"
+                                    />
+                                    <input
+                                      type="number"
+                                      step="0.1"
+                                      min="0"
+                                      value={draft?.createProduct.sizeOz ?? 0}
+                                      onChange={e => handleApprovalCreateChange(entry.item, 'sizeOz', Number(e.target.value))}
+                                      className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-[10px] text-white"
+                                      placeholder="Size"
+                                    />
+                                    <select
+                                      value={draft?.createProduct.sizeUnit ?? 'oz'}
+                                      onChange={e => handleApprovalCreateChange(entry.item, 'sizeUnit', e.target.value)}
+                                      className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-[10px] text-white"
+                                    >
+                                      <option value="oz">oz</option>
+                                      <option value="ml">ml</option>
+                                    </select>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      value={draft?.createProduct.deposit ?? 0.1}
+                                      onChange={e => handleApprovalCreateChange(entry.item, 'deposit', Number(e.target.value))}
+                                      className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-[10px] text-white"
+                                      placeholder="Deposit"
+                                    />
+                                  </div>
+                                  <label className="flex items-center gap-2 text-[10px] text-slate-400">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(draft?.createProduct.isGlass)}
+                                      onChange={e => handleApprovalCreateChange(entry.item, 'isGlass', e.target.checked)}
+                                    />
+                                    Glass container
+                                  </label>
+                                  <button
+                                    onClick={() => handleOpenCreateProduct(entry.item)}
+                                    disabled={!canCreateProducts}
+                                    className={`px-2 py-1 rounded-xl border border-white/10 bg-white/5 text-[10px] uppercase tracking-widest ${
+                                      !canCreateProducts ? 'opacity-60 cursor-not-allowed' : ''
+                                    }`}
+                                  >
+                                    Open full product editor
+                                  </button>
+                                </div>
+                              )}
+                              {action === 'IGNORE' && (
+                                <div className="text-[10px] text-slate-400">Item will be ignored.</div>
+                              )}
+                            </td>
+                            <td className="px-3 py-3">
+                              <div className="space-y-1">
+                                {entry.blockingWarnings.map(warning => (
+                                  <div key={warning} className="text-[10px] text-amber-200">
+                                    {warning}
+                                  </div>
+                                ))}
+                                {entry.advisoryWarnings.map(warning => (
+                                  <div key={warning} className="text-[10px] text-slate-400">
+                                    {warning}
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-white/10 pt-4">
+                  <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <span>Manager Notes</span>
+                    <textarea
+                      value={receiptApprovalNotes}
+                      onChange={e => setReceiptApprovalNotes(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 text-xs text-white min-h-[80px]"
+                      placeholder="Optional notes for the approval"
+                    />
+                  </label>
+                  <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <span>Idempotency Key</span>
+                    <input
+                      value={receiptApprovalIdempotencyKey}
+                      onChange={e => setReceiptApprovalIdempotencyKey(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 text-xs text-white"
+                      placeholder="Optional key"
+                    />
+                  </label>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 justify-end">
+                  <button
+                    onClick={handleApproveReceipt}
+                    disabled={!receiptApprovalStatus.canApprove || isApprovingReceipt}
+                    className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 ${
+                      receiptApprovalStatus.canApprove
+                        ? 'bg-ninpo-lime text-ninpo-black'
+                        : 'bg-white/5 text-slate-500 border border-white/10'
+                    } ${isApprovingReceipt ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  >
+                    {isApprovingReceipt ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    {isApprovingReceipt ? 'Approving…' : 'Approve & Apply'}
+                  </button>
+                </div>
+              </div>
+
               <ReceiptItemBucket
                 items={classifiedItems}
                 selectedItems={selectedItemsForCommit}
