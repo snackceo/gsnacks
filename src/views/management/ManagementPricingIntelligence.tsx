@@ -234,6 +234,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const [showReceiptScanner, setShowReceiptScanner] = useState(false);
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
   const [receiptThumbnailUrl, setReceiptThumbnailUrl] = useState<string | null>(null);
+  const [activeReceiptCaptureId, setActiveReceiptCaptureId] = useState<string | null>(null);
   const [isLoadingReceiptCapture, setIsLoadingReceiptCapture] = useState<string | null>(null);
   const [commitIntent, setCommitIntent] = useState<'safe' | 'selected' | 'locked' | null>(null);
   const [classifiedItems, setClassifiedItems] = useState<ClassifiedReceiptItem[]>([]);
@@ -280,18 +281,21 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
   const canCreateProducts = currentUser?.role === 'OWNER' || currentUser?.role === 'MANAGER';
 
-  const getReceiptItemKey = useCallback((item: ClassifiedReceiptItem) => (
-    JSON.stringify({
+  const getReceiptItemKey = useCallback((item: ClassifiedReceiptItem) => {
+    if (item.captureId && typeof item.lineIndex === 'number') {
+      return `${item.captureId}:${item.lineIndex}`;
+    }
+    return JSON.stringify({
       receiptName: item.receiptName,
       unitPrice: item.unitPrice,
       totalPrice: item.totalPrice
-    })
-  ), []);
+    });
+  }, []);
 
   const filteredProducts = useMemo(() => productSearchResults, [productSearchResults]);
 
   const safeItemsForCommit = useMemo(
-    () => classifiedItems.filter(item => item.classification === 'A' && item.suggestedProduct),
+    () => classifiedItems.filter(item => item.classification === 'A' && item.suggestedProduct && typeof item.lineIndex === 'number'),
     [classifiedItems]
   );
 
@@ -416,10 +420,13 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
   const handleOpenReceiptReviewForItem = useCallback((item: ClassifiedReceiptItem) => {
     const next = new Map<string, boolean>();
-    next.set(JSON.stringify(item), true);
+    next.set(getReceiptItemKey(item), true);
     setSelectedItemsForCommit(next);
+    if (item.captureId) {
+      setActiveReceiptCaptureId(item.captureId);
+    }
     setShowReceiptReview(true);
-  }, []);
+  }, [getReceiptItemKey]);
 
   const openReceiptScanner = () => {
     if (!activeStoreId) {
@@ -606,15 +613,15 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     }
   };
 
-  const handleOpenReceiptCapture = useCallback(async (capture: ReceiptCapture) => {
+  const loadReceiptCaptureForReview = useCallback(async (captureId: string, captureStoreId?: string) => {
     setReceiptError(null);
-    setIsLoadingReceiptCapture(capture._id);
+    setIsLoadingReceiptCapture(captureId);
     try {
-      if (capture.storeId && capture.storeId !== activeStoreId) {
-        setActiveStoreId(capture.storeId);
+      if (captureStoreId && captureStoreId !== activeStoreId) {
+        setActiveStoreId(captureStoreId);
       }
 
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${capture._id}`, {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${captureId}`, {
         credentials: 'include'
       });
       const data = await resp.json().catch(() => ({}));
@@ -628,13 +635,18 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         return;
       }
 
-      const { items: classified, bucketCounts } = classifyItems(draftItems);
+      const enrichedItems = draftItems.map(item => ({
+        ...item,
+        captureId
+      }));
+      const { items: classified, bucketCounts } = classifyItems(enrichedItems);
       setClassifiedItems(classified);
       setSelectedItemsForCommit(new Map());
+      setActiveReceiptCaptureId(captureId);
 
       const firstImage = Array.isArray(captureData?.images) ? captureData.images[0] : null;
-      setReceiptImageUrl(firstImage || null);
-      setReceiptThumbnailUrl(firstImage || null);
+      setReceiptImageUrl(firstImage?.url || null);
+      setReceiptThumbnailUrl(firstImage?.thumbnailUrl || firstImage?.url || null);
 
       addToast(
         `Loaded ${draftItems.length} items: ${bucketCounts.A} auto-update, ${bucketCounts.B} review, ${bucketCounts.C} no-match, ${bucketCounts.D} noise`,
@@ -650,6 +662,10 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     }
   }, [activeStoreId, addToast, setActiveStoreId]);
 
+  const handleOpenReceiptCapture = useCallback(async (capture: ReceiptCapture) => {
+    await loadReceiptCaptureForReview(capture._id, capture.storeId);
+  }, [loadReceiptCaptureForReview]);
+
   const updateReceiptItem = useCallback(
     (
       item: ClassifiedReceiptItem,
@@ -660,16 +676,16 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       setClassifiedItems(prev => prev.map(prevItem => (prevItem === item ? updatedItem : prevItem)));
       setSelectedItemsForCommit(prev => {
         const next = new Map(prev);
-        const oldKey = JSON.stringify(item);
+        const oldKey = getReceiptItemKey(item);
         const wasSelected = next.has(oldKey);
         if (wasSelected) next.delete(oldKey);
-        const newKey = JSON.stringify(updatedItem);
+        const newKey = getReceiptItemKey(updatedItem);
         const shouldSelect = options.forceSelect ? true : options.clearSelection ? false : wasSelected;
         if (shouldSelect) next.set(newKey, true);
         return next;
       });
     },
-    []
+    [getReceiptItemKey]
   );
 
   const fetchProductSearch = useCallback(async (query: string) => {
@@ -744,32 +760,39 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     }
   }, [addToast]);
 
-  const confirmReceiptMatch = useCallback(async (item: ClassifiedReceiptItem, productId: string) => {
-    if (!activeStoreId || !productId || !isMongoId(productId)) return;
+  const confirmReceiptItem = useCallback(async (item: ClassifiedReceiptItem, productId: string, upc?: string) => {
+    if (!activeReceiptCaptureId) {
+      setReceiptError('Receipt capture ID missing. Re-open the receipt queue and try again.');
+      return;
+    }
+    if (!productId || !isMongoId(productId) || typeof item.lineIndex !== 'number') {
+      setReceiptError('Receipt item is missing binding metadata.');
+      return;
+    }
     try {
-      const res = await fetch(`${BACKEND_URL}/api/driver/receipt-confirm-match`, {
+      const res = await fetch(`${BACKEND_URL}/api/driver/receipt-confirm-item`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          storeId: activeStoreId,
+          captureId: activeReceiptCaptureId,
+          lineIndex: item.lineIndex,
           productId,
-          receiptName: item.receiptName,
-          unitPrice: item.unitPrice,
-          quantity: item.quantity
+          upc
         })
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to confirm match');
+      if (!res.ok) throw new Error(data?.error || 'Failed to confirm receipt item');
     } catch (err: any) {
-      setReceiptError(err?.message || 'Failed to confirm match');
+      setReceiptError(err?.message || 'Failed to confirm receipt item');
     }
-  }, [activeStoreId]);
+  }, [activeReceiptCaptureId]);
 
   const handleCloseReceiptScanner = useCallback(() => {
     setShowReceiptScanner(false);
     setReceiptImageUrl(null);
     setReceiptThumbnailUrl(null);
+    setActiveReceiptCaptureId(null);
   }, []);
 
   const resetReceiptReview = useCallback(() => {
@@ -778,6 +801,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     setSelectedItemsForCommit(new Map());
     setReceiptImageUrl(null);
     setReceiptThumbnailUrl(null);
+    setActiveReceiptCaptureId(null);
   }, []);
 
   const handlePhotoCaptured = useCallback(async (photoDataUrl: string, _mime: string) => {
@@ -793,20 +817,40 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       }
 
       addToast('Receipt image uploaded to Cloudinary', 'success');
-      setReceiptImageUrl(uploadResult.secureUrl);
-      setReceiptThumbnailUrl(uploadResult.secureUrl);
 
-      const parseRes = await fetch(`${BACKEND_URL}/api/driver/receipt-parse-frame`, {
+      const captureRes = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          image: photoDataUrl,
           storeId: activeStoreId,
           storeName: activeStore.name,
-          receiptImageUrl: uploadResult.secureUrl,
-          receiptPublicId: uploadResult.publicId
+          captureRequestId: createCaptureRequestId(),
+          images: [
+            {
+              url: uploadResult.secureUrl,
+              thumbnailUrl: uploadResult.secureUrl
+            }
+          ]
         })
+      });
+
+      const captureData = await captureRes.json().catch(() => ({}));
+
+      if (!captureRes.ok) {
+        throw new Error(captureData?.error || 'Failed to create receipt capture');
+      }
+
+      const captureId = captureData?.captureId;
+      if (!captureId) {
+        throw new Error('Receipt capture ID missing from server response');
+      }
+
+      const parseRes = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ captureId })
       });
 
       const parseData = await parseRes.json().catch(() => ({}));
@@ -815,27 +859,15 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         throw new Error(parseData?.error || 'Receipt parsing failed');
       }
 
-      if (!parseData.items || parseData.items.length === 0) {
-        addToast('No items were found in this receipt', 'info');
-        setShowReceiptScanner(false);
-        return;
-      }
-
-      const { items: classified, bucketCounts } = classifyItems(parseData.items);
-      setClassifiedItems(classified);
-
-      addToast(
-        `Found ${parseData.items.length} items: ${bucketCounts.A} auto-update, ${bucketCounts.B} review, ${bucketCounts.C} no-match, ${bucketCounts.D} noise`,
-        'success'
-      );
-
+      addToast('Receipt uploaded & parsed', 'success');
       setShowReceiptScanner(false);
-      setShowReceiptReview(true);
+      await loadReceiptCaptureForReview(captureId, activeStoreId);
+      void fetchReceiptCaptures();
     } catch (err: any) {
       console.error('Receipt capture error:', err);
       setReceiptError(err?.message || 'Failed to process receipt');
     }
-  }, [activeStore, activeStoreId, addToast]);
+  }, [activeStore, activeStoreId, addToast, createCaptureRequestId, fetchReceiptCaptures, loadReceiptCaptureForReview]);
 
   useEffect(() => {
     if (!showReceiptReview || createProductItem || !canCreateProducts) return;
@@ -859,7 +891,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
   const handleItemToggle = useCallback(
     (item: ClassifiedReceiptItem, _classification: ReceiptItemClassification, checked: boolean) => {
-      const key = JSON.stringify(item);
+      const key = getReceiptItemKey(item);
       const newSelected = new Map(selectedItemsForCommit);
       if (checked) {
         newSelected.set(key, true);
@@ -868,7 +900,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       }
       setSelectedItemsForCommit(newSelected);
     },
-    [selectedItemsForCommit]
+    [getReceiptItemKey, selectedItemsForCommit]
   );
 
   const handleItemReclassify = useCallback(
@@ -937,12 +969,12 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       if (scanData?.action === 'resolved' && scanData?.product) {
         const product = scanData.product;
         const mappedProduct = {
-          id: product.sku || product.frontendId || product._id,
+          id: product._id || product.id,
           name: product.name,
           upc: product.upc,
           sku: product.sku
         };
-        await confirmReceiptMatch(scanTargetItem, product._id || product.id);
+        await confirmReceiptItem(scanTargetItem, product._id || product.id, normalizedUpc);
         updateReceiptItem(
           scanTargetItem,
           {
@@ -977,7 +1009,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       setScanModalOpen(false);
       setScanTargetItem(null);
     }
-  }, [addToast, confirmReceiptMatch, scanTargetItem, updateReceiptItem]);
+  }, [addToast, confirmReceiptItem, scanTargetItem, updateReceiptItem]);
 
   const handleItemSearchProduct = useCallback(async (item: ClassifiedReceiptItem) => {
     setProductSearchIntent('match');
@@ -1036,13 +1068,13 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         addToast(productSearchIntent === 'attach' ? 'UPC attached to product' : 'UPC linked to product', 'success');
       }
 
-      await confirmReceiptMatch(productSearchItem, product.productId);
+      await confirmReceiptItem(productSearchItem, product.productId, productSearchItem.scannedUpc || product.upc);
 
       updateReceiptItem(
         productSearchItem,
         {
           suggestedProduct: {
-            id: product.id,
+            id: product.productId,
             name: product.name,
             upc: product.upc,
             sku: product.sku
@@ -1061,11 +1093,11 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     } catch (err: any) {
       setReceiptError(err?.message || 'Failed to attach product');
     }
-  }, [addToast, confirmReceiptMatch, linkUpcToProduct, productSearchIntent, productSearchItem, updateReceiptItem]);
+  }, [addToast, confirmReceiptItem, linkUpcToProduct, productSearchIntent, productSearchItem, updateReceiptItem]);
 
   const handleOpenCreateProduct = useCallback((item: ClassifiedReceiptItem) => {
     if (!canCreateProducts) {
-      setReceiptError('Owner access required to create products');
+      setReceiptError('Manager or owner access required to create products');
       return;
     }
 
@@ -1103,7 +1135,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       return;
     }
     if (!canCreateProducts) {
-      setReceiptError('Owner access required to create products');
+      setReceiptError('Manager or owner access required to create products');
       return;
     }
 
@@ -1189,13 +1221,13 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       }
 
       await createStoreInventory(productId, priceValue);
-      await confirmReceiptMatch(createProductItem, productId);
+      await confirmReceiptItem(createProductItem, productId, createProductItem.scannedUpc);
 
       updateReceiptItem(
         createProductItem,
         {
           suggestedProduct: {
-            id: created.id,
+            id: productId,
             name: created.name,
             upc: created.upc,
             sku: created.sku
@@ -1214,7 +1246,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     } finally {
       setIsCreatingProduct(false);
     }
-  }, [activeStoreId, addToast, canCreateProducts, confirmReceiptMatch, createProductDraft, createProductItem, createStoreInventory, isCreatingProduct, linkUpcToProduct, setProducts, updateReceiptItem]);
+  }, [activeStoreId, addToast, canCreateProducts, confirmReceiptItem, createProductDraft, createProductItem, createStoreInventory, isCreatingProduct, linkUpcToProduct, setProducts, updateReceiptItem]);
 
   const handleNeverMatch = useCallback(async (item: ClassifiedReceiptItem) => {
     if (!activeStoreId) {
@@ -1257,59 +1289,57 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     }
   }, [activeStoreId, addToast, updateReceiptItem]);
 
-  const createCommitId = () => {
+  const createCaptureRequestId = () => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
       return crypto.randomUUID();
     }
-    return `commit_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    return `capture_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   };
+
 
   const commitReceiptItems = useCallback(async (
     itemsToCommit: ClassifiedReceiptItem[],
     intent: 'safe' | 'selected' | 'locked',
     lockPrices = false
   ) => {
+    if (!activeReceiptCaptureId) {
+      setReceiptError('Open a receipt capture before committing items');
+      return;
+    }
+
     if (!activeStoreId || itemsToCommit.length === 0) {
       setReceiptError('No items selected for commit');
       return;
     }
 
-    if (!receiptImageUrl) {
-      setReceiptError('Receipt image is required before commit');
-      return;
-    }
-
-    const unpreparedItems = itemsToCommit.filter(item => !item.suggestedProduct);
+    const unpreparedItems = itemsToCommit.filter(item => !item.suggestedProduct || typeof item.lineIndex !== 'number');
     if (unpreparedItems.length > 0) {
-      setReceiptError('Create products for unknown/new items before commit');
+      setReceiptError('Confirm or create products for selected items before commit');
       return;
     }
 
     setCommitIntent(intent);
     setIsCommitting(true);
     try {
-      const commitId = createCommitId();
-      const commitRes = await fetch(`${BACKEND_URL}/api/stores/${activeStoreId}/prices`, {
+      for (const item of itemsToCommit) {
+        if (!item.suggestedProduct) continue;
+        await confirmReceiptItem(item, item.suggestedProduct.id, item.scannedUpc || item.suggestedProduct.upc);
+      }
+
+      const selectedLineIndices = itemsToCommit
+        .map(item => item.lineIndex)
+        .filter((value): value is number => typeof value === 'number');
+
+      const commitRes = await fetch(`${BACKEND_URL}/api/driver/receipt-commit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          commitId,
-          receiptImageUrl,
-          receiptThumbnailUrl,
+          captureId: activeReceiptCaptureId,
+          commitMode: intent,
+          selectedLineIndices,
           lockPrices,
-          lockDurationDays,
-          items: itemsToCommit.map((item, index) => ({
-            lineIndex: index,
-            productId: item.suggestedProduct?.id,
-            receiptName: item.receiptName,
-            quantity: item.quantity,
-            totalPrice: item.totalPrice,
-            unitPrice: item.unitPrice,
-            classification: item.classification,
-            matchMethod: item.matchMethod,
-            matchConfidence: item.matchConfidence
-          }))
+          lockDurationDays
         })
       });
 
@@ -1321,13 +1351,14 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
       const committedCount = Number(commitData?.committed ?? itemsToCommit.length);
       const lockLabel = lockPrices ? ` (locked ${lockDurationDays} days)` : '';
-      addToast(`${committedCount} items added to ${activeStore?.name} inventory${lockLabel}`, 'success');
+      addToast(`${committedCount} items committed for ${activeStore?.name}${lockLabel}`, 'success');
 
       if (commitData?.errors?.length) {
         addToast(`Some items were skipped: ${commitData.errors.length} issue(s)`, 'info');
       }
 
       resetReceiptReview();
+      void fetchReceiptCaptures();
     } catch (err: any) {
       console.error('Commit error:', err);
       setReceiptError(err?.message || 'Failed to commit items');
@@ -1335,14 +1366,14 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       setIsCommitting(false);
       setCommitIntent(null);
     }
-  }, [activeStore, activeStoreId, addToast, lockDurationDays, receiptImageUrl, receiptThumbnailUrl, resetReceiptReview]);
+  }, [activeReceiptCaptureId, activeStore, activeStoreId, addToast, confirmReceiptItem, fetchReceiptCaptures, lockDurationDays, resetReceiptReview]);
 
   const handleCommitSelected = useCallback(async () => {
     const itemsToCommit = classifiedItems.filter(item =>
-      selectedItemsForCommit.has(JSON.stringify(item))
+      selectedItemsForCommit.has(getReceiptItemKey(item))
     );
     await commitReceiptItems(itemsToCommit, 'selected');
-  }, [classifiedItems, commitReceiptItems, selectedItemsForCommit]);
+  }, [classifiedItems, commitReceiptItems, getReceiptItemKey, selectedItemsForCommit]);
 
   const handleCommitSafeUpdates = useCallback(async () => {
     await commitReceiptItems(safeItemsForCommit, 'safe');
@@ -1350,10 +1381,10 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
   const handleCommitAndLock = useCallback(async () => {
     const itemsToCommit = classifiedItems.filter(item =>
-      selectedItemsForCommit.has(JSON.stringify(item))
+      selectedItemsForCommit.has(getReceiptItemKey(item))
     );
     await commitReceiptItems(itemsToCommit, 'locked', true);
-  }, [classifiedItems, commitReceiptItems, selectedItemsForCommit]);
+  }, [classifiedItems, commitReceiptItems, getReceiptItemKey, selectedItemsForCommit]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -2204,6 +2235,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                 onItemAttachExisting={handleItemAttachExisting}
                 onItemCreateProduct={canCreateProducts ? handleOpenCreateProduct : undefined}
                 onItemNeverMatch={handleNeverMatch}
+                getItemKey={getReceiptItemKey}
                 isReadOnly={false}
               />
             </div>

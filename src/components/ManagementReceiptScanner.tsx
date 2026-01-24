@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, FormEvent } from 'react';
 import { Check, X, Camera, AlertTriangle, Package } from 'lucide-react';
-
-const BACKEND_URL = (import.meta.env as any).VITE_BACKEND_URL || 'http://localhost:3000';
+import { BACKEND_URL } from '../constants';
 
 interface ReceiptImage {
   url: string;

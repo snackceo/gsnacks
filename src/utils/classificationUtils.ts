@@ -17,6 +17,8 @@ interface RawReceiptItem {
   matchConfidence?: ClassifiedReceiptItem['matchConfidence'];
   matchMethod?: ClassifiedReceiptItem['matchMethod'];
   isNoiseRule?: ClassifiedReceiptItem['isNoiseRule'];
+  lineIndex?: ClassifiedReceiptItem['lineIndex'];
+  captureId?: ClassifiedReceiptItem['captureId'];
 }
 
 interface ClassificationConfig {
@@ -113,7 +115,9 @@ export function classifyItem(
     suggestedProduct: item.suggestedProduct,
     matchConfidence: resolvedMatchConfidence,
     matchMethod: item.matchMethod,
-    isNoiseRule: item.isNoiseRule
+    isNoiseRule: item.isNoiseRule,
+    lineIndex: item.lineIndex,
+    captureId: item.captureId
   };
 }
 
