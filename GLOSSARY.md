@@ -191,6 +191,8 @@ driverMode (string state): DriverView mode selector for driver workflows. Values
 
 DRIVER (UserRole): Role for delivery drivers. Drivers have access to the DriverView for verifying returns and completing deliveries. (Currently, the app limits DriverView to users with role DRIVER or OWNER).
 
+MANAGER (UserRole): Role for management staff who can access management tooling similar to Owners, but without owner-only privileges. Manager role is accepted by managerOrOwnerRequired guards and related admin workflows.
+
 DRIVER_VERIFY_CONTAINERS (ScannerMode enum): Scanner mode for verifying returned containers (Driver Mode C). Triggers scanning UPCs from returned bottles to count and validate eligibility. In DriverView, when scannerMode is set to this, the ScannerModal titles reflect “Verify Returns”.
 
 DRIVER_FULFILL_ORDER (ScannerMode enum): Scanner mode for driver fulfillment scanning (Driver Mode D). Drivers scan products to confirm the packed order matches the expected items. The scan logic validates UPCs against the order’s item list, routes scans to remaining quantities, and tracks confirmation counts as they are scanned. DriverView keeps this mode in sync with the Pick/Pack toggle so the scan panel switches between return verification and fulfillment scanning.
@@ -394,6 +396,8 @@ OrderStatus (enum): Possible states of an order’s lifecycle. Values: PENDING (
 Order & Logistics Fee System (domain/system): The domain covering Order status, Route Fee, Distance Fee, pickup-only multiplier, and related logistics calculations.
 
 OWNER (UserRole): Role for the business owner or operator. Has full admin privileges. Only Owners can access the ManagementView (admin dashboard) and perform actions like adjusting settings, viewing all users, etc. The backend restricts many routes to owner only (via ownerRequired middleware).
+
+managerOrOwnerRequired (middleware/guard): Backend check that allows access only if the logged-in user has role MANAGER or OWNER. Used for management routes where managers can act but owner-only actions are still restricted.
 
 ownerRequired (middleware/guard): Backend check that allows access only if the logged-in user’s username is in the configured owner list. It effectively restricts certain API routes to Owner role. The list of owner usernames is set via env (OWNER_USERNAMES or OWNER_USERNAME). If a user has role OWNER but isn’t on the list, this guard denies access (ensures only specific accounts can act as owner in production).
 
