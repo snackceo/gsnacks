@@ -21,8 +21,8 @@ const appSettingsSchema = new mongoose.Schema(
     showAdvancedInventoryInsights: { type: Boolean, default: false },
     allowPlatinumTier: { type: Boolean, default: false },
     allowGreenTier: { type: Boolean, default: false },
-    platinumFreeDelivery: { type: Boolean, default: false }
-    ,
+    platinumFreeDelivery: { type: Boolean, default: false },
+    priceLockDays: { type: Number, default: 7 },
     storageZones: { type: [String], default: [] },
     productTypes: { type: [String], default: [] },
     scanningModesEnabled: {
@@ -34,8 +34,7 @@ const appSettingsSchema = new mongoose.Schema(
     defaultIncrement: { type: Number, default: 1 },
     cooldownMs: { type: Number, default: 1000 },
     requireSkuForScanning: { type: Boolean, default: true },
-    shelfGroupingEnabled: { type: Boolean, default: true }
-    ,
+    shelfGroupingEnabled: { type: Boolean, default: true },
     // Handling fees
     largeOrderIncludedItems: { type: Number, default: 10 },
     largeOrderPerItemFee: { type: Number, default: 0.3 },

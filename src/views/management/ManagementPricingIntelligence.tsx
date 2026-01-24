@@ -138,8 +138,6 @@ interface ManagementPricingIntelligenceProps {
   isAuditSummaryLoading: boolean;
 }
 
-const PRICE_LOCK_DAYS = 7;
-
 const isMongoId = (value: string) => /^[a-f0-9]{24}$/i.test(value);
 
 const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps> = ({
@@ -209,8 +207,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const [showReceiptScanner, setShowReceiptScanner] = useState(false);
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
   const [receiptThumbnailUrl, setReceiptThumbnailUrl] = useState<string | null>(null);
-  const [lockPricesOnCommit, setLockPricesOnCommit] = useState(false);
-  const [commitIntent, setCommitIntent] = useState<'safe' | 'selected' | null>(null);
+  const [commitIntent, setCommitIntent] = useState<'safe' | 'selected' | 'locked' | null>(null);
   const [classifiedItems, setClassifiedItems] = useState<ClassifiedReceiptItem[]>([]);
   const [showReceiptReview, setShowReceiptReview] = useState(false);
   const [selectedItemsForCommit, setSelectedItemsForCommit] = useState<Map<string, boolean>>(new Map());
@@ -242,6 +239,11 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     () => stores.find(store => store.id === activeStoreId) || null,
     [activeStoreId, stores]
   );
+
+  const lockDurationDays = useMemo(() => {
+    const rawValue = Number(settings?.priceLockDays);
+    return Number.isFinite(rawValue) && rawValue > 0 ? rawValue : 7;
+  }, [settings?.priceLockDays]);
 
   const canCreateProducts = currentUser?.role === 'OWNER' || currentUser?.role === 'MANAGER';
 
@@ -542,7 +544,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     setSelectedItemsForCommit(new Map());
     setReceiptImageUrl(null);
     setReceiptThumbnailUrl(null);
-    setLockPricesOnCommit(false);
   }, []);
 
   const handlePhotoCaptured = useCallback(async (photoDataUrl: string, _mime: string) => {
@@ -1029,7 +1030,11 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     return `commit_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   };
 
-  const commitReceiptItems = useCallback(async (itemsToCommit: ClassifiedReceiptItem[], intent: 'safe' | 'selected') => {
+  const commitReceiptItems = useCallback(async (
+    itemsToCommit: ClassifiedReceiptItem[],
+    intent: 'safe' | 'selected' | 'locked',
+    lockPrices = false
+  ) => {
     if (!activeStoreId || itemsToCommit.length === 0) {
       setReceiptError('No items selected for commit');
       return;
@@ -1058,8 +1063,8 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
           commitId,
           receiptImageUrl,
           receiptThumbnailUrl,
-          lockPrices: lockPricesOnCommit,
-          lockDurationDays: PRICE_LOCK_DAYS,
+          lockPrices,
+          lockDurationDays,
           items: itemsToCommit.map((item, index) => ({
             lineIndex: index,
             productId: item.suggestedProduct?.id,
@@ -1081,7 +1086,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       }
 
       const committedCount = Number(commitData?.committed ?? itemsToCommit.length);
-      const lockLabel = lockPricesOnCommit ? ` (locked ${PRICE_LOCK_DAYS} days)` : '';
+      const lockLabel = lockPrices ? ` (locked ${lockDurationDays} days)` : '';
       addToast(`${committedCount} items added to ${activeStore?.name} inventory${lockLabel}`, 'success');
 
       if (commitData?.errors?.length) {
@@ -1096,7 +1101,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       setIsCommitting(false);
       setCommitIntent(null);
     }
-  }, [activeStore, activeStoreId, addToast, lockPricesOnCommit, receiptImageUrl, receiptThumbnailUrl, resetReceiptReview]);
+  }, [activeStore, activeStoreId, addToast, lockDurationDays, receiptImageUrl, receiptThumbnailUrl, resetReceiptReview]);
 
   const handleCommitSelected = useCallback(async () => {
     const itemsToCommit = classifiedItems.filter(item =>
@@ -1108,6 +1113,13 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const handleCommitSafeUpdates = useCallback(async () => {
     await commitReceiptItems(safeItemsForCommit, 'safe');
   }, [commitReceiptItems, safeItemsForCommit]);
+
+  const handleCommitAndLock = useCallback(async () => {
+    const itemsToCommit = classifiedItems.filter(item =>
+      selectedItemsForCommit.has(JSON.stringify(item))
+    );
+    await commitReceiptItems(itemsToCommit, 'locked', true);
+  }, [classifiedItems, commitReceiptItems, selectedItemsForCommit]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -1544,15 +1556,9 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
             <div className="border-t border-white/10 px-6 py-4">
               <div className="flex flex-col gap-3">
-                <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  <input
-                    type="checkbox"
-                    checked={lockPricesOnCommit}
-                    onChange={e => setLockPricesOnCommit(e.target.checked)}
-                    className="h-4 w-4 rounded border border-white/20 bg-black/30"
-                  />
-                  Commit &amp; Lock Prices (freeze for {PRICE_LOCK_DAYS} days)
-                </label>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  Commit actions for reviewed receipt items
+                </p>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <button
                     onClick={resetReceiptReview}
@@ -1570,7 +1576,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                     } ${isCommitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
                     {isCommitting && commitIntent === 'safe' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                    {isCommitting && commitIntent === 'safe' ? 'Committing…' : 'Commit All Safe Updates'}
+                    {isCommitting && commitIntent === 'safe' ? 'Committing…' : 'Commit All Safe'}
                   </button>
                   <button
                     onClick={handleCommitSelected}
@@ -1582,7 +1588,21 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                     } ${isCommitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
                     {isCommitting && commitIntent === 'selected' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                    {isCommitting && commitIntent === 'selected' ? 'Committing…' : 'Commit Selected Items'}
+                    {isCommitting && commitIntent === 'selected' ? 'Committing…' : 'Commit Selected'}
+                  </button>
+                  <button
+                    onClick={handleCommitAndLock}
+                    disabled={isCommitting || selectedItemsForCommit.size === 0}
+                    className={`flex-1 px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 ${
+                      selectedItemsForCommit.size === 0
+                        ? 'bg-white/5 text-slate-500 border border-white/10'
+                        : 'bg-amber-400 text-ninpo-black'
+                    } ${isCommitting ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  >
+                    {isCommitting && commitIntent === 'locked' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    {isCommitting && commitIntent === 'locked'
+                      ? 'Committing…'
+                      : `Commit & Lock Prices (${lockDurationDays} days)`}
                   </button>
                 </div>
               </div>

@@ -83,6 +83,7 @@ const defaultSettings: AppSettings = {
   showAdvancedInventoryInsights: false,
   allowPlatinumTier,
   platinumFreeDelivery: false,
+  priceLockDays: 7,
   storageZones: [],
   productTypes: [],
 
@@ -277,6 +278,7 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     platinumFreeDelivery: Boolean(
       data.platinumFreeDelivery ?? defaultSettings.platinumFreeDelivery
     ),
+    priceLockDays: Number(data.priceLockDays ?? defaultSettings.priceLockDays),
 
     storageZones: Array.isArray(data.storageZones) ? data.storageZones : defaultSettings.storageZones,
     productTypes: Array.isArray(data.productTypes) ? data.productTypes : defaultSettings.productTypes,

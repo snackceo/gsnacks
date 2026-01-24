@@ -91,6 +91,9 @@ const ManagementSettings: React.FC<ManagementSettingsProps> = ({
         <label className="text-sm font-bold text-slate-300">Hub Longitude
           <input type="number" step="0.000001" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.hubLng ?? ''} onChange={e => updateSettingsDraft({ hubLng: e.target.value === '' ? null : Number(e.target.value) })} />
         </label>
+        <label className="text-sm font-bold text-slate-300">Price Lock Days
+          <input type="number" step="1" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.priceLockDays} onChange={e => updateSettingsDraft({ priceLockDays: Number(e.target.value) })} />
+        </label>
         <label className="text-sm font-bold text-slate-300">Daily Return Limit
           <input type="number" step="1" className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full mt-2" value={settingsDraft.dailyReturnLimit} onChange={e => updateSettingsDraft({ dailyReturnLimit: Number(e.target.value) })} />
         </label>

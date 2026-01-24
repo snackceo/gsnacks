@@ -2,6 +2,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import { GoogleGenAI } from '@google/genai';
 import Store from '../models/Store.js';
+import AppSettings from '../models/AppSettings.js';
 import StoreInventory from '../models/StoreInventory.js';
 import Product from '../models/Product.js';
 import UpcItem from '../models/UpcItem.js';
@@ -277,7 +278,10 @@ router.post('/:storeId/prices', authRequired, async (req, res) => {
       let committed = 0;
       const now = new Date();
       const commitKey = String(commitId || `commit_${storeId}_${Date.now()}`);
-      const lockDays = coerceNumber(lockDurationDays) || DEFAULT_PRICE_LOCK_DAYS;
+      const settings = await AppSettings.findOne({ key: 'default' }).lean();
+      const settingsLockDays = coerceNumber(settings?.priceLockDays);
+      const requestLockDays = coerceNumber(lockDurationDays);
+      const lockDays = settingsLockDays || requestLockDays || DEFAULT_PRICE_LOCK_DAYS;
       const lockUntil = lockPrices ? new Date(now.getTime() + lockDays * 24 * 60 * 60 * 1000) : null;
 
       await session.withTransaction(async () => {
@@ -379,7 +383,7 @@ router.post('/:storeId/prices', authRequired, async (req, res) => {
         await recordAuditLog({
           type: 'receipt_commit',
           actorId: req.user?.username || req.user?.id || 'UNKNOWN',
-          details: `Store receipt commit ${commitKey} for ${store.name}. Items committed: ${committed}. Locked: ${lockUntil ? lockUntil.toISOString() : 'no'}.`
+          details: `Store receipt commit ${commitKey} for ${store.name}. Items committed: ${committed}. Locked: ${lockUntil ? lockUntil.toISOString() : 'no'}. Receipt: ${receiptImageUrl || 'none'} Thumb: ${receiptThumbnailUrl || 'none'}.`
         });
       });
 
