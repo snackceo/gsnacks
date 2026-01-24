@@ -2683,6 +2683,7 @@ Rules: Extract product lines only (skip store, date, tax, total). Return empty [
         if (noiseRule) {
           enrichedItems.push({
             receiptName,
+            normalizedName,
             quantity,
             totalPrice,
             unitPrice: Number(unitPrice.toFixed(2)),
@@ -2766,6 +2767,7 @@ Rules: Extract product lines only (skip store, date, tax, total). Return empty [
 
       enrichedItems.push({
         receiptName,
+        normalizedName,
         quantity,
         totalPrice,
         unitPrice: Number(unitPrice.toFixed(2)),
@@ -2817,16 +2819,26 @@ router.post('/receipt-parse-live', authRequired, async (req, res) => {
     }
 
     // Convert live items to draft items for manual UPC binding
-    const draftItems = items.map((item, idx) => ({
-      lineIndex: idx,
-      receiptName: item.receiptName,
-      normalizedName: normalizeReceiptName(item.receiptName),
-      quantity: item.quantity,
-      totalPrice: item.totalPrice,
-      unitPrice: item.totalPrice / item.quantity,
-      needsReview: false,
-      workflowType: 'new_product'
-    }));
+    const draftItems = items.map((item, idx) => {
+      const normalizedName = normalizeReceiptName(item.receiptName);
+      const tokens = extractTokens(normalizedName);
+      return {
+        lineIndex: idx,
+        receiptName: item.receiptName,
+        normalizedName,
+        quantity: item.quantity,
+        totalPrice: item.totalPrice,
+        unitPrice: item.totalPrice / item.quantity,
+        tokens: summarizeTokens(tokens),
+        priceDelta: undefined,
+        matchHistory: [],
+        suggestedProduct: null,
+        matchMethod: 'live_scan',
+        matchConfidence: undefined,
+        needsReview: false,
+        workflowType: 'new_product'
+      };
+    });
 
     capture.markParsed(draftItems);
     await capture.save();

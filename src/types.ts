@@ -369,6 +369,7 @@ export interface ReceiptMatchHistoryEntry {
 
 export interface ClassifiedReceiptItem {
   receiptName: string;
+  normalizedName?: string;
   quantity: number;
   totalPrice: number;
   unitPrice: number;
