@@ -1356,10 +1356,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     void handleUploadReceiptImage(file);
   }, [handleUploadReceiptImage]);
 
-  const handleOpenReceiptCapture = useCallback(async (capture: ReceiptCapture) => {
-    await loadReceiptCaptureForReview(capture._id, capture.storeId);
-  }, [loadReceiptCaptureForReview]);
-
   const handleSelectedStoreIdChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
     const storeId = event.target.value;
     setActiveStoreId(storeId);
