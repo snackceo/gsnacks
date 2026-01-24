@@ -63,7 +63,7 @@ const ManagementReceipts: React.FC<ManagementReceiptsProps> = ({ fmtTime }) => {
     setError(null);
     try {
       const response = await fetch(
-        `${BACKEND_URL}/api/receipts?status=${statusFilter}`,
+        `${BACKEND_URL}/api/receipt-review/receipts?status=${statusFilter}`,
         {
           method: 'GET',
           credentials: 'include',
@@ -94,7 +94,7 @@ const ManagementReceipts: React.FC<ManagementReceiptsProps> = ({ fmtTime }) => {
     setIsProcessing(true);
     try {
       const response = await fetch(
-        `${BACKEND_URL}/api/receipts/${selectedReceipt._id}/approve`,
+        `${BACKEND_URL}/api/receipt-review/receipts/${selectedReceipt._id}/approve`,
         {
           method: 'POST',
           credentials: 'include',
@@ -128,7 +128,7 @@ const ManagementReceipts: React.FC<ManagementReceiptsProps> = ({ fmtTime }) => {
     setIsProcessing(true);
     try {
       const response = await fetch(
-        `${BACKEND_URL}/api/receipts/${selectedReceipt._id}/reject`,
+        `${BACKEND_URL}/api/receipt-review/receipts/${selectedReceipt._id}/reject`,
         {
           method: 'POST',
           credentials: 'include',

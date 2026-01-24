@@ -33,14 +33,14 @@ Returns `{ match: Store | null, confidence: 0..1, reason: string }`
 - **POST /api/driver/receipt-parse**: Enqueue or immediately parse (same logic used by both route and worker)
 
 #### Review & Management
-- **GET /api/receipts?status=NEEDS_REVIEW**: List draft proposals (auth-gated, managers only)
-- **GET /api/receipts/:id**: Full detail for review
-- **POST /api/receipts/:id/approve**: 
+- **GET /api/receipt-review/receipts?status=NEEDS_REVIEW**: List draft proposals (auth-gated, managers only)
+- **GET /api/receipt-review/receipts/:id**: Full detail for review
+- **POST /api/receipt-review/receipts/:id/approve**: 
   - Auto-create store (if missing, status=DRAFT, isActive=false)
   - Create products for unmatched items
   - Emit price observations to StoreInventory
   - Audit log
-- **POST /api/receipts/:id/reject**: Mark rejected, audit log
+- **POST /api/receipt-review/receipts/:id/reject**: Mark rejected, audit log
 
 ### 4. Frontend Components
 
@@ -100,9 +100,9 @@ Receipt Upload
       - Items with match suggestions
       - Status: PARSED or NEEDS_REVIEW (based on warnings)
   ↓
-[Management: GET /api/receipts?status=NEEDS_REVIEW]
+[Management: GET /api/receipt-review/receipts?status=NEEDS_REVIEW]
   ↓ (Review & Edit)
-[POST /api/receipts/:id/approve]
+[POST /api/receipt-review/receipts/:id/approve]
   ├→ Create store (if not already exists)
   ├→ Create products for unmatched items
   ├→ Emit price observations
@@ -137,15 +137,15 @@ Real inventory + pricing data applied
   - [ ] Calls Gemini (if enabled)
   - [ ] Updates ReceiptParseJob with items
   - [ ] Sets status=NEEDS_REVIEW if warnings present
-- [ ] GET /api/receipts?status=NEEDS_REVIEW
+- [ ] GET /api/receipt-review/receipts?status=NEEDS_REVIEW
   - [ ] Auth-gated (manager/owner only)
   - [ ] Returns sorted list
-- [ ] POST /api/receipts/:id/approve
+- [ ] POST /api/receipt-review/receipts/:id/approve
   - [ ] Creates store if missing
   - [ ] Creates products for items
   - [ ] Emits price observations
   - [ ] Marks approved, audit log
-- [ ] POST /api/receipts/:id/reject
+- [ ] POST /api/receipt-review/receipts/:id/reject
   - [ ] Marks rejected, audit log
 
 ### Frontend

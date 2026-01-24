@@ -147,8 +147,8 @@ Successfully implemented a production-ready receipt parsing and review workflow 
 ### Integration Tests
 - [ ] POST /api/driver/receipt-capture → ReceiptParseJob created
 - [ ] POST /api/driver/receipt-parse → items extracted
-- [ ] GET /api/receipts → filtered by status
-- [ ] POST /api/receipts/:id/approve → products/store created
+- [ ] GET /api/receipt-review/receipts → filtered by status
+- [ ] POST /api/receipt-review/receipts/:id/approve → products/store created
 - [ ] Audit logs recorded
 
 ### E2E Tests

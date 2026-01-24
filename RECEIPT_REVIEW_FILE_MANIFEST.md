@@ -23,10 +23,10 @@
 
 ### Backend Routes (1)
 4. **server/routes/receipt-review.js** (180 lines)
-   - GET /api/receipts (list with filters)
-   - GET /api/receipts/:id (detail)
-   - POST /api/receipts/:id/approve (apply changes)
-   - POST /api/receipts/:id/reject (archive)
+   - GET /api/receipt-review/receipts (list with filters)
+   - GET /api/receipt-review/receipts/:id (detail)
+   - POST /api/receipt-review/receipts/:id/approve (apply changes)
+   - POST /api/receipt-review/receipts/:id/reject (archive)
    - Auth gating (manager/owner only)
    - Approval logic with store/product creation
 

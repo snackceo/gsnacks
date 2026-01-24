@@ -39,10 +39,10 @@ Successfully implemented a **production-ready receipt parsing and management app
 
 #### 4. **Receipt Review Endpoints** [server/routes/receipt-review.js]
 ```
-GET  /api/receipts?status=NEEDS_REVIEW      List proposals
-GET  /api/receipts/:id                       Fetch detail
-POST /api/receipts/:id/approve               Apply changes
-POST /api/receipts/:id/reject                Archive proposal
+GET  /api/receipt-review/receipts?status=NEEDS_REVIEW      List proposals
+GET  /api/receipt-review/receipts/:id                       Fetch detail
+POST /api/receipt-review/receipts/:id/approve               Apply changes
+POST /api/receipt-review/receipts/:id/reject                Archive proposal
 ```
 - Auth-gated (manager/owner only)
 - Approval logic:
@@ -202,10 +202,10 @@ RECEIPT_WORKER_CONCURRENCY=2
 - [x] POST /api/driver/receipt-capture validates images
 - [x] POST /api/driver/receipt-capture initializes ReceiptParseJob
 - [x] POST /api/driver/receipt-parse enqueues/parses
-- [x] GET /api/receipts filters by status
-- [x] GET /api/receipts/:id returns full detail
-- [x] POST /api/receipts/:id/approve creates store/products
-- [x] POST /api/receipts/:id/reject marks rejected
+- [x] GET /api/receipt-review/receipts filters by status
+- [x] GET /api/receipt-review/receipts/:id returns full detail
+- [x] POST /api/receipt-review/receipts/:id/approve creates store/products
+- [x] POST /api/receipt-review/receipts/:id/reject marks rejected
 - [x] Audit logs created for all operations
 
 ### ✅ Frontend

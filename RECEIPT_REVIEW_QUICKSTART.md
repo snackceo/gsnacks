@@ -107,7 +107,7 @@ Response:
 
 ### List Drafts for Review
 ```bash
-GET /api/receipts?status=NEEDS_REVIEW
+GET /api/receipt-review/receipts?status=NEEDS_REVIEW
 ```
 
 Response:
@@ -145,12 +145,12 @@ Response:
 
 ### Get Receipt Detail
 ```bash
-GET /api/receipts/:id
+GET /api/receipt-review/receipts/:id
 ```
 
 ### Approve Receipt
 ```bash
-POST /api/receipts/:id/approve
+POST /api/receipt-review/receipts/:id/approve
 Content-Type: application/json
 
 {
@@ -187,7 +187,7 @@ Response:
 
 ### Reject Receipt
 ```bash
-POST /api/receipts/:id/reject
+POST /api/receipt-review/receipts/:id/reject
 Content-Type: application/json
 
 {
@@ -219,11 +219,11 @@ POST /api/driver/receipt-parse
   Status: NEEDS_REVIEW (if warnings)
          ↓
 Manager reviews in UI
-   GET /api/receipts
+   GET /api/receipt-review/receipts
          ↓
 Manager clicks Approve/Reject
          ↓
-POST /api/receipts/:id/approve
+POST /api/receipt-review/receipts/:id/approve
          ↓
 Auto-create store (DRAFT)
 Auto-create products
