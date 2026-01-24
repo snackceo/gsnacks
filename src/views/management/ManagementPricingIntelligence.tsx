@@ -419,6 +419,10 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       });
   }, [activeStore?.name, activeStoreId, classifiedItems, priceDeltaThreshold]);
 
+  const pendingReceiptCount = useMemo(() => {
+    return receiptCaptures.filter(capture => capture.status === 'parsed').length;
+  }, [receiptCaptures]);
+
   const handleOpenReceiptReviewForItem = useCallback((item: ClassifiedReceiptItem) => {
     const next = new Map<string, boolean>();
     next.set(getReceiptItemKey(item), true);
@@ -479,11 +483,14 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
       if (resp.ok) {
         const data = await resp.json();
-        setReceiptCaptures(data.captures || []);
+        const captures = data.captures || [];
+        setReceiptCaptures(captures);
+        return captures;
       }
     } catch (error) {
       console.error('Error fetching receipt captures:', error);
     }
+    return [];
   }, []);
 
   const resolveProductId = (entry: StoreInventoryEntry) => {
@@ -688,6 +695,17 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const handleOpenReceiptCapture = useCallback(async (capture: ReceiptCapture) => {
     await loadReceiptCaptureForReview(capture._id, capture.storeId);
   }, [loadReceiptCaptureForReview]);
+
+
+  const handleReviewPendingReceipts = useCallback(async () => {
+    const captures = await fetchReceiptCaptures();
+    const pendingCapture = captures.find(capture => capture.status === 'parsed');
+    if (pendingCapture) {
+      await loadReceiptCaptureForReview(pendingCapture._id, pendingCapture.storeId);
+      return;
+    }
+    addToast('No pending receipts awaiting review.', 'info');
+  }, [addToast, fetchReceiptCaptures, loadReceiptCaptureForReview]);
 
   const updateReceiptItem = useCallback(
     (
@@ -1566,8 +1584,20 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-purple-100">
-                  {receiptCaptures.filter(c => c.status === 'parsed').length} pending receipts
+                  {pendingReceiptCount} pending receipts
                 </span>
+                <button
+                  onClick={handleReviewPendingReceipts}
+                  disabled={pendingReceiptCount === 0}
+                  className={`px-4 py-2 rounded-lg text-white text-sm font-semibold flex items-center gap-2 transition-all ${
+                    pendingReceiptCount === 0
+                      ? 'bg-white/10 text-white/50 cursor-not-allowed'
+                      : 'bg-white/20 hover:bg-white/30'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  Review Queue
+                </button>
                 <button
                   onClick={openReceiptScanner}
                   className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-white text-sm font-semibold flex items-center gap-2"
