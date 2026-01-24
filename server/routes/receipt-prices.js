@@ -2464,7 +2464,10 @@ router.get('/receipt-captures', authRequired, async (req, res) => {
     
     const query = {};
     if (storeId) query.storeId = storeId;
-    if (status) query.status = status;
+    if (status) {
+      const statusList = Array.isArray(status) ? status : [status];
+      query.status = { $in: statusList.map(entry => String(entry)) };
+    }
 
     const captures = await ReceiptCapture.find(query)
       .sort({ createdAt: -1 })
