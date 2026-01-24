@@ -11,6 +11,7 @@ const mapProduct = d => ({
   sku: d.sku || undefined,
   upc: d.upc || undefined,
   frontendId: d.frontendId,
+  productId: d._id?.toString(),
   name: d.name,
   price: d.price,
   deposit: d.deposit ?? 0,

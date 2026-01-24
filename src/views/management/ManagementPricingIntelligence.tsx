@@ -227,12 +227,13 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const [createProductItem, setCreateProductItem] = useState<ClassifiedReceiptItem | null>(null);
   const [createProductDraft, setCreateProductDraft] = useState({
     name: '',
-    category: 'DRINK',
+    category: '',
     sizeOz: 0,
-    deposit: 0,
-    isTaxable: true,
-    price: 0
+    price: 0,
+    isTaxable: null as null | boolean,
+    depositEligible: null as null | boolean
   });
+  const [dismissedCreateItems, setDismissedCreateItems] = useState<Set<string>>(new Set());
   const [noiseRules, setNoiseRules] = useState<NoiseRuleEntry[]>([]);
   const [showNoiseRules, setShowNoiseRules] = useState(false);
   const [isLoadingNoiseRules, setIsLoadingNoiseRules] = useState(false);
@@ -243,6 +244,14 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   );
 
   const canCreateProducts = currentUser?.role === 'OWNER' || currentUser?.role === 'MANAGER';
+
+  const getReceiptItemKey = useCallback((item: ClassifiedReceiptItem) => (
+    JSON.stringify({
+      receiptName: item.receiptName,
+      unitPrice: item.unitPrice,
+      totalPrice: item.totalPrice
+    })
+  ), []);
 
   const filteredProducts = useMemo(() => productSearchResults, [productSearchResults]);
 
@@ -593,6 +602,19 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     }
   }, [activeStore, activeStoreId, addToast]);
 
+  useEffect(() => {
+    if (!showReceiptReview || createProductItem || !canCreateProducts) return;
+    const pendingItem = classifiedItems.find(item =>
+      item.classification === 'C' &&
+      !item.suggestedProduct &&
+      !item.isNoiseRule &&
+      !dismissedCreateItems.has(getReceiptItemKey(item))
+    );
+    if (pendingItem) {
+      handleOpenCreateProduct(pendingItem);
+    }
+  }, [canCreateProducts, classifiedItems, createProductItem, dismissedCreateItems, getReceiptItemKey, handleOpenCreateProduct, showReceiptReview]);
+
   const handleStoreSelected = useCallback(
     (storeId: string) => {
       setActiveStoreId(storeId);
@@ -634,6 +656,28 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       throw new Error(data?.error || 'Failed to link UPC');
     }
   }, []);
+
+  const createStoreInventory = useCallback(async (productId: string, cost: number) => {
+    if (!activeStoreId) {
+      throw new Error('Select an active store before creating store inventory');
+    }
+    const res = await fetch(`${BACKEND_URL}/api/shopping/store-inventory`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        storeId: activeStoreId,
+        productId,
+        cost,
+        markup: 1.2,
+        available: true
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error || 'Failed to create store inventory');
+    }
+  }, [activeStoreId]);
 
   const handleItemScanUpc = useCallback((item: ClassifiedReceiptItem) => {
     setScanTargetItem(item);
@@ -790,16 +834,32 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       return;
     }
 
+    setDismissedCreateItems(prev => {
+      const next = new Set(prev);
+      next.delete(getReceiptItemKey(item));
+      return next;
+    });
     setCreateProductItem(item);
     setCreateProductDraft({
       name: item.receiptName,
-      category: 'DRINK',
+      category: '',
       sizeOz: 0,
-      deposit: 0,
-      isTaxable: true,
-      price: Number(item.unitPrice.toFixed(2))
+      price: Number(item.unitPrice.toFixed(2)),
+      isTaxable: null,
+      depositEligible: null
     });
-  }, [canCreateProducts]);
+  }, [canCreateProducts, getReceiptItemKey]);
+
+  const dismissCreateProduct = useCallback((markDismissed: boolean = true) => {
+    if (createProductItem && markDismissed) {
+      setDismissedCreateItems(prev => {
+        const next = new Set(prev);
+        next.add(getReceiptItemKey(createProductItem));
+        return next;
+      });
+    }
+    setCreateProductItem(null);
+  }, [createProductItem, getReceiptItemKey]);
 
   const handleCreateProduct = useCallback(async () => {
     if (isCreatingProduct || !createProductItem) return;
@@ -818,6 +878,36 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       return;
     }
 
+    const trimmedCategory = createProductDraft.category.trim();
+    if (!trimmedCategory) {
+      setReceiptError('Category is required');
+      return;
+    }
+
+    const sizeValue = Number(createProductDraft.sizeOz);
+    if (!Number.isFinite(sizeValue) || sizeValue <= 0) {
+      setReceiptError('Size is required');
+      return;
+    }
+
+    const priceValue = Number(createProductDraft.price);
+    if (!Number.isFinite(priceValue) || priceValue <= 0) {
+      setReceiptError('Base price is required');
+      return;
+    }
+
+    if (typeof createProductDraft.isTaxable !== 'boolean') {
+      setReceiptError('Taxability is required');
+      return;
+    }
+
+    if (typeof createProductDraft.depositEligible !== 'boolean') {
+      setReceiptError('Deposit eligibility is required');
+      return;
+    }
+
+    const depositValue = createProductDraft.depositEligible ? 0.1 : 0;
+
     setIsCreatingProduct(true);
     try {
       const res = await fetch(`${BACKEND_URL}/api/products`, {
@@ -826,10 +916,10 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         credentials: 'include',
         body: JSON.stringify({
           name: trimmedName,
-          price: createProductDraft.price,
-          deposit: createProductDraft.deposit,
-          sizeOz: createProductDraft.sizeOz,
-          category: createProductDraft.category,
+          price: priceValue,
+          deposit: depositValue,
+          sizeOz: sizeValue,
+          category: trimmedCategory,
           isTaxable: createProductDraft.isTaxable,
           stock: 0
         })
@@ -847,8 +937,8 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       }
 
       const searchQuery = created.sku || created.id;
-      let productId = created.id;
-      if (searchQuery) {
+      let productId = created.productId;
+      if (!productId && searchQuery) {
         const searchRes = await fetch(`${BACKEND_URL}/api/products/search?query=${encodeURIComponent(searchQuery)}`, {
           credentials: 'include'
         });
@@ -859,6 +949,11 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         }
       }
 
+      if (!productId || !isMongoId(productId)) {
+        throw new Error('Unable to resolve product ID for store inventory');
+      }
+
+      await createStoreInventory(productId, priceValue);
       await confirmReceiptMatch(createProductItem, productId);
 
       updateReceiptItem(
@@ -884,7 +979,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     } finally {
       setIsCreatingProduct(false);
     }
-  }, [activeStoreId, addToast, canCreateProducts, confirmReceiptMatch, createProductDraft, createProductItem, isCreatingProduct, linkUpcToProduct, setProducts, updateReceiptItem]);
+  }, [activeStoreId, addToast, canCreateProducts, confirmReceiptMatch, createProductDraft, createProductItem, createStoreInventory, isCreatingProduct, linkUpcToProduct, setProducts, updateReceiptItem]);
 
   const handleNeverMatch = useCallback(async (item: ClassifiedReceiptItem) => {
     if (!activeStoreId) {
@@ -1037,6 +1132,18 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   useEffect(() => {
     fetchReceiptAliases();
   }, [fetchReceiptAliases]);
+
+  const isCreateProductReady = useMemo(() => {
+    const hasName = createProductDraft.name.trim().length > 0;
+    const hasCategory = createProductDraft.category.trim().length > 0;
+    const sizeValue = Number(createProductDraft.sizeOz);
+    const priceValue = Number(createProductDraft.price);
+    const hasSize = Number.isFinite(sizeValue) && sizeValue > 0;
+    const hasPrice = Number.isFinite(priceValue) && priceValue > 0;
+    const hasTaxability = typeof createProductDraft.isTaxable === 'boolean';
+    const hasDepositEligibility = typeof createProductDraft.depositEligible === 'boolean';
+    return hasName && hasCategory && hasSize && hasPrice && hasTaxability && hasDepositEligibility;
+  }, [createProductDraft]);
 
   return (
     <div className="space-y-10">
@@ -1495,7 +1602,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                 </p>
               </div>
               <button
-                onClick={() => setCreateProductItem(null)}
+                onClick={() => dismissCreateProduct()}
                 className="text-slate-400 hover:text-white transition"
               >
                 ✕
@@ -1519,6 +1626,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                   value={createProductDraft.category}
                   onChange={e => setCreateProductDraft(prev => ({ ...prev, category: e.target.value }))}
                 >
+                  <option value="" disabled>Select category</option>
                   <option value="DRINK">Drink</option>
                   <option value="SNACK">Snack</option>
                   <option value="OTHER">Other</option>
@@ -1539,26 +1647,46 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                 <span>Taxability</span>
                 <select
                   className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  value={createProductDraft.isTaxable ? 'taxable' : 'non-taxable'}
-                  onChange={e => setCreateProductDraft(prev => ({ ...prev, isTaxable: e.target.value === 'taxable' }))}
+                  value={createProductDraft.isTaxable === null ? '' : createProductDraft.isTaxable ? 'taxable' : 'non-taxable'}
+                  onChange={e => {
+                    const value = e.target.value;
+                    setCreateProductDraft(prev => ({
+                      ...prev,
+                      isTaxable: value === '' ? null : value === 'taxable'
+                    }));
+                  }}
                 >
+                  <option value="" disabled>Select taxability</option>
                   <option value="taxable">Taxable</option>
                   <option value="non-taxable">Non-taxable</option>
                 </select>
               </label>
               <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                <span>Deposit ($)</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
+                <span>Deposit Eligibility</span>
+                <select
                   className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  value={createProductDraft.deposit}
-                  onChange={e => setCreateProductDraft(prev => ({ ...prev, deposit: Number(e.target.value) }))}
-                />
+                  value={
+                    createProductDraft.depositEligible === null
+                      ? ''
+                      : createProductDraft.depositEligible
+                      ? 'eligible'
+                      : 'not-eligible'
+                  }
+                  onChange={e => {
+                    const value = e.target.value;
+                    setCreateProductDraft(prev => ({
+                      ...prev,
+                      depositEligible: value === '' ? null : value === 'eligible'
+                    }));
+                  }}
+                >
+                  <option value="" disabled>Select deposit eligibility</option>
+                  <option value="eligible">Eligible (MI 10¢)</option>
+                  <option value="not-eligible">Not eligible</option>
+                </select>
               </label>
               <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                <span>Unit Price ($)</span>
+                <span>Base Price ($)</span>
                 <input
                   type="number"
                   step="0.01"
@@ -1572,18 +1700,18 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
             <div className="flex gap-3">
               <button
-                onClick={() => setCreateProductItem(null)}
+                onClick={() => dismissCreateProduct()}
                 className="flex-1 px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCreateProduct}
-                disabled={isCreatingProduct || !createProductDraft.name.trim()}
+                disabled={isCreatingProduct || !isCreateProductReady}
                 className="flex-1 px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 bg-ninpo-lime text-ninpo-black disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isCreatingProduct ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                {isCreatingProduct ? 'Creating…' : 'Create Product & Inventory'}
+                {isCreatingProduct ? 'Creating…' : 'Create Product & Store Inventory'}
               </button>
             </div>
           </div>

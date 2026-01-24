@@ -96,6 +96,7 @@ export interface Product {
   id: string;
   sku?: string;
   upc?: string;
+  productId?: string;
   name: string;
   price: number;
   deposit: number;
