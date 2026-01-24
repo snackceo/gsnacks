@@ -40,8 +40,12 @@ interface ScannerPanelProps {
   className?: string;
   bottomSheetContent?: React.ReactNode;
   // Store context
+  selectedStoreId?: string;
   selectedStoreName?: string;
+  selectedStoreBrand?: string;
   selectedStoreLocation?: string;
+  selectedStoreIsPrimary?: boolean;
+  onTogglePrimarySupplier?: () => void;
 }
 
 // Allow UPC/EAN lengths commonly encountered.
@@ -74,8 +78,12 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   manualStart = false,
   className = '',
   bottomSheetContent,
+  selectedStoreId,
   selectedStoreName,
-  selectedStoreLocation
+  selectedStoreBrand,
+  selectedStoreLocation,
+  selectedStoreIsPrimary = false,
+  onTogglePrimarySupplier
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -625,8 +633,39 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
           <div className="rounded-xl bg-black/70 border border-white/10 px-3 py-2 text-center">
             <p className="text-xs text-slate-400 font-semibold uppercase tracking-widest">Current Store</p>
             <p className="text-sm text-white font-bold truncate">{selectedStoreName}</p>
-            {selectedStoreLocation && (
-              <p className="text-xs text-slate-500 truncate">{selectedStoreLocation}</p>
+            <div className="mt-2 space-y-1 text-[11px]">
+              {selectedStoreBrand && (
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-[10px] uppercase tracking-widest text-slate-500">Brand</span>
+                  <span className="text-slate-200 font-semibold truncate">{selectedStoreBrand}</span>
+                </div>
+              )}
+              {selectedStoreLocation && (
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-[10px] uppercase tracking-widest text-slate-500">Location</span>
+                  <span className="text-slate-500 truncate">{selectedStoreLocation}</span>
+                </div>
+              )}
+            </div>
+            {onTogglePrimarySupplier && selectedStoreId && (
+              <div className="mt-3 flex items-center justify-center gap-2">
+                <span className="text-[10px] uppercase tracking-widest text-slate-500">Primary supplier</span>
+                <button
+                  type="button"
+                  onClick={onTogglePrimarySupplier}
+                  aria-pressed={selectedStoreIsPrimary}
+                  aria-label={`Primary supplier ${selectedStoreIsPrimary ? 'on' : 'off'}`}
+                  className={`h-5 w-10 rounded-full border border-white/10 transition relative ${
+                    selectedStoreIsPrimary ? 'bg-ninpo-lime/80' : 'bg-white/10'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1/2 -translate-y-1/2 h-4 w-4 rounded-full bg-white shadow-sm transition ${
+                      selectedStoreIsPrimary ? 'right-1' : 'left-1'
+                    }`}
+                  />
+                </button>
+              </div>
             )}
           </div>
         )}

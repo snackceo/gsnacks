@@ -96,6 +96,7 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = ({
             filteredStores.map(store => {
               const locationLine = formatStoreLocation(store) || 'No location';
               const coordinates = formatStoreCoordinates(store);
+              const brandLabel = formatStoreType(store.storeType);
 
               return (
                 <button
@@ -108,7 +109,7 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = ({
                       : 'bg-white/5 border-white/10 hover:bg-white/10'
                   } ${isLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 space-y-2">
                     <div className="flex items-center gap-2">
                       <p className="font-bold text-white text-sm truncate">{store.name}</p>
                       {store.isPrimarySupplier && (
@@ -117,16 +118,22 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = ({
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-slate-400 uppercase tracking-widest">
-                      Brand: <span className="text-slate-200">{formatStoreType(store.storeType)}</span>
-                    </p>
-                    <p className="text-xs text-slate-400 truncate">{locationLine}</p>
-                    {store.address?.street && (
-                      <p className="text-xs text-slate-500 truncate">{store.address.street}</p>
-                    )}
-                    {coordinates && (
-                      <p className="text-[11px] text-slate-500">Coords: {coordinates}</p>
-                    )}
+                    <div className="grid gap-1 text-[11px]">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] uppercase tracking-widest text-slate-500">Brand</span>
+                        <span className="text-slate-200 font-semibold truncate">{brandLabel}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] uppercase tracking-widest text-slate-500">Location</span>
+                        <span className="text-slate-300 truncate">{locationLine}</span>
+                      </div>
+                      {store.address?.street && (
+                        <p className="text-xs text-slate-500 truncate">{store.address.street}</p>
+                      )}
+                      {coordinates && (
+                        <p className="text-[11px] text-slate-500">Coords: {coordinates}</p>
+                      )}
+                    </div>
                   </div>
                   {activeStoreId === store.id && (
                     <Check className="w-5 h-5 text-ninpo-lime flex-shrink-0 mt-1" />
