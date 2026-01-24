@@ -38,6 +38,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   ...scannerProps
 }) => {
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(defaultStoreId || null);
+  const [pendingStoreId, setPendingStoreId] = useState<string | null>(defaultStoreId || null);
   const [showStoreSelector, setShowStoreSelector] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [sessionPrimarySupplier, setSessionPrimarySupplier] = useState<Record<string, boolean>>({});
@@ -45,6 +46,10 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   useEffect(() => {
     if (defaultStoreId) {
       setSelectedStoreId(defaultStoreId);
+      setPendingStoreId(defaultStoreId);
+    } else {
+      setSelectedStoreId(null);
+      setPendingStoreId(null);
     }
   }, [defaultStoreId]);
 
@@ -65,16 +70,12 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     sessionStorage.setItem(PRIMARY_SUPPLIER_SESSION_KEY, JSON.stringify(sessionPrimarySupplier));
   }, [sessionPrimarySupplier]);
 
-  // When isOpen changes, handle showing store selector or camera
+  // When isOpen changes, show store selector first
   useEffect(() => {
     if (isOpen) {
-      if (selectedStoreId) {
-        // Store already selected, open camera
-        setIsCameraOpen(true);
-      } else {
-        // No store selected, show selector first
-        setShowStoreSelector(true);
-      }
+      setShowStoreSelector(true);
+      setIsCameraOpen(false);
+      setPendingStoreId(prev => prev ?? selectedStoreId);
     } else {
       // Closing the flow
       setIsCameraOpen(false);
@@ -94,28 +95,50 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     return selectedStore?.isPrimarySupplier ?? false;
   }, [selectedStoreId, sessionPrimarySupplier, selectedStore]);
 
-  const handleStoreSelect = useCallback(
-    (storeId: string) => {
-      setSelectedStoreId(storeId);
-      setShowStoreSelector(false);
-      setIsCameraOpen(true); // Open camera after store selection
-      onStoreSelected?.(storeId);
-    },
-    [onStoreSelected]
+  const pendingStore = useMemo(
+    () => stores.find(s => s.id === pendingStoreId) || null,
+    [stores, pendingStoreId]
   );
+
+  const pendingStoreIsPrimary = useMemo(() => {
+    if (!pendingStoreId) return undefined;
+    const override = sessionPrimarySupplier[pendingStoreId];
+    if (typeof override === 'boolean') return override;
+    return pendingStore?.isPrimarySupplier ?? false;
+  }, [pendingStoreId, sessionPrimarySupplier, pendingStore]);
+
+  const handleStoreChange = useCallback((storeId: string) => {
+    setPendingStoreId(storeId);
+  }, []);
+
+  const handleStoreConfirm = useCallback(() => {
+    if (!pendingStoreId) return;
+    setSelectedStoreId(pendingStoreId);
+    setShowStoreSelector(false);
+    setIsCameraOpen(true); // Open camera after store confirmation
+    onStoreSelected?.(pendingStoreId);
+  }, [onStoreSelected, pendingStoreId]);
 
   const handleStoreModalCancel = useCallback(() => {
     setShowStoreSelector(false);
     setIsCameraOpen(false);
+    setPendingStoreId(selectedStoreId);
     scannerProps.onClose?.();
-  }, [scannerProps]);
+  }, [scannerProps, selectedStoreId]);
 
-  const handlePrimarySupplierToggle = useCallback(() => {
+  const handlePrimarySupplierToggle = useCallback(
+    (storeId: string, nextValue: boolean) => {
+      setSessionPrimarySupplier(prev => ({ ...prev, [storeId]: nextValue }));
+      onPrimarySupplierToggle?.(storeId, nextValue);
+    },
+    [onPrimarySupplierToggle]
+  );
+
+  const handlePrimarySupplierToggleForScanner = useCallback(() => {
     if (!selectedStoreId) return;
     const nextValue = !(selectedStoreIsPrimary ?? false);
-    setSessionPrimarySupplier(prev => ({ ...prev, [selectedStoreId]: nextValue }));
-    onPrimarySupplierToggle?.(selectedStoreId, nextValue);
-  }, [onPrimarySupplierToggle, selectedStoreId, selectedStoreIsPrimary]);
+    handlePrimarySupplierToggle(selectedStoreId, nextValue);
+  }, [handlePrimarySupplierToggle, selectedStoreId, selectedStoreIsPrimary]);
 
   // Only render camera if store is selected and should be open
   const shouldRenderCamera = selectedStoreId && isCameraOpen;
@@ -126,10 +149,13 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
       {isOpen && (
         <StoreSelectorModal
           stores={stores}
-          activeStoreId={selectedStoreId || ''}
+          activeStoreId={pendingStoreId || ''}
           isOpen={showStoreSelector}
-          onSelect={handleStoreSelect}
+          onStoreChange={handleStoreChange}
+          onConfirm={handleStoreConfirm}
           onCancel={handleStoreModalCancel}
+          selectedStoreIsPrimary={pendingStoreIsPrimary}
+          onPrimarySupplierToggle={handlePrimarySupplierToggle}
         />
       )}
 
@@ -154,7 +180,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
               : undefined
           }
           selectedStoreIsPrimary={selectedStoreIsPrimary}
-          onTogglePrimarySupplier={selectedStore ? handlePrimarySupplierToggle : undefined}
+          onTogglePrimarySupplier={selectedStore ? handlePrimarySupplierToggleForScanner : undefined}
           receiptSaveDisabled={!selectedStoreId}
           receiptSaveDisabledReason="Select a store before capturing receipts."
           onClose={() => {
