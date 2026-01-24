@@ -384,6 +384,8 @@ export interface ClassifiedReceiptItem {
   };
   matchConfidence?: number;
   matchMethod?: string;
+  isNoiseRule?: boolean;
+  scannedUpc?: string;
 }
 
 /**

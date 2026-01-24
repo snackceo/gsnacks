@@ -447,6 +447,8 @@ Re-run AI Analysis (button/action): In the Create Product flow, re-analyzes the 
 
 ReceiptItemClassification (enum): Buckets used for receipt parsing/classification in the pricing workflow. Values: A (auto-update OK), B (needs review), C (no match), D (noise/non-product lines such as coupons, taxes, or subtotals). Bucket D is excluded from inventory updates and is meant to quarantine non-product lines for manual review.
 
+ReceiptNoiseRule (data model): Persistent per-store rule that marks a normalized receipt line as noise so it is always classified into bucket D and excluded from product matching. Created via the “never match again” action in receipt review workflows.
+
 
 result panel (UI): The Create Product form shown after an inventory create scan or AI label analysis. This panel displays the scanned UPC and the AI-suggested fields, and it’s where operators finalize and save the new product.
 

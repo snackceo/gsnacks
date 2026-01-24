@@ -6,31 +6,61 @@ import { authRequired, ownerRequired } from '../utils/helpers.js';
 
 const router = express.Router();
 
-router.get('/', async (req, res) => {
+const mapProduct = d => ({
+  id: d.sku || d.frontendId,
+  sku: d.sku || undefined,
+  upc: d.upc || undefined,
+  frontendId: d.frontendId,
+  name: d.name,
+  price: d.price,
+  deposit: d.deposit ?? 0,
+  stock: d.stock ?? 0,
+  sizeOz: d.sizeOz ?? 0,
+  category: d.category ?? 'DRINK',
+  image: d.image ?? '',
+  brand: d.brand || '',
+  productType: d.productType || '',
+  storageZone: d.storageZone || '',
+  storageBin: d.storageBin || '',
+  isGlass: !!d.isGlass,
+  isHeavy: !!d.isHeavy
+});
+
+router.get('/', async (_req, res) => {
   try {
     const docs = await Product.find({}).sort({ createdAt: -1 }).lean();
-    const products = docs.map(d => ({
-      id: d.sku || d.frontendId,
-      sku: d.sku || undefined,
-      upc: d.upc || undefined,
-      frontendId: d.frontendId,
-      name: d.name,
-      price: d.price,
-      deposit: d.deposit ?? 0,
-      stock: d.stock ?? 0,
-      sizeOz: d.sizeOz ?? 0,
-      category: d.category ?? 'DRINK',
-      image: d.image ?? '',
-      brand: d.brand || '',
-      productType: d.productType || '',
-      storageZone: d.storageZone || '',
-      storageBin: d.storageBin || '',
-      isGlass: !!d.isGlass
-    }));
+    const products = docs.map(mapProduct);
     res.json({ ok: true, products });
   } catch (err) {
     console.error('GET PRODUCTS ERROR:', err);
     res.status(500).json({ error: 'Failed to load products' });
+  }
+});
+
+router.get('/search', authRequired, async (req, res) => {
+  try {
+    const query = String(req.query?.query || req.query?.q || '').trim();
+    if (!query) {
+      return res.json({ ok: true, products: [] });
+    }
+
+    const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const docs = await Product.find({
+      $or: [{ name: regex }, { sku: regex }, { upc: regex }]
+    })
+      .sort({ updatedAt: -1 })
+      .limit(25)
+      .lean();
+
+    const products = docs.map(doc => ({
+      ...mapProduct(doc),
+      productId: doc._id.toString()
+    }));
+
+    res.json({ ok: true, products });
+  } catch (err) {
+    console.error('SEARCH PRODUCTS ERROR:', err);
+    res.status(500).json({ error: 'Failed to search products' });
   }
 });
 
@@ -82,25 +112,7 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
 
     res.json({
       ok: true,
-      product: {
-        id: created.sku || created.frontendId,
-        sku: created.sku || undefined,
-        upc: created.upc || undefined,
-        frontendId: created.frontendId,
-        name: created.name,
-        price: created.price,
-        deposit: created.deposit ?? 0,
-        stock: created.stock ?? 0,
-        sizeOz: created.sizeOz ?? 0,
-        category: created.category ?? 'DRINK',
-        image: created.image ?? '',
-        brand: created.brand || '',
-        productType: created.productType || '',
-        storageZone: created.storageZone || '',
-        storageBin: created.storageBin || '',
-        isGlass: !!created.isGlass,
-        isHeavy: !!created.isHeavy
-      }
+      product: mapProduct(created)
     });
   } catch (err) {
     console.error('CREATE PRODUCT ERROR:', err);
@@ -164,25 +176,7 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
 
     res.json({
       ok: true,
-      product: {
-        id: updated.sku || updated.frontendId,
-        sku: updated.sku || undefined,
-        upc: updated.upc || undefined,
-        frontendId: updated.frontendId,
-        name: updated.name,
-        price: updated.price,
-        deposit: updated.deposit ?? 0,
-        stock: updated.stock ?? 0,
-        sizeOz: updated.sizeOz ?? 0,
-        category: updated.category ?? 'DRINK',
-        image: updated.image ?? '',
-        brand: updated.brand || '',
-        productType: updated.productType || '',
-        storageZone: updated.storageZone || '',
-        storageBin: updated.storageBin || '',
-        isGlass: !!updated.isGlass,
-        isHeavy: !!updated.isHeavy
-      }
+      product: mapProduct(updated)
     });
   } catch (err) {
     console.error('UPDATE PRODUCT ERROR:', err);

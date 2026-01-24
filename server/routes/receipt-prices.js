@@ -7,6 +7,7 @@ import StoreInventory from '../models/StoreInventory.js';
 import Product from '../models/Product.js';
 import Store from '../models/Store.js';
 import ReceiptNameAlias from '../models/ReceiptNameAlias.js';
+import ReceiptNoiseRule from '../models/ReceiptNoiseRule.js';
 import ReceiptCapture from '../models/ReceiptCapture.js';
 import { authRequired, isDriverUsername, isOwnerUsername, driverCanAccessStore } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
@@ -1184,6 +1185,35 @@ RULES:
           const tokens = extractTokens(normalizedName);
           const category = classifyCategory(normalizedName);
           const promoDetected = detectPromo(receiptName);
+          const tokenSummary = summarizeTokens(tokens);
+
+          const noiseRule = await ReceiptNoiseRule.findOne({
+            storeId: capture.storeId,
+            normalizedName
+          });
+
+          if (noiseRule) {
+            draftItems.push({
+              lineIndex: draftItems.length,
+              receiptName,
+              normalizedName,
+              totalPrice,
+              quantity,
+              unitPrice,
+              tokens: tokenSummary,
+              matchHistory: [],
+              suggestedProduct: null,
+              matchMethod: 'noise_rule',
+              matchConfidence: 1,
+              needsReview: false,
+              reviewReason: 'noise_rule',
+              promoDetected,
+              priceType: promoDetected ? 'promo' : 'regular',
+              workflowType: 'noise',
+              isNoiseRule: true
+            });
+            continue;
+          }
 
           // Try to match with existing products
           let suggestedProduct = null;
@@ -1306,7 +1336,6 @@ RULES:
               : 'price_out_of_bounds';
           }
 
-          const tokenSummary = summarizeTokens(tokens);
           const matchHistory = matchedInventory ? buildMatchHistory(matchedInventory) : [];
           const priceDelta = matchedInventory
             ? computePriceDelta(unitPrice, matchHistory, matchedInventory.observedPrice)
@@ -2260,6 +2289,159 @@ router.post('/receipt-confirm-match', authRequired, async (req, res) => {
 });
 
 /**
+ * POST /api/driver/receipt-noise
+ * Create or update a persistent noise rule to ignore receipt lines
+ */
+router.post('/receipt-noise', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const isOwner = req.user?.role === 'OWNER' || req.user?.role === 'MANAGER' || isOwnerUsername(req.user?.username);
+    if (!isOwner) {
+      return res.status(403).json({ error: 'Owner or manager access required' });
+    }
+
+    const { storeId, receiptName } = req.body || {};
+    if (!storeId || !receiptName) {
+      return res.status(400).json({ error: 'storeId and receiptName are required' });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(storeId)) {
+      return res.status(400).json({ error: 'Valid storeId required' });
+    }
+
+    const normalizedName = normalizeReceiptName(receiptName);
+    if (!normalizedName) {
+      return res.status(400).json({ error: 'Unable to normalize receipt name' });
+    }
+
+    const now = new Date();
+    let rule = await ReceiptNoiseRule.findOne({ storeId, normalizedName });
+
+    if (!rule) {
+      rule = await ReceiptNoiseRule.create({
+        storeId,
+        normalizedName,
+        rawNames: [{ name: receiptName, firstSeen: now, occurrences: 1 }],
+        createdBy: req.user?.username || req.user?.id,
+        lastSeenAt: now
+      });
+    } else {
+      const existing = rule.rawNames?.find(entry => entry.name === receiptName);
+      if (existing) {
+        existing.occurrences = (existing.occurrences || 0) + 1;
+      } else {
+        rule.rawNames.push({ name: receiptName, firstSeen: now, occurrences: 1 });
+      }
+      rule.lastSeenAt = now;
+      await rule.save();
+    }
+
+    await recordAuditLog({
+      type: 'RECEIPT_NOISE_RULE',
+      actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+      details: `Noise rule set for ${normalizedName} (store ${storeId})`
+    });
+
+    res.json({
+      ok: true,
+      noiseRule: {
+        id: rule._id.toString(),
+        storeId: rule.storeId,
+        normalizedName: rule.normalizedName,
+        createdAt: rule.createdAt,
+        lastSeenAt: rule.lastSeenAt
+      }
+    });
+  } catch (err) {
+    console.error('RECEIPT NOISE RULE ERROR:', err);
+    res.status(500).json({ error: 'Failed to save noise rule' });
+  }
+});
+
+/**
+ * GET /api/driver/receipt-noise
+ * List noise rules for a store
+ */
+router.get('/receipt-noise', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const isOwner = req.user?.role === 'OWNER' || req.user?.role === 'MANAGER' || isOwnerUsername(req.user?.username);
+    if (!isOwner) {
+      return res.status(403).json({ error: 'Owner or manager access required' });
+    }
+
+    const storeId = String(req.query?.storeId || '').trim();
+    if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
+      return res.status(400).json({ error: 'Valid storeId required' });
+    }
+
+    const rules = await ReceiptNoiseRule.find({ storeId })
+      .sort({ lastSeenAt: -1 })
+      .limit(200)
+      .lean();
+
+    res.json({
+      ok: true,
+      rules: rules.map(rule => ({
+        id: rule._id.toString(),
+        storeId: rule.storeId,
+        normalizedName: rule.normalizedName,
+        rawNames: rule.rawNames || [],
+        createdAt: rule.createdAt,
+        lastSeenAt: rule.lastSeenAt
+      }))
+    });
+  } catch (err) {
+    console.error('RECEIPT NOISE LIST ERROR:', err);
+    res.status(500).json({ error: 'Failed to load noise rules' });
+  }
+});
+
+/**
+ * DELETE /api/driver/receipt-noise/:id
+ * Remove a noise rule
+ */
+router.delete('/receipt-noise/:id', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const isOwner = req.user?.role === 'OWNER' || req.user?.role === 'MANAGER' || isOwnerUsername(req.user?.username);
+    if (!isOwner) {
+      return res.status(403).json({ error: 'Owner or manager access required' });
+    }
+
+    const ruleId = String(req.params.id || '').trim();
+    if (!ruleId || !mongoose.Types.ObjectId.isValid(ruleId)) {
+      return res.status(400).json({ error: 'Valid rule id required' });
+    }
+
+    const deleted = await ReceiptNoiseRule.findByIdAndDelete(ruleId).lean();
+    if (!deleted) {
+      return res.status(404).json({ error: 'Noise rule not found' });
+    }
+
+    await recordAuditLog({
+      type: 'RECEIPT_NOISE_RULE_DELETE',
+      actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+      details: `Noise rule removed for ${deleted.normalizedName} (store ${deleted.storeId})`
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('RECEIPT NOISE DELETE ERROR:', err);
+    res.status(500).json({ error: 'Failed to delete noise rule' });
+  }
+});
+
+/**
  * GET /api/driver/store-inventory/:storeId
  * Get inventory for a store with observed prices
  */
@@ -2529,6 +2711,30 @@ Rules: Extract product lines only (skip store, date, tax, total). Return empty [
       let matchMethod = 'no_match';
       let matchConfidence = 0;
       let matchedInventory = null;
+
+      if (storeId) {
+        const noiseRule = await ReceiptNoiseRule.findOne({
+          storeId,
+          normalizedName
+        });
+
+        if (noiseRule) {
+          enrichedItems.push({
+            receiptName,
+            quantity,
+            totalPrice,
+            unitPrice: Number(unitPrice.toFixed(2)),
+            tokens: tokenSummary,
+            matchHistory: [],
+            suggestedProduct: null,
+            matchMethod: 'noise_rule',
+            matchConfidence: 1,
+            isNoiseRule: true
+          });
+          continue;
+        }
+      }
+
 
       if (storeId) {
         const alias = await ReceiptNameAlias.findOne({
