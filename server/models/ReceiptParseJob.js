@@ -10,6 +10,7 @@ const ItemMatchSchema = new mongoose.Schema(
     unitPrice: Number,
     lineTotal: Number,
     upcCandidate: String,
+    requiresUpc: Boolean,
     match: {
       productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
       registryUpcId: { type: mongoose.Schema.Types.ObjectId, ref: 'UpcLookupCache' },
@@ -54,6 +55,7 @@ const ReceiptParseJobSchema = new mongoose.Schema(
     },
     rawText: String,
     structured: mongoose.Schema.Types.Mixed,
+    geminiOutput: mongoose.Schema.Types.Mixed,
     storeCandidate: StoreCandidateSchema,
     items: [ItemMatchSchema],
     warnings: [String],

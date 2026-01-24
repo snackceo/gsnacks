@@ -68,24 +68,51 @@ const ensureIngestionAllowed = async storeId => {
 };
 
 // Persist a proposal draft for management review without mutating inventory directly
-async function upsertReceiptParseJobFromDraft({ capture, draftItems, rawText }) {
+async function upsertReceiptParseJobFromDraft({
+  capture,
+  draftItems,
+  rawText,
+  geminiOutput,
+  storeCandidateOverride
+}) {
   if (!capture) return null;
 
   let storeCandidate = null;
   try {
     const store = await Store.findById(capture.storeId).lean();
+    const baseName = store?.name || capture.storeName || 'Unknown Store';
     if (store) {
       storeCandidate = {
-        name: store.name,
+        name: baseName,
         address: store.address || {},
         phone: store.phone,
         storeType: store.storeType,
         confidence: 1,
         storeId: store._id
       };
+    } else if (baseName) {
+      storeCandidate = {
+        name: baseName,
+        address: {},
+        confidence: 0
+      };
     }
   } catch (err) {
     console.warn('Failed to build storeCandidate for ReceiptParseJob:', err?.message);
+  }
+
+  if (storeCandidateOverride?.address) {
+    storeCandidate = {
+      ...(storeCandidate || {
+        name: capture.storeName || 'Unknown Store',
+        address: {},
+        confidence: storeCandidateOverride.confidence ?? 0
+      }),
+      address: {
+        ...(storeCandidate?.address || {}),
+        ...storeCandidateOverride.address
+      }
+    };
   }
 
   const items = (draftItems || []).map(item => {
@@ -107,6 +134,7 @@ async function upsertReceiptParseJobFromDraft({ capture, draftItems, rawText }) 
       unitPrice: item.unitPrice,
       lineTotal: item.totalPrice,
       upcCandidate: suggested?.upc,
+      requiresUpc: !suggested?.upc,
       match: {
         productId: hasSuggestion ? suggested.id : undefined,
         registryUpcId: undefined,
@@ -127,6 +155,7 @@ async function upsertReceiptParseJobFromDraft({ capture, draftItems, rawText }) 
     status,
     rawText,
     structured: { draftItems },
+    geminiOutput: geminiOutput || undefined,
     storeCandidate,
     items,
     warnings: draftItems.filter(it => it.needsReview && it.reviewReason).map(it => it.reviewReason)
@@ -1060,6 +1089,15 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
       capture.parseError = null;
       await capture.save();
 
+      await ReceiptParseJob.findOneAndUpdate(
+        { captureId: capture._id.toString() },
+        {
+          captureId: capture._id.toString(),
+          status: 'QUEUED'
+        },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+      );
+
       const jobId = `receipt-parse:${capture._id.toString()}`;
       const enqueue = await enqueueReceiptJob(
         'receipt-parse',
@@ -1105,6 +1143,8 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
 
       // Download and parse receipt images
       const draftItems = [];
+      const geminiOutput = { rawTextByImage: [], parsedByImage: [] };
+      let storeCandidateOverride = null;
     
     for (const image of capture.images) {
       try {
@@ -1246,6 +1286,9 @@ RULES:
         }
 
         const rawText = response?.text?.trim?.() ?? '';
+        if (rawText) {
+          geminiOutput.rawTextByImage.push({ sequence: image.sequence, text: rawText });
+        }
         if (!rawText) {
           console.warn('No response from Gemini for image:', image.sequence);
           continue;
@@ -1279,48 +1322,19 @@ RULES:
           continue;
         }
 
-        // If we found an address on first image, save it to store
+        geminiOutput.parsedByImage.push({ sequence: image.sequence, data: parsedData });
+
+        // If we found an address on first image, store it as a candidate (do not mutate Store)
         if (extractedAddress && image.sequence === 1) {
-          try {
-            const store = await Store.findById(capture.storeId);
-            if (store && !store.address?.street) {
-              // Parse the address string into components
-              // Format: "123 Main St, City, ST 12345"
-              const addressParts = extractedAddress.split(',').map(p => p.trim());
-              store.address = {
-                street: addressParts[0] || '',
-                city: addressParts[1] || '',
-                state: addressParts[2]?.split(' ')[0] || '',
-                zip: addressParts[2]?.split(' ')[1] || ''
-              };
-              
-              // Try to geocode the new address
-              const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY;
-              if (apiKey) {
-                try {
-                  const geocodeUrl = new URL('https://maps.googleapis.com/maps/api/geocode/json');
-                  geocodeUrl.searchParams.set('address', extractedAddress);
-                  geocodeUrl.searchParams.set('key', apiKey);
-                  
-                  const geocodeResp = await fetch(geocodeUrl.toString());
-                  const geocodeData = await geocodeResp.json();
-                  
-                  if (geocodeData.status === 'OK' && geocodeData.results?.[0]?.geometry?.location) {
-                    const loc = geocodeData.results[0].geometry.location;
-                    store.location = { lat: loc.lat, lng: loc.lng };
-                    console.log(`Auto-geocoded store address: ${extractedAddress} → ${loc.lat}, ${loc.lng}`);
-                  }
-                } catch (geocodeErr) {
-                  console.warn(`Geocoding failed for ${extractedAddress}:`, geocodeErr.message);
-                }
-              }
-              
-              await store.save();
-              console.log(`Updated store ${store._id} with address from receipt`);
+          const addressParts = extractedAddress.split(',').map(p => p.trim());
+          storeCandidateOverride = {
+            address: {
+              street: addressParts[0] || '',
+              city: addressParts[1] || '',
+              state: addressParts[2]?.split(' ')[0] || '',
+              zip: addressParts[2]?.split(' ')[1] || ''
             }
-          } catch (addressErr) {
-            console.warn('Failed to update store address:', addressErr.message);
-          }
+          };
         }
 
         // Sanitize and cap items from Gemini
@@ -1555,7 +1569,13 @@ RULES:
       await parseSession.commitTransaction();
 
       try {
-        await upsertReceiptParseJobFromDraft({ capture, draftItems, rawText: null });
+        await upsertReceiptParseJobFromDraft({
+          capture,
+          draftItems,
+          rawText: null,
+          geminiOutput,
+          storeCandidateOverride
+        });
       } catch (jobErr) {
         console.warn('Failed to upsert ReceiptParseJob proposal:', jobErr?.message);
       }
