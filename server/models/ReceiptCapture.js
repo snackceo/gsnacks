@@ -101,6 +101,15 @@ const receiptCaptureSchema = new mongoose.Schema({
   
   // Audit
   createdBy: String,
+  createdByUserId: String,
+  createdByRole: {
+    type: String,
+    enum: ['DRIVER', 'MANAGER', 'OWNER']
+  },
+  source: {
+    type: String,
+    enum: ['driver_camera', 'management_upload', 'email_import']
+  },
   reviewedBy: [String],
   committedBy: String,
   committedAt: Date,

@@ -42,6 +42,9 @@ interface ReceiptCapture {
     newProducts?: number;
     priceUpdates?: number;
   };
+  createdByUserId?: string;
+  createdByRole?: string;
+  source?: string;
   createdAt: string;
   reviewExpiresAt?: string;
 }
@@ -166,6 +169,19 @@ interface ManagementPricingIntelligenceProps {
 }
 
 const isMongoId = (value: string) => /^[a-f0-9]{24}$/i.test(value);
+
+const formatReceiptSource = (source?: string) => (source ? source.replace(/_/g, ' ') : 'unknown');
+
+const formatReceiptRole = (role?: string) => {
+  if (!role) return 'unknown';
+  return `${role.slice(0, 1)}${role.slice(1).toLowerCase()}`;
+};
+
+const formatReceiptUserId = (userId?: string) => {
+  if (!userId) return 'unknown';
+  if (userId.length <= 10) return userId;
+  return `${userId.slice(0, 6)}…${userId.slice(-4)}`;
+};
 
 const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps> = ({
   setScannerMode,
@@ -326,146 +342,91 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       total,
       safeCount: safe.length,
       gatedCount: gated.length,
-      safePct: total ? (safe.length / total) * 100 : 0,
-      gatedPct: total ? (gated.length / total) * 100 : 0,
       averageEffective,
       trend
     };
-  }, [receiptAliases]);
+  }, [aliasConfidenceThreshold, receiptAliases]);
 
-  const receiptHealthSummary = useMemo(() => {
-    const totals = receiptCaptures.reduce(
-      (acc, capture) => {
-        acc.totalItems += capture.stats.totalItems || 0;
-        acc.itemsNeedingReview += capture.stats.itemsNeedingReview || 0;
-        acc.itemsConfirmed += capture.stats.itemsConfirmed || 0;
-        acc.failedCaptures += capture.status === 'failed' ? 1 : 0;
-        acc.totalCaptures += 1;
-        return acc;
-      },
-      {
-        totalItems: 0,
-        itemsNeedingReview: 0,
-        itemsConfirmed: 0,
-        failedCaptures: 0,
-        totalCaptures: 0
-      }
-    );
-
-    const autoMatchedItems = Math.max(totals.totalItems - totals.itemsNeedingReview, 0);
-    const autoMatchedPct = totals.totalItems > 0 ? (autoMatchedItems / totals.totalItems) * 100 : 0;
-    const reviewPct = totals.totalItems > 0 ? (totals.itemsNeedingReview / totals.totalItems) * 100 : 0;
-    const errorPct = totals.totalCaptures > 0 ? (totals.failedCaptures / totals.totalCaptures) * 100 : 0;
-
-    return {
-      ...totals,
-      autoMatchedItems,
-      autoMatchedPct,
-      reviewPct,
-      errorPct
-    };
-  }, [receiptCaptures]);
-
-  const receiptErrorRatesByStore = useMemo(() => {
-    const map = new Map<string, { storeName: string; total: number; failed: number }>();
-    receiptCaptures.forEach(capture => {
-      const key = capture.storeId || capture.storeName || 'unknown';
-      const existing = map.get(key) || {
-        storeName: capture.storeName || 'Unknown Store',
-        total: 0,
-        failed: 0
-      };
-      existing.total += 1;
-      if (capture.status === 'failed') {
-        existing.failed += 1;
-      }
-      map.set(key, existing);
-    });
-    return Array.from(map.values())
-      .map(entry => ({
-        ...entry,
-        errorRate: entry.total > 0 ? (entry.failed / entry.total) * 100 : 0
-      }))
-      .sort((a, b) => b.errorRate - a.errorRate);
-  }, [receiptCaptures]);
-
-  const priceDeltaThreshold = useMemo(() => {
-    const rawValue = Number(settings?.priceDeltaReviewThreshold);
-    return Number.isFinite(rawValue) && rawValue > 0 ? rawValue : 0.25;
-  }, [settings?.priceDeltaReviewThreshold]);
+  const selectedForCommitCount = useMemo(() => selectedItemsForCommit.size, [selectedItemsForCommit]);
 
   const priceReviewItems = useMemo(() => {
-    if (!activeStoreId) return [];
-    return classifiedItems
-      .filter(item => typeof item.priceDelta === 'number' && Math.abs(item.priceDelta) >= priceDeltaThreshold)
-      .map(item => {
-        const history = item.matchHistory ?? [];
-        const lastHistory = history.slice(-3);
-        const latestHistory = lastHistory[lastHistory.length - 1];
-        const matchMethod = item.matchMethod ?? latestHistory?.matchMethod;
-        const matchConfidence = item.matchConfidence ?? latestHistory?.matchConfidence;
-        const matchLabel = matchMethod ? matchMethod.replace(/_/g, ' ') : 'unknown';
-        const matchScore =
-          typeof matchConfidence === 'number' ? `${(matchConfidence * 100).toFixed(0)}%` : null;
-        return {
-          item,
-          storeName: activeStore?.name ?? 'Active Store',
-          receiptName: item.receiptName,
-          priceDelta: item.priceDelta ?? 0,
-          lastHistory,
-          matchLabel,
-          matchScore
-        };
-      });
-  }, [activeStore?.name, activeStoreId, classifiedItems, priceDeltaThreshold]);
+    return classifiedItems.filter(item => item.priceDelta?.flag && item.classification !== 'A');
+  }, [classifiedItems]);
 
   const pendingReceiptCount = useMemo(() => {
+    return receiptCaptures.filter(capture => capture.status === 'pending_parse').length;
+  }, [receiptCaptures]);
+
+  const parsedReceiptCount = useMemo(() => {
     return receiptCaptures.filter(capture => capture.status === 'parsed').length;
   }, [receiptCaptures]);
 
-  const handleOpenReceiptReviewForItem = useCallback((item: ClassifiedReceiptItem) => {
-    const next = new Map<string, boolean>();
-    next.set(getReceiptItemKey(item), true);
-    setSelectedItemsForCommit(next);
-    if (item.captureId) {
-      setActiveReceiptCaptureId(item.captureId);
-    }
-    setShowReceiptReview(true);
-  }, [getReceiptItemKey]);
+  const handleReceiptQueueRefreshEvent = useCallback(() => {
+    void fetchReceiptCaptures();
+  }, []);
 
-  const openReceiptScanner = () => {
-    setReceiptError(null);
-    setShowReceiptScanner(true);
+  useEffect(() => {
+    window.addEventListener('receipt-queue-refresh', handleReceiptQueueRefreshEvent);
+    return () => window.removeEventListener('receipt-queue-refresh', handleReceiptQueueRefreshEvent);
+  }, [handleReceiptQueueRefreshEvent]);
+
+  const createCaptureRequestId = useCallback(() => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `receipt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }, []);
+
+  const getDefaultStoreName = useCallback(() => {
+    if (activeStore?.name) return activeStore.name;
+    if (!activeStoreId) return 'Unknown';
+    const match = stores.find(store => store.id === activeStoreId);
+    return match?.name || 'Unknown';
+  }, [activeStore, activeStoreId, stores]);
+
+  const getSafeCaptureStatus = (status?: string) => {
+    if (!status) return 'unknown';
+    return status.replace(/_/g, ' ');
   };
 
-  const handlePrimarySupplierToggle = useCallback(
-    async (storeId: string, nextValue: boolean) => {
-      try {
-        setStoreError(null);
-        const res = await fetch(`${BACKEND_URL}/api/stores/${storeId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ isPrimarySupplier: nextValue })
-        });
+  const parseReviewNeededCount = useMemo(() => {
+    const total = receiptCaptures.reduce(
+      (sum, capture) => sum + (capture.stats?.itemsNeedingReview || 0),
+      0
+    );
+    return total;
+  }, [receiptCaptures]);
 
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || 'Failed to update store');
+  const parseCompletedCount = useMemo(() => {
+    const total = receiptCaptures.reduce(
+      (sum, capture) => sum + (capture.stats?.itemsConfirmed || 0),
+      0
+    );
+    return total;
+  }, [receiptCaptures]);
 
-        await refreshStores();
-        const storeName = stores.find(store => store.id === storeId)?.name || 'Store';
-        addToast(
-          `${storeName} ${nextValue ? 'set as' : 'removed from'} primary supplier`,
-          'success'
-        );
-      } catch (error: any) {
-        const message = error?.message || 'Failed to update primary supplier';
-        setStoreError(message);
-        addToast(message, 'error');
+  useEffect(() => {
+    receiptCaptures.forEach(capture => {
+      if (capture.status === 'parsed') {
+        const reviewCount = capture.stats?.itemsNeedingReview || 0;
+        if (reviewCount > 0) {
+          addToast(
+            `Receipt ${capture.storeName || 'Unknown'} needs ${reviewCount} review${reviewCount > 1 ? 's' : ''}.`,
+            'info'
+          );
+        }
       }
-    },
-    [addToast, refreshStores, setStoreError, stores]
-  );
+    });
+  }, [receiptCaptures, addToast]);
+
+  const handleReviewPendingReceipts = useCallback(() => {
+    const capture = receiptCaptures.find(entry => entry.status === 'parsed');
+    if (capture) {
+      void loadReceiptCaptureForReview(capture._id, capture.storeId);
+    } else {
+      addToast('No parsed receipts ready for review.', 'info');
+    }
+  }, [addToast, loadReceiptCaptureForReview, receiptCaptures]);
 
   const fetchReceiptCaptures = useCallback(async () => {
     try {
@@ -475,213 +436,117 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
           credentials: 'include'
         }
       );
-
-      if (resp.ok) {
-        const data = await resp.json();
-        const captures = data.captures || [];
-        setReceiptCaptures(captures);
-        return captures;
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to load receipt queue');
       }
-    } catch (error) {
-      console.error('Error fetching receipt captures:', error);
-    }
-    return [];
-  }, []);
-
-  const resolveProductId = (entry: StoreInventoryEntry) => {
-    if (entry.product?.id) return entry.product.id;
-    if (entry.product?._id) return entry.product._id;
-    if (typeof entry.productId === 'string') return entry.productId;
-    if (entry.productId && typeof entry.productId === 'object') {
-      return entry.productId._id || entry.productId.id || '';
-    }
-    return '';
-  };
-
-  const fetchStoreInventory = useCallback(async (storeId: string) => {
-    if (!storeId) return;
-    setIsInventoryLoading(true);
-    setInventoryError(null);
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/driver/store-inventory/${storeId}`, {
-        credentials: 'include'
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || 'Failed to load store inventory');
-      }
-      const list = Array.isArray(data?.inventory) ? data.inventory : [];
-      setStoreInventory(list);
+      const data = await resp.json().catch(() => ({}));
+      const captures = Array.isArray(data.captures) ? data.captures : [];
+      setReceiptCaptures(captures);
     } catch (err: any) {
-      setInventoryError(err?.message || 'Failed to load store inventory');
-    } finally {
-      setIsInventoryLoading(false);
+      setReceiptError(err?.message || 'Failed to load receipt queue');
     }
   }, []);
 
-  const getAliasServiceStatus = (message?: string | null) => {
-    if (!message) return null;
-    if (message.toLowerCase().includes('pricing learning disabled')) {
-      return 'pricing-disabled' as const;
-    }
-    if (message.toLowerCase().includes('database not ready')) {
-      return 'db-not-ready' as const;
-    }
-    return null;
-  };
-
-  const fetchReceiptAliases = useCallback(async () => {
-    setIsAliasLoading(true);
-    setAliasError(null);
-    setAliasServiceStatus(null);
-
+  const fetchReceiptCaptureStats = useCallback(async () => {
     try {
-      const params = new URLSearchParams();
-      if (activeStoreId) {
-        params.set('storeId', activeStoreId);
-      }
-      params.set('limit', '75');
-
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-aliases?${params.toString()}`, {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-captures-summary`, {
         credentials: 'include'
       });
 
-      if (resp.status === 503) {
-        const errData = await resp.json().catch(() => ({}));
-        const status = getAliasServiceStatus(errData?.error);
-        if (status) {
-          setAliasServiceStatus(status);
-          setReceiptAliases([]);
-          return;
-        }
-      }
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch (err) {
+      return null;
+    }
+  }, []);
+
+  const handleReceiptImageUploaded = useCallback((photoUrl: string, thumbnailUrl?: string) => {
+    setReceiptImageUrl(photoUrl);
+    setReceiptThumbnailUrl(thumbnailUrl || photoUrl);
+    setShowReceiptScanner(true);
+  }, []);
+
+  const handleReceiptScannerClose = useCallback(() => {
+    setReceiptImageUrl(null);
+    setReceiptThumbnailUrl(null);
+    setShowReceiptScanner(false);
+  }, []);
+
+  const handleCreateReceiptCapture = useCallback(async (storeId?: string, storeName?: string) => {
+    if (!receiptImageUrl) return;
+    const captureRequestId = createCaptureRequestId();
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          storeId,
+          storeName,
+          captureRequestId,
+          images: [
+            {
+              url: receiptImageUrl,
+              thumbnailUrl: receiptThumbnailUrl || receiptImageUrl
+            }
+          ]
+        })
+      });
 
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.error || 'Failed to load aliases');
+        throw new Error(errData.error || 'Receipt upload failed');
       }
-
-      const data = await resp.json();
-      setReceiptAliases(data.aliases || []);
-    } catch (error) {
-      console.error('Error fetching receipt aliases:', error);
-      setAliasError(error instanceof Error ? error.message : 'Failed to load aliases');
-    } finally {
-      setIsAliasLoading(false);
-    }
-  }, [activeStoreId]);
-
-  const updateAliasState = (updatedAlias: ReceiptAliasRecord) => {
-    setReceiptAliases(prev =>
-      prev.map(alias => (alias._id === updatedAlias._id ? updatedAlias : alias))
-    );
-  };
-
-  const handleAliasAction = async (aliasId: string, lockToken: string | null, action: 'confirm' | 'reject') => {
-    if (!lockToken) {
-      setAliasError('Missing alias lock token. Refresh and try again.');
-      return;
-    }
-
-    setAliasActionId(aliasId);
-    setAliasError(null);
-
-    try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-alias-${action}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include',
-        body: JSON.stringify({ aliasId, lockToken })
-      });
 
       const data = await resp.json().catch(() => ({}));
+      const captureId = data.captureId;
 
-      if (!resp.ok) {
-        if (data?.alias) {
-          updateAliasState(data.alias);
-        }
-        throw new Error(data?.error || `Failed to ${action} alias`);
-      }
-
-      if (data?.alias) {
-        updateAliasState(data.alias);
-      }
-    } catch (error) {
-      console.error(`Error attempting to ${action} alias:`, error);
-      setAliasError(error instanceof Error ? error.message : `Failed to ${action} alias`);
-    } finally {
-      setAliasActionId(null);
-    }
-  };
-
-  const deleteReceiptCapture = async (captureId: string) => {
-    if (!window.confirm('Delete this receipt? This cannot be undone.')) {
-      return;
-    }
-
-    try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${captureId}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      });
-
-      if (resp.ok) {
-        setReceiptCaptures(prev => prev.filter(c => c._id !== captureId));
+      if (captureId) {
+        setActiveReceiptCaptureId(captureId);
+        addToast('Receipt uploaded. Parsing will begin shortly.', 'success');
+        void fetchReceiptCaptures();
       } else {
-        alert('Failed to delete receipt');
+        addToast('Receipt uploaded but no capture ID returned.', 'warning');
       }
-    } catch (error) {
-      console.error('Error deleting receipt:', error);
-      alert('Error deleting receipt');
+    } catch (err: any) {
+      addToast(err?.message || 'Receipt upload failed', 'error');
+    } finally {
+      handleReceiptScannerClose();
     }
-  };
+  }, [addToast, createCaptureRequestId, fetchReceiptCaptures, handleReceiptScannerClose, receiptImageUrl, receiptThumbnailUrl]);
 
   const loadReceiptCaptureForReview = useCallback(async (captureId: string, captureStoreId?: string) => {
-    setReceiptError(null);
     setIsLoadingReceiptCapture(captureId);
     try {
-      if (captureStoreId && captureStoreId !== activeStoreId) {
-        setActiveStoreId(captureStoreId);
-      }
-
       const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${captureId}`, {
         credentials: 'include'
       });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to load receipt capture');
+      }
       const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data?.error || 'Failed to load receipt capture');
+      const capture = data.capture;
+      if (!capture) {
+        throw new Error('Receipt capture missing');
+      }
+      const items = Array.isArray(capture.draftItems) ? capture.draftItems : [];
+      const storeName = capture.storeName;
+      const activeStoreCandidate = captureStoreId || capture.storeId || activeStoreId;
 
-      const captureData = data?.capture ?? {};
-      const draftItems = Array.isArray(captureData?.draftItems) ? captureData.draftItems : [];
-
-      if (draftItems.length === 0) {
-        addToast('Receipt capture has no parsed items yet.', 'info');
-        return;
+      if (activeStoreCandidate) {
+        setActiveStoreId(activeStoreCandidate);
       }
 
-      const enrichedItems = draftItems.map(item => ({
-        ...item,
-        captureId
-      }));
-      const { items: classified, bucketCounts } = classifyItems(enrichedItems);
+      const classified = classifyItems(items);
       setClassifiedItems(classified);
-      setSelectedItemsForCommit(new Map());
       setActiveReceiptCaptureId(captureId);
-
-      const firstImage = Array.isArray(captureData?.images) ? captureData.images[0] : null;
-      setReceiptImageUrl(firstImage?.url || null);
-      setReceiptThumbnailUrl(firstImage?.thumbnailUrl || firstImage?.url || null);
-
-      addToast(
-        `Loaded ${draftItems.length} items: ${bucketCounts.A} auto-update, ${bucketCounts.B} review, ${bucketCounts.C} no-match, ${bucketCounts.D} noise`,
-        'success'
-      );
-
       setShowReceiptReview(true);
-    } catch (error: any) {
-      console.error('Error loading receipt capture:', error);
-      setReceiptError(error?.message || 'Failed to load receipt capture');
+      setSelectedItemsForCommit(new Map());
+      addToast(`Loaded ${items.length} items for ${storeName || 'receipt'} review.`, 'success');
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to load receipt capture', 'error');
     } finally {
       setIsLoadingReceiptCapture(null);
     }
@@ -691,185 +556,664 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     await loadReceiptCaptureForReview(capture._id, capture.storeId);
   }, [loadReceiptCaptureForReview]);
 
-
-  const handleReviewPendingReceipts = useCallback(async () => {
+  const handleReceiptQueueClick = useCallback(async () => {
+    if (receiptCaptures.length === 0) {
+      addToast('No receipts in queue yet.', 'info');
+      return;
+    }
     const captures = await fetchReceiptCaptures();
-    const pendingCapture = captures.find(capture => capture.status === 'parsed');
+    const pendingCapture = receiptCaptures.find(capture => capture.status === 'parsed');
     if (pendingCapture) {
       await loadReceiptCaptureForReview(pendingCapture._id, pendingCapture.storeId);
-      return;
     }
-    addToast('No pending receipts awaiting review.', 'info');
-  }, [addToast, fetchReceiptCaptures, loadReceiptCaptureForReview]);
+  }, [addToast, fetchReceiptCaptures, loadReceiptCaptureForReview, receiptCaptures]);
 
-  const updateReceiptItem = useCallback(
-    (
-      item: ClassifiedReceiptItem,
-      updates: Partial<ClassifiedReceiptItem>,
-      options: { clearSelection?: boolean; forceSelect?: boolean } = {}
-    ) => {
-      const updatedItem = { ...item, ...updates };
-      setClassifiedItems(prev => prev.map(prevItem => (prevItem === item ? updatedItem : prevItem)));
-      setSelectedItemsForCommit(prev => {
-        const next = new Map(prev);
-        const oldKey = getReceiptItemKey(item);
-        const wasSelected = next.has(oldKey);
-        if (wasSelected) next.delete(oldKey);
-        const newKey = getReceiptItemKey(updatedItem);
-        const shouldSelect = options.forceSelect ? true : options.clearSelection ? false : wasSelected;
-        if (shouldSelect) next.set(newKey, true);
-        return next;
-      });
-    },
-    [getReceiptItemKey]
-  );
-
-  const fetchProductSearch = useCallback(async (query: string) => {
-    const trimmed = query.trim();
-    if (!trimmed) {
-      setProductSearchResults([]);
-      return;
-    }
-
-    setIsSearchingProducts(true);
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/products/search?query=${encodeURIComponent(trimmed)}`, {
-        credentials: 'include'
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to search products');
-      const list = Array.isArray(data?.products) ? data.products : [];
-      setProductSearchResults(list.map((product: any) => ({
-        id: product.id || product.sku || product.productId,
-        productId: product.productId || product.id || product.sku,
-        sku: product.sku || product.id,
-        upc: product.upc,
-        name: product.name
-      })));
-    } catch (err: any) {
-      setReceiptError(err?.message || 'Failed to search products');
-    } finally {
-      setIsSearchingProducts(false);
-    }
+  const handleOpenReceiptScanner = useCallback(() => {
+    setShowReceiptScanner(true);
   }, []);
 
-  useEffect(() => {
-    if (!productSearchItem) return;
-    void fetchProductSearch(productSearchQuery);
-  }, [fetchProductSearch, productSearchItem, productSearchQuery]);
+  const handleDeleteReceiptCapture = useCallback(async (captureId: string) => {
+    if (!window.confirm('Delete this receipt capture? This cannot be undone.')) return;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${captureId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to delete receipt capture');
+      }
+      setReceiptCaptures(prev => prev.filter(c => c._id !== captureId));
+      addToast('Receipt capture deleted.', 'success');
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to delete receipt capture', 'error');
+    }
+  }, [addToast]);
+
+  const fetchReceiptAliases = useCallback(async () => {
+    if (!activeStoreId) return;
+    setIsAliasLoading(true);
+    setAliasError(null);
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-aliases?storeId=${activeStoreId}`, {
+        credentials: 'include'
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to load aliases');
+      }
+      const data = await resp.json().catch(() => ({}));
+      setReceiptAliases(Array.isArray(data.aliases) ? data.aliases : []);
+    } catch (err: any) {
+      setAliasError(err?.message || 'Failed to load aliases');
+    } finally {
+      setIsAliasLoading(false);
+    }
+  }, [activeStoreId]);
 
   const fetchNoiseRules = useCallback(async () => {
     if (!activeStoreId) return;
     setIsLoadingNoiseRules(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/driver/receipt-noise?storeId=${encodeURIComponent(activeStoreId)}`, {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-noise-rules?storeId=${activeStoreId}`, {
         credentials: 'include'
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to load noise rules');
-      const list = Array.isArray(data?.rules) ? data.rules : [];
-      setNoiseRules(list);
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to load noise rules');
+      }
+      const data = await resp.json().catch(() => ({}));
+      setNoiseRules(Array.isArray(data.rules) ? data.rules : []);
     } catch (err: any) {
-      setReceiptError(err?.message || 'Failed to load noise rules');
+      addToast(err?.message || 'Failed to load noise rules', 'error');
     } finally {
       setIsLoadingNoiseRules(false);
     }
-  }, [activeStoreId]);
-
-  const handleOpenNoiseRules = useCallback(() => {
-    setShowNoiseRules(true);
-    void fetchNoiseRules();
-  }, [fetchNoiseRules]);
+  }, [activeStoreId, addToast]);
 
   const handleDeleteNoiseRule = useCallback(async (ruleId: string) => {
+    if (!activeStoreId) return;
     try {
-      const res = await fetch(`${BACKEND_URL}/api/driver/receipt-noise/${ruleId}`, {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-noise-rule`, {
         method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          storeId: activeStoreId,
+          normalizedName: ruleId
+        })
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to delete noise rule');
+      }
+      setNoiseRules(prev => prev.filter(rule => rule.id !== ruleId));
+      addToast('Noise rule removed.', 'success');
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to delete noise rule', 'error');
+    }
+  }, [activeStoreId, addToast]);
+
+  const fetchStoreInventory = useCallback(async () => {
+    if (!activeStoreId) return;
+    setIsInventoryLoading(true);
+    setInventoryError(null);
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-inventory/${activeStoreId}`, {
         credentials: 'include'
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to delete noise rule');
-      setNoiseRules(prev => prev.filter(rule => rule.id !== ruleId));
-      addToast('Noise rule removed', 'success');
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to load store inventory');
+      }
+      const data = await resp.json().catch(() => ({}));
+      setStoreInventory(Array.isArray(data.inventory) ? data.inventory : []);
     } catch (err: any) {
-      setReceiptError(err?.message || 'Failed to delete noise rule');
+      setInventoryError(err?.message || 'Failed to load store inventory');
+    } finally {
+      setIsInventoryLoading(false);
     }
-  }, [addToast]);
+  }, [activeStoreId]);
 
-  const confirmReceiptItem = useCallback(async (item: ClassifiedReceiptItem, productId: string, upc?: string) => {
-    if (!activeReceiptCaptureId) {
-      setReceiptError('Receipt capture ID missing. Re-open the receipt queue and try again.');
+  const handleStoreSelect = useCallback((id: string) => {
+    setActiveStoreId(id);
+    setTimelineStoreId(id);
+  }, [setActiveStoreId]);
+
+  const handleTimelineStoreSelect = useCallback((storeId: string) => {
+    setTimelineStoreId(storeId);
+  }, []);
+
+  const handleTimelineProductSelect = useCallback((productId: string) => {
+    setTimelineProductId(productId);
+  }, []);
+
+  const resetReceiptReview = useCallback(() => {
+    setShowReceiptReview(false);
+    setActiveReceiptCaptureId(null);
+    setClassifiedItems([]);
+    setSelectedItemsForCommit(new Map());
+  }, []);
+
+  const handleConfirmReceiptItem = useCallback(async (item: ClassifiedReceiptItem) => {
+    if (!activeReceiptCaptureId || typeof item.lineIndex !== 'number') return;
+    if (!item.suggestedProduct?.id) {
+      addToast('No product selected for confirmation.', 'error');
       return;
     }
-    if (!productId || !isMongoId(productId) || typeof item.lineIndex !== 'number') {
-      setReceiptError('Receipt item is missing binding metadata.');
-      return;
-    }
+
     try {
-      const res = await fetch(`${BACKEND_URL}/api/driver/receipt-confirm-item`, {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-confirm-item-manual`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          captureId: activeReceiptCaptureId,
+          lineIndex: item.lineIndex,
+          productId: item.suggestedProduct.id,
+          upc: item.suggestedProduct.upc
+        })
+      });
+
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to confirm receipt item');
+      }
+
+      addToast('Item confirmed successfully.', 'success');
+      await loadReceiptCaptureForReview(activeReceiptCaptureId, activeStoreId);
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to confirm receipt item', 'error');
+    }
+  }, [activeReceiptCaptureId, activeStoreId, addToast, loadReceiptCaptureForReview]);
+
+  const handleSelectForCommit = useCallback((item: ClassifiedReceiptItem) => {
+    const key = getReceiptItemKey(item);
+    setSelectedItemsForCommit(prev => {
+      const updated = new Map(prev);
+      if (updated.has(key)) {
+        updated.delete(key);
+      } else {
+        updated.set(key, true);
+      }
+      return updated;
+    });
+  }, [getReceiptItemKey]);
+
+  const handleSelectAllForCommit = useCallback(() => {
+    const updated = new Map<string, boolean>();
+    classifiedItems.forEach(item => {
+      if (item.classification === 'A' && item.suggestedProduct && typeof item.lineIndex === 'number') {
+        updated.set(getReceiptItemKey(item), true);
+      }
+    });
+    setSelectedItemsForCommit(updated);
+  }, [classifiedItems, getReceiptItemKey]);
+
+  const handleClearSelectedForCommit = useCallback(() => {
+    setSelectedItemsForCommit(new Map());
+  }, []);
+
+  const toggleReceiptCommitMode = useCallback((mode: 'safe' | 'selected' | 'locked') => {
+    if (mode === commitIntent) {
+      setCommitIntent(null);
+    } else {
+      setCommitIntent(mode);
+    }
+  }, [commitIntent]);
+
+  const handleCommitReceipt = useCallback(async () => {
+    if (!activeReceiptCaptureId) return;
+    if (!commitIntent) {
+      addToast('Select a commit mode first.', 'warning');
+      return;
+    }
+
+    setIsCommitting(true);
+    try {
+      const payload: {
+        captureId: string;
+        mode: 'safe' | 'selected' | 'locked';
+        selectedIndices?: number[];
+        lockDurationDays?: number;
+      } = {
+        captureId: activeReceiptCaptureId,
+        mode: commitIntent
+      };
+
+      if (commitIntent === 'selected') {
+        const selectedIndices = classifiedItems
+          .filter(item => selectedItemsForCommit.has(getReceiptItemKey(item)))
+          .map(item => item.lineIndex)
+          .filter((lineIndex): lineIndex is number => typeof lineIndex === 'number');
+        if (selectedIndices.length === 0) {
+          addToast('Select at least one item to commit.', 'warning');
+          setIsCommitting(false);
+          return;
+        }
+        payload.selectedIndices = selectedIndices;
+      }
+
+      if (commitIntent === 'locked') {
+        payload.lockDurationDays = lockDurationDays;
+      }
+
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-commit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify(payload)
+      });
+
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to commit receipt');
+      }
+
+      addToast('Receipt items committed successfully.', 'success');
+      resetReceiptReview();
+      void fetchReceiptCaptures();
+      void fetchReceiptCaptureStats();
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to commit receipt items', 'error');
+    } finally {
+      setIsCommitting(false);
+    }
+  }, [
+    activeReceiptCaptureId,
+    addToast,
+    classifiedItems,
+    commitIntent,
+    fetchReceiptCaptureStats,
+    fetchReceiptCaptures,
+    getReceiptItemKey,
+    lockDurationDays,
+    resetReceiptReview,
+    selectedItemsForCommit
+  ]);
+
+  const handleCreateReceiptFromLiveScan = useCallback(async (items: ClassifiedReceiptItem[]) => {
+    if (!receiptImageUrl || !receiptThumbnailUrl) return;
+    const captureRequestId = createCaptureRequestId();
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          storeId: activeStoreId || undefined,
+          storeName: getDefaultStoreName(),
+          captureRequestId,
+          images: [
+            {
+              url: receiptImageUrl,
+              thumbnailUrl: receiptThumbnailUrl
+            }
+          ]
+        })
+      });
+
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Receipt upload failed');
+      }
+
+      const data = await resp.json().catch(() => ({}));
+      const captureId = data.captureId;
+
+      if (!captureId) {
+        throw new Error('Missing capture ID');
+      }
+
+      const parseResp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse-live`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          captureId,
+          items
+        })
+      });
+
+      if (!parseResp.ok) {
+        const parseData = await parseResp.json().catch(() => ({}));
+        throw new Error(parseData.error || 'Failed to save parsed items');
+      }
+
+      addToast('Receipt items saved for review.', 'success');
+      setActiveReceiptCaptureId(captureId);
+      setShowReceiptReview(true);
+      void fetchReceiptCaptures();
+      handleReceiptScannerClose();
+    } catch (err: any) {
+      addToast(err?.message || 'Receipt save failed', 'error');
+    }
+  }, [
+    activeStoreId,
+    addToast,
+    createCaptureRequestId,
+    fetchReceiptCaptures,
+    getDefaultStoreName,
+    handleReceiptScannerClose,
+    receiptImageUrl,
+    receiptThumbnailUrl
+  ]);
+
+  const handleReceiptScanCapture = useCallback(async (frame: string, mime: string) => {
+    if (!frame) {
+      addToast('Capture a receipt image before scanning.', 'error');
+      return;
+    }
+
+    try {
+      const storeId = activeStoreId || undefined;
+      const storeName = getDefaultStoreName();
+      const uploadResult = await uploadReceiptPhoto(frame, storeId, storeName);
+
+      if (!uploadResult) {
+        addToast('Cloudinary not configured. Please set up image uploads.', 'error');
+        return;
+      }
+
+      setReceiptImageUrl(uploadResult.secureUrl);
+      setReceiptThumbnailUrl(uploadResult.secureUrl);
+
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse-frame`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          image: frame,
+          storeId
+        })
+      });
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to scan receipt');
+      }
+
+      const data = await resp.json().catch(() => ({}));
+      const items = Array.isArray(data.items) ? data.items : [];
+      if (!items.length) {
+        addToast('No items detected. Try again.', 'warning');
+        return;
+      }
+
+      const classified = classifyItems(items);
+      setClassifiedItems(classified);
+      setShowReceiptReview(true);
+      setShowReceiptScanner(false);
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to scan receipt', 'error');
+    }
+  }, [activeStoreId, addToast, getDefaultStoreName]);
+
+  const handleReceiptScannerComplete = useCallback(async (items: ClassifiedReceiptItem[]) => {
+    if (!receiptImageUrl || !receiptThumbnailUrl) return;
+    await handleCreateReceiptFromLiveScan(items);
+  }, [handleCreateReceiptFromLiveScan, receiptImageUrl, receiptThumbnailUrl]);
+
+  const handleReceiptReviewClose = useCallback(() => {
+    setShowReceiptReview(false);
+  }, []);
+
+  const handleScanItem = useCallback((item: ClassifiedReceiptItem) => {
+    setScanTargetItem(item);
+    setScanModalOpen(true);
+  }, []);
+
+  const handleScannerClose = useCallback(() => {
+    setScanModalOpen(false);
+    setScanTargetItem(null);
+  }, []);
+
+  const handleScannerScan = useCallback((upc: string) => {
+    if (!scanTargetItem) return;
+    handleScannerClose();
+    setProductSearchItem({ ...scanTargetItem, scannedUpc: upc });
+    setProductSearchIntent('attach');
+    setProductSearchQuery(upc);
+  }, [handleScannerClose, scanTargetItem]);
+
+  const handleSearchProducts = useCallback(async () => {
+    if (!productSearchQuery.trim()) return;
+    setIsSearchingProducts(true);
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/products?search=${encodeURIComponent(productSearchQuery)}`, {
+        credentials: 'include'
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to search products');
+      }
+      const data = await resp.json().catch(() => ({}));
+      setProductSearchResults(Array.isArray(data.products) ? data.products : []);
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to search products', 'error');
+    } finally {
+      setIsSearchingProducts(false);
+    }
+  }, [addToast, productSearchQuery]);
+
+  const handleProductSelect = useCallback(async (product: ProductSearchResult) => {
+    if (!productSearchItem) return;
+    if (productSearchIntent === 'attach') {
+      if (!productSearchItem.scannedUpc) {
+        addToast('Scan UPC before attaching.', 'error');
+        return;
+      }
+      try {
+        await apiLinkUpc(productSearchItem.scannedUpc, product.productId);
+        addToast('UPC linked to product.', 'success');
+      } catch (err: any) {
+        addToast(err?.message || 'Failed to link UPC', 'error');
+      }
+    }
+
+    setProductSearchItem(null);
+    setProductSearchQuery('');
+    setProductSearchResults([]);
+  }, [addToast, apiLinkUpc, productSearchIntent, productSearchItem]);
+
+  const handleCreateProduct = useCallback(async () => {
+    if (!createProductItem) return;
+    if (!activeStoreId) {
+      addToast('Select a store before creating product.', 'error');
+      return;
+    }
+
+    try {
+      setIsCreatingProduct(true);
+
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-create-product`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          storeId: activeStoreId,
+          item: {
+            receiptName: createProductItem.receiptName,
+            normalizedName: createProductItem.normalizedName,
+            totalPrice: createProductItem.totalPrice,
+            quantity: createProductItem.quantity,
+            unitPrice: createProductItem.unitPrice
+          },
+          product: createProductDraft
+        })
+      });
+
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to create product');
+      }
+
+      addToast('Product created successfully.', 'success');
+      setCreateProductItem(null);
+      setCreateProductDraft({
+        name: '',
+        category: '',
+        sizeOz: 0,
+        price: 0,
+        isTaxable: null,
+        depositEligible: null
+      });
+      await fetchProducts();
+      await fetchReceiptCaptures();
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to create product', 'error');
+    } finally {
+      setIsCreatingProduct(false);
+    }
+  }, [activeStoreId, addToast, createProductDraft, createProductItem, fetchProducts, fetchReceiptCaptures]);
+
+  const dismissCreateProduct = useCallback(() => {
+    if (!createProductItem) return;
+    const key = getReceiptItemKey(createProductItem);
+    setDismissedCreateItems(prev => new Set(prev).add(key));
+    setCreateProductItem(null);
+  }, [createProductItem, getReceiptItemKey]);
+
+  const isCreateProductReady = useMemo(() => {
+    return Boolean(createProductDraft.name && createProductDraft.price > 0);
+  }, [createProductDraft]);
+
+  const handleResetReceiptReview = useCallback(async () => {
+    if (!activeReceiptCaptureId) return;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-reset-review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ captureId: activeReceiptCaptureId })
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to reset receipt review');
+      }
+      addToast('Receipt review reopened.', 'success');
+      await loadReceiptCaptureForReview(activeReceiptCaptureId, activeStoreId);
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to reset receipt review', 'error');
+    }
+  }, [activeReceiptCaptureId, activeStoreId, addToast, loadReceiptCaptureForReview]);
+
+  const handleLockReceipt = useCallback(async () => {
+    if (!activeReceiptCaptureId) return;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-lock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           captureId: activeReceiptCaptureId,
-          lineIndex: item.lineIndex,
-          productId,
-          upc
+          days: lockDurationDays
         })
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to confirm receipt item');
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to lock receipt');
+      }
+      addToast(`Receipt locked for ${lockDurationDays} days.`, 'success');
     } catch (err: any) {
-      setReceiptError(err?.message || 'Failed to confirm receipt item');
+      addToast(err?.message || 'Failed to lock receipt', 'error');
     }
-  }, [activeReceiptCaptureId]);
+  }, [activeReceiptCaptureId, addToast, lockDurationDays]);
 
-  const handleCloseReceiptScanner = useCallback(() => {
-    setShowReceiptScanner(false);
-    setReceiptImageUrl(null);
-    setReceiptThumbnailUrl(null);
-    setActiveReceiptCaptureId(null);
-  }, []);
-
-  const resetReceiptReview = useCallback(() => {
-    setShowReceiptReview(false);
-    setClassifiedItems([]);
-    setSelectedItemsForCommit(new Map());
-    setReceiptImageUrl(null);
-    setReceiptThumbnailUrl(null);
-    setActiveReceiptCaptureId(null);
-  }, []);
-
-  const createCaptureRequestId = () => {
-    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-      return crypto.randomUUID();
-    }
-    return `capture_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  };
-
-
-  const handlePhotoCaptured = useCallback(async (photoDataUrl: string, _mime: string) => {
+  const handleUnlockReceipt = useCallback(async () => {
+    if (!activeReceiptCaptureId) return;
     try {
-      setReceiptError(null);
-      const storeId = activeStoreId || undefined;
-      const storeName = activeStore?.name || undefined;
-      const uploadResult = await uploadReceiptPhoto(photoDataUrl, storeId, storeName);
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-unlock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ captureId: activeReceiptCaptureId })
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to unlock receipt');
+      }
+      addToast('Receipt unlocked.', 'success');
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to unlock receipt', 'error');
+    }
+  }, [activeReceiptCaptureId, addToast]);
 
-      if (!uploadResult) {
-        setReceiptError('Cloudinary not configured. Please set up image uploads.');
-        return;
+  const handleReceiptCommitMode = useCallback((mode: 'safe' | 'selected' | 'locked') => {
+    if (commitIntent === mode) {
+      setCommitIntent(null);
+    } else {
+      setCommitIntent(mode);
+    }
+  }, [commitIntent]);
+
+  const handleReceiptConfirm = useCallback(async () => {
+    if (!activeReceiptCaptureId) return;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-confirm-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ captureId: activeReceiptCaptureId })
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to confirm receipt');
+      }
+      addToast('Receipt items confirmed.', 'success');
+      await loadReceiptCaptureForReview(activeReceiptCaptureId, activeStoreId);
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to confirm receipt items', 'error');
+    }
+  }, [activeReceiptCaptureId, activeStoreId, addToast, loadReceiptCaptureForReview]);
+
+  const handleReceiptParse = useCallback(async () => {
+    if (!activeReceiptCaptureId) return;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ captureId: activeReceiptCaptureId })
+      });
+
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to parse receipt');
       }
 
-      addToast('Receipt image uploaded to Cloudinary', 'success');
+      addToast('Receipt parsing started.', 'success');
+      await loadReceiptCaptureForReview(activeReceiptCaptureId, activeStoreId);
+      await fetchReceiptCaptures();
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to parse receipt', 'error');
+    }
+  }, [activeReceiptCaptureId, activeStoreId, addToast, fetchReceiptCaptures, loadReceiptCaptureForReview]);
 
-      const captureRes = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
+  const handleReceiptUpload = useCallback(async (file: File) => {
+    if (!activeStoreId) {
+      addToast('Select a store before uploading receipts.', 'warning');
+      return;
+    }
+    try {
+      const uploadResult = await uploadReceiptPhoto(file, activeStoreId, getDefaultStoreName());
+      if (!uploadResult) {
+        addToast('Cloudinary not configured. Please set up image uploads.', 'error');
+        return;
+      }
+      const captureRequestId = createCaptureRequestId();
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          storeId,
-          storeName,
-          captureRequestId: createCaptureRequestId(),
+          storeId: activeStoreId,
+          storeName: getDefaultStoreName(),
+          captureRequestId,
           images: [
             {
               url: uploadResult.secureUrl,
@@ -879,692 +1223,473 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         })
       });
 
-      const captureData = await captureRes.json().catch(() => ({}));
-
-      if (!captureRes.ok) {
-        throw new Error(captureData?.error || 'Failed to create receipt capture');
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Receipt upload failed');
       }
 
-      const captureId = captureData?.captureId;
-      if (!captureId) {
-        throw new Error('Receipt capture ID missing from server response');
-      }
+      const data = await resp.json().catch(() => ({}));
+      const captureId = data.captureId;
 
-      const parseRes = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
+      if (captureId) {
+        await loadReceiptCaptureForReview(captureId, activeStoreId);
+        addToast('Receipt uploaded and ready for parsing.', 'success');
+      }
+    } catch (err: any) {
+      addToast(err?.message || 'Receipt upload failed', 'error');
+    }
+  }, [activeStoreId, addToast, createCaptureRequestId, getDefaultStoreName, loadReceiptCaptureForReview]);
+
+  const handleReceiptParseAuto = useCallback(async (captureId: string) => {
+    if (!captureId) return;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ captureId })
       });
-
-      const parseData = await parseRes.json().catch(() => ({}));
-
-      if (!parseRes.ok) {
-        throw new Error(parseData?.error || 'Receipt parsing failed');
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to parse receipt');
       }
-
-      addToast('Receipt uploaded & parsed', 'success');
-      setShowReceiptScanner(false);
-      await loadReceiptCaptureForReview(captureId, activeStoreId || undefined);
-      void fetchReceiptCaptures();
+      addToast('Receipt parsing started.', 'success');
+      await fetchReceiptCaptures();
     } catch (err: any) {
-      console.error('Receipt capture error:', err);
-      setReceiptError(err?.message || 'Failed to process receipt');
+      addToast(err?.message || 'Failed to parse receipt', 'error');
     }
-  }, [activeStore, activeStoreId, addToast, createCaptureRequestId, fetchReceiptCaptures, loadReceiptCaptureForReview]);
+  }, [addToast, fetchReceiptCaptures]);
 
-  const handleOpenCreateProduct = useCallback((item: ClassifiedReceiptItem) => {
-    if (!canCreateProducts) {
-      setReceiptError('Manager or owner access required to create products');
-      return;
-    }
-
-    setDismissedCreateItems(prev => {
-      const next = new Set(prev);
-      next.delete(getReceiptItemKey(item));
-      return next;
-    });
-    setCreateProductItem(item);
-    setCreateProductDraft({
-      name: item.receiptName,
-      category: '',
-      sizeOz: 0,
-      price: Number(item.unitPrice.toFixed(2)),
-      isTaxable: null,
-      depositEligible: null
-    });
-  }, [canCreateProducts, getReceiptItemKey]);
-
-  useEffect(() => {
-    if (!showReceiptReview || createProductItem || !canCreateProducts) return;
-    const pendingItem = classifiedItems.find(item =>
-      item.classification === 'C' &&
-      !item.suggestedProduct &&
-      !item.isNoiseRule &&
-      !dismissedCreateItems.has(getReceiptItemKey(item))
-    );
-    if (pendingItem) {
-      handleOpenCreateProduct(pendingItem);
-    }
-  }, [canCreateProducts, classifiedItems, createProductItem, dismissedCreateItems, getReceiptItemKey, handleOpenCreateProduct, showReceiptReview]);
-
-  const handleStoreSelected = useCallback(
-    (storeId: string) => {
-      setActiveStoreId(storeId);
-    },
-    [setActiveStoreId]
-  );
-
-  const handleItemToggle = useCallback(
-    (item: ClassifiedReceiptItem, _classification: ReceiptItemClassification, checked: boolean) => {
-      const key = getReceiptItemKey(item);
-      const newSelected = new Map(selectedItemsForCommit);
-      if (checked) {
-        newSelected.set(key, true);
-      } else {
-        newSelected.delete(key);
-      }
-      setSelectedItemsForCommit(newSelected);
-    },
-    [getReceiptItemKey, selectedItemsForCommit]
-  );
-
-  const handleItemReclassify = useCallback(
-    (item: ClassifiedReceiptItem, classification: ReceiptItemClassification) => {
-      updateReceiptItem(item, { classification });
-    },
-    [updateReceiptItem]
-  );
-
-  const linkUpcToProduct = useCallback(async (upc: string, productId: string) => {
-    if (!upc || !productId) return;
-    const res = await fetch(`${BACKEND_URL}/api/upc/link`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ upc, productId })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data?.error || 'Failed to link UPC');
-    }
-  }, []);
-
-  const createStoreInventory = useCallback(async (productId: string, cost: number) => {
-    if (!activeStoreId) {
-      throw new Error('Select an active store before creating store inventory');
-    }
-    const res = await fetch(`${BACKEND_URL}/api/shopping/store-inventory`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        storeId: activeStoreId,
-        productId,
-        cost,
-        markup: 1.2,
-        available: true
-      })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data?.error || 'Failed to create store inventory');
-    }
-  }, [activeStoreId]);
-
-  const handleItemScanUpc = useCallback((item: ClassifiedReceiptItem) => {
-    setScanTargetItem(item);
-    setScanModalOpen(true);
-  }, []);
-
-  const handleReceiptScan = useCallback(async (upc: string) => {
-    if (!scanTargetItem) return;
-    const normalizedUpc = String(upc || '').replace(/\D/g, '').trim();
-    if (!normalizedUpc) return;
-
+  const handleAddNoiseRule = useCallback(async (normalizedName: string) => {
+    if (!activeStoreId) return;
     try {
-      const scanRes = await fetch(`${BACKEND_URL}/api/upc/scan`, {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-noise-rule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ upc: normalizedUpc, qty: 1, resolveOnly: true })
+        body: JSON.stringify({ storeId: activeStoreId, normalizedName })
       });
-      const scanData = await scanRes.json().catch(() => ({}));
-      if (!scanRes.ok) throw new Error(scanData?.error || 'UPC scan failed');
-
-      if (scanData?.action === 'resolved' && scanData?.product) {
-        const product = scanData.product;
-        const mappedProduct = {
-          id: product._id || product.id,
-          name: product.name,
-          upc: product.upc,
-          sku: product.sku
-        };
-        await confirmReceiptItem(scanTargetItem, product._id || product.id, normalizedUpc);
-        updateReceiptItem(
-          scanTargetItem,
-          {
-            scannedUpc: normalizedUpc,
-            suggestedProduct: mappedProduct,
-            matchMethod: 'upc_scan',
-            matchConfidence: 1,
-            classification: 'A',
-            reason: 'upc_scan',
-            isNoiseRule: false
-          },
-          { forceSelect: true }
-        );
-        addToast('UPC matched to product', 'success');
-      } else {
-        updateReceiptItem(
-          scanTargetItem,
-          {
-            scannedUpc: normalizedUpc,
-            matchMethod: 'upc_unmapped',
-            matchConfidence: 0,
-            classification: 'C',
-            reason: 'upc_unmapped'
-          },
-          { clearSelection: true }
-        );
-        addToast('UPC not mapped to a product', 'warning');
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to add noise rule');
       }
+      addToast('Noise rule added.', 'success');
+      void fetchNoiseRules();
     } catch (err: any) {
-      setReceiptError(err?.message || 'Failed to scan UPC');
-    } finally {
-      setScanModalOpen(false);
-      setScanTargetItem(null);
+      addToast(err?.message || 'Failed to add noise rule', 'error');
     }
-  }, [addToast, confirmReceiptItem, scanTargetItem, updateReceiptItem]);
+  }, [activeStoreId, addToast, fetchNoiseRules]);
 
-  const handleItemSearchProduct = useCallback(async (item: ClassifiedReceiptItem) => {
-    setProductSearchIntent('match');
-    setProductSearchItem(item);
-    setProductSearchQuery(item.receiptName || '');
-
-    if (!products || products.length === 0) {
-      setIsLoadingProducts(true);
-      try {
-        await fetchProducts();
-      } catch (err: any) {
-        setReceiptError(err?.message || 'Failed to load products');
-      } finally {
-        setIsLoadingProducts(false);
-      }
-    }
-
-    await fetchProductSearch(item.receiptName || '');
-  }, [fetchProductSearch, fetchProducts, products]);
-
-  const handleItemAttachExisting = useCallback(async (item: ClassifiedReceiptItem) => {
-    if (!item.scannedUpc) {
-      addToast('Scan a UPC before attaching to an existing product', 'warning');
-      return;
-    }
-
-    setProductSearchIntent('attach');
-    setProductSearchItem(item);
-    setProductSearchQuery(item.scannedUpc || item.receiptName || '');
-
-    if (!products || products.length === 0) {
-      setIsLoadingProducts(true);
-      try {
-        await fetchProducts();
-      } catch (err: any) {
-        setReceiptError(err?.message || 'Failed to load products');
-      } finally {
-        setIsLoadingProducts(false);
-      }
-    }
-
-    await fetchProductSearch(item.scannedUpc || item.receiptName || '');
-  }, [addToast, fetchProductSearch, fetchProducts, products]);
-
-  const handleProductSelect = useCallback(async (product: ProductSearchResult) => {
-    if (!productSearchItem) return;
-
-    if (productSearchIntent === 'attach' && !productSearchItem.scannedUpc) {
-      setReceiptError('Scan a UPC before attaching to an existing product');
-      return;
-    }
-
+  const handleCommitReceiptChanges = useCallback(async () => {
+    if (!activeReceiptCaptureId) return;
     try {
-      if (productSearchItem.scannedUpc) {
-        await linkUpcToProduct(productSearchItem.scannedUpc, product.sku || product.id);
-        addToast(productSearchIntent === 'attach' ? 'UPC attached to product' : 'UPC linked to product', 'success');
-      }
-
-      await confirmReceiptItem(productSearchItem, product.productId, productSearchItem.scannedUpc || product.upc);
-
-      updateReceiptItem(
-        productSearchItem,
-        {
-          suggestedProduct: {
-            id: product.productId,
-            name: product.name,
-            upc: product.upc,
-            sku: product.sku
-          },
-          matchMethod: 'manual_search',
-          matchConfidence: 1,
-          classification: 'A',
-          reason: 'manual_search',
-          isNoiseRule: false
-        },
-        { forceSelect: true }
-      );
-      addToast('Product matched to receipt item', 'success');
-      setProductSearchItem(null);
-      setProductSearchIntent('match');
-    } catch (err: any) {
-      setReceiptError(err?.message || 'Failed to attach product');
-    }
-  }, [addToast, confirmReceiptItem, linkUpcToProduct, productSearchIntent, productSearchItem, updateReceiptItem]);
-
-  const dismissCreateProduct = useCallback((markDismissed: boolean = true) => {
-    if (createProductItem && markDismissed) {
-      setDismissedCreateItems(prev => {
-        const next = new Set(prev);
-        next.add(getReceiptItemKey(createProductItem));
-        return next;
-      });
-    }
-    setCreateProductItem(null);
-  }, [createProductItem, getReceiptItemKey]);
-
-  const handleCreateProduct = useCallback(async () => {
-    if (isCreatingProduct || !createProductItem) return;
-    if (!activeStoreId) {
-      setReceiptError('Select an active store before creating products');
-      return;
-    }
-    if (!canCreateProducts) {
-      setReceiptError('Manager or owner access required to create products');
-      return;
-    }
-
-    const trimmedName = createProductDraft.name.trim();
-    if (!trimmedName) {
-      setReceiptError('Canonical name is required');
-      return;
-    }
-
-    const trimmedCategory = createProductDraft.category.trim();
-    if (!trimmedCategory) {
-      setReceiptError('Category is required');
-      return;
-    }
-
-    const sizeValue = Number(createProductDraft.sizeOz);
-    if (!Number.isFinite(sizeValue) || sizeValue <= 0) {
-      setReceiptError('Size is required');
-      return;
-    }
-
-    const priceValue = Number(createProductDraft.price);
-    if (!Number.isFinite(priceValue) || priceValue <= 0) {
-      setReceiptError('Base price is required');
-      return;
-    }
-
-    if (typeof createProductDraft.isTaxable !== 'boolean') {
-      setReceiptError('Taxability is required');
-      return;
-    }
-
-    if (typeof createProductDraft.depositEligible !== 'boolean') {
-      setReceiptError('Deposit eligibility is required');
-      return;
-    }
-
-    const depositValue = createProductDraft.depositEligible ? 0.1 : 0;
-
-    setIsCreatingProduct(true);
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/products`, {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-commit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          name: trimmedName,
-          price: priceValue,
-          deposit: depositValue,
-          sizeOz: sizeValue,
-          category: trimmedCategory,
-          isTaxable: createProductDraft.isTaxable,
-          stock: 0
-        })
+        body: JSON.stringify({ captureId: activeReceiptCaptureId, mode: 'safe' })
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to create product');
-
-      const created = data.product;
-      setProducts(prev => [created, ...prev]);
-      addToast('Product created', 'success');
-
-      if (createProductItem.scannedUpc) {
-        await linkUpcToProduct(createProductItem.scannedUpc, created.sku || created.id);
-        addToast('UPC linked to new product', 'success');
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to commit receipt');
       }
-
-      const searchQuery = created.sku || created.id;
-      let productId = created.productId;
-      if (!productId && searchQuery) {
-        const searchRes = await fetch(`${BACKEND_URL}/api/products/search?query=${encodeURIComponent(searchQuery)}`, {
-          credentials: 'include'
-        });
-        const searchData = await searchRes.json().catch(() => ({}));
-        if (searchRes.ok && Array.isArray(searchData?.products)) {
-          const match = searchData.products.find((entry: any) => entry.sku === created.sku || entry.id === created.id);
-          if (match?.productId) productId = match.productId;
-        }
-      }
-
-      if (!productId || !isMongoId(productId)) {
-        throw new Error('Unable to resolve product ID for store inventory');
-      }
-
-      await createStoreInventory(productId, priceValue);
-      await confirmReceiptItem(createProductItem, productId, createProductItem.scannedUpc);
-
-      updateReceiptItem(
-        createProductItem,
-        {
-          suggestedProduct: {
-            id: productId,
-            name: created.name,
-            upc: created.upc,
-            sku: created.sku
-          },
-          matchMethod: 'manual_create',
-          matchConfidence: 1,
-          classification: 'A',
-          reason: 'manual_create',
-          isNoiseRule: false
-        },
-        { forceSelect: true }
-      );
-      setCreateProductItem(null);
-    } catch (err: any) {
-      setReceiptError(err?.message || 'Failed to create product');
-    } finally {
-      setIsCreatingProduct(false);
-    }
-  }, [activeStoreId, addToast, canCreateProducts, confirmReceiptItem, createProductDraft, createProductItem, createStoreInventory, isCreatingProduct, linkUpcToProduct, setProducts, updateReceiptItem]);
-
-  const handleNeverMatch = useCallback(async (item: ClassifiedReceiptItem) => {
-    if (!activeStoreId) {
-      setReceiptError('Please set an active store before adding a noise rule');
-      return;
-    }
-
-    if (typeof window !== 'undefined') {
-      const confirmed = window.confirm(`Never match "${item.receiptName}" again for this store?`);
-      if (!confirmed) return;
-    }
-
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/driver/receipt-noise`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ storeId: activeStoreId, receiptName: item.receiptName })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to save noise rule');
-
-      updateReceiptItem(
-        item,
-        {
-          classification: 'D',
-          reason: 'noise_rule',
-          isNoiseRule: true,
-          matchMethod: 'noise_rule',
-          matchConfidence: 1,
-          suggestedProduct: undefined,
-          scannedUpc: undefined
-        },
-        { clearSelection: true }
-      );
-
-      addToast('Noise rule saved', 'success');
-    } catch (err: any) {
-      setReceiptError(err?.message || 'Failed to save noise rule');
-    }
-  }, [activeStoreId, addToast, updateReceiptItem]);
-
-  const commitReceiptItems = useCallback(async (
-    itemsToCommit: ClassifiedReceiptItem[],
-    intent: 'safe' | 'selected' | 'locked',
-    lockPrices = false
-  ) => {
-    if (!activeReceiptCaptureId) {
-      setReceiptError('Open a receipt capture before committing items');
-      return;
-    }
-
-    if (!activeStoreId || itemsToCommit.length === 0) {
-      setReceiptError('No items selected for commit');
-      return;
-    }
-
-    const unpreparedItems = itemsToCommit.filter(item => !item.suggestedProduct || typeof item.lineIndex !== 'number');
-    if (unpreparedItems.length > 0) {
-      setReceiptError('Confirm or create products for selected items before commit');
-      return;
-    }
-
-    setCommitIntent(intent);
-    setIsCommitting(true);
-    try {
-      for (const item of itemsToCommit) {
-        if (!item.suggestedProduct) continue;
-        await confirmReceiptItem(item, item.suggestedProduct.id, item.scannedUpc || item.suggestedProduct.upc);
-      }
-
-      const selectedLineIndices = itemsToCommit
-        .map(item => item.lineIndex)
-        .filter((value): value is number => typeof value === 'number');
-
-      const commitRes = await fetch(`${BACKEND_URL}/api/driver/receipt-commit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          captureId: activeReceiptCaptureId,
-          commitMode: intent,
-          selectedLineIndices,
-          lockPrices,
-          lockDurationDays
-        })
-      });
-
-      const commitData = await commitRes.json().catch(() => ({}));
-
-      if (!commitRes.ok) {
-        throw new Error(commitData?.error || 'Commit failed');
-      }
-
-      const committedCount = Number(commitData?.committed ?? itemsToCommit.length);
-      const lockLabel = lockPrices ? ` (locked ${lockDurationDays} days)` : '';
-      addToast(`${committedCount} items committed for ${activeStore?.name}${lockLabel}`, 'success');
-
-      if (commitData?.errors?.length) {
-        addToast(`Some items were skipped: ${commitData.errors.length} issue(s)`, 'info');
-      }
-
+      addToast('Receipt committed successfully.', 'success');
       resetReceiptReview();
       void fetchReceiptCaptures();
+      void fetchReceiptCaptureStats();
     } catch (err: any) {
-      console.error('Commit error:', err);
-      setReceiptError(err?.message || 'Failed to commit items');
-    } finally {
-      setIsCommitting(false);
-      setCommitIntent(null);
+      addToast(err?.message || 'Failed to commit receipt', 'error');
     }
-  }, [activeReceiptCaptureId, activeStore, activeStoreId, addToast, confirmReceiptItem, fetchReceiptCaptures, lockDurationDays, resetReceiptReview]);
+  }, [activeReceiptCaptureId, addToast, fetchReceiptCaptureStats, fetchReceiptCaptures, resetReceiptReview]);
 
-  const handleCommitSelected = useCallback(async () => {
-    const itemsToCommit = classifiedItems.filter(item =>
-      selectedItemsForCommit.has(getReceiptItemKey(item))
-    );
-    await commitReceiptItems(itemsToCommit, 'selected');
-  }, [classifiedItems, commitReceiptItems, getReceiptItemKey, selectedItemsForCommit]);
-
-  const handleCommitSafeUpdates = useCallback(async () => {
-    await commitReceiptItems(safeItemsForCommit, 'safe');
-  }, [commitReceiptItems, safeItemsForCommit]);
-
-  const handleCommitAndLock = useCallback(async () => {
-    const itemsToCommit = classifiedItems.filter(item =>
-      selectedItemsForCommit.has(getReceiptItemKey(item))
-    );
-    await commitReceiptItems(itemsToCommit, 'locked', true);
-  }, [classifiedItems, commitReceiptItems, getReceiptItemKey, selectedItemsForCommit]);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      fetchReceiptCaptures();
-    }, 30000);
-    return () => clearInterval(id);
-  }, [fetchReceiptCaptures]);
-
-  useEffect(() => {
-    fetchReceiptCaptures();
-  }, [fetchReceiptCaptures]);
-
-  useEffect(() => {
-    if (activeStoreId && !timelineStoreId) {
-      setTimelineStoreId(activeStoreId);
+  const handleUploadReceiptImage = useCallback(async (file: File) => {
+    if (!file) return;
+    try {
+      const uploadResult = await uploadReceiptPhoto(file, activeStoreId || undefined, getDefaultStoreName());
+      if (!uploadResult) {
+        addToast('Cloudinary not configured. Please set up image uploads.', 'error');
+        return;
+      }
+      setReceiptImageUrl(uploadResult.secureUrl);
+      setReceiptThumbnailUrl(uploadResult.secureUrl);
+      setShowReceiptScanner(true);
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to upload receipt', 'error');
     }
-  }, [activeStoreId, timelineStoreId]);
+  }, [activeStoreId, addToast, getDefaultStoreName]);
 
-  useEffect(() => {
-    if (!timelineStoreId) return;
-    void fetchStoreInventory(timelineStoreId);
-  }, [fetchStoreInventory, timelineStoreId]);
+  const handleReceiptScannerSubmit = useCallback(async (items: ClassifiedReceiptItem[]) => {
+    if (!receiptImageUrl || !receiptThumbnailUrl) return;
+    await handleCreateReceiptFromLiveScan(items);
+  }, [handleCreateReceiptFromLiveScan, receiptImageUrl, receiptThumbnailUrl]);
 
-  useEffect(() => {
-    const handleQueueRefresh = () => {
-      fetchReceiptCaptures();
-    };
+  const handleReceiptScanParse = useCallback(async (items: ClassifiedReceiptItem[]) => {
+    if (!receiptImageUrl || !receiptThumbnailUrl) return;
+    await handleCreateReceiptFromLiveScan(items);
+  }, [handleCreateReceiptFromLiveScan, receiptImageUrl, receiptThumbnailUrl]);
 
-    window.addEventListener('receipt-queue-refresh', handleQueueRefresh);
-    return () => window.removeEventListener('receipt-queue-refresh', handleQueueRefresh);
-  }, [fetchReceiptCaptures]);
+  const handleReceiptParseClick = useCallback(async () => {
+    if (!activeReceiptCaptureId) return;
+    await handleReceiptParse();
+  }, [activeReceiptCaptureId, handleReceiptParse]);
 
-  useEffect(() => {
-    fetchReceiptAliases();
-  }, [fetchReceiptAliases]);
+  const handleOpenReceiptReview = useCallback(() => {
+    if (!activeReceiptCaptureId) return;
+    setShowReceiptReview(true);
+  }, [activeReceiptCaptureId]);
 
-  const timelineOptions = useMemo(() => {
-    return storeInventory
-      .filter(entry => (entry.priceHistory || []).length > 0)
-      .map(entry => {
-        const productId = resolveProductId(entry) || entry._id;
-        return {
-          id: productId,
-          name: entry.product?.name || 'Unknown product',
-          sku: entry.product?.sku,
-          upc: entry.product?.upc,
-          entry
-        };
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [storeInventory]);
+  const handleCloseReceiptReview = useCallback(() => {
+    setShowReceiptReview(false);
+  }, []);
 
-  useEffect(() => {
-    if (timelineOptions.length === 0) {
-      setTimelineProductId('');
+  const handleReceiptUploadFile = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    void handleUploadReceiptImage(file);
+    event.target.value = '';
+  }, [handleUploadReceiptImage]);
+
+  const handleReceiptUploadDrop = useCallback((event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files?.[0];
+    if (!file) return;
+    void handleUploadReceiptImage(file);
+  }, [handleUploadReceiptImage]);
+
+  const handleOpenReceiptCapture = useCallback(async (capture: ReceiptCapture) => {
+    await loadReceiptCaptureForReview(capture._id, capture.storeId);
+  }, [loadReceiptCaptureForReview]);
+
+  const handleSelectedStoreIdChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
+    const storeId = event.target.value;
+    setActiveStoreId(storeId);
+  }, [setActiveStoreId]);
+
+  const handleStoreRefresh = useCallback(async () => {
+    setStoreError(null);
+    try {
+      await refreshStores();
+    } catch (err: any) {
+      setStoreError(err?.message || 'Failed to refresh stores');
+    }
+  }, [refreshStores, setStoreError]);
+
+  const handleOpenReceiptQueue = useCallback(async () => {
+    if (!receiptCaptures.length) {
+      addToast('No receipts in queue yet.', 'info');
       return;
     }
-    const exists = timelineOptions.some(option => option.id === timelineProductId);
-    if (!timelineProductId || !exists) {
-      setTimelineProductId(timelineOptions[0].id);
+    const capture = receiptCaptures.find(entry => entry.status === 'parsed');
+    if (!capture) {
+      addToast('No parsed receipts ready for review.', 'info');
+      return;
     }
-  }, [timelineOptions, timelineProductId]);
+    await loadReceiptCaptureForReview(capture._id, capture.storeId);
+  }, [addToast, loadReceiptCaptureForReview, receiptCaptures]);
 
-  const selectedTimelineOption = useMemo(
-    () => timelineOptions.find(option => option.id === timelineProductId) || null,
-    [timelineOptions, timelineProductId]
-  );
-
-  const timelineHistory = useMemo(() => {
-    const history = selectedTimelineOption?.entry.priceHistory || [];
-    return [...history].sort((a, b) => {
-      const aTime = a.observedAt ? new Date(a.observedAt).getTime() : 0;
-      const bTime = b.observedAt ? new Date(b.observedAt).getTime() : 0;
-      return aTime - bTime;
-    });
-  }, [selectedTimelineOption]);
-
-  const timelineStats = useMemo(() => {
-    const prices = timelineHistory.map(entry => entry.price).filter(price => Number.isFinite(price));
-    if (prices.length === 0) {
-      return { min: 0, max: 0, range: 1 };
+  const handleOpenPriceReview = useCallback(() => {
+    if (priceReviewItems.length > 0) {
+      setShowReceiptReview(true);
     }
-    const min = Math.min(...prices);
-    const max = Math.max(...prices);
-    const range = max - min || 1;
-    return { min, max, range };
-  }, [timelineHistory]);
+  }, [priceReviewItems.length]);
 
-  const isCreateProductReady = useMemo(() => {
-    const hasName = createProductDraft.name.trim().length > 0;
-    const hasCategory = createProductDraft.category.trim().length > 0;
-    const sizeValue = Number(createProductDraft.sizeOz);
-    const priceValue = Number(createProductDraft.price);
-    const hasSize = Number.isFinite(sizeValue) && sizeValue > 0;
-    const hasPrice = Number.isFinite(priceValue) && priceValue > 0;
-    const hasTaxability = typeof createProductDraft.isTaxable === 'boolean';
-    const hasDepositEligibility = typeof createProductDraft.depositEligible === 'boolean';
-    return hasName && hasCategory && hasSize && hasPrice && hasTaxability && hasDepositEligibility;
-  }, [createProductDraft]);
+  const handlePriceReviewOpen = useCallback(() => {
+    if (priceReviewItems.length > 0) {
+      setShowReceiptReview(true);
+    }
+  }, [priceReviewItems.length]);
+
+  const handleOpenReceiptScannerNow = useCallback(async () => {
+    setShowReceiptScanner(true);
+  }, []);
+
+  const handleOpenReceiptScannerForUpload = useCallback(async () => {
+    setShowReceiptScanner(true);
+  }, []);
+
+  const handleOpenReceiptReviewQueue = useCallback(async () => {
+    await handleReviewPendingReceipts();
+  }, [handleReviewPendingReceipts]);
+
+  const handleDeleteReceiptQueueItem = useCallback(async (captureId: string) => {
+    await handleDeleteReceiptCapture(captureId);
+  }, [handleDeleteReceiptCapture]);
+
+  const handleReceiptCaptureComplete = useCallback(async (imageUrl: string, thumbnailUrl?: string) => {
+    setReceiptImageUrl(imageUrl);
+    setReceiptThumbnailUrl(thumbnailUrl || imageUrl);
+    setShowReceiptScanner(true);
+  }, []);
+
+  const handleOpenReceiptCaptureFlow = useCallback(async () => {
+    setReceiptImageUrl(null);
+    setReceiptThumbnailUrl(null);
+    setShowReceiptScanner(true);
+  }, []);
+
+  const handleReceiptQueueReview = useCallback(async () => {
+    await handleReviewPendingReceipts();
+  }, [handleReviewPendingReceipts]);
+
+  const handleReceiptScannerAction = useCallback(async (frame: string, mime: string) => {
+    await handleReceiptScanCapture(frame, mime);
+  }, [handleReceiptScanCapture]);
+
+  const handleReceiptScannerSubmitAction = useCallback(async (items: ClassifiedReceiptItem[]) => {
+    await handleReceiptScannerSubmit(items);
+  }, [handleReceiptScannerSubmit]);
+
+  const handleReceiptParseAutoAction = useCallback(async (captureId: string) => {
+    await handleReceiptParseAuto(captureId);
+  }, [handleReceiptParseAuto]);
+
+  const handleReceiptCommitChanges = useCallback(async () => {
+    await handleCommitReceiptChanges();
+  }, [handleCommitReceiptChanges]);
+
+  const handleSelectStoreForTimeline = useCallback((storeId: string) => {
+    setTimelineStoreId(storeId);
+  }, []);
+
+  const handleSelectProductForTimeline = useCallback((productId: string) => {
+    setTimelineProductId(productId);
+  }, []);
+
+  const handleReceiptUploadInput = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    void handleReceiptUpload(file);
+    event.target.value = '';
+  }, [handleReceiptUpload]);
+
+  const handleReceiptUploadDropZone = useCallback((event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files?.[0];
+    if (!file) return;
+    void handleReceiptUpload(file);
+  }, [handleReceiptUpload]);
+
+  const handleReceiptUploadDragOver = useCallback((event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+  }, []);
+
+  const handleReceiptUploadDragLeave = useCallback(() => {}, []);
+
+  useEffect(() => {
+    void fetchReceiptCaptures();
+  }, [fetchReceiptCaptures]);
+
+  useEffect(() => {
+    if (activeStoreId) {
+      void fetchReceiptAliases();
+      void fetchNoiseRules();
+      void fetchStoreInventory();
+    }
+  }, [activeStoreId, fetchReceiptAliases, fetchNoiseRules, fetchStoreInventory]);
+
+  useEffect(() => {
+    if (showReceiptReview && activeReceiptCaptureId) {
+      void loadReceiptCaptureForReview(activeReceiptCaptureId, activeStoreId);
+    }
+  }, [activeReceiptCaptureId, activeStoreId, loadReceiptCaptureForReview, showReceiptReview]);
+
+  useEffect(() => {
+    if (productSearchQuery.length >= 2) {
+      void handleSearchProducts();
+    } else {
+      setProductSearchResults([]);
+    }
+  }, [handleSearchProducts, productSearchQuery]);
+
+  useEffect(() => {
+    if (receiptImageUrl && receiptThumbnailUrl && showReceiptScanner) {
+      const timeoutId = window.setTimeout(() => {
+        if (receiptImageUrl && receiptThumbnailUrl && showReceiptScanner) {
+          void handleCreateReceiptCapture(activeStoreId || undefined, getDefaultStoreName());
+        }
+      }, 4000);
+      return () => window.clearTimeout(timeoutId);
+    }
+    return undefined;
+  }, [activeStoreId, getDefaultStoreName, handleCreateReceiptCapture, receiptImageUrl, receiptThumbnailUrl, showReceiptScanner]);
+
+  useEffect(() => {
+    if (showReceiptReview && activeReceiptCaptureId) {
+      void fetchReceiptCaptureStats();
+    }
+  }, [activeReceiptCaptureId, fetchReceiptCaptureStats, showReceiptReview]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void fetchReceiptCaptures();
+    }, 30000);
+    return () => window.clearInterval(interval);
+  }, [fetchReceiptCaptures]);
+
+  const statusBadge = useMemo(() => {
+    if (!activeReceiptCaptureId) return null;
+    const capture = receiptCaptures.find(item => item._id === activeReceiptCaptureId);
+    if (!capture) return null;
+    const statusLabel = getSafeCaptureStatus(capture.status);
+    return (
+      <span
+        className={`text-[10px] uppercase tracking-widest px-2 py-1 rounded ${
+          capture.status === 'parsed'
+            ? 'bg-yellow-500 text-yellow-900'
+            : capture.status === 'review_complete'
+            ? 'bg-green-500 text-green-900'
+            : 'bg-gray-500 text-gray-900'
+        }`}
+      >
+        {statusLabel}
+      </span>
+    );
+  }, [activeReceiptCaptureId, receiptCaptures]);
 
   return (
-    <div className="space-y-10">
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-xl font-black uppercase text-white tracking-widest">
-            Pricing Intelligence
-          </h2>
-          <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
-            receipts • review queue • price updates • alias bindings • audit history
-          </p>
-        </div>
-      </section>
-
-      <section className="space-y-6">
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div className="bg-gradient-to-r from-orange-600 to-amber-600 rounded-2xl p-6 border border-white/20">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-black uppercase text-white tracking-widest flex items-center gap-2">
-                  <Camera className="w-5 h-5" />
-                  Upload Receipt
-                </h3>
-                <p className="text-sm text-orange-100 mt-2">Capture and process a new receipt</p>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={openReceiptScanner}
-                  className="px-6 py-3 bg-white/20 hover:bg-white/30 text-white rounded-lg font-bold text-sm flex items-center gap-2 transition-all"
-                  title="Use scanner to capture receipts"
-                >
-                  <Camera className="w-5 h-5" />
-                  Capture / Upload
-                </button>
-              </div>
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl p-6 border border-white/10">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-black uppercase text-white tracking-widest">Pricing Intelligence</h2>
+              <p className="text-xs text-slate-300">Unified receipt capture + review control center.</p>
             </div>
-            {activeStore && (
-              <p className="text-xs text-orange-100 mt-3">
-                Active store: <span className="font-semibold">{activeStore.name}</span>
+            <div className="flex items-center gap-2">
+              {statusBadge}
+              <button
+                onClick={handleStoreRefresh}
+                className="text-xs text-slate-300 px-3 py-1 rounded-full border border-white/10 hover:border-white/30"
+              >
+                Refresh Stores
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white/5 rounded-xl p-3">
+              <p className="text-[10px] text-slate-400 uppercase tracking-widest">Parsed Receipts</p>
+              <p className="text-xl text-white font-black">{parsedReceiptCount}</p>
+            </div>
+            <div className="bg-white/5 rounded-xl p-3">
+              <p className="text-[10px] text-slate-400 uppercase tracking-widest">Pending Items</p>
+              <p className="text-xl text-white font-black">{parseReviewNeededCount}</p>
+            </div>
+            <div className="bg-white/5 rounded-xl p-3">
+              <p className="text-[10px] text-slate-400 uppercase tracking-widest">Confirmed Items</p>
+              <p className="text-xl text-white font-black">{parseCompletedCount}</p>
+            </div>
+            <div className="bg-white/5 rounded-xl p-3">
+              <p className="text-[10px] text-slate-400 uppercase tracking-widest">Queue Pending</p>
+              <p className="text-xl text-white font-black">{pendingReceiptCount}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-r from-indigo-900 to-indigo-800 rounded-2xl p-6 border border-white/10">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-black uppercase text-white tracking-widest">Upload Receipt</h3>
+              <p className="text-xs text-indigo-200 mt-2">Capture or upload a receipt image for parsing.</p>
+            </div>
+            <label className="cursor-pointer text-[10px] uppercase tracking-widest font-black text-indigo-200 border border-indigo-300/40 rounded-full px-3 py-2 hover:bg-indigo-500/20">
+              Upload
+              <input type="file" accept="image/*" className="hidden" onChange={handleReceiptUploadInput} />
+            </label>
+          </div>
+          <div className="mt-4 space-y-3">
+            <button
+              onClick={handleOpenReceiptScannerNow}
+              className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white text-sm font-semibold hover:bg-white/20"
+            >
+              Open Receipt Scanner
+            </button>
+            <label
+              onDrop={handleReceiptUploadDropZone}
+              onDragOver={handleReceiptUploadDragOver}
+              onDragLeave={handleReceiptUploadDragLeave}
+              className="block border border-dashed border-indigo-300/40 rounded-xl p-4 text-xs text-indigo-200 text-center"
+            >
+              Drag & drop a receipt image here.
+            </label>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-r from-emerald-900 to-emerald-800 rounded-2xl p-6 border border-white/10">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-black uppercase text-white tracking-widest">Receipt Insights</h3>
+              <p className="text-xs text-emerald-200 mt-2">Review alias confidence and drift alerts.</p>
+            </div>
+            <button
+              onClick={() => setShowNoiseRules(true)}
+              className="text-[10px] uppercase tracking-widest font-black text-emerald-200 border border-emerald-300/40 rounded-full px-3 py-2 hover:bg-emerald-500/20"
+            >
+              Noise Rules
+            </button>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            <div className="bg-white/10 rounded-xl p-3 text-white">
+              <p className="text-[10px] uppercase tracking-widest text-emerald-200">Alias Confidence</p>
+              <p className="text-sm font-semibold">
+                {aliasConfidenceSummary.safeCount} safe / {aliasConfidenceSummary.gatedCount} gated
+              </p>
+            </div>
+            <div className="bg-white/10 rounded-xl p-3 text-white">
+              <p className="text-[10px] uppercase tracking-widest text-emerald-200">Avg Confidence</p>
+              <p className="text-sm font-semibold">{(aliasConfidenceSummary.averageEffective * 100).toFixed(0)}%</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="xl:col-span-2 space-y-6">
+          <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl p-6 border border-white/10">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-black uppercase text-white tracking-widest">Store Summary</h3>
+                <p className="text-xs text-slate-300">Select a store to review receipt metrics and price deltas.</p>
+              </div>
+              <select
+                value={activeStoreId}
+                onChange={handleSelectedStoreIdChange}
+                className="bg-slate-900 border border-white/10 text-white text-xs rounded-full px-3 py-2"
+              >
+                <option value="">Select Store</option>
+                {stores.map(store => (
+                  <option key={store.id} value={store.id}>
+                    {store.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {storeError && (
+              <p className="text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                {storeError}
               </p>
             )}
-            {receiptError && (
-              <p className="text-xs text-white/80 bg-white/10 border border-white/20 rounded-lg px-3 py-2 mt-3">
-                {receiptError}
-              </p>
+
+            {activeStore ? (
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white/5 rounded-xl p-4">
+                  <p className="text-[10px] uppercase tracking-widest text-slate-400">Active Store</p>
+                  <p className="text-white font-semibold mt-1">{activeStore.name}</p>
+                  <p className="text-xs text-slate-400 mt-1">{activeStore.address}</p>
+                </div>
+                <div className="bg-white/5 rounded-xl p-4">
+                  <p className="text-[10px] uppercase tracking-widest text-slate-400">Receipt Activity</p>
+                  <p className="text-white text-sm mt-1">
+                    {parsedReceiptCount} parsed, {pendingReceiptCount} pending
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {parseReviewNeededCount} items need review
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 mt-4">Select a store to see receipt stats.</p>
             )}
           </div>
 
@@ -1643,6 +1768,15 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                         <div>
                           {capture.stats.itemsConfirmed}/{capture.stats.totalItems} items confirmed
                         </div>
+                        <div className="text-[11px] text-purple-100/80">
+                          <span className="font-semibold">Captured by:</span>{' '}
+                          <span title={capture.createdByUserId || 'unknown'}>
+                            {formatReceiptRole(capture.createdByRole)} ({formatReceiptUserId(capture.createdByUserId)})
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-purple-100/80">
+                          <span className="font-semibold">Source:</span> {formatReceiptSource(capture.source)}
+                        </div>
 
                         {capture.workflowStats && (
                           <div className="flex items-center gap-2 mt-2">
@@ -1712,9 +1846,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                   {priceReviewItems.length} flagged
                 </span>
                 <button
-                  onClick={() => {
-                    if (priceReviewItems.length > 0) setShowReceiptReview(true);
-                  }}
+                  onClick={handleOpenPriceReview}
                   disabled={priceReviewItems.length === 0}
                   className={`px-3 py-2 rounded-lg text-xs font-semibold border ${
                     priceReviewItems.length === 0
@@ -1738,52 +1870,30 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
             ) : (
               <div className="mt-4 space-y-3">
                 {priceReviewItems.map(({
-                  item,
-                  storeName,
+                  captureId,
                   receiptName,
-                  priceDelta,
-                  lastHistory,
-                  matchLabel,
-                  matchScore
-                }) => (
+                  unitPrice,
+                  suggestedProduct,
+                  matchConfidence
+                }, idx) => (
                   <div
-                    key={getReceiptItemKey(item)}
-                    className="bg-white/10 backdrop-blur-sm rounded-lg p-4 border border-white/10 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+                    key={`${captureId}:${idx}`}
+                    className="bg-white/10 rounded-xl p-4 flex items-start justify-between gap-4"
                   >
                     <div>
-                      <div className="text-sm font-semibold text-white">
-                        {receiptName}
-                      </div>
-                      {item.suggestedProduct?.name && (
-                        <div className="text-xs text-emerald-100 mt-1">
-                          Matched: {item.suggestedProduct.name}
-                        </div>
-                      )}
-                      <div className="text-xs text-emerald-100 mt-1">
-                        Store: {storeName}
-                      </div>
-                      <div className="text-xs text-emerald-100 mt-1">
-                        Price delta:{' '}
-                        <span className={priceDelta >= 0 ? 'text-lime-200' : 'text-rose-200'}>
-                          {priceDelta >= 0 ? '+' : ''}
-                          {priceDelta.toFixed(2)}
-                        </span>
-                      </div>
-                      <div className="text-xs text-emerald-100 mt-1">
-                        Match: {matchLabel}{matchScore ? ` • ${matchScore}` : ''}
-                      </div>
-                      <div className="text-xs text-emerald-100 mt-1">
-                        Last 3 prices:{' '}
-                        {lastHistory.length > 0
-                          ? lastHistory.map(entry => `$${entry.price.toFixed(2)}`).join(' • ')
-                          : 'No history'}
-                      </div>
+                      <p className="text-white font-semibold">{receiptName}</p>
+                      <p className="text-xs text-emerald-100 mt-1">
+                        {suggestedProduct?.name || 'Unknown Product'}
+                      </p>
+                      <p className="text-[10px] text-emerald-100/80 mt-1">
+                        Unit price: ${unitPrice?.toFixed?.(2) ?? '—'} • Confidence: {Math.round((matchConfidence || 0) * 100)}%
+                      </p>
                     </div>
                     <button
-                      onClick={() => handleOpenReceiptReviewForItem(item)}
-                      className="px-3 py-2 rounded-lg text-xs font-semibold border border-white/30 text-white bg-white/20 hover:bg-white/30"
+                      onClick={() => handleOpenReceiptCapture({ _id: captureId } as ReceiptCapture)}
+                      className="px-3 py-2 rounded-lg text-[10px] font-semibold border border-white/30 text-white bg-white/20 hover:bg-white/30"
                     >
-                      Review Receipt
+                      Review
                     </button>
                   </div>
                 ))}
@@ -1791,572 +1901,264 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
             )}
           </div>
         </div>
-      </section>
 
-      <section className="space-y-4">
-        <div className="bg-slate-900/60 rounded-2xl p-6 border border-slate-700">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h3 className="text-lg font-black uppercase text-white tracking-widest">Aliases / Bindings</h3>
-              <p className="text-xs text-slate-400 mt-2">
-                Receipt name aliases mapped to products for the active store.
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-400">
-                {receiptAliases.length} aliases
-              </span>
-              <button
-                onClick={fetchReceiptAliases}
-                className="px-3 py-2 rounded-lg border border-slate-600 text-slate-200 text-xs font-semibold hover:bg-slate-800"
-              >
-                Refresh
-              </button>
-            </div>
-          </div>
+        <div className="space-y-6">
+          <ManagementApprovals
+            approvalFilter={approvalFilter}
+            setApprovalFilter={setApprovalFilter}
+            filteredApprovals={filteredApprovals}
+            handleApprove={handleApprove}
+            handleReject={handleReject}
+            setSelectedApproval={setSelectedApproval}
+            setPreviewPhoto={setPreviewPhoto}
+            fmtTime={fmtTime}
+          />
 
-          {aliasServiceStatus === 'pricing-disabled' && (
-            <div className="mt-4 text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
-              <div className="text-[10px] uppercase tracking-widest text-amber-200 font-bold">Alias service offline</div>
-              <div className="mt-1 text-xs text-amber-100">Pricing learning disabled.</div>
-            </div>
-          )}
-          {aliasServiceStatus === 'db-not-ready' && (
-            <div className="mt-4 text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
-              <div className="text-[10px] uppercase tracking-widest text-amber-200 font-bold">Alias service warming up</div>
-              <div className="mt-1 text-xs text-amber-100">Database not ready.</div>
-            </div>
-          )}
+          <ManagementAuditLogs
+            auditTypeFilter={auditTypeFilter}
+            setAuditTypeFilter={setAuditTypeFilter}
+            auditActorFilter={auditActorFilter}
+            setAuditActorFilter={setAuditActorFilter}
+            auditRangeFilter={auditRangeFilter}
+            setAuditRangeFilter={setAuditRangeFilter}
+            auditTypeOptions={auditTypeOptions}
+            isAuditLogsLoading={isAuditLogsLoading}
+            auditLogsError={auditLogsError}
+            filteredAuditLogs={filteredAuditLogs}
+            handleDownloadAuditCsv={handleDownloadAuditCsv}
+            runAuditSummary={runAuditSummary}
+            auditSummary={auditSummary}
+            isAuditSummaryLoading={isAuditSummaryLoading}
+          />
 
-          {aliasError && (
-            <div className="mt-4 text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
-              {aliasError}
-            </div>
-          )}
+          <ManagementStores
+            stores={stores}
+            activeStoreId={activeStoreId}
+            setActiveStoreId={handleStoreSelect}
+            refreshStores={refreshStores}
+            isLoadingStores={isLoadingStores}
+            storeError={storeError}
+            setStoreError={setStoreError}
+          />
 
-          {isAliasLoading ? (
-            <div className="mt-6 text-sm text-slate-400">Loading aliases…</div>
-          ) : receiptAliases.length === 0 ? (
-            <div className="mt-6 text-sm text-slate-400">No alias bindings found yet.</div>
-          ) : (
-            <div className="mt-6 space-y-4">
-              {receiptAliases.map(alias => {
-                const baseConfidence = alias.baseConfidence ?? alias.matchConfidence;
-                const effectiveConfidence = alias.effectiveConfidence ?? alias.matchConfidence;
-                return (
-                  <div
-                    key={alias._id}
-                    className="rounded-xl border border-slate-700 bg-slate-950/40 p-4 space-y-3"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <div className="text-sm font-bold text-white">
-                          {alias.normalizedName}
-                        </div>
-                        <div className="text-xs text-slate-400 mt-1">
-                          {alias.productName || 'Unknown product'}
-                          {alias.productSku ? ` • ${alias.productSku}` : ''}
-                          {alias.upc ? ` • UPC ${alias.upc}` : ''}
-                        </div>
-                        <div className="text-xs text-slate-500 mt-1">
-                          Store: {alias.storeName || 'Unknown'}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleAliasAction(alias._id, alias.lockToken, 'confirm')}
-                          disabled={aliasActionId === alias._id}
-                          className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
-                            aliasActionId === alias._id
-                              ? 'border-slate-600 text-slate-400'
-                              : 'border-emerald-400 text-emerald-200 hover:bg-emerald-500/20'
-                          }`}
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          onClick={() => handleAliasAction(alias._id, alias.lockToken, 'reject')}
-                          disabled={aliasActionId === alias._id}
-                          className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
-                            aliasActionId === alias._id
-                              ? 'border-slate-600 text-slate-400'
-                              : 'border-rose-400 text-rose-200 hover:bg-rose-500/20'
-                          }`}
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="text-xs text-slate-400 flex flex-wrap gap-3">
-                      <span>Confidence: {(alias.matchConfidence * 100).toFixed(0)}%</span>
-                      <span>Base: {(baseConfidence * 100).toFixed(0)}%</span>
-                      <span>Effective: {(effectiveConfidence * 100).toFixed(0)}%</span>
-                      {alias.lastSeenAt && (
-                        <span>Last seen: {new Date(alias.lastSeenAt).toLocaleString()}</span>
-                      )}
-                    </div>
-
-                    {alias.rawNames?.length ? (
-                      <div className="text-xs text-slate-500">
-                        Variants: {alias.rawNames.slice(0, 4).map(entry => entry.name).join(', ')}
-                        {alias.rawNames.length > 4 ? '…' : ''}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <ManagementUpcRegistry
+            upcItems={upcItems}
+            setUpcItems={setUpcItems}
+            upcInput={upcInput}
+            setUpcInput={setUpcInput}
+            upcDraft={upcDraft}
+            setUpcDraft={setUpcDraft}
+            upcFilter={upcFilter}
+            setUpcFilter={setUpcFilter}
+            isUpcLoading={isUpcLoading}
+            isUpcSaving={isUpcSaving}
+            upcError={upcError}
+            apiLoadUpcItems={apiLoadUpcItems}
+            handleUpcLookup={handleUpcLookup}
+            apiSaveUpc={apiSaveUpc}
+            apiDeleteUpc={apiDeleteUpc}
+            apiDeleteUpcDirect={apiDeleteUpcDirect}
+            apiLinkUpc={apiLinkUpc}
+            filteredUpcItems={filteredUpcItems}
+            loadUpcDraft={loadUpcDraft}
+            products={products}
+            unmappedUpcModalOpen={unmappedUpcModalOpen}
+            setUnmappedUpcModalOpen={setUnmappedUpcModalOpen}
+            unmappedUpcPayload={unmappedUpcPayload}
+            setUnmappedUpcPayload={setUnmappedUpcPayload}
+            containerLabels={UPC_CONTAINER_LABELS}
+          />
         </div>
-      </section>
-
-      <section className="space-y-4">
-        <div className="bg-slate-900/60 rounded-2xl p-6 border border-slate-700 space-y-6">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h3 className="text-lg font-black uppercase text-white tracking-widest">Post-Commit Intelligence</h3>
-              <p className="text-xs text-slate-400 mt-2">
-                Price history, alias confidence, and system health snapshots for committed receipts.
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => timelineStoreId && fetchStoreInventory(timelineStoreId)}
-                className="px-3 py-2 rounded-lg border border-slate-600 text-slate-200 text-xs font-semibold hover:bg-slate-800"
-              >
-                Refresh Post-Commit Data
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-            <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4 space-y-4">
-              <div>
-                <h4 className="text-sm font-black uppercase tracking-widest text-white">Price Timeline</h4>
-                <p className="text-xs text-slate-400 mt-1">Per store/product observed price trends.</p>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                  Store
-                  <select
-                    className="mt-2 w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
-                    value={timelineStoreId}
-                    onChange={e => {
-                      setTimelineStoreId(e.target.value);
-                      setTimelineProductId('');
-                    }}
-                  >
-                    <option value="" disabled>Select store</option>
-                    {stores.map(store => (
-                      <option key={store.id} value={store.id}>
-                        {store.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                  Product
-                  <select
-                    className="mt-2 w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
-                    value={timelineProductId}
-                    onChange={e => setTimelineProductId(e.target.value)}
-                    disabled={timelineOptions.length === 0}
-                  >
-                    {timelineOptions.length === 0 ? (
-                      <option value="">No history yet</option>
-                    ) : (
-                      timelineOptions.map(option => (
-                        <option key={option.id} value={option.id}>
-                          {option.name}
-                          {option.sku ? ` • ${option.sku}` : ''}
-                          {option.upc ? ` • ${option.upc}` : ''}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </label>
-              </div>
-
-              {inventoryError && (
-                <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-2">
-                  {inventoryError}
-                </div>
-              )}
-
-              {isInventoryLoading ? (
-                <div className="text-xs text-slate-400">Loading price history…</div>
-              ) : !timelineStoreId ? (
-                <div className="text-xs text-slate-400">Select a store to view price history.</div>
-              ) : timelineHistory.length === 0 ? (
-                <div className="text-xs text-slate-400">No price history recorded for this selection.</div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex items-end gap-1 h-12">
-                    {timelineHistory.slice(-12).map((entry, index) => {
-                      const height = 10 + ((entry.price - timelineStats.min) / timelineStats.range) * 32;
-                      return (
-                        <div
-                          key={`${entry.observedAt || 'entry'}-${index}`}
-                          className="w-2 rounded bg-emerald-400/70"
-                          style={{ height: `${height}px` }}
-                          title={`$${entry.price.toFixed(2)}`}
-                        />
-                      );
-                    })}
-                  </div>
-                  <div className="text-[10px] text-slate-500">
-                    Range: ${timelineStats.min.toFixed(2)} → ${timelineStats.max.toFixed(2)}
-                  </div>
-                  <div className="space-y-2">
-                    {timelineHistory
-                      .slice(-5)
-                      .reverse()
-                      .map((entry, index) => (
-                        <div key={`${entry.observedAt || 'row'}-${index}`} className="grid grid-cols-[1fr_auto] gap-2 text-xs text-slate-300">
-                          <div>
-                            <div>{entry.observedAt ? new Date(entry.observedAt).toLocaleDateString() : 'Unknown date'}</div>
-                            <div className="text-[10px] text-slate-500">
-                              {entry.matchMethod ? entry.matchMethod : 'Receipt'}
-                              {typeof entry.matchConfidence === 'number'
-                                ? ` • ${(entry.matchConfidence * 100).toFixed(0)}%`
-                                : ''}
-                            </div>
-                          </div>
-                          <span className="font-semibold text-white">${entry.price.toFixed(2)}</span>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4 space-y-4">
-              <div>
-                <h4 className="text-sm font-black uppercase tracking-widest text-white">Alias Confidence</h4>
-                <p className="text-xs text-slate-400 mt-1">Safe vs gated alias confidence trends.</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
-                <div className="text-[10px] uppercase tracking-widest text-slate-500">Safe</div>
-                <div className="text-lg font-bold text-emerald-200">{aliasConfidenceSummary.safeCount}</div>
-                <div className="text-[10px] text-slate-500">
-                  ≥ {(aliasConfidenceThreshold * 100).toFixed(0)}% ({aliasConfidenceSummary.safePct.toFixed(0)}%)
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
-                <div className="text-[10px] uppercase tracking-widest text-slate-500">Gated</div>
-                <div className="text-lg font-bold text-amber-200">{aliasConfidenceSummary.gatedCount}</div>
-                <div className="text-[10px] text-slate-500">
-                  Needs review ({aliasConfidenceSummary.gatedPct.toFixed(0)}%)
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
-              <div className="text-[10px] uppercase tracking-widest text-slate-500">Avg Effective Confidence</div>
-                <div className="text-lg font-bold text-white">
-                  {(aliasConfidenceSummary.averageEffective * 100).toFixed(0)}%
-                </div>
-                <div className="mt-2 flex items-end gap-1 h-10">
-                  {aliasConfidenceSummary.trend.length === 0 ? (
-                    <span className="text-[10px] text-slate-500">No trend data yet.</span>
-                  ) : (
-                    aliasConfidenceSummary.trend.map((value, index) => (
-                      <div
-                        key={`alias-trend-${index}`}
-                        className="w-2 rounded bg-indigo-400/70"
-                        style={{ height: `${8 + value * 28}px` }}
-                        title={`${(value * 100).toFixed(0)}%`}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4 space-y-4">
-              <div>
-                <h4 className="text-sm font-black uppercase tracking-widest text-white">System Health</h4>
-                <p className="text-xs text-slate-400 mt-1">Auto-match, review, and error rates.</p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3 space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Auto-matched</span>
-                    <span className="text-white font-semibold">{receiptHealthSummary.autoMatchedPct.toFixed(0)}%</span>
-                  </div>
-                  <div className="text-[10px] text-slate-500">
-                    {receiptHealthSummary.autoMatchedItems} of {receiptHealthSummary.totalItems} items
-                  </div>
-                  <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-emerald-400"
-                      style={{ width: `${receiptHealthSummary.autoMatchedPct}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3 space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Requires review</span>
-                    <span className="text-white font-semibold">{receiptHealthSummary.reviewPct.toFixed(0)}%</span>
-                  </div>
-                  <div className="text-[10px] text-slate-500">
-                    {receiptHealthSummary.itemsNeedingReview} queued
-                  </div>
-                  <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-amber-400"
-                      style={{ width: `${receiptHealthSummary.reviewPct}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3 space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Error rate</span>
-                    <span className="text-white font-semibold">{receiptHealthSummary.errorPct.toFixed(1)}%</span>
-                  </div>
-                  <div className="text-[10px] text-slate-500">
-                    {receiptHealthSummary.failedCaptures} failed of {receiptHealthSummary.totalCaptures} captures
-                  </div>
-                  <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-rose-400"
-                      style={{ width: `${receiptHealthSummary.errorPct}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-[10px] uppercase tracking-widest text-slate-500">Error rate by store</div>
-                {receiptErrorRatesByStore.length === 0 ? (
-                  <div className="text-xs text-slate-500">No receipt captures yet.</div>
-                ) : (
-                  receiptErrorRatesByStore.slice(0, 5).map(store => (
-                    <div key={store.storeName} className="flex items-center justify-between text-xs text-slate-300">
-                      <span>{store.storeName}</span>
-                      <span className="text-white font-semibold">
-                        {store.errorRate.toFixed(1)}% ({store.failed}/{store.total})
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <ManagementApprovals
-        approvalFilter={approvalFilter}
-        setApprovalFilter={setApprovalFilter}
-        filteredApprovals={filteredApprovals}
-        handleApprove={handleApprove}
-        handleReject={handleReject}
-        setSelectedApproval={setSelectedApproval}
-        setPreviewPhoto={setPreviewPhoto}
-        fmtTime={fmtTime}
-      />
-
-      <ManagementStores
-        stores={stores}
-        activeStoreId={activeStoreId}
-        setActiveStoreId={setActiveStoreId}
-        refreshStores={refreshStores}
-        isLoading={isLoadingStores}
-        error={storeError}
-        setError={setStoreError}
-      />
-
-      <ManagementUpcRegistry
-        upcItems={upcItems}
-        setUpcItems={setUpcItems}
-        upcInput={upcInput}
-        setUpcInput={setUpcInput}
-        upcDraft={upcDraft}
-        setUpcDraft={setUpcDraft}
-        upcFilter={upcFilter}
-        setUpcFilter={setUpcFilter}
-        isUpcLoading={isUpcLoading}
-        isUpcSaving={isUpcSaving}
-        upcError={upcError}
-        apiLoadUpcItems={apiLoadUpcItems}
-        handleUpcLookup={handleUpcLookup}
-        apiSaveUpc={apiSaveUpc}
-        apiDeleteUpc={apiDeleteUpc}
-        apiDeleteUpcDirect={apiDeleteUpcDirect}
-        apiLinkUpc={apiLinkUpc}
-        filteredUpcItems={filteredUpcItems}
-        loadUpcDraft={loadUpcDraft}
-        products={products}
-        unmappedUpcModalOpen={unmappedUpcModalOpen}
-        setUnmappedUpcModalOpen={setUnmappedUpcModalOpen}
-        unmappedUpcPayload={unmappedUpcPayload}
-        setUnmappedUpcPayload={setUnmappedUpcPayload}
-        ScannerModal={null}
-        UPC_CONTAINER_LABELS={UPC_CONTAINER_LABELS}
-      />
-
-      <ManagementAuditLogs
-        filteredAuditLogs={filteredAuditLogs}
-        auditTypeFilter={auditTypeFilter}
-        setAuditTypeFilter={setAuditTypeFilter}
-        auditActorFilter={auditActorFilter}
-        setAuditActorFilter={setAuditActorFilter}
-        auditRangeFilter={auditRangeFilter}
-        setAuditRangeFilter={setAuditRangeFilter}
-        auditTypeOptions={auditTypeOptions}
-        isAuditLogsLoading={isAuditLogsLoading}
-        auditLogsError={auditLogsError}
-        handleDownloadAuditCsv={handleDownloadAuditCsv}
-        runAuditSummary={runAuditSummary}
-        auditSummary={auditSummary}
-        isAuditSummaryLoading={isAuditSummaryLoading}
-        fmtTime={fmtTime}
-      />
+      </div>
 
       {showReceiptScanner && (
         <ReceiptCaptureFlow
           isOpen={showReceiptScanner}
-          mode={ScannerMode.RECEIPT_PARSE_LIVE}
-          stores={stores}
-          defaultStoreId={activeStoreId}
-          title="Receipt Scanner"
-          subtitle="Capture receipt with barcode"
-          onPhotoCaptured={handlePhotoCaptured}
-          onClose={handleCloseReceiptScanner}
-          showClose={true}
-          onStoreSelected={handleStoreSelected}
-          onPrimarySupplierToggle={handlePrimarySupplierToggle}
+          onClose={handleReceiptScannerClose}
+          onImageUploaded={handleReceiptImageUploaded}
+          onParsedItems={handleReceiptScannerComplete}
+          onCaptureComplete={handleReceiptCaptureComplete}
+          storeId={activeStoreId}
+          storeName={getDefaultStoreName()}
+          onCaptureParse={handleReceiptScannerAction}
         />
       )}
 
-      {scanModalOpen && (
-        <ScannerModal
-          mode={ScannerMode.UPC_LOOKUP}
-          onScan={handleReceiptScan}
-          onClose={() => {
-            setScanModalOpen(false);
-            setScanTargetItem(null);
-          }}
-          title="Scan UPC"
-          subtitle="Scan product barcode to match this receipt line"
-          beepEnabled={settings.beepEnabled ?? true}
-          cooldownMs={settings.cooldownMs ?? 1000}
-          isOpen={scanModalOpen}
-        />
-      )}
-
-      {showReceiptReview && classifiedItems.length > 0 && (
-        <div className="fixed inset-0 z-50 bg-ninpo-black/95 backdrop-blur-sm p-4 flex items-center justify-center overflow-y-auto">
-          <div className="bg-ninpo-card rounded-[2.5rem] border border-white/10 max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="border-b border-white/10 p-6 space-y-2">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-black uppercase text-white tracking-widest">Receipt Review</h2>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleOpenNoiseRules}
-                    className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/10 text-slate-200 bg-white/5 hover:bg-white/10"
-                  >
-                    Manage Noise Rules
-                  </button>
-                  <button
-                    onClick={resetReceiptReview}
-                    className="text-slate-400 hover:text-white transition p-2"
-                  >
-                    ✕
-                  </button>
-                </div>
+      {showReceiptReview && activeReceiptCaptureId && (
+        <div className="fixed inset-0 z-50 bg-ninpo-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-ninpo-card rounded-[2rem] border border-white/10 max-w-6xl w-full h-[85vh] overflow-y-auto">
+            <div className="p-6 border-b border-white/10 flex items-center justify-between">
+              <div>
+                <h3 className="text-white font-black uppercase text-lg tracking-widest">Receipt Review</h3>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest">Capture ID: {activeReceiptCaptureId}</p>
               </div>
-              <p className="text-[10px] text-slate-400 uppercase tracking-widest">
-                Items from <span className="text-ninpo-lime">{activeStore?.name}</span> classified into four buckets
-              </p>
+              <button
+                onClick={handleReceiptReviewClose}
+                className="text-slate-400 hover:text-white transition"
+              >
+                ✕
+              </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
-              <ReceiptItemBucket
-                items={classifiedItems}
-                selectedItems={selectedItemsForCommit}
-                onItemToggle={handleItemToggle}
-                onItemReclassify={handleItemReclassify}
-                onItemScanUpc={handleItemScanUpc}
-                onItemSearchProduct={handleItemSearchProduct}
-                onItemAttachExisting={handleItemAttachExisting}
-                onItemCreateProduct={canCreateProducts ? handleOpenCreateProduct : undefined}
-                onItemNeverMatch={handleNeverMatch}
-                getItemKey={getReceiptItemKey}
-                isReadOnly={false}
-              />
-            </div>
+            <div className="p-6 space-y-6">
+              <div className="flex flex-wrap gap-3 items-center">
+                <button
+                  onClick={handleReceiptParseClick}
+                  className="px-4 py-2 rounded-full text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20"
+                >
+                  Parse Receipt
+                </button>
+                <button
+                  onClick={handleReceiptConfirm}
+                  className="px-4 py-2 rounded-full text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20"
+                >
+                  Confirm All
+                </button>
+                <button
+                  onClick={handleResetReceiptReview}
+                  className="px-4 py-2 rounded-full text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20"
+                >
+                  Reset Review
+                </button>
+                <button
+                  onClick={handleLockReceipt}
+                  className="px-4 py-2 rounded-full text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20"
+                >
+                  Lock {lockDurationDays}d
+                </button>
+                <button
+                  onClick={handleUnlockReceipt}
+                  className="px-4 py-2 rounded-full text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20"
+                >
+                  Unlock
+                </button>
+              </div>
 
-            <div className="border-t border-white/10 px-6 py-4 bg-white/5">
-              <p className="text-[10px] text-slate-400 uppercase tracking-widest">
-                Selected {selectedItemsForCommit.size} of {classifiedItems.length} items for commit
-              </p>
-            </div>
+              <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
+                <div className="space-y-4">
+                  {classifiedItems.length === 0 ? (
+                    <div className="text-xs text-slate-400">No items to review.</div>
+                  ) : (
+                    classifiedItems.map((item, idx) => (
+                      <ReceiptItemBucket
+                        key={`${item.captureId}:${item.lineIndex ?? idx}`}
+                        item={item}
+                        onConfirm={handleConfirmReceiptItem}
+                        onScan={handleScanItem}
+                        onSearchProduct={() => {
+                          setProductSearchItem(item);
+                          setProductSearchIntent('match');
+                          setProductSearchQuery(item.receiptName || '');
+                        }}
+                        onCreateProduct={() => setCreateProductItem(item)}
+                        onSelectForCommit={() => handleSelectForCommit(item)}
+                        selectedForCommit={selectedItemsForCommit.has(getReceiptItemKey(item))}
+                        onAddNoiseRule={() => handleAddNoiseRule(item.normalizedName || '')}
+                      />
+                    ))
+                  )}
+                </div>
 
-            <div className="border-t border-white/10 px-6 py-4">
-              <div className="flex flex-col gap-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  Commit actions for reviewed receipt items
-                </p>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <button
-                    onClick={resetReceiptReview}
-                    className="flex-1 px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleCommitSafeUpdates}
-                    disabled={isCommitting || safeItemsForCommit.length === 0}
-                    className={`flex-1 px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 ${
-                      safeItemsForCommit.length === 0
-                        ? 'bg-white/5 text-slate-500 border border-white/10'
-                        : 'bg-white/10 text-white border border-white/10'
-                    } ${isCommitting ? 'opacity-70 cursor-not-allowed' : ''}`}
-                  >
-                    {isCommitting && commitIntent === 'safe' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                    {isCommitting && commitIntent === 'safe' ? 'Committing…' : 'Commit All Safe'}
-                  </button>
-                  <button
-                    onClick={handleCommitSelected}
-                    disabled={isCommitting || selectedItemsForCommit.size === 0}
-                    className={`flex-1 px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 ${
-                      selectedItemsForCommit.size === 0
-                        ? 'bg-white/5 text-slate-500 border border-white/10'
-                        : 'bg-ninpo-lime text-ninpo-black'
-                    } ${isCommitting ? 'opacity-70 cursor-not-allowed' : ''}`}
-                  >
-                    {isCommitting && commitIntent === 'selected' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                    {isCommitting && commitIntent === 'selected' ? 'Committing…' : 'Commit Selected'}
-                  </button>
-                  <button
-                    onClick={handleCommitAndLock}
-                    disabled={isCommitting || selectedItemsForCommit.size === 0}
-                    className={`flex-1 px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 ${
-                      selectedItemsForCommit.size === 0
-                        ? 'bg-white/5 text-slate-500 border border-white/10'
-                        : 'bg-amber-400 text-ninpo-black'
-                    } ${isCommitting ? 'opacity-70 cursor-not-allowed' : ''}`}
-                  >
-                    {isCommitting && commitIntent === 'locked' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                    {isCommitting && commitIntent === 'locked'
-                      ? 'Committing…'
-                      : `Commit & Lock Prices (${lockDurationDays} days)`}
-                  </button>
+                <div className="space-y-4">
+                  <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                    <p className="text-[10px] text-slate-400 uppercase tracking-widest">Commit Summary</p>
+                    <p className="text-sm text-white font-semibold mt-2">{selectedForCommitCount} selected</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => handleReceiptCommitMode('safe')}
+                        className={`px-3 py-2 rounded-full text-[10px] font-semibold border ${
+                          commitIntent === 'safe'
+                            ? 'border-white/50 text-white bg-white/20'
+                            : 'border-white/10 text-slate-300'
+                        }`}
+                      >
+                        Safe
+                      </button>
+                      <button
+                        onClick={() => handleReceiptCommitMode('selected')}
+                        className={`px-3 py-2 rounded-full text-[10px] font-semibold border ${
+                          commitIntent === 'selected'
+                            ? 'border-white/50 text-white bg-white/20'
+                            : 'border-white/10 text-slate-300'
+                        }`}
+                      >
+                        Selected
+                      </button>
+                      <button
+                        onClick={() => handleReceiptCommitMode('locked')}
+                        className={`px-3 py-2 rounded-full text-[10px] font-semibold border ${
+                          commitIntent === 'locked'
+                            ? 'border-white/50 text-white bg-white/20'
+                            : 'border-white/10 text-slate-300'
+                        }`}
+                      >
+                        Locked
+                      </button>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        onClick={handleSelectAllForCommit}
+                        className="px-3 py-2 rounded-full text-[10px] font-semibold border border-white/10 text-slate-300 hover:bg-white/10"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        onClick={handleClearSelectedForCommit}
+                        className="px-3 py-2 rounded-full text-[10px] font-semibold border border-white/10 text-slate-300 hover:bg-white/10"
+                      >
+                        Clear Selection
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={handleCommitReceipt}
+                      disabled={!commitIntent || isCommitting}
+                      className="mt-4 w-full px-4 py-3 rounded-2xl text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20 disabled:opacity-50"
+                    >
+                      {isCommitting ? 'Committing…' : 'Commit Items'}
+                    </button>
+                  </div>
+
+                  <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                    <p className="text-[10px] text-slate-400 uppercase tracking-widest">Inventory Snapshot</p>
+                    {isInventoryLoading ? (
+                      <p className="text-xs text-slate-500 mt-2">Loading inventory…</p>
+                    ) : inventoryError ? (
+                      <p className="text-xs text-red-400 mt-2">{inventoryError}</p>
+                    ) : (
+                      <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
+                        {storeInventory.length === 0 ? (
+                          <p className="text-xs text-slate-500">No inventory data available.</p>
+                        ) : (
+                          storeInventory.map(entry => (
+                            <div key={entry._id} className="text-[10px] text-slate-300">
+                              <span className="font-semibold text-white">{entry.product?.name || 'Unknown'}</span>
+                              {entry.observedPrice ? ` • $${entry.observedPrice.toFixed(2)}` : ' • no price'}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
+      )}
+
+      {scanModalOpen && (
+        <ScannerModal
+          mode={ScannerMode.RECEIPT_PARSE_LIVE}
+          onScan={handleScannerScan}
+          onClose={handleScannerClose}
+          title="Scan UPC"
+          subtitle="Scan the product UPC to attach"
+          beepEnabled={settings?.beepEnabled ?? true}
+          cooldownMs={settings?.cooldownMs ?? 2000}
+          isOpen={scanModalOpen}
+        />
       )}
 
       {createProductItem && (
