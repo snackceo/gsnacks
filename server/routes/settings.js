@@ -37,6 +37,7 @@ const defaultSettings = {
   allowPlatinumTier: false,
   allowGreenTier: false,
   platinumFreeDelivery: false,
+  priceLockDays: 7,
   dailyReturnLimit: 250,
   // deliveryFee removed (legacy)
   glassHandlingFeePercent: 0.02,
@@ -69,8 +70,8 @@ const numericFields = [
   'processingFeePercent',
   'returnProcessingFeePercent',
   'glassHandlingFeePerContainer',
-  'returnHandlingFeePerContainer'
-  ,
+  'returnHandlingFeePerContainer',
+  'priceLockDays',
   'largeOrderIncludedItems',
   'largeOrderPerItemFee',
   'heavyItemFeePerUnit'
@@ -162,6 +163,7 @@ const mapSettings = (doc) => ({
   allowPlatinumTier: Boolean(doc?.allowPlatinumTier ?? defaultSettings.allowPlatinumTier),
   allowGreenTier: Boolean(doc?.allowGreenTier ?? defaultSettings.allowGreenTier),
   platinumFreeDelivery: Boolean(doc?.platinumFreeDelivery ?? defaultSettings.platinumFreeDelivery),
+  priceLockDays: Number(doc?.priceLockDays ?? defaultSettings.priceLockDays),
   dailyReturnLimit: Number(doc?.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
   // deliveryFee removed (legacy)
   glassHandlingFeePercent: Number(doc?.glassHandlingFeePercent ?? defaultSettings.glassHandlingFeePercent),

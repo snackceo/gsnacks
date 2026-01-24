@@ -252,6 +252,7 @@ export interface AppSettings {
 
   allowPlatinumTier: boolean;
   platinumFreeDelivery: boolean;
+  priceLockDays: number;
 
   storageZones: string[];
   productTypes: string[];

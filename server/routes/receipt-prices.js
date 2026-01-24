@@ -1674,7 +1674,7 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
     await recordAuditLog({
       type: 'receipt_commit',
       actorId: username || 'unknown',
-      details: `capture=${capture._id.toString()} committed=${committed} errors=${errors.length}`
+      details: `capture=${capture._id.toString()} committed=${committed} errors=${errors.length} receipt=${capture.images?.[0]?.url || 'none'} thumb=${capture.images?.[0]?.thumbnailUrl || 'none'}`
     });
 
     res.json({
