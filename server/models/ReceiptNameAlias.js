@@ -65,6 +65,17 @@ const receiptNameAliasSchema = new mongoose.Schema({
     occurrences: { type: Number, default: 1 }
   }],
   
+  // Concurrency control token for alias confirm/reject actions
+  lockToken: {
+    type: String,
+    default: () => new mongoose.Types.ObjectId().toString()
+  },
+  
+  lockTokenUpdatedAt: {
+    type: Date,
+    default: Date.now
+  },
+  
   // Metadata
   createdBy: String,
   createdAt: {

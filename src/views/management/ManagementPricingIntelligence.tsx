@@ -38,6 +38,25 @@ interface ReceiptCapture {
   reviewExpiresAt?: string;
 }
 
+interface ReceiptAliasRecord {
+  _id: string;
+  normalizedName: string;
+  storeId: string;
+  storeName: string | null;
+  productId: string;
+  productName: string | null;
+  productSku: string | null;
+  upc: string | null;
+  confirmedCount: number;
+  matchConfidence: number;
+  baseConfidence?: number;
+  effectiveConfidence?: number;
+  lastSeenAt?: string;
+  lastConfirmedAt?: string | null;
+  rawNames: Array<{ name: string; firstSeen?: string; occurrences?: number }>;
+  lockToken: string | null;
+}
+
 interface ManagementPricingIntelligenceProps {
   setScannerMode: (mode: ScannerMode) => void;
   setScannerModalOpen: (open: boolean) => void;
@@ -154,6 +173,10 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   isAuditSummaryLoading
 }) => {
   const [receiptCaptures, setReceiptCaptures] = useState<ReceiptCapture[]>([]);
+  const [receiptAliases, setReceiptAliases] = useState<ReceiptAliasRecord[]>([]);
+  const [isAliasLoading, setIsAliasLoading] = useState(false);
+  const [aliasError, setAliasError] = useState<string | null>(null);
+  const [aliasActionId, setAliasActionId] = useState<string | null>(null);
 
   const openReceiptScanner = () => {
     setScannerMode(ScannerMode.RECEIPT_PARSE_LIVE);
@@ -177,6 +200,81 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       console.error('Error fetching receipt captures:', error);
     }
   }, []);
+
+  const fetchReceiptAliases = useCallback(async () => {
+    setIsAliasLoading(true);
+    setAliasError(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (activeStoreId) {
+        params.set('storeId', activeStoreId);
+      }
+      params.set('limit', '75');
+
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-aliases?${params.toString()}`, {
+        credentials: 'include'
+      });
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to load aliases');
+      }
+
+      const data = await resp.json();
+      setReceiptAliases(data.aliases || []);
+    } catch (error) {
+      console.error('Error fetching receipt aliases:', error);
+      setAliasError(error instanceof Error ? error.message : 'Failed to load aliases');
+    } finally {
+      setIsAliasLoading(false);
+    }
+  }, [activeStoreId]);
+
+  const updateAliasState = (updatedAlias: ReceiptAliasRecord) => {
+    setReceiptAliases(prev =>
+      prev.map(alias => (alias._id === updatedAlias._id ? updatedAlias : alias))
+    );
+  };
+
+  const handleAliasAction = async (aliasId: string, lockToken: string | null, action: 'confirm' | 'reject') => {
+    if (!lockToken) {
+      setAliasError('Missing alias lock token. Refresh and try again.');
+      return;
+    }
+
+    setAliasActionId(aliasId);
+    setAliasError(null);
+
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-alias-${action}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ aliasId, lockToken })
+      });
+
+      const data = await resp.json().catch(() => ({}));
+
+      if (!resp.ok) {
+        if (data?.alias) {
+          updateAliasState(data.alias);
+        }
+        throw new Error(data?.error || `Failed to ${action} alias`);
+      }
+
+      if (data?.alias) {
+        updateAliasState(data.alias);
+      }
+    } catch (error) {
+      console.error(`Error attempting to ${action} alias:`, error);
+      setAliasError(error instanceof Error ? error.message : `Failed to ${action} alias`);
+    } finally {
+      setAliasActionId(null);
+    }
+  };
 
   const deleteReceiptCapture = async (captureId: string) => {
     if (!window.confirm('Delete this receipt? This cannot be undone.')) {
@@ -219,6 +317,10 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     window.addEventListener('receipt-queue-refresh', handleQueueRefresh);
     return () => window.removeEventListener('receipt-queue-refresh', handleQueueRefresh);
   }, [fetchReceiptCaptures]);
+
+  useEffect(() => {
+    fetchReceiptAliases();
+  }, [fetchReceiptAliases]);
 
   return (
     <div className="space-y-10">
@@ -354,6 +456,128 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
             </div>
           </div>
         )}
+      </section>
+
+      <section className="space-y-4">
+        <div className="bg-slate-900/60 rounded-2xl p-6 border border-slate-700">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-black uppercase text-white tracking-widest">Aliases / Bindings</h3>
+              <p className="text-xs text-slate-400 mt-2">
+                Receipt name aliases mapped to products for the active store.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-slate-400">
+                {receiptAliases.length} aliases
+              </span>
+              <button
+                onClick={fetchReceiptAliases}
+                className="px-3 py-2 rounded-lg border border-slate-600 text-slate-200 text-xs font-semibold hover:bg-slate-800"
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {aliasError && (
+            <div className="mt-4 text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+              {aliasError}
+            </div>
+          )}
+
+          {isAliasLoading ? (
+            <div className="mt-6 text-sm text-slate-400">Loading aliases…</div>
+          ) : receiptAliases.length === 0 ? (
+            <div className="mt-6 text-sm text-slate-400">No alias bindings found yet.</div>
+          ) : (
+            <div className="mt-6 space-y-4">
+              {receiptAliases.map(alias => {
+                const baseConfidence = alias.baseConfidence ?? alias.matchConfidence;
+                const effectiveConfidence = alias.effectiveConfidence ?? alias.matchConfidence;
+                return (
+                  <div
+                    key={alias._id}
+                    className="rounded-xl border border-slate-700 bg-slate-950/40 p-4 space-y-3"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <div className="text-sm font-bold text-white">
+                          {alias.normalizedName}
+                        </div>
+                        <div className="text-xs text-slate-400 mt-1">
+                          {alias.productName || 'Unknown product'}
+                          {alias.productSku ? ` • ${alias.productSku}` : ''}
+                          {alias.upc ? ` • UPC ${alias.upc}` : ''}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1">
+                          Store: {alias.storeName || 'Unknown'}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleAliasAction(alias._id, alias.lockToken, 'confirm')}
+                          disabled={aliasActionId === alias._id}
+                          className="px-3 py-2 rounded-lg bg-emerald-500/20 text-emerald-200 text-xs font-semibold hover:bg-emerald-500/30 disabled:opacity-50"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          onClick={() => handleAliasAction(alias._id, alias.lockToken, 'reject')}
+                          disabled={aliasActionId === alias._id}
+                          className="px-3 py-2 rounded-lg bg-rose-500/20 text-rose-200 text-xs font-semibold hover:bg-rose-500/30 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-3 text-xs text-slate-300">
+                      <div>
+                        <div className="text-slate-500 uppercase tracking-wide">Confirmed Count</div>
+                        <div className="text-white font-semibold text-sm mt-1">
+                          {alias.confirmedCount}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-slate-500 uppercase tracking-wide">Confidence</div>
+                        <div className="text-white font-semibold text-sm mt-1">
+                          {Math.round(baseConfidence * 100)}% base / {Math.round(effectiveConfidence * 100)}% effective
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-slate-500 uppercase tracking-wide">Last Seen</div>
+                        <div className="text-white font-semibold text-sm mt-1">
+                          {fmtTime(alias.lastSeenAt)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-slate-400">
+                      <div className="text-slate-500 uppercase tracking-wide">Raw Name History</div>
+                      {alias.rawNames.length === 0 ? (
+                        <div className="mt-2">No raw name history captured.</div>
+                      ) : (
+                        <ul className="mt-2 space-y-1">
+                          {alias.rawNames.map((entry, index) => (
+                            <li key={`${alias._id}-raw-${index}`} className="flex flex-wrap gap-2">
+                              <span className="text-slate-200">{entry.name}</span>
+                              <span className="text-slate-500">•</span>
+                              <span>{entry.occurrences || 0}x</span>
+                              {entry.firstSeen ? (
+                                <span className="text-slate-500">since {fmtTime(entry.firstSeen)}</span>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </section>
 
       <section className="space-y-4">

@@ -37,6 +37,7 @@ import shoppingRouter from './routes/shopping.js';
 import driverRouter from './routes/driver.js';
 import itemsNotFoundRouter from './routes/items-not-found.js';
 import receiptPricesRouter from './routes/receipt-prices.js';
+import receiptAliasesRouter from './routes/receipt-aliases.js';
 import storesRouter from './routes/stores.js';
 import { maintenanceModeGuardCached } from './utils/maintenanceMode.js';
 
@@ -155,6 +156,7 @@ app.use('/api/shopping', shoppingRouter); // Multi-store shopping
 app.use('/api/driver', driverRouter); // Driver operations
 app.use('/api/driver', itemsNotFoundRouter); // Items not found tracking
 app.use('/api/driver', receiptPricesRouter); // Receipt-based price updates
+app.use('/api/driver', receiptAliasesRouter); // Receipt alias bindings
 app.use('/api/stores', storesRouter); // Store management
 app.use('/api/approvals', approvalsRouter);
 app.use('/api/settings', settingsRouter);
