@@ -176,7 +176,11 @@ const ManagementAuditLogs: React.FC<ManagementAuditLogsProps> = ({
                 <span className="font-bold text-white/80">{log.type}</span>
                 <span className="text-white/70">{log.actorId}</span>
                 <span className="text-slate-400">{log.details}</span>
-                <span className="text-slate-500">{fmtTime(log.createdAt)}</span>
+                <span className="text-slate-500">
+                  {typeof fmtTime === 'function'
+                    ? fmtTime(log.createdAt)
+                    : String(log.createdAt ?? '')}
+                </span>
               </div>
             ))}
           </div>
