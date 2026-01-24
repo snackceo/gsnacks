@@ -24,7 +24,7 @@ interface ClassificationConfig {
   reviewThreshold?: number; // Confidence threshold for bucket B
 }
 
-const noisePattern = /\b(coupon|discount|savings|tax|taxes|subtotal|sub\s*total)\b/i;
+const noisePattern = /\b(coupon|discount|savings|tax|taxes|sales\s*tax|subtotal|sub\s*total)\b/i;
 
 /**
  * Classify a single receipt item
@@ -56,7 +56,7 @@ export function classifyItem(
     reason = 'noise_rule';
   }
   // Heuristic 1: Noise lines (coupons, taxes, subtotals)
-  else if (isNoiseItem(item.receiptName, item.totalPrice)) {
+  else if (isNoiseItem(item.receiptName, item.normalizedName, item.totalPrice)) {
     classification = 'D';
     reason = 'noise_item';
   }
@@ -196,11 +196,16 @@ function isCommonBrand(name: string): boolean {
 /**
  * Check if item is a non-product line like coupons, taxes, or subtotals
  */
-function isNoiseItem(name: string, totalPrice: number): boolean {
-  if (!name) return false;
-  if (noisePattern.test(name)) return true;
+function isNoiseItem(receiptName: string, normalizedName: string | undefined, totalPrice: number): boolean {
+  const combinedName = [receiptName, normalizedName]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .join(' ');
 
-  const lowerName = name.toLowerCase();
+  if (!combinedName) return false;
+
+  if (noisePattern.test(combinedName)) return true;
+
+  const lowerName = combinedName.toLowerCase();
   if (totalPrice <= 0 && /\b(coupon|discount|savings)\b/i.test(lowerName)) {
     return true;
   }

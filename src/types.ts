@@ -403,6 +403,7 @@ export interface ParsedReceipt {
     A: number; // Auto-update OK
     B: number; // Needs review
     C: number; // No match
+    D: number; // Noise / non-product
   };
   parsedAt: string;
 }
