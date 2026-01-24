@@ -5,7 +5,7 @@ import Store from '../models/Store.js';
 import StoreInventory from '../models/StoreInventory.js';
 import Product from '../models/Product.js';
 import UpcItem from '../models/UpcItem.js';
-import { authRequired } from '../utils/helpers.js';
+import { authRequired, ownerRequired } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 
 const router = express.Router();
@@ -122,7 +122,7 @@ ${input}`;
 });
 
 // Create or update a store record
-router.post('/', authRequired, async (req, res) => {
+router.post('/', authRequired, ownerRequired, async (req, res) => {
   try {
     const {
       name,
@@ -188,7 +188,7 @@ router.post('/', authRequired, async (req, res) => {
 });
 
 // Update store metadata (primary supplier toggle)
-router.patch('/:storeId', authRequired, async (req, res) => {
+router.patch('/:storeId', authRequired, ownerRequired, async (req, res) => {
   try {
     const { storeId } = req.params;
     const { isPrimarySupplier } = req.body || {};
