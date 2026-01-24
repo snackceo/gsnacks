@@ -217,6 +217,33 @@ router.patch('/:storeId', authRequired, ownerRequired, async (req, res) => {
   }
 });
 
+// Delete a store record
+router.delete('/:storeId', authRequired, managerOrOwnerRequired, async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(storeId)) {
+      return res.status(400).json({ error: 'Invalid store id.' });
+    }
+
+    const store = await Store.findById(storeId);
+    if (!store) return res.status(404).json({ error: 'Store not found' });
+
+    await StoreInventory.deleteMany({ storeId: store._id });
+    await Store.deleteOne({ _id: store._id });
+
+    await recordAuditLog({
+      type: 'store_delete',
+      actorId: req.user?.username || req.user?.id || 'UNKNOWN',
+      details: `Store ${store.name} (${store._id}) deleted.`
+    });
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('STORE DELETE ERROR', err);
+    return res.status(500).json({ error: 'Failed to delete store' });
+  }
+});
+
 /**
  * GET /api/stores
  * List all stores
