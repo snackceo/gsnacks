@@ -58,6 +58,7 @@ All new roles, permissions, scanner modes, feature flags, or special phrases mus
 ## Changelog / Revision History
 
 - 2026-01-16 (YH): Linked glossary to all major docs; established as single source of truth. (why: prevent drift)
+- 2025-02-14 (AI): Added receipt capture audit/source fields for queue attribution. (why: track capture origin and actor)
 - [Add future changes here.]
 
 _Changelog format: YYYY-MM-DD (initials): What changed. (why/context)_
@@ -149,11 +150,17 @@ creditAppliedCents (number field): In Order, the amount of credits (in cents) ac
 
 creditBalance (number field): In User, the wallet credit balance (in dollars) available to the customer. Earned via bottle returns (credit settlement) and used to offset future orders. Updated after returns or adjustments (e.g., adjustCredits admin action).
 
+createdByRole (ReceiptCapture field): Role of the staff member who created a receipt capture. Allowed values: DRIVER, MANAGER, OWNER. Used for auditability and routing.
+
+createdByUserId (ReceiptCapture field): User ID (Mongo _id) of the staff member who created a receipt capture. Used for audit and queue attribution.
+
 Credit Settlement (returns mode): Settlement of bottle returns as store credit (default behavior). In this mode, the total deposit value is added to the user’s creditBalance (no fees deducted) and can offset future purchases.
 
 Credit Ledger System (domain/system): The credit balance and ledger domain that tracks creditBalance and LedgerEntry records for customer credits and adjustments.
 
 CREDIT_ADJUSTMENT (ApprovalType): Type of admin approval request representing a manual credit balance change for a user. For example, giving a goodwill credit or correcting a balance requires owner approval.
+
+receiptCaptureSource (enum / ReceiptCapture field): Origin of a receipt capture. Allowed values: driver_camera (driver device capture), management_upload (management UI upload), email_import (ingested from email). Used to segment queue inputs.
 
 CUSTOMER (UserRole): Regular end-user role with no special privileges. Customers can browse products, place orders, and initiate returns, but cannot access management or driver views.
 

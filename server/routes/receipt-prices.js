@@ -365,374 +365,588 @@ const evaluatePriceDelta = ({ lastPrice, newPrice, lastObservedAt, now = new Dat
 const getAliasEffectiveConfidence = (alias, now = new Date()) => {
   const confirmedCount = Number(alias?.confirmedCount || 0);
   const baseConfidence = Math.min(1.0, 0.7 + confirmedCount * 0.1);
-  const lastActivityAt = alias?.lastConfirmedAt || alias?.lastSeenAt;
-
+  const lastActivityAt = alias?.lastConfirmedAt || alias?.lastSeenAt || alias?.updatedAt || alias?.createdAt;
   if (!lastActivityAt) {
-    return { baseConfidence, effectiveConfidence: baseConfidence, lastActivityAt: null };
+    return { baseConfidence, effectiveConfidence: baseConfidence };
   }
 
-  const ageMs = now.getTime() - new Date(lastActivityAt).getTime();
-  if (!Number.isFinite(ageMs) || ageMs <= 0) {
-    return { baseConfidence, effectiveConfidence: baseConfidence, lastActivityAt };
-  }
-
+  const ageMs = Math.max(0, now.getTime() - new Date(lastActivityAt).getTime());
   const ageDays = ageMs / (1000 * 60 * 60 * 24);
   const decayFactor = Math.pow(0.5, ageDays / ALIAS_CONFIDENCE_HALF_LIFE_DAYS);
-  const effectiveConfidence = Math.max(0, Math.min(1, baseConfidence * decayFactor));
-
-  return { baseConfidence, effectiveConfidence, lastActivityAt };
+  const effectiveConfidence = Math.max(0.1, baseConfidence * decayFactor);
+  return { baseConfidence, effectiveConfidence };
 };
 
-const router = express.Router();
+const hasCloudinary = isCloudinaryConfigured();
+const RECEIPT_UPLOAD_FOLDER = 'receipt-captures';
+const RECEIPT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RECEIPT_RATE_LIMIT_MAX = 25;
 
-// Tight rate limit for receipt endpoints to reduce abuse and control OCR costs
 const receiptLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 60, // 60 actions per 10 minutes per IP
+  windowMs: RECEIPT_RATE_LIMIT_WINDOW_MS,
+  max: RECEIPT_RATE_LIMIT_MAX,
   standardHeaders: true,
   legacyHeaders: false
 });
 
-router.use(receiptLimiter);
+const router = express.Router();
 
-// Check if Cloudinary is properly configured
-const hasCloudinary = isCloudinaryConfigured();
-if (!hasCloudinary) {
-  console.warn('⚠️ Cloudinary not configured. Receipt uploads will use base64 fallback.');
-} else {
-  console.log('✅ Cloudinary configured for receipt uploads');
-}
-
-// Default Cloudinary folder for receipt uploads
-const RECEIPT_UPLOAD_FOLDER = process.env.CLOUDINARY_RECEIPT_FOLDER || 'gsnacks/receipts';
-
-// Normalization rules
-const ABBREVIATIONS = {
-  'PK': 'PACK', 'P': 'PACK', 'PACK': 'PACK',
-  'OZ': 'OZ', 'FL OZ': 'OZ', 'FLOZ': 'OZ', 'OUNCE': 'OZ',
-  'LT': 'L', 'LITER': 'L', 'LTR': 'L',
-  'BTL': 'BOTTLE', 'BT': 'BOTTLE'
+const normalizeReceiptName = name => {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim();
 };
 
-const STORE_NOISE = ['WM', 'TGT', 'ALDI', 'MEIJ', 'MEIJER', 'KROG', 'KROGER'];
-
-// Critical tokens that must match
-const BRAND_TOKENS = ['COKE', 'COCA', 'COLA', 'PEPSI', 'FAYGO', 'SPRITE', 'FANTA', 'DR PEPPER', 'MTN DEW', 'MOUNTAIN DEW'];
-const SIZE_TOKENS = /(\d+)\s*(PACK|PK|P|OZ|L|LT|LITER|ML)/gi;
-const DIET_TOKENS = ['DIET', 'ZERO', 'LIGHT', 'LITE'];
-const FLAVOR_TOKENS = ['CHERRY', 'VANILLA', 'LEMON', 'LIME', 'ORANGE', 'GRAPE', 'STRAWBERRY'];
-
-// Promo detection keywords
-const PROMO_KEYWORDS = ['DISC', 'COUP', 'SAVE', 'SALE', 'PROMO', 'DEAL', '2/$', '3/$', '2 FOR', '3 FOR'];
-
-// Category classification (simple keyword-based)
-const CATEGORY_KEYWORDS = {
-  'beverage': ['COKE', 'PEPSI', 'SPRITE', 'WATER', 'JUICE', 'SODA', 'POP', 'TEA', 'COFFEE'],
-  'dairy': ['MILK', 'CHEESE', 'BUTTER', 'YOGURT', 'CREAM', 'EGGS'],
-  'snack': ['CHIPS', 'COOKIES', 'CRACKERS', 'CANDY', 'NUTS', 'POPCORN'],
-  'frozen': ['ICE', 'FROZEN', 'PIZZA'],
-  'produce': ['APPLE', 'BANANA', 'ORANGE', 'LETTUCE', 'TOMATO']
+const tokenizeReceiptName = name => {
+  return normalizeReceiptName(name).split(' ').filter(Boolean);
 };
 
-// Category price guardrails (unit price)
-const CATEGORY_PRICE_BOUNDS = {
-  beverage: { min: 0.5, max: 20 },
-  dairy: { min: 0.5, max: 25 },
-  snack: { min: 0.25, max: 15 },
-  frozen: { min: 1, max: 30 },
-  produce: { min: 0.1, max: 20 },
-  other: { min: 0.1, max: 50 }
+const detectPromo = name => {
+  const promoWords = ['sale', 'deal', 'promo', 'special', 'off', 'save', 'discount'];
+  const tokens = tokenizeReceiptName(name);
+  return tokens.some(token => promoWords.includes(token));
 };
 
-function isWithinCategoryBounds(category, unitPrice) {
-  const bounds = CATEGORY_PRICE_BOUNDS[category] || CATEGORY_PRICE_BOUNDS.other;
-  return unitPrice >= bounds.min && unitPrice <= bounds.max;
-}
-
-/**
- * Normalize receipt name for matching
- */
-function normalizeReceiptName(name) {
-  if (!name) return '';
-  
-  let normalized = name.toUpperCase().trim();
-  
-  // Remove punctuation
-  normalized = normalized.replace(/[^\w\s]/g, ' ');
-  
-  // Collapse whitespace
-  normalized = normalized.replace(/\s+/g, ' ');
-  
-  // Expand abbreviations
-  Object.entries(ABBREVIATIONS).forEach(([abbr, full]) => {
-    const regex = new RegExp(`\\b${abbr}\\b`, 'g');
-    normalized = normalized.replace(regex, full);
-  });
-  
-  // Remove store noise
-  STORE_NOISE.forEach(noise => {
-    const regex = new RegExp(`\\b${noise}\\b`, 'g');
-    normalized = normalized.replace(regex, '');
-  });
-  
-  // Collapse whitespace again
-  normalized = normalized.replace(/\s+/g, ' ').trim();
-  
-  return normalized;
-}
-
-/**
- * Classify product category from normalized name
- */
-function classifyCategory(normalizedName) {
-  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
-    if (keywords.some(kw => normalizedName.includes(kw))) {
-      return category;
-    }
-  }
+const classifyCategory = (name) => {
+  if (!name) return 'other';
+  const lower = name.toLowerCase();
+  if (lower.includes('soda') || lower.includes('cola') || lower.includes('pop')) return 'beverage';
+  if (lower.includes('chip') || lower.includes('snack')) return 'snack';
+  if (lower.includes('candy') || lower.includes('chocolate')) return 'candy';
   return 'other';
-}
+};
 
-/**
- * Detect if price appears to be promotional
- */
-function detectPromo(receiptName, context = {}) {
-  const upperName = (receiptName || '').toUpperCase();
-  return PROMO_KEYWORDS.some(kw => upperName.includes(kw));
-}
+const extractTokens = name => {
+  const tokens = tokenizeReceiptName(name);
+  const tokenSummary = { brand: null, size: null, flavor: [] };
 
-/**
- * Validate UPC format
- */
-function validateUPC(upc) {
-  if (!upc) return false;
-  return /^\d{8,14}$/.test(upc);
-}
+  tokens.forEach(token => {
+    if (token.match(/(\d+)(oz|ml|g|lb|ct|pk|pack)/)) {
+      tokenSummary.size = token;
+    } else if (token.match(/(coke|pepsi|sprite|lays|doritos|cheetos)/)) {
+      tokenSummary.brand = token;
+    } else if (token.length > 2) {
+      tokenSummary.flavor.push(token);
+    }
+  });
 
-/**
- * Validate price and quantity
- */
-function validatePriceQuantity(price, quantity) {
-  if (typeof price !== 'number' || !isFinite(price) || price < 0 || price > 10000) {
-    return { ok: false, error: 'Invalid price (must be 0-10000)' };
-  }
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000) {
-    return { ok: false, error: 'Invalid quantity (must be 1-1000)' };
-  }
+  return tokenSummary;
+};
+
+const summarizeTokens = tokens => ({
+  brand: tokens.brand,
+  size: tokens.size,
+  flavor: tokens.flavor?.slice(0, 3) || []
+});
+
+const validatePriceQuantity = (totalPrice, quantity) => {
+  const price = Number(totalPrice);
+  const qty = Number(quantity);
+  if (!Number.isFinite(price) || price <= 0) return { ok: false, error: 'Price must be positive' };
+  if (!Number.isFinite(qty) || qty <= 0) return { ok: false, error: 'Quantity must be positive' };
   return { ok: true };
-}
+};
 
-const PRICE_HISTORY_MATCH_METHODS = new Set([
-  'upc',
-  'sku',
-  'alias_confirmed',
-  'fuzzy_confirmed',
-  'fuzzy_suggested',
-  'manual_confirm'
-]);
-const PRICE_HISTORY_PRICE_TYPES = new Set(['regular', 'net_paid', 'promo', 'unknown']);
-const PRICE_HISTORY_WORKFLOW_TYPES = new Set(['new_product', 'update_price']);
+const validateUPC = upc => {
+  if (!upc) return false;
+  const cleaned = upc.replace(/\D/g, '');
+  return cleaned.length >= 8 && cleaned.length <= 14;
+};
 
-function normalizePriceHistoryEnum(value, allowedValues, fallback) {
-  return allowedValues.has(value) ? value : fallback;
-}
+const advancedMatch = (name, candidate) => {
+  const tokens = tokenizeReceiptName(name);
+  const candidateTokens = tokenizeReceiptName(candidate);
 
-function buildPriceHistoryEntry({
-  price,
-  observedAt = new Date(),
-  storeId,
-  captureId,
-  orderId,
-  quantity,
-  receiptImageUrl,
-  receiptThumbnailUrl,
-  matchMethod,
-  matchConfidence,
-  confirmedBy,
-  priceType,
-  promoDetected,
-  workflowType
-}) {
+  if (tokens.length === 0 || candidateTokens.length === 0) {
+    return { score: 0, tokensMatch: false };
+  }
+
+  const tokenSet = new Set(tokens);
+  const candidateSet = new Set(candidateTokens);
+  let matchCount = 0;
+
+  for (const token of tokenSet) {
+    if (candidateSet.has(token)) {
+      matchCount++;
+    }
+  }
+
+  const score = matchCount / Math.max(tokenSet.size, candidateSet.size);
+  return { score, tokensMatch: score > 0.3 };
+};
+
+const buildMatchHistory = (inventoryEntry) => {
+  const history = inventoryEntry?.priceHistory || [];
+  return history.map(entry => ({
+    price: entry.price,
+    observedAt: entry.observedAt,
+    matchMethod: entry.matchMethod,
+    matchConfidence: entry.matchConfidence,
+    priceType: entry.priceType,
+    promoDetected: entry.promoDetected,
+    workflowType: entry.workflowType
+  }));
+};
+
+const computePriceDelta = (unitPrice, history, observedPrice) => {
+  const lastObserved = observedPrice || history?.[0]?.price;
+  if (!lastObserved || !unitPrice) return null;
+  const delta = unitPrice - lastObserved;
+  const pctDelta = lastObserved ? delta / lastObserved : 0;
+  let flag = null;
+
+  if (Math.abs(pctDelta) > PRICE_DELTA_POLICY.pctThreshold || Math.abs(delta) > PRICE_DELTA_POLICY.absThreshold) {
+    flag = pctDelta > 0 ? 'increase' : 'decrease';
+  }
+
   return {
-    price,
-    observedAt,
-    storeId,
-    captureId: captureId || undefined,
-    orderId: orderId || undefined,
-    quantity: Number.isFinite(quantity) ? Number(quantity) : undefined,
-    receiptImageUrl: receiptImageUrl || undefined,
-    receiptThumbnailUrl: receiptThumbnailUrl || undefined,
-    matchMethod: normalizePriceHistoryEnum(matchMethod, PRICE_HISTORY_MATCH_METHODS, 'manual_confirm'),
-    matchConfidence: typeof matchConfidence === 'number' ? matchConfidence : undefined,
-    confirmedBy: confirmedBy || undefined,
-    priceType: normalizePriceHistoryEnum(priceType, PRICE_HISTORY_PRICE_TYPES, 'unknown'),
-    promoDetected: Boolean(promoDetected),
-    workflowType: normalizePriceHistoryEnum(workflowType, PRICE_HISTORY_WORKFLOW_TYPES, undefined)
+    delta,
+    pctDelta,
+    flag
   };
-}
+};
 
-/**
- * Extract critical tokens from normalized name
- */
-function extractTokens(normalizedName) {
-  const tokens = {
-    brand: null,
-    sizes: [],
-    diet: false,
-    flavors: [],
-    hasSizeToken: false
-  };
-  
-  // Extract brand
-  for (const brand of BRAND_TOKENS) {
-    if (normalizedName.includes(brand)) {
-      tokens.brand = brand;
-      break;
+const mapReceiptItemsForResponse = (items) => {
+  return items.map(item => ({
+    lineIndex: item.lineIndex,
+    receiptName: item.receiptName,
+    normalizedName: item.normalizedName,
+    quantity: item.quantity,
+    totalPrice: item.totalPrice,
+    unitPrice: item.unitPrice,
+    tokens: item.tokens,
+    priceDelta: item.priceDelta,
+    matchHistory: item.matchHistory,
+    suggestedProduct: item.suggestedProduct,
+    matchMethod: item.matchMethod,
+    matchConfidence: item.matchConfidence,
+    needsReview: item.needsReview,
+    reviewReason: item.reviewReason,
+    boundProductId: item.boundProductId,
+    boundUpc: item.boundUpc,
+    confirmedAt: item.confirmedAt,
+    confirmedBy: item.confirmedBy,
+    promoDetected: item.promoDetected,
+    priceType: item.priceType,
+    workflowType: item.workflowType
+  }));
+};
+
+const defaultScanBatchLimit = 40;
+
+const sanitizeSearch = (query) => {
+  return String(query || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+router.get('/receipt-settings', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const settings = await AppSettings.findOne({ key: 'default' }).lean();
+    const effective = {
+      receiptIngestionMode: receiptIngestionMode(),
+      allowlist: Array.from(receiptStoreAllowlist()),
+      dailyCap: receiptDailyCap(),
+      priceLockDays: settings?.priceLockDays || DEFAULT_PRICE_LOCK_DAYS
+    };
+    res.json({ ok: true, settings: effective });
+  } catch (error) {
+    console.error('Error fetching receipt settings:', error);
+    res.status(500).json({ error: 'Failed to fetch receipt settings' });
+  }
+});
+
+router.post('/receipt-settings', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { priceLockDays } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    const settings = await AppSettings.findOneAndUpdate(
+      { key: 'default' },
+      { priceLockDays },
+      { new: true, upsert: true }
+    );
+
+    await recordAuditLog({
+      type: 'receipt_settings_update',
+      actorId: username,
+      details: `priceLockDays=${priceLockDays}`
+    });
+
+    res.json({ ok: true, settings });
+  } catch (error) {
+    console.error('Error updating receipt settings:', error);
+    res.status(500).json({ error: 'Failed to update receipt settings' });
+  }
+});
+
+router.get('/receipt-store-candidates', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { q } = req.query;
+    const safeQuery = sanitizeSearch(q);
+    if (!safeQuery) {
+      return res.status(400).json({ error: 'Search query required' });
     }
+
+    const stores = await Store.find({ name: { $regex: safeQuery, $options: 'i' } })
+      .select('name address phone storeType')
+      .limit(20)
+      .lean();
+
+    res.json({ ok: true, stores });
+  } catch (error) {
+    console.error('Error searching store candidates:', error);
+    res.status(500).json({ error: 'Failed to search store candidates' });
   }
-  
-  // Extract sizes
-  const sizeMatches = normalizedName.matchAll(SIZE_TOKENS);
-  for (const match of sizeMatches) {
-    tokens.sizes.push(match[0]);
+});
+
+router.post('/receipt-store-candidates', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
   }
-  tokens.hasSizeToken = tokens.sizes.length > 0;
-  
-  // Check for diet/zero
-  tokens.diet = DIET_TOKENS.some(dt => normalizedName.includes(dt));
-  
-  // Extract flavors
-  for (const flavor of FLAVOR_TOKENS) {
-    if (normalizedName.includes(flavor)) {
-      tokens.flavors.push(flavor);
+
+  try {
+    const { storeName, address, phone, storeType } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    if (!storeName) {
+      return res.status(400).json({ error: 'Store name required' });
     }
-  }
-  
-  return tokens;
-}
 
-function summarizeTokens(tokens) {
-  return {
-    brand: tokens.brand || null,
-    size: tokens.sizes[0] || null,
-    flavor: tokens.flavors.length > 0 ? tokens.flavors : []
-  };
-}
-
-function buildMatchHistory(inventory, limit = 3) {
-  if (!inventory?.priceHistory || inventory.priceHistory.length === 0) {
-    return [];
-  }
-  return [...inventory.priceHistory]
-    .filter(entry => entry?.price && entry?.observedAt)
-    .sort((a, b) => new Date(b.observedAt) - new Date(a.observedAt))
-    .slice(0, limit)
-    .map(entry => ({
-      price: entry.price,
-      observedAt: entry.observedAt,
-      matchMethod: entry.matchMethod,
-      matchConfidence: entry.matchConfidence,
-      priceType: entry.priceType,
-      promoDetected: entry.promoDetected,
-      workflowType: entry.workflowType
-    }));
-}
-
-function computePriceDelta(unitPrice, matchHistory, fallbackPrice) {
-  const lastPrice = matchHistory?.[0]?.price ?? (Number.isFinite(fallbackPrice) ? fallbackPrice : undefined);
-  if (!Number.isFinite(lastPrice)) return undefined;
-  return Number((unitPrice - lastPrice).toFixed(2));
-}
-
-/**
- * Check if critical tokens match between two names
- */
-function tokensMatch(tokens1, tokens2) {
-  // Brand must match if present in both
-  if (tokens1.brand && tokens2.brand && tokens1.brand !== tokens2.brand) {
-    return false;
-  }
-  
-  // Size/pack must match if present in both
-  if (tokens1.sizes.length > 0 && tokens2.sizes.length > 0) {
-    const sizes1 = tokens1.sizes.join(' ');
-    const sizes2 = tokens2.sizes.join(' ');
-    if (sizes1 !== sizes2) {
-      return false; // Different pack size = no auto-match
+    const stored = await Store.findOne({ name: storeName }).lean();
+    if (stored) {
+      return res.json({ ok: true, existing: stored });
     }
-  }
-  
-  // Diet/zero must match
-  if (tokens1.diet !== tokens2.diet) {
-    return false;
-  }
-  
-  // Flavors must match if present in both
-  if (tokens1.flavors.length > 0 && tokens2.flavors.length > 0) {
-    const flavors1Set = new Set(tokens1.flavors);
-    const flavors2Set = new Set(tokens2.flavors);
-    const intersection = [...flavors1Set].filter(f => flavors2Set.has(f));
-    if (intersection.length === 0) {
-      return false; // No common flavors = no match
-    }
-  }
-  
-  return true;
-}
 
-/**
- * Levenshtein distance for fuzzy matching
- */
-function levenshteinDistance(a, b) {
-  const matrix = [];
-  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1
-        );
+    const allowCreate = shouldAutoCreateStore();
+    if (!allowCreate) {
+      return res.status(403).json({ error: 'Auto store creation disabled' });
+    }
+
+    const store = await Store.create({
+      name: storeName,
+      address,
+      phone,
+      storeType
+    });
+
+    await recordAuditLog({
+      type: 'receipt_store_create',
+      actorId: username,
+      details: `storeName=${storeName}`
+    });
+
+    res.json({ ok: true, store });
+  } catch (error) {
+    console.error('Error creating store:', error);
+    res.status(500).json({ error: 'Failed to create store' });
+  }
+});
+
+router.post('/receipt-noise-rule', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId, normalizedName } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    if (!storeId || !normalizedName) {
+      return res.status(400).json({ error: 'storeId and normalizedName required' });
+    }
+
+    const rule = await ReceiptNoiseRule.findOneAndUpdate(
+      { storeId, normalizedName },
+      { storeId, normalizedName, addedBy: username },
+      { new: true, upsert: true }
+    );
+
+    await recordAuditLog({
+      type: 'receipt_noise_rule_create',
+      actorId: username,
+      details: `storeId=${storeId} normalizedName=${normalizedName}`
+    });
+
+    res.json({ ok: true, rule });
+  } catch (error) {
+    console.error('Error creating receipt noise rule:', error);
+    res.status(500).json({ error: 'Failed to create noise rule' });
+  }
+});
+
+router.get('/receipt-noise-rule', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId } = req.query;
+    if (!storeId) {
+      return res.status(400).json({ error: 'storeId required' });
+    }
+
+    const rules = await ReceiptNoiseRule.find({ storeId }).lean();
+    res.json({ ok: true, rules });
+  } catch (error) {
+    console.error('Error fetching noise rules:', error);
+    res.status(500).json({ error: 'Failed to fetch noise rules' });
+  }
+});
+
+router.delete('/receipt-noise-rule', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId, normalizedName } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    if (!storeId || !normalizedName) {
+      return res.status(400).json({ error: 'storeId and normalizedName required' });
+    }
+
+    await ReceiptNoiseRule.deleteOne({ storeId, normalizedName });
+
+    await recordAuditLog({
+      type: 'receipt_noise_rule_delete',
+      actorId: username,
+      details: `storeId=${storeId} normalizedName=${normalizedName}`
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error deleting noise rule:', error);
+    res.status(500).json({ error: 'Failed to delete noise rule' });
+  }
+});
+
+router.get('/receipt-aliases', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId } = req.query;
+    if (!storeId) {
+      return res.status(400).json({ error: 'storeId required' });
+    }
+
+    const aliases = await ReceiptNameAlias.find({ storeId })
+      .sort({ confirmedCount: -1 })
+      .limit(200)
+      .lean();
+
+    res.json({ ok: true, aliases });
+  } catch (error) {
+    console.error('Error fetching receipt aliases:', error);
+    res.status(500).json({ error: 'Failed to fetch receipt aliases' });
+  }
+});
+
+router.get('/receipt-noise-rules', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId } = req.query;
+    if (!storeId) {
+      return res.status(400).json({ error: 'storeId required' });
+    }
+
+    const rules = await ReceiptNoiseRule.find({ storeId })
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .lean();
+
+    res.json({ ok: true, rules });
+  } catch (error) {
+    console.error('Error fetching receipt noise rules:', error);
+    res.status(500).json({ error: 'Failed to fetch receipt noise rules' });
+  }
+});
+
+router.post('/receipt-alias', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId, normalizedName, rawName, productId, upc } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    if (!storeId || !normalizedName || !productId) {
+      return res.status(400).json({ error: 'storeId, normalizedName, productId required' });
+    }
+
+    const alias = await ReceiptNameAlias.findOneAndUpdate(
+      { storeId, normalizedName, productId },
+      {
+        storeId,
+        normalizedName,
+        productId,
+        upc: upc || undefined,
+        $addToSet: {
+          rawNames: rawName ? { name: rawName } : undefined
+        },
+        $inc: { confirmedCount: 1 },
+        lastConfirmedAt: new Date(),
+        confirmedBy: username
+      },
+      { new: true, upsert: true }
+    );
+
+    await recordAuditLog({
+      type: 'receipt_alias_confirm',
+      actorId: username,
+      details: `storeId=${storeId} name=${normalizedName} product=${productId}`
+    });
+
+    res.json({ ok: true, alias });
+  } catch (error) {
+    console.error('Error creating receipt alias:', error);
+    res.status(500).json({ error: 'Failed to create receipt alias' });
+  }
+});
+
+router.post('/receipt-noise-rule/ignore', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId, normalizedName } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    if (!storeId || !normalizedName) {
+      return res.status(400).json({ error: 'storeId and normalizedName required' });
+    }
+
+    const rule = await ReceiptNoiseRule.findOneAndUpdate(
+      { storeId, normalizedName },
+      { storeId, normalizedName, addedBy: username },
+      { new: true, upsert: true }
+    );
+
+    await recordAuditLog({
+      type: 'receipt_noise_rule_ignore',
+      actorId: username,
+      details: `storeId=${storeId} normalizedName=${normalizedName}`
+    });
+
+    res.json({ ok: true, rule });
+  } catch (error) {
+    console.error('Error creating noise rule:', error);
+    res.status(500).json({ error: 'Failed to ignore receipt noise rule' });
+  }
+});
+
+router.delete('/receipt-noise-rule/ignore', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId, normalizedName } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    if (!storeId || !normalizedName) {
+      return res.status(400).json({ error: 'storeId and normalizedName required' });
+    }
+
+    await ReceiptNoiseRule.deleteOne({ storeId, normalizedName });
+
+    await recordAuditLog({
+      type: 'receipt_noise_rule_unignore',
+      actorId: username,
+      details: `storeId=${storeId} normalizedName=${normalizedName}`
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error deleting noise rule ignore:', error);
+    res.status(500).json({ error: 'Failed to unignore receipt noise rule' });
+  }
+});
+
+router.post('/receipt-upload', authRequired, receiptLimiter, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { image, storeId } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: 'Image data required' });
+    }
+
+    if (storeId && !mongoose.Types.ObjectId.isValid(storeId)) {
+      return res.status(400).json({ error: 'Valid storeId required' });
+    }
+
+    if (receiptIngestionMode() === 'disabled') {
+      return res.status(503).json({ error: 'Receipt ingestion disabled during rollout' });
+    }
+
+    if (storeId) {
+      const ingestionCheck = await ensureIngestionAllowed(storeId);
+      if (!ingestionCheck.ok) {
+        return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
       }
     }
-  }
-  return matrix[b.length][a.length];
-}
 
-/**
- * Advanced fuzzy matching with token gating
- */
-function advancedMatch(receiptName, productName) {
-  const norm1 = normalizeReceiptName(receiptName);
-  const norm2 = normalizeReceiptName(productName);
-  
-  // Extract tokens
-  const tokens1 = extractTokens(norm1);
-  const tokens2 = extractTokens(norm2);
-  
-  // Check token match first
-  if (!tokensMatch(tokens1, tokens2)) {
-    return { score: 0, tokensMatch: false, normalized1: norm1, normalized2: norm2 };
+    // Enforce size limit (max 5MB per image, consistent with receipt-capture)
+    if (typeof image === 'string' && image.length > 5 * 1024 * 1024) {
+      const sizeMB = (image.length / (1024 * 1024)).toFixed(1);
+      return res.status(413).json({ error: `Image too large: ${sizeMB}MB (max 5MB)` });
+    }
+
+    const result = await handleReceiptImageUpload(image);
+    
+    res.json({
+      ok: true,
+      url: result.url,
+      thumbnailUrl: result.thumbnailUrl
+    });
+
+  } catch (error) {
+    console.error('Error uploading receipt image:', error.message);
+    // Return specific error messages so frontend can debug
+    res.status(500).json({ 
+      error: error.message || 'Failed to upload image',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
-  
-  // Calculate similarity
-  const distance = levenshteinDistance(norm1, norm2);
-  const maxLen = Math.max(norm1.length, norm2.length);
-  const score = maxLen === 0 ? 1 : 1 - distance / maxLen;
-  
-  return { score, tokensMatch: true, normalized1: norm1, normalized2: norm2 };
-}
+});
 
 /**
  * POST /api/driver/upload-receipt-image
- * Upload a single receipt image (MVP: base64 data URL)
- * Production: integrate with Cloudinary/S3 for real storage
+ * Upload receipt image data (data URL) to Cloudinary
+ * Returns secure URL and thumbnail URL
  */
-router.post('/upload-receipt-image', authRequired, async (req, res) => {
+router.post('/upload-receipt-image', authRequired, receiptLimiter, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
   try {
     const { image, storeId } = req.body;
 
@@ -780,8 +994,9 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
   }
 
   try {
-    const { storeId, storeName, orderId, images, captureRequestId } = req.body;
+    const { storeId, storeName, orderId, images, captureRequestId, source: requestedSource } = req.body;
     const username = req.user?.username;
+    const userId = req.user?.id || req.user?.userId;
     const isOwnerRole = req.user?.role === 'OWNER';
     const isManagerRole = req.user?.role === 'MANAGER';
     const normalizedStoreName =
@@ -791,6 +1006,14 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
     const isOwner = isOwnerRole || isOwnerUsername(username);
     const isDriver = isDriverUsername(username);
     const isManagement = isOwner || isManagerRole;
+    const createdByRole = isOwner ? 'OWNER' : isManagerRole ? 'MANAGER' : isDriver ? 'DRIVER' : undefined;
+    const source = requestedSource === 'email_import' && isManagement
+      ? 'email_import'
+      : isManagement
+      ? 'management_upload'
+      : isDriver
+      ? 'driver_camera'
+      : undefined;
     if (!isManagement && !isDriver) {
       return res.status(403).json({ error: 'Not authorized to upload receipts' });
     }
@@ -913,7 +1136,10 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
         sequence: idx + 1
       })),
       status: 'pending_parse',
-      createdBy: username || 'unknown'
+      createdBy: username || 'unknown',
+      createdByUserId: userId || undefined,
+      createdByRole: createdByRole || undefined,
+      source: source || undefined
     });
 
     await capture.save();
@@ -1017,6 +1243,9 @@ router.get('/receipt-capture/:captureId', authRequired, async (req, res) => {
           itemsCommitted: capture.itemsCommitted
         },
         parseError: capture.parseError,
+        createdByUserId: capture.createdByUserId,
+        createdByRole: capture.createdByRole,
+        source: capture.source,
         createdAt: capture.createdAt,
         reviewExpiresAt: capture.reviewExpiresAt
       }
@@ -1318,245 +1547,148 @@ RULES:
             extractedItems = [];
           }
         } catch (parseError) {
-          console.error('Failed to parse Gemini JSON:', rawText, parseError);
+          console.error('Failed to parse Gemini JSON:', parseError.message);
           continue;
         }
 
-        geminiOutput.parsedByImage.push({ sequence: image.sequence, data: parsedData });
-
-        // If we found an address on first image, store it as a candidate (do not mutate Store)
-        if (extractedAddress && image.sequence === 1) {
-          const addressParts = extractedAddress.split(',').map(p => p.trim());
+        // Track store candidate override based on address
+        if (extractedAddress) {
           storeCandidateOverride = {
             address: {
-              street: addressParts[0] || '',
-              city: addressParts[1] || '',
-              state: addressParts[2]?.split(' ')[0] || '',
-              zip: addressParts[2]?.split(' ')[1] || ''
-            }
+              formatted: extractedAddress
+            },
+            confidence: 0.2
           };
         }
 
-        // Sanitize and cap items from Gemini
-        const MAX_ITEMS = 120;
-        const sanitizedItems = [];
-        for (const raw of extractedItems) {
-          if (!raw || typeof raw !== 'object') continue;
-          const receiptName = String(raw.receiptName || '').trim();
-          const quantity = Math.min(1000, Math.max(1, Math.floor(Number(raw.quantity) || 1)));
-          const totalPrice = Number(raw.totalPrice);
-          if (!receiptName || !Number.isFinite(totalPrice)) continue;
-          if (totalPrice < 0 || totalPrice > 10000) continue;
-          sanitizedItems.push({
-            receiptName,
-            quantity,
-            totalPrice: Number(totalPrice.toFixed(2))
-          });
-          if (sanitizedItems.length >= MAX_ITEMS) break;
-        }
-
-        if (sanitizedItems.length === 0) {
-          console.warn('Gemini returned no valid items after sanitization');
-          continue;
-        }
-
-        // Process each sanitized item
-        for (const item of sanitizedItems) {
-          const receiptName = item.receiptName;
-          const quantity = item.quantity;
-          const totalPrice = item.totalPrice;
-          const unitPrice = totalPrice / quantity;
-
-          // Validate price
-          if (!validatePriceQuantity(unitPrice, quantity).ok) {
-            console.warn('Invalid price/quantity:', { receiptName, unitPrice, quantity });
-            continue;
-          }
-
+        for (const item of extractedItems) {
+          const receiptName = String(item.receiptName || '').trim();
+          if (!receiptName) continue;
+          
+          const quantity = Number(item.quantity) || 1;
+          const totalPrice = Number(item.totalPrice) || 0;
+          const unitPrice = quantity > 0 ? totalPrice / quantity : totalPrice;
+          
+          if (!Number.isFinite(totalPrice) || totalPrice <= 0) continue;
+          
           const normalizedName = normalizeReceiptName(receiptName);
           const tokens = extractTokens(normalizedName);
+          const tokenSummary = summarizeTokens(tokens);
           const category = classifyCategory(normalizedName);
           const promoDetected = detectPromo(receiptName);
-          const tokenSummary = summarizeTokens(tokens);
-
-          const noiseRule = await ReceiptNoiseRule.findOne({
-            storeId: capture.storeId,
-            normalizedName
-          });
-
-          if (noiseRule) {
-            draftItems.push({
-              lineIndex: draftItems.length,
-              receiptName,
-              normalizedName,
-              totalPrice,
-              quantity,
-              unitPrice,
-              tokens: tokenSummary,
-              matchHistory: [],
-              suggestedProduct: null,
-              matchMethod: 'noise_rule',
-              matchConfidence: 1,
-              needsReview: false,
-              reviewReason: 'noise_rule',
-              promoDetected,
-              priceType: promoDetected ? 'promo' : 'regular',
-              workflowType: 'noise',
-              isNoiseRule: true
+          const priceType = promoDetected ? 'promo' : 'unknown';
+          
+          // Build draft item skeleton
+          const draftItem = {
+            lineIndex: draftItems.length,
+            receiptName,
+            normalizedName,
+            quantity,
+            totalPrice,
+            unitPrice: Number(unitPrice.toFixed(2)),
+            tokens: tokenSummary,
+            matchHistory: [],
+            matchMethod: 'none',
+            matchConfidence: 0,
+            needsReview: true,
+            reviewReason: 'no_match',
+            promoDetected,
+            priceType,
+            workflowType: null
+          };
+          
+          // Try to auto-match product using store inventory and aliases
+          if (capture.storeId) {
+            const alias = await ReceiptNameAlias.findOne({
+              storeId: capture.storeId,
+              normalizedName
             });
-            continue;
-          }
-
-          // Try to match with existing products
-          let suggestedProduct = null;
-          let matchMethod = null;
-          let matchConfidence = 0;
-          let needsReview = true;
-          let reviewReason = 'no_match';
-          let workflowType = 'new_product'; // 'new_product' or 'update_price'
-          let matchedInventory = null;
-
-          // Step 1: Check ReceiptNameAlias for confirmed mappings
-          const alias = await ReceiptNameAlias.findOne({
-            storeId: capture.storeId,
-            normalizedName
-          });
-
-          if (alias && alias.confirmedCount > 0) {
-            const { effectiveConfidence } = getAliasEffectiveConfidence(alias);
-            if (effectiveConfidence >= ALIAS_CONFIDENCE_MATCH_THRESHOLD) {
-              const product = await Product.findById(alias.productId);
-              if (product) {
-                suggestedProduct = {
-                  id: product._id.toString(),
-                  name: product.name,
-                  upc: product.upc,
-                  sku: product.sku
-                };
-                matchMethod = 'alias_confirmed';
-                matchConfidence = effectiveConfidence;
-                workflowType = 'update_price'; // Item exists - update price
-                matchedInventory = await StoreInventory.findOne({
-                  storeId: capture.storeId,
-                  productId: product._id
-                });
-                
-                // Auto-confirm high-confidence aliases (decayed confidence)
-                if (effectiveConfidence >= 0.9) {
-                  needsReview = false;
-                } else {
-                  reviewReason = 'decayed_alias_confidence';
+            
+            if (alias && alias.confirmedCount > 0) {
+              const { effectiveConfidence } = getAliasEffectiveConfidence(alias);
+              if (effectiveConfidence >= ALIAS_CONFIDENCE_MATCH_THRESHOLD) {
+                const product = await Product.findById(alias.productId);
+                if (product) {
+                  draftItem.suggestedProduct = {
+                    id: product._id,
+                    name: product.name,
+                    upc: product.upc,
+                    sku: product.sku
+                  };
+                  draftItem.matchMethod = 'alias_confirmed';
+                  draftItem.matchConfidence = effectiveConfidence;
+                  draftItem.needsReview = false;
+                  draftItem.reviewReason = null;
+                  draftItem.workflowType = 'update_price';
                 }
               }
             }
           }
-
-          // Step 2: Fuzzy match against store inventory
-          if (!suggestedProduct) {
-            const storeInventories = await StoreInventory.find({ storeId: capture.storeId })
-              .populate('productId')
+          
+          // If still no match, try fuzzy matching against store inventory
+          if (!draftItem.suggestedProduct && capture.storeId) {
+            const inventory = await StoreInventory.find({ storeId: capture.storeId })
+              .populate('productId', 'name sku upc')
               .limit(500);
-
+            
             let bestScore = 0;
-            let bestMatch = null;
-            let bestMatchResult = null;
+            let bestProduct = null;
             let bestInventory = null;
-
-            for (const inv of storeInventories) {
-              if (!inv.productId || !inv.productId.name) continue;
-              
+            
+            for (const inv of inventory) {
+              if (!inv.productId?.name) continue;
               const matchResult = advancedMatch(receiptName, inv.productId.name);
-              
-              // Category guardrail
               const productCategory = classifyCategory(normalizeReceiptName(inv.productId.name));
               if (category !== 'other' && productCategory !== 'other' && category !== productCategory) {
                 continue;
               }
-              
               if (matchResult.score > bestScore && matchResult.tokensMatch) {
                 bestScore = matchResult.score;
-                bestMatch = inv.productId;
-                bestMatchResult = matchResult;
+                bestProduct = inv.productId;
                 bestInventory = inv;
               }
             }
-
-            if (bestMatch && bestScore >= 0.75) {
-              suggestedProduct = {
-                id: bestMatch._id.toString(),
-                name: bestMatch.name,
-                upc: bestMatch.upc,
-                sku: bestMatch.sku
+            
+            if (bestProduct && bestScore >= 0.75) {
+              draftItem.suggestedProduct = {
+                id: bestProduct._id,
+                name: bestProduct.name,
+                upc: bestProduct.upc,
+                sku: bestProduct.sku
               };
-              matchConfidence = bestScore;
-              workflowType = 'update_price'; // Item exists - update price
-              matchedInventory = bestInventory;
-
-              // Gate A: Size token missing = always needs review
-              if (!tokens.hasSizeToken) {
-                matchMethod = 'fuzzy_suggested';
-                needsReview = true;
-                reviewReason = 'no_size_token';
+              draftItem.matchMethod = bestScore >= 0.9 ? 'fuzzy_high' : 'fuzzy_suggested';
+              draftItem.matchConfidence = bestScore;
+              draftItem.needsReview = bestScore < 0.9;
+              draftItem.reviewReason = bestScore < 0.9 ? 'low_confidence' : null;
+              
+              const matchHistory = bestInventory ? buildMatchHistory(bestInventory) : [];
+              const priceDelta = bestInventory
+                ? computePriceDelta(unitPrice, matchHistory, bestInventory.observedPrice)
+                : undefined;
+              
+              if (priceDelta?.flag) {
+                draftItem.priceDelta = priceDelta;
+                draftItem.needsReview = true;
+                draftItem.reviewReason = 'large_price_change';
               }
-              // High confidence fuzzy match (90%+)
-              else if (bestScore >= 0.90) {
-                matchMethod = 'fuzzy_high';
-                needsReview = true; // Still review even high matches for safety
-                reviewReason = 'fuzzy_high_confidence';
-              }
-              // Medium confidence fuzzy match (75-90%)
-              else {
-                matchMethod = 'fuzzy_suggested';
-                needsReview = true;
-                reviewReason = 'fuzzy_medium_confidence';
-              }
-            } else {
-              // No match found - this is a NEW PRODUCT
-              workflowType = 'new_product';
-              matchMethod = 'no_match';
-              needsReview = true;
-              reviewReason = 'create_new_product';
+              
+              draftItem.matchHistory = matchHistory;
+              draftItem.workflowType = 'update_price';
             }
           }
-
-          // Price guardrails per category
-          const withinCategoryBounds = isWithinCategoryBounds(category, unitPrice);
-          if (!withinCategoryBounds) {
-            needsReview = true;
-            reviewReason = reviewReason && reviewReason !== 'no_match'
-              ? `${reviewReason}|price_out_of_bounds`
-              : 'price_out_of_bounds';
+          
+          // If no match at all, mark for product creation
+          if (!draftItem.suggestedProduct) {
+            draftItem.needsReview = true;
+            draftItem.reviewReason = 'no_match';
+            draftItem.workflowType = 'new_product';
           }
-
-          const matchHistory = matchedInventory ? buildMatchHistory(matchedInventory) : [];
-          const priceDelta = matchedInventory
-            ? computePriceDelta(unitPrice, matchHistory, matchedInventory.observedPrice)
-            : undefined;
-
-          // Add to draft items
-          draftItems.push({
-            lineIndex: draftItems.length,
-            receiptName,
-            normalizedName,
-            totalPrice,
-            quantity,
-            unitPrice,
-            tokens: tokenSummary,
-            priceDelta,
-            matchHistory,
-            suggestedProduct,
-            matchMethod: matchMethod || 'no_match',
-            matchConfidence,
-            needsReview,
-            reviewReason,
-            promoDetected,
-            priceType: promoDetected ? 'promo' : 'regular',
-            workflowType // NEW: indicates if this should create new product or update price
-          });
+          
+          draftItems.push(draftItem);
         }
-
       } catch (imageError) {
-        console.error(`Error processing image ${image.sequence}:`, imageError);
+        console.error('Error processing receipt image:', imageError);
+        continue;
       }
     }
 
@@ -1716,62 +1848,119 @@ router.post('/receipt-confirm-item', authRequired, async (req, res) => {
 });
 
 /**
+ * POST /api/driver/receipt-confirm-item-manual
+ * Confirm a draft item binding by explicit product selection (no UPC scan)
+ */
+router.post('/receipt-confirm-item-manual', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { captureId, lineIndex, productId, upc } = req.body;
+    const username = req.user?.username;
+
+    // Validation
+    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
+      return res.status(400).json({ error: 'Valid captureId required' });
+    }
+    if (lineIndex === undefined || lineIndex < 0) {
+      return res.status(400).json({ error: 'Valid lineIndex required' });
+    }
+    if (!productId || !mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ error: 'Valid productId required' });
+    }
+
+    const capture = await ReceiptCapture.findById(captureId);
+    if (!capture) {
+      return res.status(404).json({ error: 'Receipt capture not found' });
+    }
+
+    if (capture.status !== 'parsed' && capture.status !== 'review_complete') {
+      return res.status(400).json({ error: `Cannot confirm items with status: ${capture.status}` });
+    }
+
+    // Enforce driver-store binding
+    const isOwnerRole = req.user?.role === 'OWNER';
+    const isManagerRole = req.user?.role === 'MANAGER';
+    const isOwner = isOwnerRole || isOwnerUsername(username);
+    const isDriver = isDriverUsername(username);
+    const isManagement = isOwner || isManagerRole;
+    if (!isManagement && !isDriver) {
+      return res.status(403).json({ error: 'Not authorized to confirm receipts' });
+    }
+    if (isDriver && !driverCanAccessStore(username, capture.storeId)) {
+      return res.status(403).json({ error: 'Driver not authorized for this store' });
+    }
+
+    const draftItem = capture.draftItems.find(i => i.lineIndex === lineIndex);
+    if (draftItem && draftItem.boundProductId && draftItem.confirmedAt) {
+      if (draftItem.boundProductId.toString() === productId && draftItem.boundUpc === upc) {
+        return res.json({
+          ok: true,
+          captureId: capture._id.toString(),
+          status: capture.status,
+          idempotent: true,
+          stats: {
+            totalItems: capture.totalItems,
+            itemsNeedingReview: capture.itemsNeedingReview,
+            itemsConfirmed: capture.itemsConfirmed
+          }
+        });
+      }
+      return res.status(409).json({ error: 'Item already confirmed with different values' });
+    }
+
+    capture.confirmItem(lineIndex, productId, upc, username || 'unknown');
+    await capture.save();
+
+    await recordAuditLog({
+      type: 'receipt_confirm_item',
+      actorId: username || 'unknown',
+      details: `capture=${capture._id.toString()} line=${lineIndex} product=${productId}`
+    });
+
+    res.json({
+      ok: true,
+      captureId: capture._id.toString(),
+      status: capture.status,
+      stats: {
+        totalItems: capture.totalItems,
+        itemsNeedingReview: capture.itemsNeedingReview,
+        itemsConfirmed: capture.itemsConfirmed
+      }
+    });
+
+  } catch (error) {
+    console.error('Error confirming receipt item:', error);
+    res.status(500).json({ error: 'Failed to confirm receipt item' });
+  }
+});
+
+/**
  * POST /api/driver/receipt-commit
- * Commit confirmed receipt items to StoreInventory
- * Updates prices and creates ReceiptNameAlias entries
- * Uses MongoDB transactions for atomic commit
+ * Commit confirmed items to store inventory and product price history
+ * Supports modes: safe (default), selected, locked
  */
 router.post('/receipt-commit', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
 
-  if (!isPricingLearningEnabled()) {
-    return res.status(503).json({ error: 'Pricing learning disabled during rollout' });
-  }
-
   const session = await mongoose.startSession();
-  session.startTransaction();
 
   try {
-    const { captureId, commitMode, selectedLineIndices, lockPrices, lockDurationDays } = req.body;
+    const { captureId, mode, selectedIndices, lockDurationDays } = req.body;
     const username = req.user?.username;
 
     if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
-      await session.abortTransaction();
-      await session.endSession();
       return res.status(400).json({ error: 'Valid captureId required' });
     }
 
     const capture = await ReceiptCapture.findById(captureId).session(session);
     if (!capture) {
-      await session.abortTransaction();
-      await session.endSession();
       return res.status(404).json({ error: 'Receipt capture not found' });
     }
-
-    const normalizedMode = typeof commitMode === 'string' ? commitMode : 'all';
-    const selectedSet = Array.isArray(selectedLineIndices)
-      ? new Set(selectedLineIndices.map(value => Number(value)).filter(value => Number.isFinite(value) && value >= 0))
-      : null;
-    const requiresFullReview = !selectedSet || selectedSet.size === 0;
-
-    if (requiresFullReview && capture.status !== 'review_complete') {
-      await session.abortTransaction();
-      await session.endSession();
-      return res.status(400).json({ error: 'All items must be confirmed before commit' });
-    }
-
-    const settings = await AppSettings.findOne({ key: 'default' }).session(session);
-    const settingsLockDays = coerceNumber(settings?.priceLockDays);
-    const requestLockDays = coerceNumber(lockDurationDays);
-    const lockDays = settingsLockDays || requestLockDays || DEFAULT_PRICE_LOCK_DAYS;
-    const lockUntil = lockPrices
-      ? new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000)
-      : null;
-    const now = new Date();
-
-    const captureIdKey = capture._id.toString();
 
     const isOwnerRole = req.user?.role === 'OWNER';
     const isManagerRole = req.user?.role === 'MANAGER';
@@ -1779,164 +1968,116 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
     const isDriver = isDriverUsername(username);
     const isManagement = isOwner || isManagerRole;
     if (!isManagement && !isDriver) {
-      await session.abortTransaction();
-      await session.endSession();
       return res.status(403).json({ error: 'Not authorized to commit receipts' });
     }
+
     if (isDriver && !driverCanAccessStore(username, capture.storeId)) {
-      await session.abortTransaction();
-      await session.endSession();
       return res.status(403).json({ error: 'Driver not authorized for this store' });
     }
 
-    // Process each confirmed item
+    const normalizedMode = mode || 'safe';
+    const requiresFullReview = normalizedMode === 'safe';
+
+    if (!['safe', 'selected', 'locked'].includes(normalizedMode)) {
+      return res.status(400).json({ error: 'Invalid mode' });
+    }
+
+    if (normalizedMode === 'selected' && (!Array.isArray(selectedIndices) || selectedIndices.length === 0)) {
+      return res.status(400).json({ error: 'selectedIndices required for selected mode' });
+    }
+
+    const selectedSet = Array.isArray(selectedIndices)
+      ? new Set(selectedIndices.map(Number))
+      : null;
+
     let committed = 0;
     const errors = [];
 
-    for (const item of capture.draftItems) {
-      if (selectedSet && !selectedSet.has(item.lineIndex)) {
-        continue;
-      }
-      if (!item.boundProductId) {
-        errors.push({ lineIndex: item.lineIndex, error: 'Item not confirmed' });
-        continue;
-      }
+    session.startTransaction();
 
+    // Guardrail: do not commit if any items still need review in safe mode
+    if (requiresFullReview && capture.itemsNeedingReview > 0) {
+      await session.abortTransaction();
+      return res.status(400).json({ error: 'Receipt has items needing review' });
+    }
+
+    const itemsToCommit = capture.draftItems.filter(item => {
+      if (normalizedMode === 'selected') {
+        return selectedSet?.has(item.lineIndex);
+      }
+      return true;
+    });
+
+    for (const item of itemsToCommit) {
       try {
-        let product = await Product.findById(item.boundProductId).session(session);
-        
-        // Handle new product creation
-        if (!product && item.workflowType === 'new_product') {
-          // Create new product from receipt line item
-          product = new Product({
-            frontendId: `RECEIPT-${capture._id}-${item.lineIndex}`,
-            name: item.receiptName,
-            brand: item.receiptName.split(/\s+/)[0] || 'UNKNOWN', // First word as brand
-            category: classifyCategory(item.receiptName) || 'DRINK',
-            price: item.unitPrice,
-            sizeOz: 0, // Would need to extract from receipt
-            stock: 0, // Will be managed separately
-            store: capture.storeId
-          });
-          await product.save({ session });
-          item.boundProductId = product._id.toString();
-        } else if (!product) {
-          errors.push({ lineIndex: item.lineIndex, error: 'Product not found and workflowType not new_product' });
-          continue;
-        }
-
-        // Validate price delta - prevent catastrophic pricing errors
-        const existingInventory = await StoreInventory.findOne(
-          { storeId: capture.storeId, productId: item.boundProductId }
-        ).session(session);
-
-        if (existingInventory?.priceLockUntil && existingInventory.priceLockUntil > now) {
-          errors.push({
-            lineIndex: item.lineIndex,
-            error: `Price locked until ${existingInventory.priceLockUntil.toISOString()}`
-          });
-          continue;
-        }
-
-        if (existingInventory?.appliedCaptures?.some(
-          ac => ac.captureId === captureIdKey && ac.lineIndex === item.lineIndex
-        )) {
-          continue;
-        }
-        
-        if (existingInventory?.observedPrice) {
-          const currentPrice = existingInventory.observedPrice;
-          const newPrice = item.unitPrice;
-          const { exceedsThreshold, pctDelta } = evaluatePriceDelta({
-            lastPrice: currentPrice,
-            newPrice,
-            lastObservedAt: existingInventory.observedAt
-          });
-
-          if (exceedsThreshold) {
-            errors.push({
-              lineIndex: item.lineIndex,
-              error: `Price delta too large: $${currentPrice} → $${newPrice} (${(pctDelta * 100).toFixed(0)}%)`
-            });
+        if (!item.boundProductId) {
+          if (normalizedMode === 'safe') {
+            errors.push({ lineIndex: item.lineIndex, error: 'Item not confirmed' });
             continue;
           }
+          // skip unconfirmed items in selected/locked mode
+          continue;
         }
 
-        // Update StoreInventory with transaction
-        const observedAt = new Date();
-        const priceEntry = buildPriceHistoryEntry({
-          price: item.unitPrice,
-          observedAt,
-          storeId: capture.storeId,
-          captureId: captureIdKey,
-          orderId: capture.orderId,
-          quantity: item.quantity,
-          receiptImageUrl: capture.images[0]?.url,
-          receiptThumbnailUrl: capture.images[0]?.thumbnailUrl,
-          matchMethod: item.matchMethod || 'manual_confirm',
-          matchConfidence: item.matchConfidence || 1.0,
-          confirmedBy: item.confirmedBy,
-          priceType: item.priceType || 'regular',
-          promoDetected: item.promoDetected || false,
-          workflowType: item.workflowType
-        });
-        const inventorySet = {
-          observedPrice: item.unitPrice,
-          observedAt,
-          updatedAt: observedAt
-        };
-        if (lockUntil) {
-          inventorySet.priceLockUntil = lockUntil;
+        const productId = item.boundProductId;
+        const upc = item.boundUpc;
+        const quantity = Number(item.quantity || 1);
+        const unitPrice = Number(item.unitPrice || 0);
+        if (!unitPrice || unitPrice <= 0) {
+          errors.push({ lineIndex: item.lineIndex, error: 'Invalid unit price' });
+          continue;
         }
-        const inventoryUpdate = {
-          $set: inventorySet,
-          $push: {
-            priceHistory: {
-              $each: [priceEntry],
-              $slice: -20 // Keep last 20
-            },
-            appliedCaptures: {
-              $each: [{
-                captureId: captureIdKey,
-                lineIndex: item.lineIndex,
-                appliedAt: observedAt
-              }],
-              $slice: -50 // Keep last 50
-            }
-          }
-        };
 
-        await StoreInventory.updateOne(
-          { storeId: capture.storeId, productId: item.boundProductId },
-          inventoryUpdate,
-          { upsert: true, session }
-        );
+        const product = await Product.findById(productId).session(session);
+        if (!product) {
+          errors.push({ lineIndex: item.lineIndex, error: 'Product not found' });
+          continue;
+        }
 
-        // Update or create ReceiptNameAlias with transaction
-        const normalizedName = normalizeReceiptName(item.receiptName);
-        await ReceiptNameAlias.updateOne(
-          { storeId: capture.storeId, normalizedName },
+        // Update StoreInventory observed price and history
+        const inventory = await StoreInventory.findOneAndUpdate(
+          { storeId: capture.storeId, productId },
           {
             $set: {
-              productId: item.boundProductId,
-              upc: item.boundUpc || product.upc,
-              lastConfirmedAt: new Date(),
-              lastSeenAt: new Date(),
-              category: classifyCategory(normalizedName)
+              observedPrice: unitPrice,
+              observedAt: new Date()
             },
-            $inc: { confirmedCount: 1 },
             $push: {
-              rawNames: {
-                $each: [{ name: item.receiptName, firstSeen: new Date(), occurrences: 1 }],
-                $slice: -20
+              priceHistory: {
+                price: unitPrice,
+                observedAt: new Date(),
+                matchMethod: item.matchMethod,
+                matchConfidence: item.matchConfidence,
+                priceType: item.priceType,
+                promoDetected: item.promoDetected,
+                workflowType: item.workflowType
               }
-            },
-            $setOnInsert: {
-              createdBy: username || 'unknown'
             }
           },
-          { upsert: true, session }
+          { new: true, upsert: true, session }
         );
+
+        // Update product price if delta is acceptable
+        const history = buildMatchHistory(inventory);
+        const priceDelta = computePriceDelta(unitPrice, history, inventory.observedPrice);
+        if (priceDelta?.flag === null || normalizedMode !== 'safe') {
+          product.price = unitPrice;
+          await product.save({ session });
+        }
+
+        // Lock price if requested (prevent further updates for N days)
+        if (normalizedMode === 'locked') {
+          const lockDays = Number(lockDurationDays) || DEFAULT_PRICE_LOCK_DAYS;
+          await StoreInventory.findOneAndUpdate(
+            { storeId: capture.storeId, productId },
+            {
+              $set: {
+                priceLockedUntil: new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000)
+              }
+            },
+            { session }
+          );
+        }
 
         committed++;
 
@@ -2103,288 +2244,138 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
             }
           }
 
-          // Check for confirmed alias (learns from past confirmations)
+          // Alias match (manual confirmation history)
           if (!product) {
             aliasMatch = await ReceiptNameAlias.findOne({
               storeId: store._id,
               normalizedName
-            }).populate('productId').session(sessionDb);
+            }).session(sessionDb);
             
-            if (aliasMatch && aliasMatch.confirmedCount >= 1) {
+            if (aliasMatch && aliasMatch.confirmedCount > 0) {
               const { effectiveConfidence } = getAliasEffectiveConfidence(aliasMatch);
               if (effectiveConfidence >= ALIAS_CONFIDENCE_MATCH_THRESHOLD) {
-                product = aliasMatch.productId;
-                matchMethod = 'alias_confirmed';
-                matchConfidence = effectiveConfidence;
-                
-                // Update lastSeenAt
-                aliasMatch.lastSeenAt = new Date();
-                await aliasMatch.save({ session: sessionDb });
+                product = await Product.findById(aliasMatch.productId).session(sessionDb);
+                if (product) {
+                  matchMethod = 'alias_confirmed';
+                  matchConfidence = effectiveConfidence;
+                }
               }
             }
           }
 
-          // Fuzzy matching (use advanced token-gated approach)
+          // Fuzzy match by name + category
           if (!product) {
-            const tokens = extractTokens(normalizedName);
-            
-            const storeInventories = await StoreInventory.find({ storeId: store._id })
-              .populate('productId')
-              .session(sessionDb)
-              .limit(100);
-            
-            let bestMatch = null;
+            const candidates = await Product.find({ category }).limit(200).session(sessionDb);
             let bestScore = 0;
-            let bestMatchResult = null;
-            const HIGH_CONFIDENCE_THRESHOLD = 0.90; // Very high bar for auto-commit
-            const SUGGEST_THRESHOLD = 0.75; // Lower bar for suggestion
-
-            for (const inv of storeInventories) {
-              if (!inv.productId || !inv.productId.name) continue;
-              
-              const matchResult = advancedMatch(name, inv.productId.name);
-              
-              // Category guardrail: must be same category
-              const productCategory = classifyCategory(normalizeReceiptName(inv.productId.name));
-              if (category !== 'other' && productCategory !== 'other' && category !== productCategory) {
-                continue; // Skip cross-category matches
-              }
-              
-              if (matchResult.score > bestScore && matchResult.tokensMatch) {
-                bestScore = matchResult.score;
-                bestMatch = inv.productId;
-                bestMatchResult = matchResult;
-                bestInventory = inv;
+            let bestMatch = null;
+            
+            for (const candidate of candidates) {
+              const result = advancedMatch(name, candidate.name);
+              if (result.score > bestScore && result.tokensMatch) {
+                bestScore = result.score;
+                bestMatch = candidate;
               }
             }
-
-            if (bestMatch && bestScore >= SUGGEST_THRESHOLD) {
-              // Gate A: Size token missing = always needs review
-              if (!tokens.hasSizeToken) {
-                matchMethod = 'fuzzy_suggested';
-                matchConfidence = bestScore;
-                needsReview++;
-                
-                reviewItems.push({
-                  receiptName: name,
-                  normalizedName,
-                  suggestedProduct: {
-                    id: bestMatch._id,
-                    name: bestMatch.name,
-                    upc: bestMatch.upc,
-                    sku: bestMatch.sku
-                  },
-                  matchScore: bestScore.toFixed(2),
-                  reason: 'no_size_token',
-                  matchDetails: bestMatchResult,
-                  unitPrice,
-                  quantity
-                });
-                
-                continue; // Skip - needs confirmation
-              }
-              
-              // High confidence + confirmed flag = auto-commit
-              if (bestScore >= HIGH_CONFIDENCE_THRESHOLD && confirmed) {
-                product = bestMatch;
-                matchMethod = 'fuzzy_confirmed';
-                matchConfidence = bestScore;
-                autoMatched++;
-              } else {
-                // Needs review - don't auto-commit
-                matchMethod = 'fuzzy_suggested';
-                matchConfidence = bestScore;
-                needsReview++;
-                
-                reviewItems.push({
-                  receiptName: name,
-                  normalizedName,
-                  suggestedProduct: {
-                    id: bestMatch._id,
-                    name: bestMatch.name,
-                    upc: bestMatch.upc,
-                    sku: bestMatch.sku
-                  },
-                  matchScore: bestScore.toFixed(2),
-                  matchDetails: bestMatchResult,
-                  unitPrice,
-                  quantity
-                });
-                
-                // Skip price update - needs confirmation
-                continue;
-              }
+            
+            if (bestMatch && bestScore >= 0.8) {
+              product = bestMatch;
+              matchMethod = bestScore >= 0.9 ? 'fuzzy_high' : 'fuzzy_suggested';
+              matchConfidence = bestScore;
             }
           }
 
+          // STEP 2: If no match, create review item
           if (!product) {
-            errors.push(`No product match for "${name}". Scan UPC to bind.`);
+            needsReview++;
+            reviewItems.push({
+              lineIndex,
+              receiptName: name,
+              normalizedName,
+              totalPrice,
+              quantity,
+              unitPrice,
+              matchMethod: 'none',
+              matchConfidence: 0,
+              needsReview: true,
+              reviewReason: 'no_match'
+            });
             continue;
           }
 
-          // STEP 2: Idempotency check
-          let inventory = await StoreInventory.findOne({
-            storeId: store._id,
-            productId: product._id
-          }).session(sessionDb);
-
-          // Check if this captureId + lineIndex already applied
-          if (inventory?.appliedCaptures) {
-            const alreadyApplied = inventory.appliedCaptures.some(
-              ac => ac.captureId === captureId && ac.lineIndex === lineIndex
-            );
-            if (alreadyApplied) {
-              // Safe retry - skip silently
-              continue;
-            }
-          }
-
-          // STEP 3: Safety gates for price updates
-          const lastPrice = inventory?.observedPrice;
-          const { exceedsThreshold, pctDelta, absDelta, isStale } = evaluatePriceDelta({
-            lastPrice,
-            newPrice: unitPrice,
-            lastObservedAt: inventory?.observedAt
-          });
-
-          // Price delta check (both percentage AND absolute)
-          if (exceedsThreshold && !confirmed) {
-            needsReview++;
-            reviewItems.push({
-              receiptName: name,
-              product: {
-                id: product._id,
-                name: product.name,
-                upc: product.upc
-              },
-              reason: 'large_price_change',
-              oldPrice: lastPrice.toFixed(2),
-              newPrice: unitPrice.toFixed(2),
-              delta: `${(pctDelta * 100).toFixed(1)}%`,
-              absDelta: `$${absDelta.toFixed(2)}`,
-              unitPrice,
-              quantity
-            });
-            continue; // Skip update - needs confirmation
-          }
-
-          // STEP 4: Update price with anti-noise averaging
-          const observedAt = new Date();
-          const priceEntry = buildPriceHistoryEntry({
-            price: unitPrice,
-            observedAt,
-            storeId: store._id,
-            captureId,
-            orderId,
-            quantity,
-            receiptImageUrl,
-            receiptThumbnailUrl,
-            matchMethod,
-            matchConfidence,
-            priceType,
-            promoDetected,
-            workflowType: 'update_price'
-          });
-
-          if (!inventory) {
-            // Create new inventory entry
-            inventory = await StoreInventory.create([{
-              storeId: store._id,
-              productId: product._id,
-              sku: product.sku,
-              cost: unitPrice,
-              observedPrice: unitPrice,
-              observedAt,
-              priceHistory: [priceEntry],
-              appliedCaptures: [{ captureId, lineIndex, appliedAt: observedAt }],
-              available: true,
-              stockLevel: 'in-stock',
-              lastVerified: observedAt
-            }], { session: sessionDb });
-            created++;
-          } else {
-            // Update existing: anti-noise averaging
-            const NOISE_THRESHOLD = 0.15; // 15% variance
-
-            let finalPrice = unitPrice;
-            
-            // Only average if not stale and within noise threshold
-            if (!isStale && lastPrice && Math.abs(unitPrice - lastPrice) / lastPrice < NOISE_THRESHOLD) {
-              finalPrice = (unitPrice + lastPrice) / 2;
-            }
-
-            inventory.observedPrice = finalPrice;
-            inventory.observedAt = observedAt;
-            inventory.lastVerified = observedAt;
-            
-            // Add to history (keep last 20 entries)
-            if (!inventory.priceHistory) inventory.priceHistory = [];
-            inventory.priceHistory.push(priceEntry);
-            if (inventory.priceHistory.length > 20) {
-              inventory.priceHistory = inventory.priceHistory.slice(-20);
-            }
-
-            // Track idempotency
-            if (!inventory.appliedCaptures) inventory.appliedCaptures = [];
-            inventory.appliedCaptures.push({ captureId, lineIndex, appliedAt: observedAt });
-            if (inventory.appliedCaptures.length > 50) {
-              inventory.appliedCaptures = inventory.appliedCaptures.slice(-50);
-            }
-
-            await inventory.save({ session: sessionDb });
-            updated++;
-          }
-
-          // STEP 5: Update or create alias mapping (for learning) - ATOMIC
-          if (matchMethod !== 'upc' && matchMethod !== 'sku') {
-            const tokens = extractTokens(normalizedName);
-            
-            // Use atomic upsert with $inc for confirmedCount
-            const updateDoc = {
-              $setOnInsert: {
-                normalizedName,
-                storeId: store._id,
-                productId: product._id,
-                upc: product.upc,
-                category,
-                hasSizeToken: tokens.hasSizeToken,
-                matchConfidence: confirmed ? 0.8 : matchConfidence,
-                createdBy: req.user?.username || req.user?.id,
-                createdAt: new Date()
-              },
+          // STEP 3: Update StoreInventory
+          const storeInventory = await StoreInventory.findOneAndUpdate(
+            { storeId: store._id, productId: product._id },
+            {
               $set: {
-                lastSeenAt: new Date()
+                observedPrice: unitPrice,
+                observedAt: new Date()
               },
-              $inc: confirmed ? { confirmedCount: 1 } : {},
               $push: {
-                rawNames: {
-                  $each: [{ name, firstSeen: new Date(), occurrences: 1 }],
-                  $slice: -20 // Keep last 20
+                priceHistory: {
+                  price: unitPrice,
+                  observedAt: new Date(),
+                  matchMethod,
+                  matchConfidence,
+                  priceType,
+                  promoDetected,
+                  workflowType: 'update_price'
                 }
               }
-            };
-            
-            if (confirmed) {
-              updateDoc.$set.lastConfirmedAt = new Date();
-              updateDoc.$set.matchConfidence = { $min: [1.0, { $add: [0.7, { $multiply: ['$confirmedCount', 0.1] }] }] };
-            }
+            },
+            { new: true, upsert: true, session: sessionDb }
+          );
 
-            await ReceiptNameAlias.updateOne(
-              { storeId: store._id, normalizedName },
-              updateDoc,
-              { upsert: true, session: sessionDb }
-            );
+          // STEP 4: Update product price (with guardrails)
+          const priceDelta = computePriceDelta(unitPrice, buildMatchHistory(storeInventory), storeInventory.observedPrice);
+          if (!priceDelta || !priceDelta.flag) {
+            product.price = unitPrice;
+            await product.save({ session: sessionDb });
+            updated++;
+          } else {
+            needsReview++;
+            reviewItems.push({
+              lineIndex,
+              receiptName: name,
+              normalizedName,
+              totalPrice,
+              quantity,
+              unitPrice,
+              matchMethod,
+              matchConfidence,
+              needsReview: true,
+              reviewReason: 'large_price_change'
+            });
           }
-        } catch (err) {
-          errors.push(`Item error: ${err.message}`);
+
+          // STEP 5: Update alias (if needed)
+          if (aliasMatch) {
+            aliasMatch.confirmedCount += 1;
+            aliasMatch.lastConfirmedAt = new Date();
+            aliasMatch.lastSeenAt = new Date();
+            await aliasMatch.save({ session: sessionDb });
+          }
+
+        } catch (itemError) {
+          errors.push({ lineIndex: item.lineIndex, error: itemError.message });
         }
       }
 
-      await recordAuditLog({
-        type: 'RECEIPT_PRICE_UPDATE',
-        actorId: req.user?.username || req.user?.id || 'UNKNOWN',
-        details: `Receipt price update for store ${store.name}. Updated: ${updated}, Created: ${created}, Auto-matched: ${autoMatched}, Needs review: ${needsReview}. Order: ${orderId || 'N/A'}.`
-      });
+      // If captureId provided, update receipt capture record
+      if (captureId) {
+        await ReceiptCapture.findByIdAndUpdate(
+          captureId,
+          {
+            $set: {
+              status: 'parsed',
+              draftItems: reviewItems,
+              totalItems: items.length,
+              itemsNeedingReview: needsReview,
+              itemsConfirmed: items.length - needsReview
+            }
+          },
+          { session: sessionDb }
+        );
+      }
     });
 
     res.json({
@@ -2393,330 +2384,86 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
       created,
       autoMatched,
       needsReview,
-      reviewItems, // Items that require confirmation
-      errors: errors.length > 0 ? errors : undefined
+      reviewItems: mapReceiptItemsForResponse(reviewItems),
+      errors
     });
-  } catch (err) {
-    console.error('RECEIPT PRICE UPDATE ERROR:', err);
-    const status = err.status && Number.isInteger(err.status) ? err.status : 500;
-    res.status(status).json({ error: err.message || 'Failed to update prices from receipt' });
+
+  } catch (error) {
+    console.error('Receipt price update error:', error);
+    res.status(500).json({ error: 'Failed to update receipt prices' });
   } finally {
-    sessionDb.endSession();
+    await sessionDb.endSession();
   }
 });
 
 /**
- * POST /api/driver/receipt-confirm-match
- * Confirm a suggested fuzzy match and update price
- * SECURITY: Role-gated, input validated, audit logged
+ * GET /api/driver/receipt-review
+ * Fetch receipt capture items needing review (per store)
  */
-router.post('/receipt-confirm-match', authRequired, async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  if (!isPricingLearningEnabled()) {
-    return res.status(503).json({ error: 'Pricing learning disabled during rollout' });
-  }
-
-  const sessionDb = await mongoose.startSession();
-
-  try {
-    // Role gating: DRIVER or OWNER/MANAGER only
-    const isDriver = isDriverUsername(req.user?.username);
-    const isOwner = req.user?.role === 'OWNER' || req.user?.role === 'MANAGER';
-    
-    if (!isDriver && !isOwner) {
-      return res.status(403).json({ error: 'Driver or manager access required' });
-    }
-
-    const {
-      storeId,
-      productId,
-      receiptName,
-      unitPrice,
-      quantity,
-      orderId,
-      captureId,
-      receiptImageUrl,
-      receiptThumbnailUrl
-    } = req.body;
-
-    // Input validation
-    if (!storeId || !productId || !receiptName || !unitPrice) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-    
-    const validation = validatePriceQuantity(unitPrice, quantity || 1);
-    if (!validation.ok) {
-      return res.status(400).json({ error: validation.error });
-    }
-
-    const ingestionCheck = await ensureIngestionAllowed(storeId);
-    if (!ingestionCheck.ok) {
-      await sessionDb.endSession();
-      return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
-    }
-
-    await sessionDb.withTransaction(async () => {
-      const normalizedName = normalizeReceiptName(receiptName);
-
-      // Update or create alias with confirmation
-      let alias = await ReceiptNameAlias.findOne({
-        storeId,
-        normalizedName
-      }).session(sessionDb);
-
-      if (!alias) {
-        alias = await ReceiptNameAlias.create([{
-          normalizedName,
-          storeId,
-          productId,
-          confirmedCount: 1,
-          lastConfirmedAt: new Date(),
-          lastSeenAt: new Date(),
-          matchConfidence: 0.8,
-          rawNames: [{ name: receiptName, firstSeen: new Date(), occurrences: 1 }],
-          createdBy: req.user?.username || req.user?.id
-        }], { session: sessionDb });
-      } else {
-        alias.confirmedCount += 1;
-        alias.lastConfirmedAt = new Date();
-        alias.lastSeenAt = new Date();
-        alias.matchConfidence = Math.min(1.0, 0.7 + (alias.confirmedCount * 0.1));
-        await alias.save({ session: sessionDb });
-      }
-
-      // Update StoreInventory price
-      let inventory = await StoreInventory.findOne({
-        storeId,
-        productId
-      }).session(sessionDb);
-
-      const priceEntry = {
-        price: unitPrice,
-        observedAt: new Date(),
-        storeId,
-        captureId: captureId || undefined,
-        orderId: orderId || undefined,
-        quantity: Number(quantity || 1),
-        receiptImageUrl: receiptImageUrl || undefined,
-        receiptThumbnailUrl: receiptThumbnailUrl || undefined,
-        matchMethod: 'fuzzy_confirmed',
-        matchConfidence: alias.matchConfidence,
-        confirmedBy: req.user?.username || req.user?.id,
-        priceType: 'unknown',
-        promoDetected: false,
-        workflowType: 'update_price'
-      };
-
-      if (!inventory) {
-        await StoreInventory.create([{
-          storeId,
-          productId,
-          cost: unitPrice,
-          observedPrice: unitPrice,
-          observedAt: new Date(),
-          priceHistory: [priceEntry],
-          available: true,
-          stockLevel: 'in-stock',
-          lastVerified: new Date()
-        }], { session: sessionDb });
-      } else {
-        inventory.observedPrice = unitPrice;
-        inventory.observedAt = new Date();
-        inventory.lastVerified = new Date();
-        
-        if (!inventory.priceHistory) inventory.priceHistory = [];
-        inventory.priceHistory.push(priceEntry);
-        if (inventory.priceHistory.length > 20) {
-          inventory.priceHistory = inventory.priceHistory.slice(-20);
-        }
-        
-        await inventory.save({ session: sessionDb });
-      }
-
-      await recordAuditLog({
-        type: 'RECEIPT_MATCH_CONFIRMED',
-        actorId: req.user?.username || req.user?.id || 'UNKNOWN',
-        details: `Confirmed match: "${receiptName}" → ${productId} at store ${storeId}. Price: $${unitPrice.toFixed(2)}`,
-        metadata: {
-          ip: req.ip || req.connection?.remoteAddress,
-          userAgent: req.headers['user-agent'],
-          storeId,
-          productId,
-          unitPrice
-        }
-      });
-    });
-
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('CONFIRM MATCH ERROR:', err);
-    res.status(500).json({ error: err.message || 'Failed to confirm match' });
-  } finally {
-    sessionDb.endSession();
-  }
-});
-
-/**
- * POST /api/driver/receipt-noise
- * Create or update a persistent noise rule to ignore receipt lines
- */
-router.post('/receipt-noise', authRequired, async (req, res) => {
+router.get('/receipt-review', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
 
   try {
-    const isOwner = req.user?.role === 'OWNER' || req.user?.role === 'MANAGER' || isOwnerUsername(req.user?.username);
-    if (!isOwner) {
-      return res.status(403).json({ error: 'Owner or manager access required' });
-    }
+    const { storeId, status = 'parsed', limit = 100 } = req.query;
+    const username = req.user?.username;
+    const isOwner = isOwnerUsername(username);
+    const isDriver = isDriverUsername(username);
 
-    const { storeId, receiptName } = req.body || {};
-    if (!storeId || !receiptName) {
-      return res.status(400).json({ error: 'storeId and receiptName are required' });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(storeId)) {
-      return res.status(400).json({ error: 'Valid storeId required' });
-    }
-
-    const normalizedName = normalizeReceiptName(receiptName);
-    if (!normalizedName) {
-      return res.status(400).json({ error: 'Unable to normalize receipt name' });
-    }
-
-    const now = new Date();
-    let rule = await ReceiptNoiseRule.findOne({ storeId, normalizedName });
-
-    if (!rule) {
-      rule = await ReceiptNoiseRule.create({
-        storeId,
-        normalizedName,
-        rawNames: [{ name: receiptName, firstSeen: now, occurrences: 1 }],
-        createdBy: req.user?.username || req.user?.id,
-        lastSeenAt: now
-      });
-    } else {
-      const existing = rule.rawNames?.find(entry => entry.name === receiptName);
-      if (existing) {
-        existing.occurrences = (existing.occurrences || 0) + 1;
-      } else {
-        rule.rawNames.push({ name: receiptName, firstSeen: now, occurrences: 1 });
+    // Drivers must specify storeId and be authorized for it
+    if (isDriver && !isOwner) {
+      if (!storeId) {
+        return res.status(400).json({ error: 'Drivers must specify storeId' });
       }
-      rule.lastSeenAt = now;
-      await rule.save();
-    }
-
-    await recordAuditLog({
-      type: 'RECEIPT_NOISE_RULE',
-      actorId: req.user?.username || req.user?.id || 'UNKNOWN',
-      details: `Noise rule set for ${normalizedName} (store ${storeId})`
-    });
-
-    res.json({
-      ok: true,
-      noiseRule: {
-        id: rule._id.toString(),
-        storeId: rule.storeId,
-        normalizedName: rule.normalizedName,
-        createdAt: rule.createdAt,
-        lastSeenAt: rule.lastSeenAt
+      if (!driverCanAccessStore(username, storeId)) {
+        return res.status(403).json({ error: 'Driver not authorized for this store' });
       }
-    });
-  } catch (err) {
-    console.error('RECEIPT NOISE RULE ERROR:', err);
-    res.status(500).json({ error: 'Failed to save noise rule' });
-  }
-});
-
-/**
- * GET /api/driver/receipt-noise
- * List noise rules for a store
- */
-router.get('/receipt-noise', authRequired, async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const isOwner = req.user?.role === 'OWNER' || req.user?.role === 'MANAGER' || isOwnerUsername(req.user?.username);
-    if (!isOwner) {
-      return res.status(403).json({ error: 'Owner or manager access required' });
     }
 
-    const storeId = String(req.query?.storeId || '').trim();
-    if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
-      return res.status(400).json({ error: 'Valid storeId required' });
-    }
+    const query = { status };
+    if (storeId) query.storeId = storeId;
 
-    const rules = await ReceiptNoiseRule.find({ storeId })
-      .sort({ lastSeenAt: -1 })
-      .limit(200)
+    const captures = await ReceiptCapture.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
       .lean();
 
-    res.json({
-      ok: true,
-      rules: rules.map(rule => ({
-        id: rule._id.toString(),
-        storeId: rule.storeId,
-        normalizedName: rule.normalizedName,
-        rawNames: rule.rawNames || [],
-        createdAt: rule.createdAt,
-        lastSeenAt: rule.lastSeenAt
-      }))
-    });
-  } catch (err) {
-    console.error('RECEIPT NOISE LIST ERROR:', err);
-    res.status(500).json({ error: 'Failed to load noise rules' });
+    const items = [];
+    for (const capture of captures) {
+      for (const item of capture.draftItems || []) {
+        if (item.needsReview) {
+          items.push({
+            captureId: capture._id,
+            storeId: capture.storeId,
+            storeName: capture.storeName,
+            receiptName: item.receiptName,
+            normalizedName: item.normalizedName,
+            totalPrice: item.totalPrice,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            matchMethod: item.matchMethod,
+            matchConfidence: item.matchConfidence,
+            reviewReason: item.reviewReason,
+            suggestedProduct: item.suggestedProduct
+          });
+        }
+      }
+    }
+
+    res.json({ ok: true, items });
+
+  } catch (error) {
+    console.error('Error fetching receipt review items:', error);
+    res.status(500).json({ error: 'Failed to fetch receipt review items' });
   }
 });
 
 /**
- * DELETE /api/driver/receipt-noise/:id
- * Remove a noise rule
+ * GET /api/driver/receipt-inventory/:storeId
+ * Returns store inventory with observed prices (for review UI)
  */
-router.delete('/receipt-noise/:id', authRequired, async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const isOwner = req.user?.role === 'OWNER' || req.user?.role === 'MANAGER' || isOwnerUsername(req.user?.username);
-    if (!isOwner) {
-      return res.status(403).json({ error: 'Owner or manager access required' });
-    }
-
-    const ruleId = String(req.params.id || '').trim();
-    if (!ruleId || !mongoose.Types.ObjectId.isValid(ruleId)) {
-      return res.status(400).json({ error: 'Valid rule id required' });
-    }
-
-    const deleted = await ReceiptNoiseRule.findByIdAndDelete(ruleId).lean();
-    if (!deleted) {
-      return res.status(404).json({ error: 'Noise rule not found' });
-    }
-
-    await recordAuditLog({
-      type: 'RECEIPT_NOISE_RULE_DELETE',
-      actorId: req.user?.username || req.user?.id || 'UNKNOWN',
-      details: `Noise rule removed for ${deleted.normalizedName} (store ${deleted.storeId})`
-    });
-
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('RECEIPT NOISE DELETE ERROR:', err);
-    res.status(500).json({ error: 'Failed to delete noise rule' });
-  }
-});
-
-/**
- * GET /api/driver/store-inventory/:storeId
- * Get inventory for a store with observed prices
- */
-router.get('/store-inventory/:storeId', authRequired, async (req, res) => {
+router.get('/receipt-inventory/:storeId', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -2807,6 +2554,9 @@ router.get('/receipt-captures', authRequired, async (req, res) => {
             newProducts,      // Items to create as new products
             priceUpdates      // Items to update existing prices
           },
+          createdByUserId: c.createdByUserId,
+          createdByRole: c.createdByRole,
+          source: c.source,
           createdAt: c.createdAt,
           reviewExpiresAt: c.reviewExpiresAt
         };
@@ -3165,6 +2915,755 @@ router.post('/receipt-parse-live', authRequired, async (req, res) => {
   } catch (error) {
     console.error('Receipt parse live error:', error);
     res.status(500).json({ error: 'Failed to save items' });
+  }
+});
+
+/**
+ * GET /api/driver/receipt-parse-jobs
+ * Fetch receipt parse jobs (used by management review UI)
+ */
+router.get('/receipt-parse-jobs', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { status } = req.query;
+    const query = status ? { status } : {};
+    const jobs = await ReceiptParseJob.find(query)
+      .sort({ updatedAt: -1 })
+      .limit(50)
+      .lean();
+
+    res.json({ ok: true, jobs });
+  } catch (error) {
+    console.error('Error fetching receipt parse jobs:', error);
+    res.status(500).json({ error: 'Failed to fetch parse jobs' });
+  }
+});
+
+/**
+ * POST /api/driver/receipt-parse-jobs/:captureId/approve
+ * Approve store candidate from parse job proposal
+ */
+router.post('/receipt-parse-jobs/:captureId/approve', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { captureId } = req.params;
+    const { storeId, storeName, address, phone, storeType } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    const capture = await ReceiptCapture.findById(captureId);
+    if (!capture) {
+      return res.status(404).json({ error: 'Receipt capture not found' });
+    }
+
+    if (!storeId && !storeName) {
+      return res.status(400).json({ error: 'storeId or storeName required' });
+    }
+
+    let store = null;
+    if (storeId) {
+      store = await Store.findById(storeId);
+      if (!store) {
+        return res.status(404).json({ error: 'Store not found' });
+      }
+    } else if (storeName) {
+      store = await Store.findOne({ name: storeName });
+      if (!store) {
+        store = await Store.create({
+          name: storeName,
+          address: address || {},
+          phone,
+          storeType
+        });
+      }
+    }
+
+    capture.storeId = store._id;
+    capture.storeName = store.name;
+    await capture.save();
+
+    await ReceiptParseJob.findOneAndUpdate(
+      { captureId },
+      { 'storeCandidate.storeId': store._id, 'storeCandidate.confidence': 1 },
+      { new: true }
+    );
+
+    await recordAuditLog({
+      type: 'receipt_store_confirm',
+      actorId: username,
+      details: `captureId=${captureId} storeId=${store._id}`
+    });
+
+    res.json({ ok: true, store });
+
+  } catch (error) {
+    console.error('Error approving store candidate:', error);
+    res.status(500).json({ error: 'Failed to approve store candidate' });
+  }
+});
+
+/**
+ * POST /api/driver/receipt-parse-jobs/:captureId/reject
+ * Reject store candidate (keeps capture store null)
+ */
+router.post('/receipt-parse-jobs/:captureId/reject', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { captureId } = req.params;
+    const username = req.user?.username || 'unknown';
+
+    await ReceiptParseJob.findOneAndUpdate(
+      { captureId },
+      { status: 'REJECTED' },
+      { new: true }
+    );
+
+    await recordAuditLog({
+      type: 'receipt_store_reject',
+      actorId: username,
+      details: `captureId=${captureId}`
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error rejecting store candidate:', error);
+    res.status(500).json({ error: 'Failed to reject store candidate' });
+  }
+});
+
+/**
+ * GET /api/driver/receipt-items/:storeId
+ * Fetch receipt items for a store (for search / alias management)
+ */
+router.get('/receipt-items/:storeId', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId } = req.params;
+    const { q } = req.query;
+    if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
+      return res.status(400).json({ error: 'Valid storeId required' });
+    }
+
+    const query = {
+      storeId
+    };
+
+    if (q) {
+      query.normalizedName = { $regex: sanitizeSearch(q), $options: 'i' };
+    }
+
+    const aliases = await ReceiptNameAlias.find(query)
+      .sort({ lastSeenAt: -1 })
+      .limit(200)
+      .lean();
+
+    res.json({ ok: true, aliases });
+  } catch (error) {
+    console.error('Error fetching receipt items:', error);
+    res.status(500).json({ error: 'Failed to fetch receipt items' });
+  }
+});
+
+/**
+ * GET /api/driver/receipt-item-history
+ * Fetch price history for a receipt item
+ */
+router.get('/receipt-item-history', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId, productId } = req.query;
+    if (!storeId || !productId) {
+      return res.status(400).json({ error: 'storeId and productId required' });
+    }
+
+    const inventory = await StoreInventory.findOne({
+      storeId,
+      productId
+    }).lean();
+
+    if (!inventory) {
+      return res.json({ ok: true, history: [] });
+    }
+
+    res.json({ ok: true, history: inventory.priceHistory || [] });
+  } catch (error) {
+    console.error('Error fetching receipt item history:', error);
+    res.status(500).json({ error: 'Failed to fetch receipt item history' });
+  }
+});
+
+/**
+ * POST /api/driver/receipt-price-update-manual
+ * Manual price update (bypass receipt)
+ */
+router.post('/receipt-price-update-manual', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId, productId, price, priceType } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    if (!storeId || !productId) {
+      return res.status(400).json({ error: 'storeId and productId required' });
+    }
+
+    const store = await Store.findById(storeId);
+    if (!store) {
+      return res.status(404).json({ error: 'Store not found' });
+    }
+
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const observedPrice = Number(price);
+    if (!Number.isFinite(observedPrice) || observedPrice <= 0) {
+      return res.status(400).json({ error: 'Valid price required' });
+    }
+
+    await StoreInventory.findOneAndUpdate(
+      { storeId, productId },
+      {
+        $set: {
+          observedPrice,
+          observedAt: new Date()
+        },
+        $push: {
+          priceHistory: {
+            price: observedPrice,
+            observedAt: new Date(),
+            matchMethod: 'manual',
+            matchConfidence: 1.0,
+            priceType: priceType || 'manual',
+            promoDetected: false,
+            workflowType: 'update_price'
+          }
+        }
+      },
+      { new: true, upsert: true }
+    );
+
+    product.price = observedPrice;
+    await product.save();
+
+    await recordAuditLog({
+      type: 'receipt_price_update_manual',
+      actorId: username,
+      details: `storeId=${storeId} productId=${productId} price=${observedPrice}`
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error updating receipt price manually:', error);
+    res.status(500).json({ error: 'Failed to update price' });
+  }
+});
+
+/**
+ * GET /api/driver/receipt-captures-summary
+ * Summary counts for receipt captures by status
+ */
+router.get('/receipt-captures-summary', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId } = req.query;
+    const query = storeId ? { storeId } : {};
+
+    const total = await ReceiptCapture.countDocuments(query);
+    const pendingParse = await ReceiptCapture.countDocuments({ ...query, status: 'pending_parse' });
+    const parsed = await ReceiptCapture.countDocuments({ ...query, status: 'parsed' });
+    const reviewComplete = await ReceiptCapture.countDocuments({ ...query, status: 'review_complete' });
+    const committed = await ReceiptCapture.countDocuments({ ...query, status: 'committed' });
+    const failed = await ReceiptCapture.countDocuments({ ...query, status: 'failed' });
+
+    res.json({
+      ok: true,
+      summary: {
+        total,
+        pendingParse,
+        parsed,
+        reviewComplete,
+        committed,
+        failed
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching receipt capture summary:', error);
+    res.status(500).json({ error: 'Failed to fetch receipt capture summary' });
+  }
+});
+
+/**
+ * POST /api/driver/receipt-refresh
+ * Reprocess failed receipt captures for a store
+ */
+router.post('/receipt-refresh', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
+      return res.status(400).json({ error: 'Valid storeId required' });
+    }
+
+    const failed = await ReceiptCapture.find({ storeId, status: 'failed' });
+    if (failed.length === 0) {
+      return res.json({ ok: true, message: 'No failed receipts to refresh' });
+    }
+
+    for (const capture of failed) {
+      capture.status = 'pending_parse';
+      capture.parseError = null;
+      await capture.save();
+    }
+
+    await recordAuditLog({
+      type: 'receipt_refresh',
+      actorId: username,
+      details: `storeId=${storeId} count=${failed.length}`
+    });
+
+    res.json({ ok: true, refreshed: failed.length });
+  } catch (error) {
+    console.error('Error refreshing receipts:', error);
+    res.status(500).json({ error: 'Failed to refresh receipts' });
+  }
+});
+
+/**
+ * POST /api/driver/receipt-lock
+ * Lock receipt capture for a period (prevents edits)
+ */
+router.post('/receipt-lock', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { captureId, days = DEFAULT_PRICE_LOCK_DAYS } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
+      return res.status(400).json({ error: 'Valid captureId required' });
+    }
+
+    const capture = await ReceiptCapture.findById(captureId);
+    if (!capture) {
+      return res.status(404).json({ error: 'Receipt capture not found' });
+    }
+
+    capture.reviewExpiresAt = new Date(Date.now() + Number(days) * 24 * 60 * 60 * 1000);
+    await capture.save();
+
+    await recordAuditLog({
+      type: 'receipt_lock',
+      actorId: username,
+      details: `captureId=${captureId} days=${days}`
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error locking receipt capture:', error);
+    res.status(500).json({ error: 'Failed to lock receipt capture' });
+  }
+});
+
+/**
+ * POST /api/driver/receipt-unlock
+ * Unlock receipt capture (remove lock)
+ */
+router.post('/receipt-unlock', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { captureId } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
+      return res.status(400).json({ error: 'Valid captureId required' });
+    }
+
+    const capture = await ReceiptCapture.findById(captureId);
+    if (!capture) {
+      return res.status(404).json({ error: 'Receipt capture not found' });
+    }
+
+    capture.reviewExpiresAt = null;
+    await capture.save();
+
+    await recordAuditLog({
+      type: 'receipt_unlock',
+      actorId: username,
+      details: `captureId=${captureId}`
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error unlocking receipt capture:', error);
+    res.status(500).json({ error: 'Failed to unlock receipt capture' });
+  }
+});
+
+/**
+ * GET /api/driver/receipt-store-summary
+ * Summary of receipt captures grouped by store
+ */
+router.get('/receipt-store-summary', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const summary = await ReceiptCapture.aggregate([
+      {
+        $group: {
+          _id: '$storeId',
+          storeName: { $first: '$storeName' },
+          totalCaptures: { $sum: 1 },
+          pendingParse: { $sum: { $cond: [{ $eq: ['$status', 'pending_parse'] }, 1, 0] } },
+          parsed: { $sum: { $cond: [{ $eq: ['$status', 'parsed'] }, 1, 0] } },
+          reviewComplete: { $sum: { $cond: [{ $eq: ['$status', 'review_complete'] }, 1, 0] } },
+          committed: { $sum: { $cond: [{ $eq: ['$status', 'committed'] }, 1, 0] } },
+          failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } }
+        }
+      },
+      {
+        $sort: { totalCaptures: -1 }
+      }
+    ]);
+
+    res.json({ ok: true, summary });
+  } catch (error) {
+    console.error('Error fetching receipt store summary:', error);
+    res.status(500).json({ error: 'Failed to fetch store summary' });
+  }
+});
+
+/**
+ * POST /api/driver/receipt-fix-upc
+ * Update receipt item bound UPC (used for corrections)
+ */
+router.post('/receipt-fix-upc', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { captureId, lineIndex, upc } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
+      return res.status(400).json({ error: 'Valid captureId required' });
+    }
+    if (!upc || !validateUPC(upc)) {
+      return res.status(400).json({ error: 'Valid UPC required' });
+    }
+
+    const capture = await ReceiptCapture.findById(captureId);
+    if (!capture) {
+      return res.status(404).json({ error: 'Receipt capture not found' });
+    }
+
+    const draftItem = capture.draftItems.find(item => item.lineIndex === lineIndex);
+    if (!draftItem) {
+      return res.status(404).json({ error: 'Draft item not found' });
+    }
+
+    draftItem.boundUpc = upc;
+    await capture.save();
+
+    await recordAuditLog({
+      type: 'receipt_fix_upc',
+      actorId: username,
+      details: `captureId=${captureId} lineIndex=${lineIndex} upc=${upc}`
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error fixing receipt UPC:', error);
+    res.status(500).json({ error: 'Failed to fix receipt UPC' });
+  }
+});
+
+/**
+ * POST /api/driver/receipt-fix-price
+ * Update receipt item price (used for corrections)
+ */
+router.post('/receipt-fix-price', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { captureId, lineIndex, totalPrice, quantity } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
+      return res.status(400).json({ error: 'Valid captureId required' });
+    }
+    const validation = validatePriceQuantity(totalPrice, quantity);
+    if (!validation.ok) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const capture = await ReceiptCapture.findById(captureId);
+    if (!capture) {
+      return res.status(404).json({ error: 'Receipt capture not found' });
+    }
+
+    const draftItem = capture.draftItems.find(item => item.lineIndex === lineIndex);
+    if (!draftItem) {
+      return res.status(404).json({ error: 'Draft item not found' });
+    }
+
+    draftItem.totalPrice = totalPrice;
+    draftItem.quantity = quantity;
+    draftItem.unitPrice = totalPrice / quantity;
+    draftItem.needsReview = false;
+    draftItem.reviewReason = null;
+    await capture.save();
+
+    await recordAuditLog({
+      type: 'receipt_fix_price',
+      actorId: username,
+      details: `captureId=${captureId} lineIndex=${lineIndex} price=${totalPrice}`
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error fixing receipt price:', error);
+    res.status(500).json({ error: 'Failed to fix receipt price' });
+  }
+});
+
+/**
+ * POST /api/driver/receipt-reset-review
+ * Reset receipt review status to parsed (reopen review)
+ */
+router.post('/receipt-reset-review', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { captureId } = req.body;
+    const username = req.user?.username || 'unknown';
+
+    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
+      return res.status(400).json({ error: 'Valid captureId required' });
+    }
+
+    const capture = await ReceiptCapture.findById(captureId);
+    if (!capture) {
+      return res.status(404).json({ error: 'Receipt capture not found' });
+    }
+
+    capture.status = 'parsed';
+    capture.reviewExpiresAt = null;
+    await capture.save();
+
+    await recordAuditLog({
+      type: 'receipt_reset_review',
+      actorId: username,
+      details: `captureId=${captureId}`
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error resetting receipt review:', error);
+    res.status(500).json({ error: 'Failed to reset review' });
+  }
+});
+
+/**
+ * GET /api/driver/receipt-capture/:captureId/items
+ * Fetch receipt capture items for review (convenience route)
+ */
+router.get('/receipt-capture/:captureId/items', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { captureId } = req.params;
+    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
+      return res.status(400).json({ error: 'Valid captureId required' });
+    }
+
+    const capture = await ReceiptCapture.findById(captureId).lean();
+    if (!capture) {
+      return res.status(404).json({ error: 'Receipt capture not found' });
+    }
+
+    res.json({
+      ok: true,
+      items: mapReceiptItemsForResponse(capture.draftItems || [])
+    });
+  } catch (error) {
+    console.error('Error fetching receipt items:', error);
+    res.status(500).json({ error: 'Failed to fetch receipt items' });
+  }
+});
+
+/**
+ * POST /api/driver/receipt-capture/:captureId/expire
+ * Manually expire a receipt capture (admin only)
+ */
+router.post('/receipt-capture/:captureId/expire', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { captureId } = req.params;
+    const username = req.user?.username || 'unknown';
+    const isOwner = isOwnerUsername(username);
+    if (!isOwner) {
+      return res.status(403).json({ error: 'Owner access required' });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(captureId)) {
+      return res.status(400).json({ error: 'Invalid captureId' });
+    }
+
+    await ReceiptCapture.findByIdAndUpdate(captureId, {
+      reviewExpiresAt: new Date(Date.now() - 1000)
+    });
+
+    await recordAuditLog({
+      type: 'receipt_capture_expire',
+      actorId: username,
+      details: `captureId=${captureId}`
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error expiring receipt capture:', error);
+    res.status(500).json({ error: 'Failed to expire receipt capture' });
+  }
+});
+
+/**
+ * GET /api/driver/receipt-store-aliases
+ * Fetch aliases for store (shortcut)
+ */
+router.get('/receipt-store-aliases', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId } = req.query;
+    if (!storeId) {
+      return res.status(400).json({ error: 'storeId required' });
+    }
+
+    const aliases = await ReceiptNameAlias.find({ storeId })
+      .sort({ lastConfirmedAt: -1 })
+      .limit(100)
+      .lean();
+
+    res.json({ ok: true, aliases });
+  } catch (error) {
+    console.error('Error fetching store aliases:', error);
+    res.status(500).json({ error: 'Failed to fetch store aliases' });
+  }
+});
+
+/**
+ * GET /api/driver/receipt-alias-history
+ * Fetch alias history (for admin tools)
+ */
+router.get('/receipt-alias-history', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { storeId, normalizedName } = req.query;
+    if (!storeId || !normalizedName) {
+      return res.status(400).json({ error: 'storeId and normalizedName required' });
+    }
+
+    const alias = await ReceiptNameAlias.findOne({ storeId, normalizedName }).lean();
+    if (!alias) {
+      return res.json({ ok: true, alias: null });
+    }
+
+    res.json({ ok: true, alias });
+  } catch (error) {
+    console.error('Error fetching alias history:', error);
+    res.status(500).json({ error: 'Failed to fetch alias history' });
+  }
+});
+
+/**
+ * GET /api/driver/receipt-health
+ * Debug route for receipt system health
+ */
+router.get('/receipt-health', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    res.json({
+      ok: true,
+      cloudinary: hasCloudinary,
+      queueEnabled: isReceiptQueueEnabled(),
+      learningEnabled: isPricingLearningEnabled()
+    });
+  } catch (error) {
+    console.error('Error fetching receipt health:', error);
+    res.status(500).json({ error: 'Failed to fetch receipt health' });
+  }
+});
+
+/**
+ * GET /api/driver/receipt-settings-debug
+ * Debug receipt settings
+ */
+router.get('/receipt-settings-debug', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    res.json({
+      ok: true,
+      ingestionMode: receiptIngestionMode(),
+      allowlist: Array.from(receiptStoreAllowlist()),
+      dailyCap: receiptDailyCap()
+    });
+  } catch (error) {
+    console.error('Error fetching receipt settings debug:', error);
+    res.status(500).json({ error: 'Failed to fetch receipt settings debug' });
   }
 });
 
