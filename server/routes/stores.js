@@ -6,7 +6,7 @@ import AppSettings from '../models/AppSettings.js';
 import StoreInventory from '../models/StoreInventory.js';
 import Product from '../models/Product.js';
 import UpcItem from '../models/UpcItem.js';
-import { authRequired, ownerRequired } from '../utils/helpers.js';
+import { authRequired, managerOrOwnerRequired, ownerRequired } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 
 const router = express.Router();
@@ -123,7 +123,7 @@ ${input}`;
 });
 
 // Create or update a store record
-router.post('/', authRequired, ownerRequired, async (req, res) => {
+router.post('/', authRequired, managerOrOwnerRequired, async (req, res) => {
   try {
     const {
       name,

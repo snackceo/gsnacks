@@ -7,11 +7,20 @@ import {
   isOwnerUsername,
   isDriverUsername,
   ownerRequired,
+  managerOrOwnerRequired,
   setAuthCookie,
   clearAuthCookie
 } from './helpers.js';
 
-export { authRequired, isOwnerUsername, isDriverUsername, ownerRequired, setAuthCookie, clearAuthCookie };
+export {
+  authRequired,
+  isOwnerUsername,
+  isDriverUsername,
+  ownerRequired,
+  managerOrOwnerRequired,
+  setAuthCookie,
+  clearAuthCookie
+};
 
 // Alias for convenience
 export const protect = authRequired;

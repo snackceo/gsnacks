@@ -194,6 +194,16 @@ function ownerRequired(req, res, next) {
   return next();
 }
 
+function managerOrOwnerRequired(req, res, next) {
+  const u = req.user;
+  const hasRole = u?.role === 'OWNER' || u?.role === 'MANAGER';
+  const hasOwnerUsername = u?.username && isOwnerUsername(u.username);
+  if (!hasRole && !hasOwnerUsername) {
+    return res.status(403).json({ error: 'Owner or manager access required' });
+  }
+  return next();
+}
+
 /* =========================
    CART / ORDER HELPERS
 ========================= */
@@ -508,6 +518,7 @@ export {
   calculateReturnFeeSummary,
   sumReturnCredits,
   ownerRequired,
+  managerOrOwnerRequired,
   releaseCreditAuthorization,
   restockOrderItems,
   voidStripeAuthorizationBestEffort
