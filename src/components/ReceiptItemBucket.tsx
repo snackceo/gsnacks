@@ -112,6 +112,11 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                   const priceDelta = typeof item.priceDelta === 'number' ? item.priceDelta : undefined;
                   const displayUpc = item.scannedUpc || item.suggestedProduct?.upc;
                   const canCreateProduct = !item.suggestedProduct && !item.isNoiseRule;
+                  const matchScore =
+                    typeof item.matchConfidence === 'number'
+                      ? `${(item.matchConfidence * 100).toFixed(0)}%`
+                      : null;
+                  const matchMethod = item.matchMethod ? item.matchMethod.replace(/_/g, ' ') : null;
 
                   return (
                     <div
@@ -134,6 +139,11 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                           <p className="text-sm font-semibold text-white truncate">
                             {item.receiptName}
                           </p>
+                          {item.normalizedName && (
+                            <p className="text-[10px] text-slate-500 mt-0.5 truncate">
+                              Normalized: {item.normalizedName}
+                            </p>
+                          )}
                           <div className="flex gap-3 mt-1 text-xs text-slate-400">
                             <span>Qty: {item.quantity}</span>
                             <span>Total: ${item.totalPrice.toFixed(2)}</span>
@@ -153,14 +163,14 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                               Δ {priceDelta >= 0 ? '+' : '-'}${Math.abs(priceDelta).toFixed(2)} vs last price
                             </p>
                           )}
-                          {item.matchConfidence !== undefined && (
+                          {(matchMethod || matchScore) && (
                             <p className="text-xs text-slate-500 mt-1">
-                              Confidence: {(item.matchConfidence * 100).toFixed(0)}%
+                              Match: {matchMethod || 'unknown'}{matchScore ? ` • ${matchScore}` : ''}
                             </p>
                           )}
                           {history.length > 0 && (
                             <div className="text-[10px] text-slate-500 mt-1">
-                              <p>Match history:</p>
+                              <p>Last 3 prices:</p>
                               <ul className="mt-1 space-y-0.5">
                                 {history.map((entry, historyIdx) => (
                                   <li key={historyIdx}>{formatHistoryEntry(entry)}</li>

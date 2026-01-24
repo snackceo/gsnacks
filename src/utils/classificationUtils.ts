@@ -7,6 +7,7 @@ import { ClassifiedReceiptItem, ReceiptItemClassification } from '../types';
 
 interface RawReceiptItem {
   receiptName: string;
+  normalizedName?: string;
   quantity: number;
   totalPrice: number;
   tokens?: ClassifiedReceiptItem['tokens'];
@@ -100,6 +101,7 @@ export function classifyItem(
 
   return {
     receiptName: item.receiptName,
+    normalizedName: item.normalizedName,
     quantity: item.quantity,
     totalPrice: item.totalPrice,
     unitPrice: Number(unitPrice.toFixed(2)),
@@ -110,7 +112,8 @@ export function classifyItem(
     matchHistory: item.matchHistory,
     suggestedProduct: item.suggestedProduct,
     matchConfidence: resolvedMatchConfidence,
-    matchMethod: item.matchMethod
+    matchMethod: item.matchMethod,
+    isNoiseRule: item.isNoiseRule
   };
 }
 
