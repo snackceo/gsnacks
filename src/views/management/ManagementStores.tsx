@@ -281,6 +281,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
         })
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 403) throw new Error('owner-only');
       if (!res.ok) throw new Error(data?.error || 'Save failed');
       await refreshStores();
       if (data.store?.id) {
@@ -778,6 +779,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
         body: JSON.stringify({ isPrimarySupplier: !store.isPrimarySupplier })
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 403) throw new Error('owner-only');
       if (!res.ok) throw new Error(data?.error || 'Failed to update primary supplier');
 
       await refreshStores();
