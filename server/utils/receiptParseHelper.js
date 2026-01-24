@@ -19,7 +19,7 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
   // For now, mark as parsed with empty items (placeholder)
   // In production, this would call Gemini, extract items, and match products
   // The existing receipt-prices.js route has the full implementation
-  
+
   const draftItems = [];
   capture.markParsed(draftItems);
   capture.geminiRequestId = `receipt_${capture._id}_${Date.now()}`;
@@ -32,12 +32,14 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
       {
         captureId: captureId.toString(),
         status: draftItems.length > 0 ? 'NEEDS_REVIEW' : 'PARSED',
+        geminiOutput: options.geminiOutput || undefined,
         items: draftItems.map(item => ({
           rawLine: item.receiptName,
           nameCandidate: item.normalizedName || item.receiptName,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           lineTotal: item.totalPrice,
+          requiresUpc: true,
           actionSuggestion: 'CREATE_PRODUCT',
           warnings: item.needsReview ? [item.reviewReason] : []
         }))

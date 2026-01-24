@@ -457,6 +457,8 @@ ReceiptItemClassification (enum): Buckets used for receipt parsing/classificatio
 
 ReceiptNoiseRule (data model): Persistent per-store rule that marks a normalized receipt line as noise so it is always classified into bucket D and excluded from product matching. Created via the “never match again” action in receipt review workflows.
 
+requiresUpc (boolean flag): Receipt parse item flag indicating that a line item still needs a UPC to be linked or captured before it can be matched or approved. Used in ReceiptParseJob proposals to highlight items that need barcode follow-up.
+
 Commit All Safe (action): Receipt review action that commits only bucket A items (auto-update OK) that already have a suggested product match. Used to batch-apply the safest price updates without manually selecting each line.
 
 Commit & Lock Prices (action): Receipt review option that commits receipt price updates while also applying a temporary price lock so automated updates are blocked until the lock expires. The lock duration is set by AppSettings.priceLockDays (default 7).
