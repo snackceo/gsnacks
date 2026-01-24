@@ -119,6 +119,13 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     onStoreSelected?.(pendingStoreId);
   }, [onStoreSelected, pendingStoreId]);
 
+  const handleStorelessConfirm = useCallback(() => {
+    setSelectedStoreId(null);
+    setPendingStoreId(null);
+    setShowStoreSelector(false);
+    setIsCameraOpen(true);
+  }, []);
+
   const handleStoreModalCancel = useCallback(() => {
     setShowStoreSelector(false);
     setIsCameraOpen(false);
@@ -140,8 +147,8 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     handlePrimarySupplierToggle(selectedStoreId, nextValue);
   }, [handlePrimarySupplierToggle, selectedStoreId, selectedStoreIsPrimary]);
 
-  // Only render camera if store is selected and should be open
-  const shouldRenderCamera = selectedStoreId && isCameraOpen;
+  // Render camera when the flow is open (store selection optional)
+  const shouldRenderCamera = isCameraOpen;
 
   return (
     <>
@@ -153,6 +160,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
           isOpen={showStoreSelector}
           onStoreChange={handleStoreChange}
           onConfirm={handleStoreConfirm}
+          onConfirmWithoutStore={handleStorelessConfirm}
           onCancel={handleStoreModalCancel}
           selectedStoreIsPrimary={pendingStoreIsPrimary}
           onPrimarySupplierToggle={handlePrimarySupplierToggle}
@@ -181,8 +189,6 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
           }
           selectedStoreIsPrimary={selectedStoreIsPrimary}
           onTogglePrimarySupplier={selectedStore ? handlePrimarySupplierToggleForScanner : undefined}
-          receiptSaveDisabled={!selectedStoreId}
-          receiptSaveDisabledReason="Select a store before capturing receipts."
           onClose={() => {
             setIsCameraOpen(false);
             scannerProps.onClose?.();

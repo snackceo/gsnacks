@@ -37,8 +37,8 @@ interface DraftItem {
 
 interface ReceiptCapture {
   _id: string;
-  storeId: string;
-  storeName: string;
+  storeId?: string;
+  storeName?: string;
   orderId?: string;
   status: string;
   images: ReceiptImage[];

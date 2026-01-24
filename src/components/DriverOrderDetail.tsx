@@ -86,13 +86,14 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
       setCapturedPhotos(prev => [...prev, photoDataUrl]);
       
       // Upload photo to backend immediately
+      const storeName = currentStoreId ? getStoreNameFromId(currentStoreId) : undefined;
       const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          storeId: currentStoreId || '',
-          storeName: currentStoreId ? getStoreNameFromId(currentStoreId) : 'Unknown Store',
+          storeId: currentStoreId || undefined,
+          storeName,
           orderId: order?.orderId || order?.id,
           images: [{
             dataUrl: photoDataUrl,

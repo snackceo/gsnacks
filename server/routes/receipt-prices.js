@@ -707,8 +707,8 @@ router.post('/upload-receipt-image', authRequired, async (req, res) => {
   try {
     const { image, storeId } = req.body;
 
-    if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
-      return res.status(400).json({ error: 'storeId is required' });
+    if (storeId && !mongoose.Types.ObjectId.isValid(storeId)) {
+      return res.status(400).json({ error: 'Valid storeId required' });
     }
 
     if (!image) {
@@ -755,6 +755,8 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
     const username = req.user?.username;
     const isOwnerRole = req.user?.role === 'OWNER';
     const isManagerRole = req.user?.role === 'MANAGER';
+    const normalizedStoreName =
+      typeof storeName === 'string' && storeName.trim().length > 0 ? storeName.trim() : undefined;
 
     // Authorization check
     const isOwner = isOwnerRole || isOwnerUsername(username);
@@ -785,27 +787,35 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
     }
 
     // Validation
-    if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
-      return res.status(400).json({ error: 'storeId is required' });
+    if (receiptIngestionMode() === 'disabled') {
+      return res.status(503).json({ error: 'Receipt ingestion disabled during rollout' });
+    }
+    if (storeId && !mongoose.Types.ObjectId.isValid(storeId)) {
+      return res.status(400).json({ error: 'Valid storeId required' });
     }
     if (!images || !Array.isArray(images) || images.length === 0 || images.length > 3) {
       return res.status(400).json({ error: 'images array required (1-3 photos)' });
     }
 
-    // Find store by id
-    const store = await Store.findById(storeId);
-    if (!store) {
-      return res.status(404).json({ error: 'Store not found' });
+    let store = null;
+    if (storeId) {
+      // Find store by id
+      store = await Store.findById(storeId);
+      if (!store) {
+        return res.status(404).json({ error: 'Store not found' });
+      }
     }
 
     // Enforce driver-store binding
-    if (isDriver && !driverCanAccessStore(username, store._id.toString())) {
+    if (store && isDriver && !driverCanAccessStore(username, store._id.toString())) {
       return res.status(403).json({ error: 'Driver not authorized for this store' });
     }
 
-    const ingestionCheck = await ensureIngestionAllowed(store._id.toString());
-    if (!ingestionCheck.ok) {
-      return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
+    if (store) {
+      const ingestionCheck = await ensureIngestionAllowed(store._id.toString());
+      if (!ingestionCheck.ok) {
+        return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
+      }
     }
 
     // Validate image URLs and sizes
@@ -864,8 +874,8 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
     // Create ReceiptCapture record
     const capture = new ReceiptCapture({
       captureRequestId, // For idempotency
-      storeId: store._id.toString(),
-      storeName: store.name,
+      storeId: store?._id?.toString(),
+      storeName: store?.name || normalizedStoreName,
       orderId: orderId || undefined,
       images: images.map((img, idx) => ({
         url: img.url,
@@ -881,12 +891,17 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
 
     // Attempt store matching for receipt proposals (optional, for management review)
     try {
-      const matchResult = await matchStoreCandidate({
-        name: store.name,
-        address: store.address,
-        phone: store.phone,
-        storeType: store.storeType
-      });
+      const matchPayload = store
+        ? {
+            name: store.name,
+            address: store.address,
+            phone: store.phone,
+            storeType: store.storeType
+          }
+        : normalizedStoreName
+          ? { name: normalizedStoreName }
+          : null;
+      const matchResult = matchPayload ? await matchStoreCandidate(matchPayload) : null;
 
       // Create a draft ReceiptParseJob even before parsing with store candidate info
       await ReceiptParseJob.findOneAndUpdate(
@@ -895,10 +910,10 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
           captureId: capture._id.toString(),
           status: 'QUEUED',
           storeCandidate: {
-            name: store.name,
-            address: store.address,
-            phone: store.phone,
-            storeType: store.storeType,
+            name: store?.name || normalizedStoreName || 'Unknown Store',
+            address: store?.address || {},
+            phone: store?.phone,
+            storeType: store?.storeType,
             confidence: matchResult?.confidence || 0,
             storeId: matchResult?.match?._id || undefined
           }
@@ -912,7 +927,7 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
     await recordAuditLog({
       type: 'receipt_capture_create',
       actorId: username || 'unknown',
-      details: `store=${storeId} images=${capture.images.length} capture=${capture._id.toString()}`
+      details: `store=${store?._id?.toString() || 'none'} storeName=${store?.name || normalizedStoreName || 'unknown'} images=${capture.images.length} capture=${capture._id.toString()}`
     });
 
     res.json({
@@ -949,9 +964,11 @@ router.get('/receipt-capture/:captureId', authRequired, async (req, res) => {
       return res.status(404).json({ error: 'Receipt capture not found' });
     }
 
-    const ingestionCheck = await ensureIngestionAllowed(capture.storeId);
-    if (!ingestionCheck.ok) {
-      return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
+    if (capture.storeId) {
+      const ingestionCheck = await ensureIngestionAllowed(capture.storeId);
+      if (!ingestionCheck.ok) {
+        return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
+      }
     }
 
     res.json({
@@ -1016,7 +1033,7 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
     }
 
     // Enforce driver-store binding
-    if (isDriver && !driverCanAccessStore(req.user?.username, capture.storeId)) {
+    if (capture.storeId && isDriver && !driverCanAccessStore(req.user?.username, capture.storeId)) {
       return res.status(403).json({ error: 'Driver not authorized for this store' });
     }
 
@@ -1024,9 +1041,11 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
       return res.status(400).json({ error: `Cannot parse receipt with status: ${capture.status}` });
     }
 
-    const ingestionCheck = await ensureIngestionAllowed(capture.storeId);
-    if (!ingestionCheck.ok) {
-      return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
+    if (capture.storeId) {
+      const ingestionCheck = await ensureIngestionAllowed(capture.storeId);
+      if (!ingestionCheck.ok) {
+        return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
+      }
     }
 
     const queueEnabled = isReceiptQueueEnabled();

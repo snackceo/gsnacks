@@ -27,8 +27,8 @@ import { UPC_CONTAINER_LABELS } from './constants';
 
 interface ReceiptCapture {
   _id: string;
-  storeId: string;
-  storeName: string;
+  storeId?: string;
+  storeName?: string;
   orderId?: string;
   status: string;
   imageCount: number;
@@ -434,11 +434,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   }, [getReceiptItemKey]);
 
   const openReceiptScanner = () => {
-    if (!activeStoreId) {
-      setReceiptError('Please set an active store before capturing receipts.');
-      addToast('Select an active store before capturing receipts.', 'error');
-      return;
-    }
     setReceiptError(null);
     setShowReceiptScanner(true);
   };
@@ -854,11 +849,11 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
 
   const handlePhotoCaptured = useCallback(async (photoDataUrl: string, _mime: string) => {
-    if (!activeStoreId || !activeStore) return;
-
     try {
       setReceiptError(null);
-      const uploadResult = await uploadReceiptPhoto(photoDataUrl, activeStoreId, activeStore.name);
+      const storeId = activeStoreId || undefined;
+      const storeName = activeStore?.name || undefined;
+      const uploadResult = await uploadReceiptPhoto(photoDataUrl, storeId, storeName);
 
       if (!uploadResult) {
         setReceiptError('Cloudinary not configured. Please set up image uploads.');
@@ -872,8 +867,8 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          storeId: activeStoreId,
-          storeName: activeStore.name,
+          storeId,
+          storeName,
           captureRequestId: createCaptureRequestId(),
           images: [
             {
@@ -910,7 +905,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
       addToast('Receipt uploaded & parsed', 'success');
       setShowReceiptScanner(false);
-      await loadReceiptCaptureForReview(captureId, activeStoreId);
+      await loadReceiptCaptureForReview(captureId, activeStoreId || undefined);
       void fetchReceiptCaptures();
     } catch (err: any) {
       console.error('Receipt capture error:', err);
