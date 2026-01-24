@@ -804,6 +804,14 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     setActiveReceiptCaptureId(null);
   }, []);
 
+  const createCaptureRequestId = () => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+    return `capture_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  };
+
+
   const handlePhotoCaptured = useCallback(async (photoDataUrl: string, _mime: string) => {
     if (!activeStoreId || !activeStore) return;
 
@@ -1288,14 +1296,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       setReceiptError(err?.message || 'Failed to save noise rule');
     }
   }, [activeStoreId, addToast, updateReceiptItem]);
-
-  const createCaptureRequestId = () => {
-    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-      return crypto.randomUUID();
-    }
-    return `capture_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  };
-
 
   const commitReceiptItems = useCallback(async (
     itemsToCommit: ClassifiedReceiptItem[],
