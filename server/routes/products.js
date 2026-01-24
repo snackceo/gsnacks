@@ -16,6 +16,7 @@ const mapProduct = d => ({
   deposit: d.deposit ?? 0,
   stock: d.stock ?? 0,
   sizeOz: d.sizeOz ?? 0,
+  isTaxable: d.isTaxable !== undefined ? !!d.isTaxable : true,
   category: d.category ?? 'DRINK',
   image: d.image ?? '',
   brand: d.brand || '',
@@ -80,6 +81,7 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       storageZone,
       storageBin,
       isHeavy,
+      isTaxable,
       upc
     } = req.body || {};
     const normalizedUpc = upc ? String(upc).trim() : '';
@@ -99,6 +101,7 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       deposit: Number(deposit || 0),
       stock: Number(stock || 0),
       sizeOz: Number(sizeOz || 0),
+      isTaxable: isTaxable !== undefined ? !!isTaxable : true,
       category: category || 'DRINK',
       image: image || '',
       isGlass: !!isGlass,
@@ -134,6 +137,7 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
       'deposit',
       'stock',
       'sizeOz',
+      'isTaxable',
       'category',
       'brand',
       'productType',
@@ -155,6 +159,7 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
     if (updates.sizeOz !== undefined) updates.sizeOz = Number(updates.sizeOz);
     if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
     if (updates.isHeavy !== undefined) updates.isHeavy = !!updates.isHeavy;
+    if (updates.isTaxable !== undefined) updates.isTaxable = !!updates.isTaxable;
     if (updates.upc !== undefined) {
       const normalizedUpc = String(updates.upc).trim();
       if (normalizedUpc) {

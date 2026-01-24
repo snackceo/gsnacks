@@ -14,6 +14,7 @@ const productSchema = new mongoose.Schema(
     deposit: { type: Number, default: 0 },
     stock: { type: Number, default: 0 },
     sizeOz: { type: Number, default: 0 },
+    isTaxable: { type: Boolean, default: true },
 
     category: { type: String, default: 'DRINK' },
     image: { type: String, default: '' },

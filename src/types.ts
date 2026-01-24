@@ -101,6 +101,7 @@ export interface Product {
   deposit: number;
   stock: number;
   sizeOz: number;
+  isTaxable?: boolean;
   sizeUnit?: SizeUnit;
   category: string;
   image: string;

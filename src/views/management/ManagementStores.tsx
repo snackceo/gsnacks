@@ -57,7 +57,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   error,
   setError
 }) => {
-  const { addToast, products, fetchProducts, createProduct, settings } = useNinpoCore();
+  const { addToast, products, fetchProducts, setProducts, settings, currentUser } = useNinpoCore();
   const [rawInput, setRawInput] = useState('');
   const [isEnriching, setIsEnriching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -75,6 +75,15 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   const [isSearchingProducts, setIsSearchingProducts] = useState(false);
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
   const [isCreatingProduct, setIsCreatingProduct] = useState(false);
+  const [createProductItem, setCreateProductItem] = useState<ClassifiedReceiptItem | null>(null);
+  const [createProductDraft, setCreateProductDraft] = useState({
+    name: '',
+    category: 'DRINK',
+    sizeOz: 0,
+    deposit: 0,
+    isTaxable: true,
+    price: 0
+  });
   const [noiseRules, setNoiseRules] = useState<NoiseRuleEntry[]>([]);
   const [showNoiseRules, setShowNoiseRules] = useState(false);
   const [isLoadingNoiseRules, setIsLoadingNoiseRules] = useState(false);
@@ -86,6 +95,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   });
 
   const activeStore = useMemo(() => stores.find(s => s.id === activeStoreId) || null, [stores, activeStoreId]);
+  const canCreateProducts = currentUser?.role === 'OWNER' || currentUser?.role === 'MANAGER';
 
   const filteredProducts = useMemo(() => productSearchResults, [productSearchResults]);
 
@@ -503,39 +513,85 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
     }
   }, [addToast, confirmReceiptMatch, linkUpcToProduct, productSearchItem, setError, updateReceiptItem]);
 
-  const handleCreateProduct = useCallback(async (item: ClassifiedReceiptItem) => {
-    if (isCreatingProduct) return;
+  const handleOpenCreateProduct = useCallback((item: ClassifiedReceiptItem) => {
+    if (!canCreateProducts) {
+      setError('Owner access required to create products');
+      return;
+    }
+
+    setCreateProductItem(item);
+    setCreateProductDraft({
+      name: item.receiptName,
+      category: 'DRINK',
+      sizeOz: 0,
+      deposit: 0,
+      isTaxable: true,
+      price: Number(item.unitPrice.toFixed(2))
+    });
+  }, [canCreateProducts, setError]);
+
+  const handleCreateProduct = useCallback(async () => {
+    if (isCreatingProduct || !createProductItem) return;
+    if (!activeStoreId) {
+      setError('Select an active store before creating products');
+      return;
+    }
+    if (!canCreateProducts) {
+      setError('Owner access required to create products');
+      return;
+    }
+
+    const trimmedName = createProductDraft.name.trim();
+    if (!trimmedName) {
+      setError('Canonical name is required');
+      return;
+    }
 
     setIsCreatingProduct(true);
     try {
-      const created = await createProduct({
-        name: item.receiptName,
-        price: item.unitPrice,
-        category: 'DRINK'
+      const res = await fetch(`${BACKEND_URL}/api/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: trimmedName,
+          price: createProductDraft.price,
+          deposit: createProductDraft.deposit,
+          sizeOz: createProductDraft.sizeOz,
+          category: createProductDraft.category,
+          isTaxable: createProductDraft.isTaxable,
+          stock: 0
+        })
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to create product');
 
-      if (item.scannedUpc) {
-        await linkUpcToProduct(item.scannedUpc, created.sku || created.id);
+      const created = data.product;
+      setProducts(prev => [created, ...prev]);
+      addToast('Product created', 'success');
+
+      if (createProductItem.scannedUpc) {
+        await linkUpcToProduct(createProductItem.scannedUpc, created.sku || created.id);
         addToast('UPC linked to new product', 'success');
       }
 
       const searchQuery = created.sku || created.id;
       let productId = created.id;
       if (searchQuery) {
-        const res = await fetch(`${BACKEND_URL}/api/products/search?query=${encodeURIComponent(searchQuery)}`, {
+        const searchRes = await fetch(`${BACKEND_URL}/api/products/search?query=${encodeURIComponent(searchQuery)}`, {
           credentials: 'include'
         });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && Array.isArray(data?.products)) {
-          const match = data.products.find((entry: any) => entry.sku === created.sku || entry.id === created.id);
+        const searchData = await searchRes.json().catch(() => ({}));
+        if (searchRes.ok && Array.isArray(searchData?.products)) {
+          const match = searchData.products.find((entry: any) => entry.sku === created.sku || entry.id === created.id);
           if (match?.productId) productId = match.productId;
         }
       }
 
-      await confirmReceiptMatch(item, productId);
+      await confirmReceiptMatch(createProductItem, productId);
 
       updateReceiptItem(
-        item,
+        createProductItem,
         {
           suggestedProduct: {
             id: created.id,
@@ -551,12 +607,13 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
         },
         { forceSelect: true }
       );
+      setCreateProductItem(null);
     } catch (err: any) {
       setError(err?.message || 'Failed to create product');
     } finally {
       setIsCreatingProduct(false);
     }
-  }, [addToast, confirmReceiptMatch, createProduct, isCreatingProduct, linkUpcToProduct, setError, updateReceiptItem]);
+  }, [activeStoreId, addToast, canCreateProducts, confirmReceiptMatch, createProductDraft, createProductItem, isCreatingProduct, linkUpcToProduct, setError, setProducts, updateReceiptItem]);
 
   const handleNeverMatch = useCallback(async (item: ClassifiedReceiptItem) => {
     if (!activeStoreId) {
@@ -611,6 +668,11 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       const itemsToCommit = classifiedItems.filter(item =>
         selectedItemsForCommit.has(JSON.stringify(item))
       );
+      const unpreparedItems = itemsToCommit.filter(item => !item.suggestedProduct);
+      if (unpreparedItems.length > 0) {
+        setError('Create products for unknown/new items before commit');
+        return;
+      }
 
       // Send to backend for two-phase commit
       const commitRes = await fetch(`${BACKEND_URL}/api/stores/${activeStoreId}/prices`, {
@@ -961,7 +1023,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
                 onItemReclassify={handleItemReclassify}
                 onItemScanUpc={handleItemScanUpc}
                 onItemSearchProduct={handleItemSearchProduct}
-                onItemCreateProduct={handleCreateProduct}
+                onItemCreateProduct={canCreateProducts ? handleOpenCreateProduct : undefined}
                 onItemNeverMatch={handleNeverMatch}
                 isReadOnly={false}
               />
@@ -993,6 +1055,112 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
               >
                 {isCommitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 {isCommitting ? 'Committing…' : 'Commit Selected'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {createProductItem && (
+        <div className="fixed inset-0 z-50 bg-ninpo-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-ninpo-card rounded-[2rem] border border-white/10 max-w-2xl w-full p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-white font-black uppercase text-sm tracking-widest">Create Product</h3>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest">
+                  Unknown/New item: {createProductItem.receiptName}
+                </p>
+              </div>
+              <button
+                onClick={() => setCreateProductItem(null)}
+                className="text-slate-400 hover:text-white transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600 md:col-span-2">
+                <span>Canonical Name</span>
+                <input
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  placeholder="e.g. Coca-Cola 12oz"
+                  value={createProductDraft.name}
+                  onChange={e => setCreateProductDraft(prev => ({ ...prev, name: e.target.value }))}
+                />
+              </label>
+              <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                <span>Category</span>
+                <select
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  value={createProductDraft.category}
+                  onChange={e => setCreateProductDraft(prev => ({ ...prev, category: e.target.value }))}
+                >
+                  <option value="DRINK">Drink</option>
+                  <option value="SNACK">Snack</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </label>
+              <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                <span>Size (oz)</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  value={createProductDraft.sizeOz}
+                  onChange={e => setCreateProductDraft(prev => ({ ...prev, sizeOz: Number(e.target.value) }))}
+                />
+              </label>
+              <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                <span>Taxability</span>
+                <select
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  value={createProductDraft.isTaxable ? 'taxable' : 'non-taxable'}
+                  onChange={e => setCreateProductDraft(prev => ({ ...prev, isTaxable: e.target.value === 'taxable' }))}
+                >
+                  <option value="taxable">Taxable</option>
+                  <option value="non-taxable">Non-taxable</option>
+                </select>
+              </label>
+              <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                <span>Deposit ($)</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  value={createProductDraft.deposit}
+                  onChange={e => setCreateProductDraft(prev => ({ ...prev, deposit: Number(e.target.value) }))}
+                />
+              </label>
+              <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                <span>Unit Price ($)</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
+                  value={createProductDraft.price}
+                  onChange={e => setCreateProductDraft(prev => ({ ...prev, price: Number(e.target.value) }))}
+                />
+              </label>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setCreateProductItem(null)}
+                className="flex-1 px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateProduct}
+                disabled={isCreatingProduct || !createProductDraft.name.trim()}
+                className="flex-1 px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 bg-ninpo-lime text-ninpo-black disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isCreatingProduct ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                {isCreatingProduct ? 'Creating…' : 'Create Product & Inventory'}
               </button>
             </div>
           </div>
