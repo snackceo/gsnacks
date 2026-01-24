@@ -1581,6 +1581,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                   Review Pending Receipts
                 </h3>
                 <p className="text-sm text-purple-100 mt-2">Pending receipts awaiting review.</p>
+                <p className="text-xs text-purple-100/80 mt-1">Capture new receipts from the Upload Receipt card.</p>
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-purple-100">
@@ -1597,13 +1598,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   Review Queue
-                </button>
-                <button
-                  onClick={openReceiptScanner}
-                  className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-white text-sm font-semibold flex items-center gap-2"
-                >
-                  <Camera className="w-4 h-4" />
-                  New Receipt
                 </button>
               </div>
             </div>
