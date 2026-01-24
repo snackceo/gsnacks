@@ -1648,7 +1648,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                       </div>
 
                       <div className="mt-3 text-xs text-purple-200">
-                        {new Date(capture.createdAt).toLocaleString()}
+                        {fmtTime(capture.createdAt)}
                       </div>
 
                       <div className="mt-3 flex items-center gap-2">
@@ -2200,6 +2200,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         runAuditSummary={runAuditSummary}
         auditSummary={auditSummary}
         isAuditSummaryLoading={isAuditSummaryLoading}
+        fmtTime={fmtTime}
       />
 
       {showReceiptScanner && (
