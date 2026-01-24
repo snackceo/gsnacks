@@ -304,7 +304,8 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     }));
     const safe = confidences.filter(entry => entry.effective >= aliasConfidenceThreshold);
     const gated = confidences.filter(entry => entry.effective < aliasConfidenceThreshold);
-    const averageEffective = confidences.length
+    const total = confidences.length;
+    const averageEffective = total
       ? confidences.reduce((sum, entry) => sum + entry.effective, 0) / confidences.length
       : 0;
     const trend = confidences
@@ -316,8 +317,11 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       .slice(-12)
       .map(entry => entry.confidence);
     return {
+      total,
       safeCount: safe.length,
       gatedCount: gated.length,
+      safePct: total ? (safe.length / total) * 100 : 0,
+      gatedPct: total ? (gated.length / total) * 100 : 0,
       averageEffective,
       trend
     };
@@ -1832,8 +1836,16 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                       .slice(-5)
                       .reverse()
                       .map((entry, index) => (
-                        <div key={`${entry.observedAt || 'row'}-${index}`} className="flex justify-between text-xs text-slate-300">
-                          <span>{entry.observedAt ? new Date(entry.observedAt).toLocaleDateString() : 'Unknown date'}</span>
+                        <div key={`${entry.observedAt || 'row'}-${index}`} className="grid grid-cols-[1fr_auto] gap-2 text-xs text-slate-300">
+                          <div>
+                            <div>{entry.observedAt ? new Date(entry.observedAt).toLocaleDateString() : 'Unknown date'}</div>
+                            <div className="text-[10px] text-slate-500">
+                              {entry.matchMethod ? entry.matchMethod : 'Receipt'}
+                              {typeof entry.matchConfidence === 'number'
+                                ? ` • ${(entry.matchConfidence * 100).toFixed(0)}%`
+                                : ''}
+                            </div>
+                          </div>
                           <span className="font-semibold text-white">${entry.price.toFixed(2)}</span>
                         </div>
                       ))}
@@ -1850,19 +1862,23 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
-                  <div className="text-[10px] uppercase tracking-widest text-slate-500">Safe</div>
-                  <div className="text-lg font-bold text-emerald-200">{aliasConfidenceSummary.safeCount}</div>
-                  <div className="text-[10px] text-slate-500">≥ {(aliasConfidenceThreshold * 100).toFixed(0)}%</div>
-                </div>
-                <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
-                  <div className="text-[10px] uppercase tracking-widest text-slate-500">Gated</div>
-                  <div className="text-lg font-bold text-amber-200">{aliasConfidenceSummary.gatedCount}</div>
-                  <div className="text-[10px] text-slate-500">Needs review</div>
+                <div className="text-[10px] uppercase tracking-widest text-slate-500">Safe</div>
+                <div className="text-lg font-bold text-emerald-200">{aliasConfidenceSummary.safeCount}</div>
+                <div className="text-[10px] text-slate-500">
+                  ≥ {(aliasConfidenceThreshold * 100).toFixed(0)}% ({aliasConfidenceSummary.safePct.toFixed(0)}%)
                 </div>
               </div>
-
               <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
-                <div className="text-[10px] uppercase tracking-widest text-slate-500">Avg Effective Confidence</div>
+                <div className="text-[10px] uppercase tracking-widest text-slate-500">Gated</div>
+                <div className="text-lg font-bold text-amber-200">{aliasConfidenceSummary.gatedCount}</div>
+                <div className="text-[10px] text-slate-500">
+                  Needs review ({aliasConfidenceSummary.gatedPct.toFixed(0)}%)
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
+              <div className="text-[10px] uppercase tracking-widest text-slate-500">Avg Effective Confidence</div>
                 <div className="text-lg font-bold text-white">
                   {(aliasConfidenceSummary.averageEffective * 100).toFixed(0)}%
                 </div>
@@ -1895,6 +1911,9 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                     <span>Auto-matched</span>
                     <span className="text-white font-semibold">{receiptHealthSummary.autoMatchedPct.toFixed(0)}%</span>
                   </div>
+                  <div className="text-[10px] text-slate-500">
+                    {receiptHealthSummary.autoMatchedItems} of {receiptHealthSummary.totalItems} items
+                  </div>
                   <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-emerald-400"
@@ -1908,6 +1927,9 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                     <span>Requires review</span>
                     <span className="text-white font-semibold">{receiptHealthSummary.reviewPct.toFixed(0)}%</span>
                   </div>
+                  <div className="text-[10px] text-slate-500">
+                    {receiptHealthSummary.itemsNeedingReview} queued
+                  </div>
                   <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-amber-400"
@@ -1920,6 +1942,9 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                   <div className="flex items-center justify-between text-xs text-slate-400">
                     <span>Error rate</span>
                     <span className="text-white font-semibold">{receiptHealthSummary.errorPct.toFixed(1)}%</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {receiptHealthSummary.failedCaptures} failed of {receiptHealthSummary.totalCaptures} captures
                   </div>
                   <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
                     <div
