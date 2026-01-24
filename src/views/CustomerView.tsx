@@ -220,7 +220,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
         <>
           {/* Main product/market view */}
 
-          <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4 px-1">
+          <div className="flex gap-2 sm:gap-4 overflow-x-auto whitespace-nowrap no-scrollbar pb-4 -mx-4 px-4 sm:mx-0 sm:px-1">
             {CATEGORIES.map(cat => {
               const catKey = cat.toUpperCase();
               return (
