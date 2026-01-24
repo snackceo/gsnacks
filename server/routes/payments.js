@@ -45,6 +45,19 @@ const DEFAULT_DISTANCE_FEES = {
   distanceBand3Rate: 1.0
 };
 
+// Staleness policy: warn but do not block when price data is old
+const STALENESS_DAYS_STABLE = 45;
+const STALENESS_DAYS_VOLATILE = 10;
+
+const evaluatePriceStaleness = (product, isVolatileStore = false) => {
+  const thresholdDays = isVolatileStore ? STALENESS_DAYS_VOLATILE : STALENESS_DAYS_STABLE;
+  const updatedAt = product?.updatedAt || product?.createdAt || null;
+  if (!updatedAt) return { stale: true, updatedAt: null, days: Number.POSITIVE_INFINITY };
+  const updated = new Date(updatedAt);
+  const ageDays = (Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24);
+  return { stale: ageDays > thresholdDays, updatedAt: updated, days: ageDays };
+};
+
 // Pricing lock helpers
 const getPricingSecret = () => process.env.PRICING_SECRET || process.env.JWT_SECRET || '';
 const verifyPricingLock = (lock) => {
@@ -278,12 +291,13 @@ const createPaymentsRouter = ({ stripe }) => {
 
       let totalCents = 0;
       let productSubtotalCents = 0;
+      const stalenessWarnings = [];
       let { largeOrderFeeCents, heavyItemFeeCents } = fees;
 
       if (Array.isArray(items) && items.length > 0) {
         const products = await Product.find(
           { frontendId: { $in: items.map(item => item.productId) } },
-          { price: 1, frontendId: 1, isHeavy: 1 }
+          { price: 1, frontendId: 1, isHeavy: 1, updatedAt: 1, createdAt: 1 }
         ).lean();
         const productMap = new Map(products.map(product => [product.frontendId, product]));
 
@@ -291,6 +305,14 @@ const createPaymentsRouter = ({ stripe }) => {
           const product = productMap.get(item.productId);
           if (!product) {
             return res.status(400).json({ error: `Unknown product ${item.productId}` });
+          }
+          if (!Number.isFinite(Number(product.price))) {
+            return res.status(400).json({ error: `Product ${item.productId} has no committed price` });
+          }
+          const staleness = evaluatePriceStaleness(product, false);
+          if (staleness.stale) {
+            const dateStr = staleness.updatedAt ? staleness.updatedAt.toISOString().slice(0, 10) : 'unknown date';
+            stalenessWarnings.push(`Price for ${item.productId} last verified on ${dateStr}`);
           }
           const unit = Math.round(Number(product.price || 0) * 100);
           const lineTotal = unit * item.quantity;
@@ -334,7 +356,8 @@ const createPaymentsRouter = ({ stripe }) => {
         distanceMiles: roundedDistanceMiles,
         orderType,
         largeOrderFee: largeOrderFeeCents / 100,
-        heavyItemFee: heavyItemFeeCents / 100
+        heavyItemFee: heavyItemFeeCents / 100,
+        stalenessWarnings: stalenessWarnings.length > 0 ? stalenessWarnings : undefined
       });
     } catch (err) {
       console.error('QUOTE ERROR:', err);
@@ -420,6 +443,7 @@ const createPaymentsRouter = ({ stripe }) => {
       const lineItems = [];
       let totalCents = 0;
       let productSubtotalCents = 0;
+      const stalenessWarnings = [];
 
       await sessionDb.withTransaction(async () => {
         const products = await Promise.all(
@@ -444,6 +468,18 @@ const createPaymentsRouter = ({ stripe }) => {
               err.meta = { productId: item.productId, available };
               throw err;
             }
+            if (!Number.isFinite(Number(updated.price))) {
+              const e = new Error(`Product ${item.productId} has no committed price`);
+              e.code = 'NO_COMMITTED_PRICE';
+              throw e;
+            }
+
+            const staleness = evaluatePriceStaleness(updated, false);
+            if (staleness.stale) {
+              const dateStr = staleness.updatedAt ? staleness.updatedAt.toISOString().slice(0, 10) : 'unknown date';
+              stalenessWarnings.push(`Price for ${item.productId} last verified on ${dateStr}`);
+            }
+
             return { updated, item };
           })
         );
@@ -594,6 +630,9 @@ const createPaymentsRouter = ({ stripe }) => {
       await Order.findOneAndUpdate({ orderId }, { stripeSessionId: stripeSession.id });
 
       const responsePayload = { sessionUrl: stripeSession.url };
+      if (stalenessWarnings.length > 0) {
+        responsePayload.stalenessWarnings = stalenessWarnings;
+      }
       const uniqueIneligibleUpcs = [...new Set(ineligibleUpcs)];
       if (uniqueIneligibleUpcs.length > 0) {
         responsePayload.warning = 'Some return UPCs are ineligible and were removed.';
@@ -621,6 +660,9 @@ const createPaymentsRouter = ({ stripe }) => {
 
       if (err?.code === 'INSUFFICIENT_STOCK') {
         return res.status(400).json({ error: err.message, meta: err.meta });
+      }
+      if (err?.code === 'NO_COMMITTED_PRICE') {
+        return res.status(400).json({ error: err.message });
       }
 
       res.status(500).json({ error: 'Stripe session failed' });
@@ -737,6 +779,18 @@ const createPaymentsRouter = ({ stripe }) => {
                 err.meta = { productId: item.productId, available };
                 throw err;
               }
+              if (!Number.isFinite(Number(updated.price))) {
+                const e = new Error(`Product ${item.productId} has no committed price`);
+                e.code = 'NO_COMMITTED_PRICE';
+                throw e;
+              }
+
+              const staleness = evaluatePriceStaleness(updated, false);
+              if (staleness.stale) {
+                const dateStr = staleness.updatedAt ? staleness.updatedAt.toISOString().slice(0, 10) : 'unknown date';
+                stalenessWarnings.push(`Price for ${item.productId} last verified on ${dateStr}`);
+              }
+
               return { updated, item };
             })
           );
@@ -903,6 +957,9 @@ const createPaymentsRouter = ({ stripe }) => {
           order: mapOrderForFrontend(remainingOrder),
           creditBalance: Number(user.creditBalance || 0) // Return available balance
         };
+        if (stalenessWarnings.length > 0) {
+          responsePayload.stalenessWarnings = stalenessWarnings;
+        }
         if (uniqueIneligibleUpcs.length > 0) {
           responsePayload.warning = 'Some return UPCs are ineligible and were removed.';
           responsePayload.ineligibleUpcs = uniqueIneligibleUpcs;
@@ -947,6 +1004,9 @@ const createPaymentsRouter = ({ stripe }) => {
         creditsAuthorized: Number(remainingOrder.creditAuthorizedCents || 0) / 100,
         creditBalance: Number(user.creditBalance || 0)
       };
+      if (stalenessWarnings.length > 0) {
+        responsePayload.stalenessWarnings = stalenessWarnings;
+      }
       if (uniqueIneligibleUpcs.length > 0) {
         responsePayload.warning = 'Some return UPCs are ineligible and were removed.';
         responsePayload.ineligibleUpcs = uniqueIneligibleUpcs;
@@ -960,6 +1020,9 @@ const createPaymentsRouter = ({ stripe }) => {
       }
       if (err?.code === 'PENDING_CREDIT_TRANSACTION') {
         return res.status(409).json({ error: err.message });
+      }
+      if (err?.code === 'NO_COMMITTED_PRICE') {
+        return res.status(400).json({ error: err.message });
       }
 
       res.status(500).json({ error: 'Credits checkout failed' });

@@ -13,6 +13,8 @@ import AppSettings from '../models/AppSettings.js';
 import { authRequired, isDriverUsername, isOwnerUsername, driverCanAccessStore } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { isDbReady } from '../db/connect.js';
+import { isPricingLearningEnabled, receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap } from '../utils/featureFlags.js';
+import { enqueueReceiptJob, isReceiptQueueEnabled } from '../queues/receiptQueue.js';
 
 const getGeminiApiKey = () =>
   process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
@@ -30,6 +32,37 @@ const DEFAULT_PRICE_LOCK_DAYS = 7;
 const coerceNumber = value => {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
+};
+
+const isStoreAllowlisted = storeId => {
+  const allowlist = receiptStoreAllowlist();
+  if (!storeId) return false;
+  if (allowlist.size === 0) return true;
+  return allowlist.has(String(storeId));
+};
+
+const ensureIngestionAllowed = async storeId => {
+  if (receiptIngestionMode() === 'disabled') {
+    return { ok: false, status: 503, error: 'Receipt ingestion disabled during rollout' };
+  }
+  if (!isStoreAllowlisted(storeId)) {
+    return { ok: false, status: 403, error: 'Store not allowlisted for ingestion during rollout' };
+  }
+
+  const cap = receiptDailyCap();
+  if (cap) {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const countToday = await ReceiptCapture.countDocuments({
+      storeId,
+      createdAt: { $gte: startOfDay }
+    });
+    if (countToday >= cap) {
+      return { ok: false, status: 429, error: 'Receipt ingestion daily cap reached' };
+    }
+  }
+
+  return { ok: true };
 };
 
 // Extract base64 and mime from data URL
@@ -694,6 +727,11 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
       return res.status(403).json({ error: 'Driver not authorized for this store' });
     }
 
+    const ingestionCheck = await ensureIngestionAllowed(store._id.toString());
+    if (!ingestionCheck.ok) {
+      return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
+    }
+
     // Validate image URLs and sizes
     for (const img of images) {
       if (!img.url || typeof img.url !== 'string') {
@@ -805,6 +843,11 @@ router.get('/receipt-capture/:captureId', authRequired, async (req, res) => {
       return res.status(404).json({ error: 'Receipt capture not found' });
     }
 
+    const ingestionCheck = await ensureIngestionAllowed(capture.storeId);
+    if (!ingestionCheck.ok) {
+      return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
+    }
+
     res.json({
       ok: true,
       capture: {
@@ -873,6 +916,40 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
 
     if (capture.status !== 'pending_parse' && capture.status !== 'failed') {
       return res.status(400).json({ error: `Cannot parse receipt with status: ${capture.status}` });
+    }
+
+    const ingestionCheck = await ensureIngestionAllowed(capture.storeId);
+    if (!ingestionCheck.ok) {
+      return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
+    }
+
+    const queueEnabled = isReceiptQueueEnabled();
+    const learningOn = isPricingLearningEnabled();
+
+    if (!learningOn && !queueEnabled) {
+      return res.status(503).json({ error: 'Pricing learning disabled and queue not configured' });
+    }
+
+    if (queueEnabled) {
+      capture.status = 'pending_parse';
+      capture.parseError = null;
+      await capture.save();
+
+      const jobId = `receipt-parse:${capture._id.toString()}`;
+      const enqueue = await enqueueReceiptJob(
+        'receipt-parse',
+        {
+          captureId: capture._id.toString(),
+          actor: req.user?.username || 'unknown'
+        },
+        { jobId }
+      );
+
+      if (!enqueue.ok) {
+        return res.status(503).json({ error: 'Queue unavailable for receipt parsing' });
+      }
+
+      return res.status(202).json({ ok: true, queued: true, jobId });
     }
 
     // Check Gemini API availability
@@ -1498,6 +1575,10 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
     return res.status(503).json({ error: 'Database not ready' });
   }
 
+  if (!isPricingLearningEnabled()) {
+    return res.status(503).json({ error: 'Pricing learning disabled during rollout' });
+  }
+
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -1761,6 +1842,10 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
     return res.status(503).json({ error: 'Database not ready' });
   }
 
+  if (!isPricingLearningEnabled()) {
+    return res.status(503).json({ error: 'Pricing learning disabled during rollout' });
+  }
+
   const sessionDb = await mongoose.startSession();
 
   try {
@@ -1809,6 +1894,11 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
 
       if (!store) {
         throw new Error('Store not found');
+      }
+
+      const ingestionCheck = await ensureIngestionAllowed(store._id.toString());
+      if (!ingestionCheck.ok) {
+        throw Object.assign(new Error(ingestionCheck.error), { status: ingestionCheck.status || 503 });
       }
 
       for (const item of items) {
@@ -2157,7 +2247,8 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
     });
   } catch (err) {
     console.error('RECEIPT PRICE UPDATE ERROR:', err);
-    res.status(500).json({ error: err.message || 'Failed to update prices from receipt' });
+    const status = err.status && Number.isInteger(err.status) ? err.status : 500;
+    res.status(status).json({ error: err.message || 'Failed to update prices from receipt' });
   } finally {
     sessionDb.endSession();
   }
@@ -2171,6 +2262,10 @@ router.post('/receipt-price-update', authRequired, async (req, res) => {
 router.post('/receipt-confirm-match', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  if (!isPricingLearningEnabled()) {
+    return res.status(503).json({ error: 'Pricing learning disabled during rollout' });
   }
 
   const sessionDb = await mongoose.startSession();
@@ -2204,6 +2299,12 @@ router.post('/receipt-confirm-match', authRequired, async (req, res) => {
     const validation = validatePriceQuantity(unitPrice, quantity || 1);
     if (!validation.ok) {
       return res.status(400).json({ error: validation.error });
+    }
+
+    const ingestionCheck = await ensureIngestionAllowed(storeId);
+    if (!ingestionCheck.ok) {
+      await sessionDb.endSession();
+      return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
     }
 
     await sessionDb.withTransaction(async () => {

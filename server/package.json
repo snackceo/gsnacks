@@ -9,7 +9,8 @@
     "create-owner": "node scripts/create-owner.js",
     "cleanup-abandoned-orders": "node scripts/cleanupAbandonedOrders.js",
     "find-abandoned-authorizations": "node scripts/findAbandonedAuthorizations.js",
-    "test": "node --test"
+    "test": "node --test",
+    "worker:receipts": "node workers/receiptWorker.js"
   },
   "dependencies": {
     "@google/genai": "^1.35.0",
@@ -19,11 +20,13 @@
     "cloudinary": "^1.41.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "bullmq": "^5.15.0",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
     "express-rate-limit": "^7.5.1",
     "express-session": "^1.18.2",
     "helmet": "^8.1.0",
+    "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^7.8.8",
     "socket.io": "^4.8.3",

@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import ReceiptNameAlias from '../models/ReceiptNameAlias.js';
 import { authRequired, driverCanAccessStore, isDriverUsername } from '../utils/helpers.js';
 import { isDbReady } from '../db/connect.js';
+import { isPricingLearningEnabled } from '../utils/featureFlags.js';
 
 const router = express.Router();
 
@@ -72,6 +73,10 @@ const ensureAliasAccess = (req, aliasStoreId) => {
 };
 
 router.get('/receipt-aliases', authRequired, async (req, res) => {
+  if (!isPricingLearningEnabled()) {
+    return res.status(503).json({ error: 'Pricing learning disabled' });
+  }
+
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -130,6 +135,10 @@ router.get('/receipt-aliases', authRequired, async (req, res) => {
 });
 
 router.post('/receipt-alias-confirm', authRequired, async (req, res) => {
+  if (!isPricingLearningEnabled()) {
+    return res.status(503).json({ error: 'Pricing learning disabled' });
+  }
+
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -183,6 +192,10 @@ router.post('/receipt-alias-confirm', authRequired, async (req, res) => {
 });
 
 router.post('/receipt-alias-reject', authRequired, async (req, res) => {
+  if (!isPricingLearningEnabled()) {
+    return res.status(503).json({ error: 'Pricing learning disabled' });
+  }
+
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
