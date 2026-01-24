@@ -9,10 +9,12 @@ import Store from '../models/Store.js';
 import ReceiptNameAlias from '../models/ReceiptNameAlias.js';
 import ReceiptNoiseRule from '../models/ReceiptNoiseRule.js';
 import ReceiptCapture from '../models/ReceiptCapture.js';
+import ReceiptParseJob from '../models/ReceiptParseJob.js';
 import AppSettings from '../models/AppSettings.js';
 import { authRequired, isDriverUsername, isOwnerUsername, driverCanAccessStore } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { isDbReady } from '../db/connect.js';
+import { matchStoreCandidate, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { isPricingLearningEnabled, receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap } from '../utils/featureFlags.js';
 import { enqueueReceiptJob, isReceiptQueueEnabled } from '../queues/receiptQueue.js';
 
@@ -64,6 +66,80 @@ const ensureIngestionAllowed = async storeId => {
 
   return { ok: true };
 };
+
+// Persist a proposal draft for management review without mutating inventory directly
+async function upsertReceiptParseJobFromDraft({ capture, draftItems, rawText }) {
+  if (!capture) return null;
+
+  let storeCandidate = null;
+  try {
+    const store = await Store.findById(capture.storeId).lean();
+    if (store) {
+      storeCandidate = {
+        name: store.name,
+        address: store.address || {},
+        phone: store.phone,
+        storeType: store.storeType,
+        confidence: 1,
+        storeId: store._id
+      };
+    }
+  } catch (err) {
+    console.warn('Failed to build storeCandidate for ReceiptParseJob:', err?.message);
+  }
+
+  const items = (draftItems || []).map(item => {
+    const suggested = item.suggestedProduct;
+    const hasSuggestion = suggested && suggested.id;
+    const actionSuggestion = hasSuggestion
+      ? 'LINK_UPC_TO_PRODUCT'
+      : 'CREATE_PRODUCT';
+    const warnings = [];
+    if (item.needsReview && item.reviewReason) warnings.push(item.reviewReason);
+    if (item.priceDelta && item.priceDelta.flag) warnings.push(`price:${item.priceDelta.flag}`);
+
+    return {
+      rawLine: item.receiptName,
+      nameCandidate: item.normalizedName || item.receiptName,
+      brandCandidate: item.tokens?.brand || undefined,
+      sizeCandidate: item.tokens?.size || undefined,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      lineTotal: item.totalPrice,
+      upcCandidate: suggested?.upc,
+      match: {
+        productId: hasSuggestion ? suggested.id : undefined,
+        registryUpcId: undefined,
+        confidence: item.matchConfidence,
+        reason: item.matchMethod
+      },
+      actionSuggestion,
+      warnings
+    };
+  });
+
+  const needsReview = items.some(it => it.warnings?.length); // simple guardrail
+
+  const status = needsReview ? 'NEEDS_REVIEW' : 'PARSED';
+
+  const payload = {
+    captureId: capture._id.toString(),
+    status,
+    rawText,
+    structured: { draftItems },
+    storeCandidate,
+    items,
+    warnings: draftItems.filter(it => it.needsReview && it.reviewReason).map(it => it.reviewReason)
+  };
+
+  const job = await ReceiptParseJob.findOneAndUpdate(
+    { captureId: payload.captureId },
+    payload,
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  );
+
+  return job;
+}
 
 // Extract base64 and mime from data URL
 function parseDataUrl(dataUrl) {
@@ -803,6 +879,36 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
 
     await capture.save();
 
+    // Attempt store matching for receipt proposals (optional, for management review)
+    try {
+      const matchResult = await matchStoreCandidate({
+        name: store.name,
+        address: store.address,
+        phone: store.phone,
+        storeType: store.storeType
+      });
+
+      // Create a draft ReceiptParseJob even before parsing with store candidate info
+      await ReceiptParseJob.findOneAndUpdate(
+        { captureId: capture._id.toString() },
+        {
+          captureId: capture._id.toString(),
+          status: 'QUEUED',
+          storeCandidate: {
+            name: store.name,
+            address: store.address,
+            phone: store.phone,
+            storeType: store.storeType,
+            confidence: matchResult?.confidence || 0,
+            storeId: matchResult?.match?._id || undefined
+          }
+        },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+      );
+    } catch (matchErr) {
+      console.warn('Failed to create ReceiptParseJob with store candidate:', matchErr?.message);
+    }
+
     await recordAuditLog({
       type: 'receipt_capture_create',
       actorId: username || 'unknown',
@@ -1428,6 +1534,12 @@ RULES:
 
       // Commit transaction
       await parseSession.commitTransaction();
+
+      try {
+        await upsertReceiptParseJobFromDraft({ capture, draftItems, rawText: null });
+      } catch (jobErr) {
+        console.warn('Failed to upsert ReceiptParseJob proposal:', jobErr?.message);
+      }
 
       await recordAuditLog({
         type: 'receipt_parse',

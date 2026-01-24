@@ -23,6 +23,7 @@ import ManagementPricingIntelligence from './management/ManagementPricingIntelli
 import ManagementUsers from './management/ManagementUsers';
 import ManagementInventory from './management/ManagementInventory';
 import ManagementSettings from './management/ManagementSettings';
+import ManagementReceipts from './management/ManagementReceipts';
 import {
   Truck,
   Package,
@@ -31,7 +32,8 @@ import {
   Loader2,
   Sliders,
   EyeOff,
-  TrendingUp
+  TrendingUp,
+  FileText
 } from 'lucide-react';
 import ScannerModal from '../components/ScannerModal';
 import type { ParsedReceiptItem } from '../components/ScannerPanel';
@@ -1349,6 +1351,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   };
 
   const managementSections = {
+    receipts: {
+      id: 'receipts',
+      label: 'Receipts',
+      icon: FileText,
+      render: () => <ManagementReceipts fmtTime={fmtTime} />
+    },
     dashboard: {
       id: 'dashboard',
       label: 'Dashboard',

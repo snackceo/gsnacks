@@ -1,3 +1,5 @@
+import receiptReviewRouter from './routes/receipt-review.js';
+app.use('/api', receiptReviewRouter); // Receipt review endpoints
 // IMPORTANT: Import Sentry instrument FIRST before any other modules
 import './instrument.js';
 

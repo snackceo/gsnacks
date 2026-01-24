@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { isReceiptQueueEnabled, registerReceiptWorker } from '../queues/receiptQueue.js';
 import { isDbReady } from '../db/connect.js';
 import ReceiptCapture from '../models/ReceiptCapture.js';
+import { executeReceiptParse } from '../utils/receiptParseHelper.js';
 
 if (!isReceiptQueueEnabled()) {
   console.warn('Receipt worker not started because ENABLE_RECEIPT_QUEUE is false or Redis is not configured.');
@@ -13,7 +14,7 @@ const worker = registerReceiptWorker(async job => {
     return;
   }
 
-  const { captureId } = job.data || {};
+  const { captureId, actor } = job.data || {};
   if (!captureId) {
     throw new Error('captureId is required for receipt-parse job');
   }
@@ -22,16 +23,25 @@ const worker = registerReceiptWorker(async job => {
     throw new Error('Database not ready');
   }
 
-  const capture = await ReceiptCapture.findById(captureId);
-  if (!capture) {
-    throw new Error('Receipt capture not found');
+  try {
+    // Execute the parsing pipeline (shared with receipt-prices route)
+    const parseJob = await executeReceiptParse(captureId, actor || 'worker');
+    console.log(`Receipt parsed successfully: ${captureId} → job ${parseJob._id}`);
+  } catch (err) {
+    console.error(`Receipt parse failed for ${captureId}:`, err?.message);
+    // Mark capture as failed
+    try {
+      const capture = await ReceiptCapture.findById(captureId);
+      if (capture) {
+        capture.status = 'failed';
+        capture.parseError = err?.message || 'Unknown error';
+        await capture.save();
+      }
+    } catch (updateErr) {
+      console.error('Failed to update capture status:', updateErr?.message);
+    }
+    throw err;
   }
-
-  // Placeholder: actual parsing logic should be invoked here (Gemini + matching + draft population).
-  // For safety during rollout, mark as failed fast so jobs do not pile up silently.
-  capture.status = 'failed';
-  capture.parseError = 'Receipt parse worker not implemented yet';
-  await capture.save();
 });
 
 if (worker) {
