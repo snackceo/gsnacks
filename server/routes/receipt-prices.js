@@ -590,6 +590,10 @@ router.post('/upload-receipt-image', authRequired, async (req, res) => {
   try {
     const { image, storeId } = req.body;
 
+    if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
+      return res.status(400).json({ error: 'storeId is required' });
+    }
+
     if (!image) {
       return res.status(400).json({ error: 'Image data required' });
     }
@@ -661,59 +665,17 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
     }
 
     // Validation
-    if (!storeName || typeof storeName !== 'string') {
-      return res.status(400).json({ error: 'storeName is required' });
+    if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
+      return res.status(400).json({ error: 'storeId is required' });
     }
     if (!images || !Array.isArray(images) || images.length === 0 || images.length > 3) {
       return res.status(400).json({ error: 'images array required (1-3 photos)' });
     }
 
-    // Find or create store by name
-    let store;
-    if (storeId && mongoose.Types.ObjectId.isValid(storeId)) {
-      // If storeId provided, verify it exists
-      store = await Store.findById(storeId);
-      if (!store) {
-        return res.status(404).json({ error: 'Store not found' });
-      }
-    } else {
-      // If no storeId, find or create store by name
-      store = await Store.findOne({ name: storeName });
-      if (!store) {
-        // Auto-create store from receipt with optional geocoding
-        const storeData = {
-          name: storeName,
-          createdFrom: 'receipt_upload',
-          createdAt: new Date()
-        };
-
-        // Try to geocode the store name if it looks like an address
-        // (e.g., "Walmart Dearborn" → geocode "Walmart Dearborn, MI")
-        const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY;
-        if (apiKey && storeName.length > 5) {
-          try {
-            const geocodeUrl = new URL('https://maps.googleapis.com/maps/api/geocode/json');
-            geocodeUrl.searchParams.set('address', storeName);
-            geocodeUrl.searchParams.set('key', apiKey);
-            
-            const geocodeResp = await fetch(geocodeUrl.toString());
-            const geocodeData = await geocodeResp.json();
-            
-            if (geocodeData.status === 'OK' && geocodeData.results?.[0]?.geometry?.location) {
-              const loc = geocodeData.results[0].geometry.location;
-              storeData.location = { lat: loc.lat, lng: loc.lng };
-              console.log(`Geocoded ${storeName}: ${loc.lat}, ${loc.lng}`);
-            }
-          } catch (geocodeErr) {
-            // Non-blocking - continue without location
-            console.warn(`Geocoding failed for ${storeName}:`, geocodeErr.message);
-          }
-        }
-
-        store = new Store(storeData);
-        await store.save();
-        console.log(`Auto-created store: ${storeName} (${store._id})${storeData.location ? ' with location' : ''}`);
-      }
+    // Find store by id
+    const store = await Store.findById(storeId);
+    if (!store) {
+      return res.status(404).json({ error: 'Store not found' });
     }
 
     // Enforce driver-store binding

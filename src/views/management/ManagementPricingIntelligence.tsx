@@ -260,6 +260,35 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     setShowReceiptScanner(true);
   };
 
+  const handlePrimarySupplierToggle = useCallback(
+    async (storeId: string, nextValue: boolean) => {
+      try {
+        setStoreError(null);
+        const res = await fetch(`${BACKEND_URL}/api/stores/${storeId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ isPrimarySupplier: nextValue })
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || 'Failed to update store');
+
+        await refreshStores();
+        const storeName = stores.find(store => store.id === storeId)?.name || 'Store';
+        addToast(
+          `${storeName} ${nextValue ? 'set as' : 'removed from'} primary supplier`,
+          'success'
+        );
+      } catch (error: any) {
+        const message = error?.message || 'Failed to update primary supplier';
+        setStoreError(message);
+        addToast(message, 'error');
+      }
+    },
+    [addToast, refreshStores, setStoreError, stores]
+  );
+
   const fetchReceiptCaptures = useCallback(async () => {
     try {
       const resp = await fetch(
@@ -1307,6 +1336,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
           onClose={handleCloseReceiptScanner}
           showClose={true}
           onStoreSelected={handleStoreSelected}
+          onPrimarySupplierToggle={handlePrimarySupplierToggle}
         />
       )}
 
