@@ -262,6 +262,37 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     [classifiedItems]
   );
 
+  const priceDeltaThreshold = useMemo(() => {
+    const rawValue = Number(settings?.priceDeltaReviewThreshold);
+    return Number.isFinite(rawValue) && rawValue > 0 ? rawValue : 0.25;
+  }, [settings?.priceDeltaReviewThreshold]);
+
+  const priceReviewItems = useMemo(() => {
+    if (!activeStoreId) return [];
+    return classifiedItems
+      .filter(item => typeof item.priceDelta === 'number' && Math.abs(item.priceDelta) >= priceDeltaThreshold)
+      .map(item => {
+        const history = item.matchHistory ?? [];
+        const lastPrices = history.slice(-3).map(entry => entry.price);
+        return {
+          item,
+          storeName: activeStore?.name ?? 'Active Store',
+          productName: item.suggestedProduct?.name || item.receiptName,
+          priceDelta: item.priceDelta ?? 0,
+          lastPrices
+        };
+      });
+  }, [activeStore?.name, activeStoreId, classifiedItems, priceDeltaThreshold]);
+
+  const handleOpenReceiptReviewForItem = useCallback((item: ClassifiedReceiptItem) => {
+    setSelectedItemsForCommit(prev => {
+      const next = new Map(prev);
+      next.set(JSON.stringify(item), true);
+      return next;
+    });
+    setShowReceiptReview(true);
+  }, []);
+
   const openReceiptScanner = () => {
     if (!activeStoreId) {
       setReceiptError('Please set an active store before capturing receipts.');
@@ -1301,6 +1332,84 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
             </div>
           </div>
         )}
+
+        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-6 border border-white/20">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-black uppercase text-white tracking-widest">
+                Review Price Changes
+              </h3>
+              <p className="text-sm text-emerald-100 mt-2">
+                Flagged deltas over ${priceDeltaThreshold.toFixed(2)} from recent receipts.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-emerald-100">
+                {priceReviewItems.length} flagged
+              </span>
+              <button
+                onClick={() => {
+                  if (priceReviewItems.length > 0) setShowReceiptReview(true);
+                }}
+                disabled={priceReviewItems.length === 0}
+                className={`px-3 py-2 rounded-lg text-xs font-semibold border ${
+                  priceReviewItems.length === 0
+                    ? 'border-white/20 text-white/50 bg-white/10'
+                    : 'border-white/30 text-white bg-white/20 hover:bg-white/30'
+                }`}
+              >
+                Open Review
+              </button>
+            </div>
+          </div>
+
+          {!activeStoreId ? (
+            <div className="mt-4 text-xs text-emerald-100/80">
+              Select an active store to see price deltas.
+            </div>
+          ) : priceReviewItems.length === 0 ? (
+            <div className="mt-4 text-xs text-emerald-100/80">
+              No price changes exceed the threshold yet.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {priceReviewItems.map(({ item, storeName, productName, priceDelta, lastPrices }) => (
+                <div
+                  key={getReceiptItemKey(item)}
+                  className="bg-white/10 backdrop-blur-sm rounded-lg p-4 border border-white/10 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-white">
+                      {productName}
+                    </div>
+                    <div className="text-xs text-emerald-100 mt-1">
+                      Store: {storeName}
+                    </div>
+                    <div className="text-xs text-emerald-100 mt-1">
+                      Price delta:{' '}
+                      <span className={priceDelta >= 0 ? 'text-lime-200' : 'text-rose-200'}>
+                        {priceDelta >= 0 ? '+' : ''}
+                        {priceDelta.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="text-xs text-emerald-100 mt-1">
+                      Last 3 prices:{' '}
+                      {lastPrices.length > 0
+                        ? lastPrices.map(price => `$${price.toFixed(2)}`).join(' • ')
+                        : 'No history'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleOpenReceiptReviewForItem(item)}
+                    className="px-3 py-2 rounded-lg text-xs font-semibold border border-white/30 text-white bg-white/20 hover:bg-white/30"
+                  >
+                    Review Receipt
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </section>
 
       <section className="space-y-4">
