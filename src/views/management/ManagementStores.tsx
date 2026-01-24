@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Wand2, MapPin, Loader2, CheckCircle2 } from 'lucide-react';
+import { Wand2, MapPin, Loader2, CheckCircle2, Trash2 } from 'lucide-react';
 import { BACKEND_URL } from '../../constants';
 import { StoreRecord } from '../../types';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
@@ -40,6 +40,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   const [isEnriching, setIsEnriching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [primarySupplierUpdatingId, setPrimarySupplierUpdatingId] = useState<string | null>(null);
+  const [deletingStoreId, setDeletingStoreId] = useState<string | null>(null);
   const [draft, setDraft] = useState<StoreRecord>({
     id: '',
     name: '',
@@ -141,6 +142,37 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       setPrimarySupplierUpdatingId(null);
     }
   }, [addToast, refreshStores, setError]);
+
+  const handleDeleteStore = useCallback(async (store: StoreRecord) => {
+    const confirmed = window.confirm(`Delete ${store.name}? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setDeletingStoreId(store.id);
+    setError(null);
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/stores/${store.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 403) throw new Error('manager or owner required');
+      if (!res.ok) throw new Error(data?.error || 'Delete failed');
+
+      if (activeStoreId === store.id) {
+        setActiveStoreId('');
+      }
+
+      await refreshStores();
+      addToast(`${store.name} deleted`, 'success');
+    } catch (err: any) {
+      const message = err?.message || 'Delete failed';
+      setError(message);
+      addToast(message, 'error');
+    } finally {
+      setDeletingStoreId(null);
+    }
+  }, [activeStoreId, addToast, refreshStores, setActiveStoreId, setError]);
 
   return (
     <div className="space-y-6">
@@ -290,6 +322,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
             {stores.map(store => {
               const location = formatLocation(store);
               const isUpdating = primarySupplierUpdatingId === store.id;
+              const isDeleting = deletingStoreId === store.id;
 
               return (
                 <div
@@ -325,17 +358,29 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
                     </button>
                     <button
                       onClick={() => void handlePrimarySupplierToggle(store)}
-                      disabled={isUpdating}
+                      disabled={isUpdating || isDeleting}
                       className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border ${
                         store.isPrimarySupplier
                           ? 'bg-ninpo-lime/20 text-ninpo-lime border-ninpo-lime/40'
                           : 'bg-white/5 text-slate-200 border-white/10 hover:bg-white/10'
-                      } ${isUpdating ? 'opacity-60 cursor-not-allowed' : ''}`}
+                      } ${isUpdating || isDeleting ? 'opacity-60 cursor-not-allowed' : ''}`}
                     >
                       {isUpdating ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                       <span className={isUpdating ? 'ml-2' : ''}>
                         {store.isPrimarySupplier ? 'Primary supplier' : 'Set primary'}
                       </span>
+                    </button>
+                    <button
+                      onClick={() => void handleDeleteStore(store)}
+                      disabled={isDeleting}
+                      className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border flex items-center gap-2 ${
+                        isDeleting
+                          ? 'opacity-60 cursor-not-allowed'
+                          : 'bg-red-500/20 text-red-200 border-red-500/40 hover:bg-red-500/30'
+                      }`}
+                    >
+                      {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                      {isDeleting ? 'Deleting…' : 'Delete'}
                     </button>
                     {store.createdFrom && (
                       <p className="text-[10px] text-slate-500 uppercase tracking-widest">{store.createdFrom}</p>
