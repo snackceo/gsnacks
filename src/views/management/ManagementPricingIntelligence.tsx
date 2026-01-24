@@ -218,6 +218,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const [scanTargetItem, setScanTargetItem] = useState<ClassifiedReceiptItem | null>(null);
   const [scanModalOpen, setScanModalOpen] = useState(false);
   const [productSearchItem, setProductSearchItem] = useState<ClassifiedReceiptItem | null>(null);
+  const [productSearchIntent, setProductSearchIntent] = useState<'match' | 'attach'>('match');
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [productSearchResults, setProductSearchResults] = useState<ProductSearchResult[]>([]);
   const [isSearchingProducts, setIsSearchingProducts] = useState(false);
@@ -700,6 +701,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   }, [addToast, confirmReceiptMatch, scanTargetItem, updateReceiptItem]);
 
   const handleItemSearchProduct = useCallback(async (item: ClassifiedReceiptItem) => {
+    setProductSearchIntent('match');
     setProductSearchItem(item);
     setProductSearchQuery(item.receiptName || '');
 
@@ -717,13 +719,42 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     await fetchProductSearch(item.receiptName || '');
   }, [fetchProductSearch, fetchProducts, products]);
 
+  const handleItemAttachExisting = useCallback(async (item: ClassifiedReceiptItem) => {
+    if (!item.scannedUpc) {
+      addToast('Scan a UPC before attaching to an existing product', 'warning');
+      return;
+    }
+
+    setProductSearchIntent('attach');
+    setProductSearchItem(item);
+    setProductSearchQuery(item.scannedUpc || item.receiptName || '');
+
+    if (!products || products.length === 0) {
+      setIsLoadingProducts(true);
+      try {
+        await fetchProducts();
+      } catch (err: any) {
+        setReceiptError(err?.message || 'Failed to load products');
+      } finally {
+        setIsLoadingProducts(false);
+      }
+    }
+
+    await fetchProductSearch(item.scannedUpc || item.receiptName || '');
+  }, [addToast, fetchProductSearch, fetchProducts, products]);
+
   const handleProductSelect = useCallback(async (product: ProductSearchResult) => {
     if (!productSearchItem) return;
+
+    if (productSearchIntent === 'attach' && !productSearchItem.scannedUpc) {
+      setReceiptError('Scan a UPC before attaching to an existing product');
+      return;
+    }
 
     try {
       if (productSearchItem.scannedUpc) {
         await linkUpcToProduct(productSearchItem.scannedUpc, product.sku || product.id);
-        addToast('UPC linked to product', 'success');
+        addToast(productSearchIntent === 'attach' ? 'UPC attached to product' : 'UPC linked to product', 'success');
       }
 
       await confirmReceiptMatch(productSearchItem, product.productId);
@@ -747,10 +778,11 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       );
       addToast('Product matched to receipt item', 'success');
       setProductSearchItem(null);
+      setProductSearchIntent('match');
     } catch (err: any) {
       setReceiptError(err?.message || 'Failed to attach product');
     }
-  }, [addToast, confirmReceiptMatch, linkUpcToProduct, productSearchItem, updateReceiptItem]);
+  }, [addToast, confirmReceiptMatch, linkUpcToProduct, productSearchIntent, productSearchItem, updateReceiptItem]);
 
   const handleOpenCreateProduct = useCallback((item: ClassifiedReceiptItem) => {
     if (!canCreateProducts) {
@@ -1390,6 +1422,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                 onItemReclassify={handleItemReclassify}
                 onItemScanUpc={handleItemScanUpc}
                 onItemSearchProduct={handleItemSearchProduct}
+                onItemAttachExisting={handleItemAttachExisting}
                 onItemCreateProduct={canCreateProducts ? handleOpenCreateProduct : undefined}
                 onItemNeverMatch={handleNeverMatch}
                 isReadOnly={false}
@@ -1562,13 +1595,17 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
           <div className="bg-ninpo-card rounded-[2rem] border border-white/10 max-w-lg w-full p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-white font-black uppercase text-sm tracking-widest">Search Product</h3>
+                <h3 className="text-white font-black uppercase text-sm tracking-widest">{productSearchIntent === 'attach' ? 'Attach to Existing' : 'Search Catalog'}</h3>
                 <p className="text-[10px] text-slate-400 uppercase tracking-widest">
                   Match: {productSearchItem.receiptName}
+                  {productSearchIntent === 'attach' && productSearchItem.scannedUpc ? ` • UPC: ${productSearchItem.scannedUpc}` : ''}
                 </p>
               </div>
               <button
-                onClick={() => setProductSearchItem(null)}
+                onClick={() => {
+                  setProductSearchItem(null);
+                  setProductSearchIntent('match');
+                }}
                 className="text-slate-400 hover:text-white transition"
               >
                 ✕
