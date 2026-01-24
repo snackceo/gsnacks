@@ -24,6 +24,7 @@ const storeInventorySchema = new mongoose.Schema(
     // Receipt-based observed pricing (real-world verification)
     observedPrice: { type: Number }, // Last observed shelf/regular price (preferred for selection/pricing)
     observedAt: { type: Date }, // When price was last observed
+    priceLockUntil: { type: Date }, // Temporary freeze on receipt price updates
     
     priceHistory: [{
       price: { type: Number, required: true },
