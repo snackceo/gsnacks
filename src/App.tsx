@@ -22,6 +22,7 @@ import { SupportChatbot } from './components/SupportChatbot';
 
 import { ShoppingBag } from 'lucide-react';
 import { BACKEND_URL } from './constants'; // already correct
+import { isCloudinaryConfigured } from './utils/cloudinaryUtils';
 
 
 function App() {
@@ -33,6 +34,7 @@ function App() {
   const [isLoginViewOpen, setIsLoginViewOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
+  const [hasWarnedCloudinary, setHasWarnedCloudinary] = useState(false);
 
   const findProductByCartId = (productId: string) =>
     core.products.find(
@@ -51,6 +53,30 @@ function App() {
   useEffect(() => {
     analytics.trackPageView(location.pathname, core.currentUser?._id);
   }, [location.pathname, core.currentUser?._id]);
+
+
+  useEffect(() => {
+    if (hasWarnedCloudinary) return;
+    if (isCloudinaryConfigured()) return;
+
+    const isManagementRoute = location.pathname.startsWith('/management');
+    const isStaffUser =
+      core.currentUser?.role === UserRole.OWNER ||
+      core.currentUser?.role === UserRole.MANAGER;
+
+    if (isManagementRoute || isStaffUser) {
+      core.addToast(
+        'Cloudinary not configured. Receipt uploads will fail until VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET are set.',
+        'warning'
+      );
+      setHasWarnedCloudinary(true);
+    }
+  }, [
+    core.addToast,
+    core.currentUser?.role,
+    hasWarnedCloudinary,
+    location.pathname
+  ]);
 
   // Track user login/logout
   useEffect(() => {
