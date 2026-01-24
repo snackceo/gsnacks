@@ -45,6 +45,7 @@ import {
 } from '../services/geminiService';
 import { useNinpoCore } from '../hooks/useNinpoCore';
 import { BACKEND_URL } from '../constants';
+import { uploadReceiptPhoto } from '../utils/cloudinaryUtils';
 import { SETTINGS_STORAGE_KEY, SIZE_UNIT_OPTIONS, UPC_CONTAINER_LABELS } from './management/constants';
 import {
   countTotalUpcs,
@@ -781,6 +782,18 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         addToast('Select a store before capturing a receipt.', 'error');
         return;
       }
+
+      const uploadResult = await uploadReceiptPhoto(
+        photoDataUrl,
+        activeStoreId,
+        activeStore.name || 'Unknown Store'
+      );
+
+      if (!uploadResult) {
+        addToast('Cloudinary not configured. Please set up image uploads.', 'error');
+        return;
+      }
+
       const captureRequestId = generateCaptureRequestId();
       const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
         method: 'POST',
@@ -791,8 +804,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           storeName: activeStore.name || 'Unknown Store',
           captureRequestId,
           images: [{
-            url: photoDataUrl,
-            thumbnailUrl: photoDataUrl,
+            url: uploadResult.secureUrl,
+            thumbnailUrl: uploadResult.secureUrl,
             mime
           }]
         })
@@ -837,6 +850,17 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     }
 
     try {
+      const uploadResult = await uploadReceiptPhoto(
+        frame,
+        activeStoreId,
+        activeStore.name || 'Unknown Store'
+      );
+
+      if (!uploadResult) {
+        addToast('Cloudinary not configured. Please set up image uploads.', 'error');
+        return;
+      }
+
       const captureRequestId = generateCaptureRequestId();
       const captureResp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
         method: 'POST',
@@ -847,8 +871,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           storeName: activeStore.name || 'Unknown Store',
           captureRequestId,
           images: [{
-            url: frame,
-            thumbnailUrl: frame
+            url: uploadResult.secureUrl,
+            thumbnailUrl: uploadResult.secureUrl
           }]
         })
       });

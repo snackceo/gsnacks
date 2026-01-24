@@ -9,6 +9,13 @@ interface CloudinaryUploadOptions {
   tags?: string[];
 }
 
+
+export function isCloudinaryConfigured(): boolean {
+  const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string | undefined;
+  const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string | undefined;
+  return Boolean(cloudName && uploadPreset);
+}
+
 interface CloudinaryUploadResult {
   url: string;
   secureUrl: string;
