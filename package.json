@@ -13,6 +13,7 @@
   "dependencies": {
     "@google/genai": "^1.34.0",
     "@sentry/react": "^10.34.0",
+    "fast-levenshtein": "file:vendor/fast-levenshtein",
     "glob": "^13.0.0",
     "lucide-react": "^0.460.0",
     "react": "^19.0.0",

@@ -95,10 +95,15 @@ node index.js
 
 ### What Happens Automatically
 
-1. ✅ `npm install` reads `server/package.json`
+1. ✅ `npm ci --omit=dev` installs production dependencies from `server/package.json`
 2. ✅ Installs `socket.io` package
 3. ✅ Runs `node index.js`
 4. ✅ WebSocket server starts
+
+**Pipeline requirement (production):**
+```bash
+npm ci --omit=dev
+```
 
 ### Deploy Command
 ```bash
