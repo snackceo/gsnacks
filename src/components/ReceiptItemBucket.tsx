@@ -11,6 +11,7 @@ interface ReceiptItemBucketProps {
   onItemScanUpc?: (item: ClassifiedReceiptItem) => void;
   onItemSearchProduct?: (item: ClassifiedReceiptItem) => void;
   onItemCreateProduct?: (item: ClassifiedReceiptItem) => void;
+  onItemAttachExisting?: (item: ClassifiedReceiptItem) => void;
   onItemNeverMatch?: (item: ClassifiedReceiptItem) => void;
   isReadOnly?: boolean;
 }
@@ -57,6 +58,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
   onItemScanUpc,
   onItemSearchProduct,
   onItemCreateProduct,
+  onItemAttachExisting,
   onItemNeverMatch,
   isReadOnly = false
 }) => {
@@ -78,7 +80,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
   const bucketOrder: ReceiptItemClassification[] = ['A', 'B', 'C', 'D'];
 
   const hasItemActions = !isReadOnly && (
-    onItemScanUpc || onItemSearchProduct || onItemCreateProduct || onItemNeverMatch
+    onItemScanUpc || onItemSearchProduct || onItemCreateProduct || onItemAttachExisting || onItemNeverMatch
   );
 
   return (
@@ -112,6 +114,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                   const priceDelta = typeof item.priceDelta === 'number' ? item.priceDelta : undefined;
                   const displayUpc = item.scannedUpc || item.suggestedProduct?.upc;
                   const canCreateProduct = !item.suggestedProduct && !item.isNoiseRule;
+                  const canAttachExisting = Boolean(item.scannedUpc) && !item.isNoiseRule;
                   const matchScore =
                     typeof item.matchConfidence === 'number'
                       ? `${(item.matchConfidence * 100).toFixed(0)}%`
@@ -235,7 +238,24 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                                   }}
                                   className="px-2 py-1 rounded-full text-[10px] font-semibold border border-white/10 text-slate-200 bg-white/5 hover:bg-white/10"
                                 >
-                                  Search Product
+                                  Search Catalog
+                                </button>
+                              )}
+                              {onItemAttachExisting && (
+                                <button
+                                  type="button"
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    onItemAttachExisting(item);
+                                  }}
+                                  disabled={!canAttachExisting}
+                                  className={`px-2 py-1 rounded-full text-[10px] font-semibold border transition ${
+                                    canAttachExisting
+                                      ? 'border-white/10 text-slate-200 bg-white/5 hover:bg-white/10'
+                                      : 'border-white/5 text-slate-500 bg-white/5 cursor-not-allowed'
+                                  }`}
+                                >
+                                  Attach to existing
                                 </button>
                               )}
                               {onItemCreateProduct && canCreateProduct && (

@@ -99,6 +99,8 @@ apiLinkUpc (function): Backend API call to attach a UPC to a product record. Inv
 
 AppSettings (data model/schema): System-wide configuration object stored in DB. Contains various settings such as fees, feature toggles, and flags (routeFee, distanceBand rates, maintenanceMode, etc.). Only one row (key: 'default') is used to store these settings.
 
+Attach to Existing (receipt action): Per-item action in receipt review used to link a scanned UPC to an existing product in the UPC Registry and mark the receipt item as matched. Uses the UPC link endpoint to map UPC → SKU.
+
 auditLogs (data model & state): Records of system events for auditing (e.g., order updates, settings changes). In code, core.auditLogs holds the list of audit log entries for display in admin UI. Each log entry includes an id, type (like "ORDER_CREATED", "SETTINGS_UPDATED"), details, actor, and timestamp.
 
 LedgerEntry (data model): A record of a credit or debit transaction affecting a user's account balance. Each entry includes an id, userId, delta (amount changed), reason (description of the transaction), and timestamp. Used to track all adjustments to user credits, including returns, purchases, and manual admin actions.
