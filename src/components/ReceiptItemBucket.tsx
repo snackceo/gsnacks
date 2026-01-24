@@ -111,6 +111,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                   const history = item.matchHistory?.slice(0, 3) ?? [];
                   const priceDelta = typeof item.priceDelta === 'number' ? item.priceDelta : undefined;
                   const displayUpc = item.scannedUpc || item.suggestedProduct?.upc;
+                  const canCreateProduct = !item.suggestedProduct && !item.isNoiseRule;
 
                   return (
                     <div
@@ -227,7 +228,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                                   Search Product
                                 </button>
                               )}
-                              {onItemCreateProduct && (
+                              {onItemCreateProduct && canCreateProduct && (
                                 <button
                                   type="button"
                                   onClick={event => {
