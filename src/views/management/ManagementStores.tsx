@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Wand2, MapPin, RefreshCw, Loader2, CheckCircle2, Camera, Check } from 'lucide-react';
 import { BACKEND_URL } from '../../constants';
-import { StoreRecord, ScannerMode, ClassifiedReceiptItem } from '../../types';
+import { StoreRecord, ScannerMode, ClassifiedReceiptItem, ReceiptItemClassification } from '../../types';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
 import ReceiptCaptureFlow from '../../components/ReceiptCaptureFlow';
 import ReceiptItemBucket from '../../components/ReceiptItemBucket';
@@ -188,7 +188,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
 
       addToast({
         title: 'Parsed & Classified',
-        description: `Found ${parseData.items.length} items: ${bucketCounts.A} auto-update, ${bucketCounts.B} review, ${bucketCounts.C} no-match`,
+        description: `Found ${parseData.items.length} items: ${bucketCounts.A} auto-update, ${bucketCounts.B} review, ${bucketCounts.C} no-match, ${bucketCounts.D} noise`,
         tone: 'success'
       });
 
@@ -209,7 +209,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   );
 
   const handleItemToggle = useCallback(
-    (item: ClassifiedReceiptItem, _classification: string, checked: boolean) => {
+    (item: ClassifiedReceiptItem, _classification: ReceiptItemClassification, checked: boolean) => {
       const key = JSON.stringify(item);
       const newSelected = new Map(selectedItemsForCommit);
       if (checked) {
@@ -220,6 +220,29 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       setSelectedItemsForCommit(newSelected);
     },
     [selectedItemsForCommit]
+  );
+
+  const handleItemReclassify = useCallback(
+    (item: ClassifiedReceiptItem, classification: ReceiptItemClassification) => {
+      setClassifiedItems(prev =>
+        prev.map(prevItem => (prevItem === item ? { ...prevItem, classification } : prevItem))
+      );
+      setSelectedItemsForCommit(prev => {
+        const newSelected = new Map(prev);
+        const oldKey = JSON.stringify(item);
+        const wasSelected = newSelected.has(oldKey);
+        if (wasSelected) {
+          newSelected.delete(oldKey);
+        }
+        const updatedItem = { ...item, classification };
+        const newKey = JSON.stringify(updatedItem);
+        if (wasSelected) {
+          newSelected.set(newKey, true);
+        }
+        return newSelected;
+      });
+    },
+    [setClassifiedItems, setSelectedItemsForCommit]
   );
 
   const handleCommitReceipt = useCallback(async () => {
@@ -558,7 +581,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
                 </button>
               </div>
               <p className="text-[10px] text-slate-400 uppercase tracking-widest">
-                Items from <span className="text-ninpo-lime">{activeStore?.name}</span> classified into three buckets
+                Items from <span className="text-ninpo-lime">{activeStore?.name}</span> classified into four buckets
               </p>
             </div>
 
@@ -568,6 +591,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
                 items={classifiedItems}
                 selectedItems={selectedItemsForCommit}
                 onItemToggle={handleItemToggle}
+                onItemReclassify={handleItemReclassify}
                 isReadOnly={false}
               />
             </div>

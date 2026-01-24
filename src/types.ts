@@ -348,7 +348,7 @@ export interface ReturnSettlement {
 /**
  * Receipt item classification buckets for workflow
  */
-export type ReceiptItemClassification = 'A' | 'B' | 'C';
+export type ReceiptItemClassification = 'A' | 'B' | 'C' | 'D';
 
 export interface ReceiptItemTokens {
   brand?: string | null;
