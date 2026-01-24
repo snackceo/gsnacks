@@ -445,6 +445,9 @@ RefundRequested/Refunded (statuses): See OrderStatus – REFUND_REQUESTED means 
 
 Re-run AI Analysis (button/action): In the Create Product flow, re-analyzes the most recently captured label image and refreshes the AI-suggested fields in the form. Used when the initial AI analysis was incorrect or incomplete.
 
+ReceiptItemClassification (enum): Buckets used for receipt parsing/classification in the pricing workflow. Values: A (auto-update OK), B (needs review), C (no match), D (noise/non-product lines such as coupons, taxes, or subtotals). Bucket D is excluded from inventory updates and is meant to quarantine non-product lines for manual review.
+
+
 result panel (UI): The Create Product form shown after an inventory create scan or AI label analysis. This panel displays the scanned UPC and the AI-suggested fields, and it’s where operators finalize and save the new product.
 
 ReturnAiAnalysis (interface): Structure holding AI results for a returns verification photo. Fields: confidence (e.g., how sure the AI is), flags (list of issues detected), summary (text summary of AI’s findings), assessedAt (timestamp). Attached to Order as returnAiAnalysis after processing a return verification image. Helps the admin decide on approving the returns count.

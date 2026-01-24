@@ -1,6 +1,6 @@
 /**
  * Receipt item classification utility
- * Classifies items into buckets: A (auto-update), B (review), C (no-match)
+ * Classifies items into buckets: A (auto-update), B (review), C (no-match), D (noise)
  */
 
 import { ClassifiedReceiptItem, ReceiptItemClassification } from '../types';
@@ -21,6 +21,8 @@ interface ClassificationConfig {
   autoUpdateThreshold?: number; // Confidence threshold for bucket A
   reviewThreshold?: number; // Confidence threshold for bucket B
 }
+
+const noisePattern = /\b(coupon|discount|savings|tax|taxes|subtotal|sub\s*total)\b/i;
 
 /**
  * Classify a single receipt item
@@ -46,8 +48,13 @@ export function classifyItem(
   const hasProvidedConfidence = typeof item.matchConfidence === 'number';
   let matchConfidence = hasProvidedConfidence ? item.matchConfidence : 0;
 
+  // Heuristic 0: Noise lines (coupons, taxes, subtotals)
+  if (isNoiseItem(item.receiptName, item.totalPrice)) {
+    classification = 'D';
+    reason = 'noise_item';
+  }
   // Heuristic 1: Price validation
-  if (unitPrice < 0.50 || unitPrice > 500) {
+  else if (unitPrice < 0.50 || unitPrice > 500) {
     classification = 'C';
     reason = 'price_out_of_range';
   }
@@ -116,7 +123,8 @@ export function classifyItems(
   const bucketCounts = {
     A: classified.filter(item => item.classification === 'A').length,
     B: classified.filter(item => item.classification === 'B').length,
-    C: classified.filter(item => item.classification === 'C').length
+    C: classified.filter(item => item.classification === 'C').length,
+    D: classified.filter(item => item.classification === 'D').length
   };
 
   return {
@@ -177,6 +185,21 @@ function isCommonBrand(name: string): boolean {
 }
 
 /**
+ * Check if item is a non-product line like coupons, taxes, or subtotals
+ */
+function isNoiseItem(name: string, totalPrice: number): boolean {
+  if (!name) return false;
+  if (noisePattern.test(name)) return true;
+
+  const lowerName = name.toLowerCase();
+  if (totalPrice <= 0 && /\b(coupon|discount|savings)\b/i.test(lowerName)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Get bucket display info
  */
 export function getBucketInfo(classification: ReceiptItemClassification) {
@@ -195,6 +218,11 @@ export function getBucketInfo(classification: ReceiptItemClassification) {
       label: 'No Match',
       color: 'bg-red-500/20 border-red-500/50',
       description: 'Low confidence - manual entry or skip'
+    },
+    D: {
+      label: 'Noise / Non-Product',
+      color: 'bg-slate-500/20 border-slate-500/50',
+      description: 'Coupons, taxes, and subtotals that should not hit inventory'
     }
   };
 

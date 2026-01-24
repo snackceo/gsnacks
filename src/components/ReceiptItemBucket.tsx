@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Check, AlertCircle, XCircle } from 'lucide-react';
+import { Check, AlertCircle, XCircle, MinusCircle } from 'lucide-react';
 import { ClassifiedReceiptItem, ReceiptItemClassification } from '../types';
 import { getBucketInfo } from '../utils/classificationUtils';
 
@@ -7,14 +7,18 @@ interface ReceiptItemBucketProps {
   items: ClassifiedReceiptItem[];
   selectedItems?: Map<string, boolean>;
   onItemToggle?: (item: ClassifiedReceiptItem, classification: ReceiptItemClassification, checked: boolean) => void;
+  onItemReclassify?: (item: ClassifiedReceiptItem, classification: ReceiptItemClassification) => void;
   isReadOnly?: boolean;
 }
+
+const bucketOptions: ReceiptItemClassification[] = ['A', 'B', 'C', 'D'];
 
 const getBucketIcon = (classification: ReceiptItemClassification) => {
   const icons: Record<ReceiptItemClassification, React.ReactNode> = {
     A: <Check className="w-5 h-5 text-green-400" />,
     B: <AlertCircle className="w-5 h-5 text-yellow-400" />,
-    C: <XCircle className="w-5 h-5 text-red-400" />
+    C: <XCircle className="w-5 h-5 text-red-400" />,
+    D: <MinusCircle className="w-5 h-5 text-slate-400" />
   };
   return icons[classification];
 };
@@ -45,13 +49,15 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
   items = [],
   selectedItems = new Map(),
   onItemToggle,
+  onItemReclassify,
   isReadOnly = false
 }) => {
   const buckets = useMemo(() => {
     const grouped: Record<ReceiptItemClassification, ClassifiedReceiptItem[]> = {
       A: [],
       B: [],
-      C: []
+      C: [],
+      D: []
     };
 
     items.forEach(item => {
@@ -61,7 +67,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
     return grouped;
   }, [items]);
 
-  const bucketOrder: ReceiptItemClassification[] = ['A', 'B', 'C'];
+  const bucketOrder: ReceiptItemClassification[] = ['A', 'B', 'C', 'D'];
 
   return (
     <div className="space-y-6">
@@ -151,6 +157,29 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                           {item.suggestedProduct && (
                             <div className="text-xs text-ninpo-lime mt-1">
                               ✓ {item.suggestedProduct.name}
+                            </div>
+                          )}
+                          {!isReadOnly && onItemReclassify && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {bucketOptions.map(option => (
+                                <button
+                                  key={option}
+                                  type="button"
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    if (option !== item.classification) {
+                                      onItemReclassify(item, option);
+                                    }
+                                  }}
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border transition ${
+                                    option === item.classification
+                                      ? 'bg-white/20 border-white/40 text-white'
+                                      : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                                  }`}
+                                >
+                                  {option}
+                                </button>
+                              ))}
                             </div>
                           )}
                         </div>
