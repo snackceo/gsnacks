@@ -510,12 +510,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     };
   }, [activeModule]);
 
-  useEffect(() => {
-    if (!settingsDirty) {
-      setSettingsDraft(settings);
-    }
-  }, [settings, settingsDirty]);
-
   const handleApprove = async (approval: ApprovalRequest) => {
     try {
       const res = await fetch(
