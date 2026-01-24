@@ -1,10 +1,11 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { Wand2, MapPin, RefreshCw, Loader2, CheckCircle2, Camera, Check } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Wand2, MapPin, Loader2, CheckCircle2, Camera, Check } from 'lucide-react';
 import { BACKEND_URL } from '../../constants';
 import { StoreRecord, ScannerMode, ClassifiedReceiptItem, ReceiptItemClassification } from '../../types';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
 import ReceiptCaptureFlow from '../../components/ReceiptCaptureFlow';
 import ReceiptItemBucket from '../../components/ReceiptItemBucket';
+import ScannerModal from '../../components/ScannerModal';
 import { uploadReceiptPhoto } from '../../utils/cloudinaryUtils';
 import { classifyItems } from '../../utils/classificationUtils';
 
@@ -16,6 +17,21 @@ interface ManagementStoresProps {
   isLoading: boolean;
   error: string | null;
   setError: (err: string | null) => void;
+}
+
+interface ProductSearchResult {
+  id: string;
+  productId: string;
+  sku?: string;
+  upc?: string;
+  name: string;
+}
+
+interface NoiseRuleEntry {
+  id: string;
+  normalizedName: string;
+  rawNames: Array<{ name: string; occurrences?: number }>;
+  lastSeenAt?: string;
 }
 
 const emptyAddress = { street: '', city: '', state: '', zip: '', country: '' };
@@ -30,6 +46,8 @@ const formatLocation = (store: StoreRecord) =>
     .filter(Boolean)
     .join(', ');
 
+const isMongoId = (value: string) => /^[a-f0-9]{24}$/i.test(value);
+
 const ManagementStores: React.FC<ManagementStoresProps> = ({
   stores,
   activeStoreId,
@@ -39,7 +57,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   error,
   setError
 }) => {
-  const { addToast } = useNinpoCore();
+  const { addToast, products, fetchProducts, createProduct, settings } = useNinpoCore();
   const [rawInput, setRawInput] = useState('');
   const [isEnriching, setIsEnriching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -49,6 +67,17 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   const [selectedItemsForCommit, setSelectedItemsForCommit] = useState<Map<string, boolean>>(new Map());
   const [isCommitting, setIsCommitting] = useState(false);
   const [primarySupplierUpdatingId, setPrimarySupplierUpdatingId] = useState<string | null>(null);
+  const [scanTargetItem, setScanTargetItem] = useState<ClassifiedReceiptItem | null>(null);
+  const [scanModalOpen, setScanModalOpen] = useState(false);
+  const [productSearchItem, setProductSearchItem] = useState<ClassifiedReceiptItem | null>(null);
+  const [productSearchQuery, setProductSearchQuery] = useState('');
+  const [productSearchResults, setProductSearchResults] = useState<ProductSearchResult[]>([]);
+  const [isSearchingProducts, setIsSearchingProducts] = useState(false);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
+  const [isCreatingProduct, setIsCreatingProduct] = useState(false);
+  const [noiseRules, setNoiseRules] = useState<NoiseRuleEntry[]>([]);
+  const [showNoiseRules, setShowNoiseRules] = useState(false);
+  const [isLoadingNoiseRules, setIsLoadingNoiseRules] = useState(false);
   const [draft, setDraft] = useState<StoreRecord>({
     id: '',
     name: '',
@@ -57,6 +86,124 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   });
 
   const activeStore = useMemo(() => stores.find(s => s.id === activeStoreId) || null, [stores, activeStoreId]);
+
+  const filteredProducts = useMemo(() => productSearchResults, [productSearchResults]);
+
+  const updateReceiptItem = useCallback(
+    (
+      item: ClassifiedReceiptItem,
+      updates: Partial<ClassifiedReceiptItem>,
+      options: { clearSelection?: boolean; forceSelect?: boolean } = {}
+    ) => {
+      const updatedItem = { ...item, ...updates };
+      setClassifiedItems(prev => prev.map(prevItem => (prevItem === item ? updatedItem : prevItem)));
+      setSelectedItemsForCommit(prev => {
+        const next = new Map(prev);
+        const oldKey = JSON.stringify(item);
+        const wasSelected = next.has(oldKey);
+        if (wasSelected) next.delete(oldKey);
+        const newKey = JSON.stringify(updatedItem);
+        const shouldSelect = options.forceSelect ? true : options.clearSelection ? false : wasSelected;
+        if (shouldSelect) next.set(newKey, true);
+        return next;
+      });
+    },
+    []
+  );
+
+  const fetchProductSearch = useCallback(async (query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setProductSearchResults([]);
+      return;
+    }
+
+    setIsSearchingProducts(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/products/search?query=${encodeURIComponent(trimmed)}`, {
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to search products');
+      const list = Array.isArray(data?.products) ? data.products : [];
+      setProductSearchResults(list.map((product: any) => ({
+        id: product.id || product.sku || product.productId,
+        productId: product.productId || product.id || product.sku,
+        sku: product.sku || product.id,
+        upc: product.upc,
+        name: product.name
+      })));
+    } catch (err: any) {
+      setError(err?.message || 'Failed to search products');
+    } finally {
+      setIsSearchingProducts(false);
+    }
+  }, [setError]);
+
+  useEffect(() => {
+    if (!productSearchItem) return;
+    void fetchProductSearch(productSearchQuery);
+  }, [fetchProductSearch, productSearchItem, productSearchQuery]);
+
+  const fetchNoiseRules = useCallback(async () => {
+    if (!activeStoreId) return;
+    setIsLoadingNoiseRules(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/driver/receipt-noise?storeId=${encodeURIComponent(activeStoreId)}`, {
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to load noise rules');
+      const list = Array.isArray(data?.rules) ? data.rules : [];
+      setNoiseRules(list);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load noise rules');
+    } finally {
+      setIsLoadingNoiseRules(false);
+    }
+  }, [activeStoreId, setError]);
+
+  const handleOpenNoiseRules = useCallback(() => {
+    setShowNoiseRules(true);
+    void fetchNoiseRules();
+  }, [fetchNoiseRules]);
+
+  const handleDeleteNoiseRule = useCallback(async (ruleId: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/driver/receipt-noise/${ruleId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to delete noise rule');
+      setNoiseRules(prev => prev.filter(rule => rule.id !== ruleId));
+      addToast('Noise rule removed', 'success');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to delete noise rule');
+    }
+  }, [addToast, setError]);
+
+  const confirmReceiptMatch = useCallback(async (item: ClassifiedReceiptItem, productId: string) => {
+    if (!activeStoreId || !productId || !isMongoId(productId)) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/driver/receipt-confirm-match`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          storeId: activeStoreId,
+          productId,
+          receiptName: item.receiptName,
+          unitPrice: item.unitPrice,
+          quantity: item.quantity
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to confirm match');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to confirm match');
+    }
+  }, [activeStoreId, setError]);
 
   const handleEnrich = useCallback(async () => {
     setError(null);
@@ -83,7 +230,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
         },
         location: data.store?.location
       }));
-      addToast({ title: 'Enriched', description: 'Gemini filled the address.', tone: 'success' });
+      addToast('Gemini filled the address.', 'success');
     } catch (err: any) {
       setError(err?.message || 'Enrich failed');
     } finally {
@@ -118,7 +265,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       if (data.store?.id) {
         setActiveStoreId(data.store.id);
       }
-      addToast({ title: 'Saved', description: `${name} saved`, tone: 'success' });
+      addToast(`${name} saved`, 'success');
     } catch (err: any) {
       setError(err?.message || 'Save failed');
     } finally {
@@ -150,7 +297,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
         return;
       }
 
-      addToast({ title: 'Uploaded', description: 'Receipt image uploaded to Cloudinary', tone: 'success' });
+      addToast('Receipt image uploaded to Cloudinary', 'success');
 
       // Send to backend for Gemini parsing
       const parseRes = await fetch(`${BACKEND_URL}/api/driver/receipt-parse-frame`, {
@@ -173,11 +320,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       }
 
       if (!parseData.items || parseData.items.length === 0) {
-        addToast({
-          title: 'No items',
-          description: 'No items were found in this receipt',
-          tone: 'info'
-        });
+        addToast('No items were found in this receipt', 'info');
         setShowReceiptScanner(false);
         return;
       }
@@ -186,11 +329,10 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       const { items: classified, bucketCounts } = classifyItems(parseData.items);
       setClassifiedItems(classified);
 
-      addToast({
-        title: 'Parsed & Classified',
-        description: `Found ${parseData.items.length} items: ${bucketCounts.A} auto-update, ${bucketCounts.B} review, ${bucketCounts.C} no-match, ${bucketCounts.D} noise`,
-        tone: 'success'
-      });
+      addToast(
+        `Found ${parseData.items.length} items: ${bucketCounts.A} auto-update, ${bucketCounts.B} review, ${bucketCounts.C} no-match, ${bucketCounts.D} noise`,
+        'success'
+      );
 
       // Show review screen
       setShowReceiptScanner(false);
@@ -224,26 +366,238 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
 
   const handleItemReclassify = useCallback(
     (item: ClassifiedReceiptItem, classification: ReceiptItemClassification) => {
-      setClassifiedItems(prev =>
-        prev.map(prevItem => (prevItem === item ? { ...prevItem, classification } : prevItem))
-      );
-      setSelectedItemsForCommit(prev => {
-        const newSelected = new Map(prev);
-        const oldKey = JSON.stringify(item);
-        const wasSelected = newSelected.has(oldKey);
-        if (wasSelected) {
-          newSelected.delete(oldKey);
-        }
-        const updatedItem = { ...item, classification };
-        const newKey = JSON.stringify(updatedItem);
-        if (wasSelected) {
-          newSelected.set(newKey, true);
-        }
-        return newSelected;
-      });
+      updateReceiptItem(item, { classification });
     },
-    [setClassifiedItems, setSelectedItemsForCommit]
+    [updateReceiptItem]
   );
+
+  const linkUpcToProduct = useCallback(async (upc: string, productId: string) => {
+    if (!upc || !productId) return;
+    const res = await fetch(`${BACKEND_URL}/api/upc/link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ upc, productId })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error || 'Failed to link UPC');
+    }
+  }, []);
+
+  const handleItemScanUpc = useCallback((item: ClassifiedReceiptItem) => {
+    setScanTargetItem(item);
+    setScanModalOpen(true);
+  }, []);
+
+  const handleReceiptScan = useCallback(async (upc: string) => {
+    if (!scanTargetItem) return;
+    const normalizedUpc = String(upc || '').replace(/\D/g, '').trim();
+    if (!normalizedUpc) return;
+
+    try {
+      const scanRes = await fetch(`${BACKEND_URL}/api/upc/scan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ upc: normalizedUpc, qty: 1, resolveOnly: true })
+      });
+      const scanData = await scanRes.json().catch(() => ({}));
+      if (!scanRes.ok) throw new Error(scanData?.error || 'UPC scan failed');
+
+      if (scanData?.action === 'resolved' && scanData?.product) {
+        const product = scanData.product;
+        const mappedProduct = {
+          id: product.sku || product.frontendId || product._id,
+          name: product.name,
+          upc: product.upc,
+          sku: product.sku
+        };
+        await confirmReceiptMatch(scanTargetItem, product._id || product.id);
+        updateReceiptItem(
+          scanTargetItem,
+          {
+            scannedUpc: normalizedUpc,
+            suggestedProduct: mappedProduct,
+            matchMethod: 'upc_scan',
+            matchConfidence: 1,
+            classification: 'A',
+            reason: 'upc_scan',
+            isNoiseRule: false
+          },
+          { forceSelect: true }
+        );
+        addToast('UPC matched to product', 'success');
+      } else {
+        updateReceiptItem(
+          scanTargetItem,
+          {
+            scannedUpc: normalizedUpc,
+            matchMethod: 'upc_unmapped',
+            matchConfidence: 0,
+            classification: 'C',
+            reason: 'upc_unmapped'
+          },
+          { clearSelection: true }
+        );
+        addToast('UPC not mapped to a product', 'warning');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to scan UPC');
+    } finally {
+      setScanModalOpen(false);
+      setScanTargetItem(null);
+    }
+  }, [addToast, scanTargetItem, setError, updateReceiptItem]);
+
+  const handleItemSearchProduct = useCallback(async (item: ClassifiedReceiptItem) => {
+    setProductSearchItem(item);
+    setProductSearchQuery(item.receiptName || '');
+
+    if (!products || products.length === 0) {
+      setIsLoadingProducts(true);
+      try {
+        await fetchProducts();
+      } catch (err: any) {
+        setError(err?.message || 'Failed to load products');
+      } finally {
+        setIsLoadingProducts(false);
+      }
+    }
+
+    await fetchProductSearch(item.receiptName || '');
+  }, [fetchProductSearch, fetchProducts, products, setError]);
+
+  const handleProductSelect = useCallback(async (product: ProductSearchResult) => {
+    if (!productSearchItem) return;
+
+    try {
+      if (productSearchItem.scannedUpc) {
+        await linkUpcToProduct(productSearchItem.scannedUpc, product.sku || product.id);
+        addToast('UPC linked to product', 'success');
+      }
+
+      await confirmReceiptMatch(productSearchItem, product.productId);
+
+      updateReceiptItem(
+        productSearchItem,
+        {
+          suggestedProduct: {
+            id: product.id,
+            name: product.name,
+            upc: product.upc,
+            sku: product.sku
+          },
+          matchMethod: 'manual_search',
+          matchConfidence: 1,
+          classification: 'A',
+          reason: 'manual_search',
+          isNoiseRule: false
+        },
+        { forceSelect: true }
+      );
+      addToast('Product matched to receipt item', 'success');
+      setProductSearchItem(null);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to attach product');
+    }
+  }, [addToast, confirmReceiptMatch, linkUpcToProduct, productSearchItem, setError, updateReceiptItem]);
+
+  const handleCreateProduct = useCallback(async (item: ClassifiedReceiptItem) => {
+    if (isCreatingProduct) return;
+
+    setIsCreatingProduct(true);
+    try {
+      const created = await createProduct({
+        name: item.receiptName,
+        price: item.unitPrice,
+        category: 'DRINK'
+      });
+
+      if (item.scannedUpc) {
+        await linkUpcToProduct(item.scannedUpc, created.sku || created.id);
+        addToast('UPC linked to new product', 'success');
+      }
+
+      const searchQuery = created.sku || created.id;
+      let productId = created.id;
+      if (searchQuery) {
+        const res = await fetch(`${BACKEND_URL}/api/products/search?query=${encodeURIComponent(searchQuery)}`, {
+          credentials: 'include'
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && Array.isArray(data?.products)) {
+          const match = data.products.find((entry: any) => entry.sku === created.sku || entry.id === created.id);
+          if (match?.productId) productId = match.productId;
+        }
+      }
+
+      await confirmReceiptMatch(item, productId);
+
+      updateReceiptItem(
+        item,
+        {
+          suggestedProduct: {
+            id: created.id,
+            name: created.name,
+            upc: created.upc,
+            sku: created.sku
+          },
+          matchMethod: 'manual_create',
+          matchConfidence: 1,
+          classification: 'A',
+          reason: 'manual_create',
+          isNoiseRule: false
+        },
+        { forceSelect: true }
+      );
+    } catch (err: any) {
+      setError(err?.message || 'Failed to create product');
+    } finally {
+      setIsCreatingProduct(false);
+    }
+  }, [addToast, confirmReceiptMatch, createProduct, isCreatingProduct, linkUpcToProduct, setError, updateReceiptItem]);
+
+  const handleNeverMatch = useCallback(async (item: ClassifiedReceiptItem) => {
+    if (!activeStoreId) {
+      setError('Please set an active store before adding a noise rule');
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(`Never match "${item.receiptName}" again for this store?`);
+      if (!confirmed) return;
+    }
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/driver/receipt-noise`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ storeId: activeStoreId, receiptName: item.receiptName })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to save noise rule');
+
+      updateReceiptItem(
+        item,
+        {
+          classification: 'D',
+          reason: 'noise_rule',
+          isNoiseRule: true,
+          matchMethod: 'noise_rule',
+          matchConfidence: 1,
+          suggestedProduct: undefined,
+          scannedUpc: undefined
+        },
+        { clearSelection: true }
+      );
+
+      addToast('Noise rule saved', 'success');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save noise rule');
+    }
+  }, [activeStoreId, addToast, setError, updateReceiptItem]);
 
   const handleCommitReceipt = useCallback(async () => {
     if (!activeStoreId || selectedItemsForCommit.size === 0) {
@@ -280,11 +634,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
         throw new Error(commitData?.error || 'Commit failed');
       }
 
-      addToast({
-        title: 'Committed',
-        description: `${itemsToCommit.length} items added to ${activeStore?.name} inventory`,
-        tone: 'success'
-      });
+      addToast(`${itemsToCommit.length} items added to ${activeStore?.name} inventory`, 'success');
 
       // Close review and reset
       setShowReceiptReview(false);
@@ -312,11 +662,10 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       if (!res.ok) throw new Error(data?.error || 'Failed to update primary supplier');
 
       await refreshStores();
-      addToast({
-        title: 'Updated',
-        description: `${store.name} ${store.isPrimarySupplier ? 'removed from' : 'set as'} primary supplier`,
-        tone: 'success'
-      });
+      addToast(
+        `${store.name} ${store.isPrimarySupplier ? 'removed from' : 'set as'} primary supplier`,
+        'success'
+      );
     } catch (err: any) {
       setError(err?.message || 'Failed to update primary supplier');
     } finally {
@@ -519,12 +868,6 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
               <div className="text-xs text-slate-400">No stores yet. Create your first store above.</div>
             )}
           </div>
-
-          {activeStore && (
-            <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-xs text-slate-300">
-              Active store: <span className="text-white font-semibold">{activeStore.name}</span>
-            </div>
-          )}
         </div>
       </div>
 
@@ -565,6 +908,22 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
         />
       )}
 
+      {scanModalOpen && (
+        <ScannerModal
+          mode={ScannerMode.UPC_LOOKUP}
+          onScan={handleReceiptScan}
+          onClose={() => {
+            setScanModalOpen(false);
+            setScanTargetItem(null);
+          }}
+          title="Scan UPC"
+          subtitle="Scan product barcode to match this receipt line"
+          beepEnabled={settings.beepEnabled ?? true}
+          cooldownMs={settings.cooldownMs ?? 1000}
+          isOpen={scanModalOpen}
+        />
+      )}
+
       {/* Receipt Review Section */}
       {showReceiptReview && classifiedItems.length > 0 && (
         <div className="fixed inset-0 z-50 bg-ninpo-black/95 backdrop-blur-sm p-4 flex items-center justify-center overflow-y-auto">
@@ -573,12 +932,20 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
             <div className="border-b border-white/10 p-6 space-y-2">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-black uppercase text-white tracking-widest">Receipt Review</h2>
-                <button
-                  onClick={() => setShowReceiptReview(false)}
-                  className="text-slate-400 hover:text-white transition p-2"
-                >
-                  ✕
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleOpenNoiseRules}
+                    className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/10 text-slate-200 bg-white/5 hover:bg-white/10"
+                  >
+                    Manage Noise Rules
+                  </button>
+                  <button
+                    onClick={() => setShowReceiptReview(false)}
+                    className="text-slate-400 hover:text-white transition p-2"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
               <p className="text-[10px] text-slate-400 uppercase tracking-widest">
                 Items from <span className="text-ninpo-lime">{activeStore?.name}</span> classified into four buckets
@@ -592,6 +959,10 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
                 selectedItems={selectedItemsForCommit}
                 onItemToggle={handleItemToggle}
                 onItemReclassify={handleItemReclassify}
+                onItemScanUpc={handleItemScanUpc}
+                onItemSearchProduct={handleItemSearchProduct}
+                onItemCreateProduct={handleCreateProduct}
+                onItemNeverMatch={handleNeverMatch}
                 isReadOnly={false}
               />
             </div>
@@ -624,6 +995,114 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
                 {isCommitting ? 'Committing…' : 'Commit Selected'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {productSearchItem && (
+        <div className="fixed inset-0 z-50 bg-ninpo-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-ninpo-card rounded-[2rem] border border-white/10 max-w-lg w-full p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-white font-black uppercase text-sm tracking-widest">Search Product</h3>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest">
+                  Match: {productSearchItem.receiptName}
+                </p>
+              </div>
+              <button
+                onClick={() => setProductSearchItem(null)}
+                className="text-slate-400 hover:text-white transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <input
+              value={productSearchQuery}
+              onChange={e => setProductSearchQuery(e.target.value)}
+              placeholder="Search by name, SKU, or UPC"
+              className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 text-sm text-white"
+            />
+
+            {isLoadingProducts || isSearchingProducts ? (
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading products…
+              </div>
+            ) : (
+              <div className="max-h-64 overflow-y-auto space-y-2">
+                {filteredProducts.length === 0 ? (
+                  <p className="text-xs text-slate-500">No products match this search.</p>
+                ) : (
+                  filteredProducts.map(product => (
+                    <button
+                      key={product.productId}
+                      onClick={() => void handleProductSelect(product)}
+                      className="w-full text-left p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10"
+                    >
+                      <div className="text-sm text-white font-semibold">{product.name}</div>
+                      <div className="text-[10px] text-slate-400 mt-1">
+                        {product.sku ? `SKU: ${product.sku}` : 'SKU: —'}
+                        {product.upc ? ` • UPC: ${product.upc}` : ''}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showNoiseRules && (
+        <div className="fixed inset-0 z-50 bg-ninpo-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-ninpo-card rounded-[2rem] border border-white/10 max-w-lg w-full p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-white font-black uppercase text-sm tracking-widest">Noise Rules</h3>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest">Store: {activeStore?.name}</p>
+              </div>
+              <button
+                onClick={() => setShowNoiseRules(false)}
+                className="text-slate-400 hover:text-white transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {isLoadingNoiseRules ? (
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading noise rules…
+              </div>
+            ) : (
+              <div className="max-h-64 overflow-y-auto space-y-2">
+                {noiseRules.length === 0 ? (
+                  <p className="text-xs text-slate-500">No noise rules yet.</p>
+                ) : (
+                  noiseRules.map(rule => (
+                    <div
+                      key={rule.id}
+                      className="p-3 rounded-xl bg-white/5 border border-white/10 flex items-start justify-between gap-2"
+                    >
+                      <div>
+                        <div className="text-sm text-white font-semibold">{rule.normalizedName}</div>
+                        {rule.rawNames?.length ? (
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            {rule.rawNames.slice(0, 2).map(entry => entry.name).join(', ')}
+                            {rule.rawNames.length > 2 ? '…' : ''}
+                          </p>
+                        ) : null}
+                      </div>
+                      <button
+                        onClick={() => void handleDeleteNoiseRule(rule.id)}
+                        className="px-2 py-1 rounded-full text-[10px] font-semibold border border-red-500/40 text-red-300 bg-red-500/10 hover:bg-red-500/20"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

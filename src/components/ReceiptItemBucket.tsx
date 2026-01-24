@@ -8,6 +8,10 @@ interface ReceiptItemBucketProps {
   selectedItems?: Map<string, boolean>;
   onItemToggle?: (item: ClassifiedReceiptItem, classification: ReceiptItemClassification, checked: boolean) => void;
   onItemReclassify?: (item: ClassifiedReceiptItem, classification: ReceiptItemClassification) => void;
+  onItemScanUpc?: (item: ClassifiedReceiptItem) => void;
+  onItemSearchProduct?: (item: ClassifiedReceiptItem) => void;
+  onItemCreateProduct?: (item: ClassifiedReceiptItem) => void;
+  onItemNeverMatch?: (item: ClassifiedReceiptItem) => void;
   isReadOnly?: boolean;
 }
 
@@ -50,6 +54,10 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
   selectedItems = new Map(),
   onItemToggle,
   onItemReclassify,
+  onItemScanUpc,
+  onItemSearchProduct,
+  onItemCreateProduct,
+  onItemNeverMatch,
   isReadOnly = false
 }) => {
   const buckets = useMemo(() => {
@@ -68,6 +76,10 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
   }, [items]);
 
   const bucketOrder: ReceiptItemClassification[] = ['A', 'B', 'C', 'D'];
+
+  const hasItemActions = !isReadOnly && (
+    onItemScanUpc || onItemSearchProduct || onItemCreateProduct || onItemNeverMatch
+  );
 
   return (
     <div className="space-y-6">
@@ -98,6 +110,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                   const tokenSummary = formatTokens(item.tokens);
                   const history = item.matchHistory?.slice(0, 3) ?? [];
                   const priceDelta = typeof item.priceDelta === 'number' ? item.priceDelta : undefined;
+                  const displayUpc = item.scannedUpc || item.suggestedProduct?.upc;
 
                   return (
                     <div
@@ -159,6 +172,12 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                               ✓ {item.suggestedProduct.name}
                             </div>
                           )}
+                          {displayUpc && (
+                            <p className="text-xs text-slate-500 mt-1">UPC: {displayUpc}</p>
+                          )}
+                          {item.isNoiseRule && (
+                            <p className="text-xs text-slate-400 mt-1">Noise rule applied</p>
+                          )}
                           {!isReadOnly && onItemReclassify && (
                             <div className="mt-2 flex flex-wrap gap-1">
                               {bucketOptions.map(option => (
@@ -180,6 +199,58 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                                   {option}
                                 </button>
                               ))}
+                            </div>
+                          )}
+                          {hasItemActions && (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {onItemScanUpc && (
+                                <button
+                                  type="button"
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    onItemScanUpc(item);
+                                  }}
+                                  className="px-2 py-1 rounded-full text-[10px] font-semibold border border-white/10 text-slate-200 bg-white/5 hover:bg-white/10"
+                                >
+                                  Scan UPC
+                                </button>
+                              )}
+                              {onItemSearchProduct && (
+                                <button
+                                  type="button"
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    onItemSearchProduct(item);
+                                  }}
+                                  className="px-2 py-1 rounded-full text-[10px] font-semibold border border-white/10 text-slate-200 bg-white/5 hover:bg-white/10"
+                                >
+                                  Search Product
+                                </button>
+                              )}
+                              {onItemCreateProduct && (
+                                <button
+                                  type="button"
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    onItemCreateProduct(item);
+                                  }}
+                                  className="px-2 py-1 rounded-full text-[10px] font-semibold border border-ninpo-lime/40 text-ninpo-lime bg-ninpo-lime/10 hover:bg-ninpo-lime/20"
+                                >
+                                  Create Product
+                                </button>
+                              )}
+                              {onItemNeverMatch && (
+                                <button
+                                  type="button"
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    onItemNeverMatch(item);
+                                  }}
+                                  className="px-2 py-1 rounded-full text-[10px] font-semibold border border-red-500/40 text-red-300 bg-red-500/10 hover:bg-red-500/20"
+                                >
+                                  Never match again
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>

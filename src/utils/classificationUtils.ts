@@ -15,6 +15,7 @@ interface RawReceiptItem {
   suggestedProduct?: ClassifiedReceiptItem['suggestedProduct'];
   matchConfidence?: ClassifiedReceiptItem['matchConfidence'];
   matchMethod?: ClassifiedReceiptItem['matchMethod'];
+  isNoiseRule?: ClassifiedReceiptItem['isNoiseRule'];
 }
 
 interface ClassificationConfig {
@@ -48,8 +49,13 @@ export function classifyItem(
   const hasProvidedConfidence = typeof item.matchConfidence === 'number';
   let matchConfidence = hasProvidedConfidence ? item.matchConfidence : 0;
 
-  // Heuristic 0: Noise lines (coupons, taxes, subtotals)
-  if (isNoiseItem(item.receiptName, item.totalPrice)) {
+  // Heuristic 0: Explicit noise rule
+  if (item.isNoiseRule) {
+    classification = 'D';
+    reason = 'noise_rule';
+  }
+  // Heuristic 1: Noise lines (coupons, taxes, subtotals)
+  else if (isNoiseItem(item.receiptName, item.totalPrice)) {
     classification = 'D';
     reason = 'noise_item';
   }
