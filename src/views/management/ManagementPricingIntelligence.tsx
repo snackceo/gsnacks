@@ -80,6 +80,33 @@ interface NoiseRuleEntry {
   lastSeenAt?: string;
 }
 
+interface PriceHistoryEntry {
+  price: number;
+  observedAt?: string;
+  matchMethod?: string;
+  matchConfidence?: number;
+  priceType?: string;
+  promoDetected?: boolean;
+  workflowType?: string;
+}
+
+interface StoreInventoryEntry {
+  _id: string;
+  storeId: string;
+  productId?: string | { _id?: string; id?: string };
+  product?: {
+    _id?: string;
+    id?: string;
+    name?: string;
+    sku?: string;
+    upc?: string;
+    price?: number;
+  };
+  observedPrice?: number;
+  observedAt?: string;
+  priceHistory?: PriceHistoryEntry[];
+}
+
 interface ManagementPricingIntelligenceProps {
   setScannerMode: (mode: ScannerMode) => void;
   setScannerModalOpen: (open: boolean) => void;
@@ -234,6 +261,11 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const [noiseRules, setNoiseRules] = useState<NoiseRuleEntry[]>([]);
   const [showNoiseRules, setShowNoiseRules] = useState(false);
   const [isLoadingNoiseRules, setIsLoadingNoiseRules] = useState(false);
+  const [timelineStoreId, setTimelineStoreId] = useState<string>('');
+  const [timelineProductId, setTimelineProductId] = useState<string>('');
+  const [storeInventory, setStoreInventory] = useState<StoreInventoryEntry[]>([]);
+  const [isInventoryLoading, setIsInventoryLoading] = useState(false);
+  const [inventoryError, setInventoryError] = useState<string | null>(null);
 
   const activeStore = useMemo(
     () => stores.find(store => store.id === activeStoreId) || null,
@@ -261,6 +293,91 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     () => classifiedItems.filter(item => item.classification === 'A' && item.suggestedProduct),
     [classifiedItems]
   );
+
+  const aliasConfidenceThreshold = 0.8;
+
+  const aliasConfidenceSummary = useMemo(() => {
+    const confidences = receiptAliases.map(alias => ({
+      effective: alias.effectiveConfidence ?? alias.matchConfidence,
+      base: alias.baseConfidence ?? alias.matchConfidence,
+      lastSeen: alias.lastSeenAt || alias.lastConfirmedAt || ''
+    }));
+    const safe = confidences.filter(entry => entry.effective >= aliasConfidenceThreshold);
+    const gated = confidences.filter(entry => entry.effective < aliasConfidenceThreshold);
+    const averageEffective = confidences.length
+      ? confidences.reduce((sum, entry) => sum + entry.effective, 0) / confidences.length
+      : 0;
+    const trend = confidences
+      .map(entry => ({
+        confidence: entry.effective,
+        timestamp: entry.lastSeen ? new Date(entry.lastSeen).getTime() : 0
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .slice(-12)
+      .map(entry => entry.confidence);
+    return {
+      safeCount: safe.length,
+      gatedCount: gated.length,
+      averageEffective,
+      trend
+    };
+  }, [receiptAliases]);
+
+  const receiptHealthSummary = useMemo(() => {
+    const totals = receiptCaptures.reduce(
+      (acc, capture) => {
+        acc.totalItems += capture.stats.totalItems || 0;
+        acc.itemsNeedingReview += capture.stats.itemsNeedingReview || 0;
+        acc.itemsConfirmed += capture.stats.itemsConfirmed || 0;
+        acc.failedCaptures += capture.status === 'failed' ? 1 : 0;
+        acc.totalCaptures += 1;
+        return acc;
+      },
+      {
+        totalItems: 0,
+        itemsNeedingReview: 0,
+        itemsConfirmed: 0,
+        failedCaptures: 0,
+        totalCaptures: 0
+      }
+    );
+
+    const autoMatchedItems = Math.max(totals.totalItems - totals.itemsNeedingReview, 0);
+    const autoMatchedPct = totals.totalItems > 0 ? (autoMatchedItems / totals.totalItems) * 100 : 0;
+    const reviewPct = totals.totalItems > 0 ? (totals.itemsNeedingReview / totals.totalItems) * 100 : 0;
+    const errorPct = totals.totalCaptures > 0 ? (totals.failedCaptures / totals.totalCaptures) * 100 : 0;
+
+    return {
+      ...totals,
+      autoMatchedItems,
+      autoMatchedPct,
+      reviewPct,
+      errorPct
+    };
+  }, [receiptCaptures]);
+
+  const receiptErrorRatesByStore = useMemo(() => {
+    const map = new Map<string, { storeName: string; total: number; failed: number }>();
+    receiptCaptures.forEach(capture => {
+      const key = capture.storeId || capture.storeName || 'unknown';
+      const existing = map.get(key) || {
+        storeName: capture.storeName || 'Unknown Store',
+        total: 0,
+        failed: 0
+      };
+      existing.total += 1;
+      if (capture.status === 'failed') {
+        existing.failed += 1;
+      }
+      map.set(key, existing);
+    });
+    return Array.from(map.values())
+      .map(entry => ({
+        ...entry,
+        errorRate: entry.total > 0 ? (entry.failed / entry.total) * 100 : 0
+      }))
+      .sort((a, b) => b.errorRate - a.errorRate);
+  }, [receiptCaptures]);
 
   const priceDeltaThreshold = useMemo(() => {
     const rawValue = Number(settings?.priceDeltaReviewThreshold);
@@ -335,7 +452,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const fetchReceiptCaptures = useCallback(async () => {
     try {
       const resp = await fetch(
-        `${BACKEND_URL}/api/driver/receipt-captures?status=pending_parse&status=parsed&status=review_complete&limit=20`,
+        `${BACKEND_URL}/api/driver/receipt-captures?status=pending_parse&status=parsed&status=review_complete&status=failed&limit=40`,
         {
           credentials: 'include'
         }
@@ -347,6 +464,37 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       }
     } catch (error) {
       console.error('Error fetching receipt captures:', error);
+    }
+  }, []);
+
+  const resolveProductId = (entry: StoreInventoryEntry) => {
+    if (entry.product?.id) return entry.product.id;
+    if (entry.product?._id) return entry.product._id;
+    if (typeof entry.productId === 'string') return entry.productId;
+    if (entry.productId && typeof entry.productId === 'object') {
+      return entry.productId._id || entry.productId.id || '';
+    }
+    return '';
+  };
+
+  const fetchStoreInventory = useCallback(async (storeId: string) => {
+    if (!storeId) return;
+    setIsInventoryLoading(true);
+    setInventoryError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/driver/store-inventory/${storeId}`, {
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to load store inventory');
+      }
+      const list = Array.isArray(data?.inventory) ? data.inventory : [];
+      setStoreInventory(list);
+    } catch (err: any) {
+      setInventoryError(err?.message || 'Failed to load store inventory');
+    } finally {
+      setIsInventoryLoading(false);
     }
   }, []);
 
@@ -1164,6 +1312,17 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   }, [fetchReceiptCaptures]);
 
   useEffect(() => {
+    if (activeStoreId && !timelineStoreId) {
+      setTimelineStoreId(activeStoreId);
+    }
+  }, [activeStoreId, timelineStoreId]);
+
+  useEffect(() => {
+    if (!timelineStoreId) return;
+    void fetchStoreInventory(timelineStoreId);
+  }, [fetchStoreInventory, timelineStoreId]);
+
+  useEffect(() => {
     const handleQueueRefresh = () => {
       fetchReceiptCaptures();
     };
@@ -1175,6 +1334,58 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   useEffect(() => {
     fetchReceiptAliases();
   }, [fetchReceiptAliases]);
+
+  const timelineOptions = useMemo(() => {
+    return storeInventory
+      .filter(entry => (entry.priceHistory || []).length > 0)
+      .map(entry => {
+        const productId = resolveProductId(entry) || entry._id;
+        return {
+          id: productId,
+          name: entry.product?.name || 'Unknown product',
+          sku: entry.product?.sku,
+          upc: entry.product?.upc,
+          entry
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [storeInventory]);
+
+  useEffect(() => {
+    if (timelineOptions.length === 0) {
+      setTimelineProductId('');
+      return;
+    }
+    const exists = timelineOptions.some(option => option.id === timelineProductId);
+    if (!timelineProductId || !exists) {
+      setTimelineProductId(timelineOptions[0].id);
+    }
+  }, [timelineOptions, timelineProductId]);
+
+  const selectedTimelineOption = useMemo(
+    () => timelineOptions.find(option => option.id === timelineProductId) || null,
+    [timelineOptions, timelineProductId]
+  );
+
+  const timelineHistory = useMemo(() => {
+    const history = selectedTimelineOption?.entry.priceHistory || [];
+    return [...history].sort((a, b) => {
+      const aTime = a.observedAt ? new Date(a.observedAt).getTime() : 0;
+      const bTime = b.observedAt ? new Date(b.observedAt).getTime() : 0;
+      return aTime - bTime;
+    });
+  }, [selectedTimelineOption]);
+
+  const timelineStats = useMemo(() => {
+    const prices = timelineHistory.map(entry => entry.price).filter(price => Number.isFinite(price));
+    if (prices.length === 0) {
+      return { min: 0, max: 0, range: 1 };
+    }
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    const range = max - min || 1;
+    return { min, max, range };
+  }, [timelineHistory]);
 
   const isCreateProductReady = useMemo(() => {
     const hasName = createProductDraft.name.trim().length > 0;
@@ -1514,6 +1725,228 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
               })}
             </div>
           )}
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <div className="bg-slate-900/60 rounded-2xl p-6 border border-slate-700 space-y-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-black uppercase text-white tracking-widest">Post-Commit Intelligence</h3>
+              <p className="text-xs text-slate-400 mt-2">
+                Price history, alias confidence, and system health snapshots for committed receipts.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => timelineStoreId && fetchStoreInventory(timelineStoreId)}
+                className="px-3 py-2 rounded-lg border border-slate-600 text-slate-200 text-xs font-semibold hover:bg-slate-800"
+              >
+                Refresh Post-Commit Data
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4 space-y-4">
+              <div>
+                <h4 className="text-sm font-black uppercase tracking-widest text-white">Price Timeline</h4>
+                <p className="text-xs text-slate-400 mt-1">Per store/product observed price trends.</p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  Store
+                  <select
+                    className="mt-2 w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
+                    value={timelineStoreId}
+                    onChange={e => {
+                      setTimelineStoreId(e.target.value);
+                      setTimelineProductId('');
+                    }}
+                  >
+                    <option value="" disabled>Select store</option>
+                    {stores.map(store => (
+                      <option key={store.id} value={store.id}>
+                        {store.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  Product
+                  <select
+                    className="mt-2 w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
+                    value={timelineProductId}
+                    onChange={e => setTimelineProductId(e.target.value)}
+                    disabled={timelineOptions.length === 0}
+                  >
+                    {timelineOptions.length === 0 ? (
+                      <option value="">No history yet</option>
+                    ) : (
+                      timelineOptions.map(option => (
+                        <option key={option.id} value={option.id}>
+                          {option.name}
+                          {option.sku ? ` • ${option.sku}` : ''}
+                          {option.upc ? ` • ${option.upc}` : ''}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </label>
+              </div>
+
+              {inventoryError && (
+                <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-2">
+                  {inventoryError}
+                </div>
+              )}
+
+              {isInventoryLoading ? (
+                <div className="text-xs text-slate-400">Loading price history…</div>
+              ) : !timelineStoreId ? (
+                <div className="text-xs text-slate-400">Select a store to view price history.</div>
+              ) : timelineHistory.length === 0 ? (
+                <div className="text-xs text-slate-400">No price history recorded for this selection.</div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-end gap-1 h-12">
+                    {timelineHistory.slice(-12).map((entry, index) => {
+                      const height = 10 + ((entry.price - timelineStats.min) / timelineStats.range) * 32;
+                      return (
+                        <div
+                          key={`${entry.observedAt || 'entry'}-${index}`}
+                          className="w-2 rounded bg-emerald-400/70"
+                          style={{ height: `${height}px` }}
+                          title={`$${entry.price.toFixed(2)}`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    Range: ${timelineStats.min.toFixed(2)} → ${timelineStats.max.toFixed(2)}
+                  </div>
+                  <div className="space-y-2">
+                    {timelineHistory
+                      .slice(-5)
+                      .reverse()
+                      .map((entry, index) => (
+                        <div key={`${entry.observedAt || 'row'}-${index}`} className="flex justify-between text-xs text-slate-300">
+                          <span>{entry.observedAt ? new Date(entry.observedAt).toLocaleDateString() : 'Unknown date'}</span>
+                          <span className="font-semibold text-white">${entry.price.toFixed(2)}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4 space-y-4">
+              <div>
+                <h4 className="text-sm font-black uppercase tracking-widest text-white">Alias Confidence</h4>
+                <p className="text-xs text-slate-400 mt-1">Safe vs gated alias confidence trends.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
+                  <div className="text-[10px] uppercase tracking-widest text-slate-500">Safe</div>
+                  <div className="text-lg font-bold text-emerald-200">{aliasConfidenceSummary.safeCount}</div>
+                  <div className="text-[10px] text-slate-500">≥ {(aliasConfidenceThreshold * 100).toFixed(0)}%</div>
+                </div>
+                <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
+                  <div className="text-[10px] uppercase tracking-widest text-slate-500">Gated</div>
+                  <div className="text-lg font-bold text-amber-200">{aliasConfidenceSummary.gatedCount}</div>
+                  <div className="text-[10px] text-slate-500">Needs review</div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
+                <div className="text-[10px] uppercase tracking-widest text-slate-500">Avg Effective Confidence</div>
+                <div className="text-lg font-bold text-white">
+                  {(aliasConfidenceSummary.averageEffective * 100).toFixed(0)}%
+                </div>
+                <div className="mt-2 flex items-end gap-1 h-10">
+                  {aliasConfidenceSummary.trend.length === 0 ? (
+                    <span className="text-[10px] text-slate-500">No trend data yet.</span>
+                  ) : (
+                    aliasConfidenceSummary.trend.map((value, index) => (
+                      <div
+                        key={`alias-trend-${index}`}
+                        className="w-2 rounded bg-indigo-400/70"
+                        style={{ height: `${8 + value * 28}px` }}
+                        title={`${(value * 100).toFixed(0)}%`}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4 space-y-4">
+              <div>
+                <h4 className="text-sm font-black uppercase tracking-widest text-white">System Health</h4>
+                <p className="text-xs text-slate-400 mt-1">Auto-match, review, and error rates.</p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>Auto-matched</span>
+                    <span className="text-white font-semibold">{receiptHealthSummary.autoMatchedPct.toFixed(0)}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-400"
+                      style={{ width: `${receiptHealthSummary.autoMatchedPct}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>Requires review</span>
+                    <span className="text-white font-semibold">{receiptHealthSummary.reviewPct.toFixed(0)}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-amber-400"
+                      style={{ width: `${receiptHealthSummary.reviewPct}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>Error rate</span>
+                    <span className="text-white font-semibold">{receiptHealthSummary.errorPct.toFixed(1)}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-rose-400"
+                      style={{ width: `${receiptHealthSummary.errorPct}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-[10px] uppercase tracking-widest text-slate-500">Error rate by store</div>
+                {receiptErrorRatesByStore.length === 0 ? (
+                  <div className="text-xs text-slate-500">No receipt captures yet.</div>
+                ) : (
+                  receiptErrorRatesByStore.slice(0, 5).map(store => (
+                    <div key={store.storeName} className="flex items-center justify-between text-xs text-slate-300">
+                      <span>{store.storeName}</span>
+                      <span className="text-white font-semibold">
+                        {store.errorRate.toFixed(1)}% ({store.failed}/{store.total})
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
