@@ -398,8 +398,8 @@ export interface ClassifiedReceiptItem {
  * Parsed receipt data after Gemini extraction
  */
 export interface ParsedReceipt {
-  storeId: string;
-  storeName: string;
+  storeId?: string;
+  storeName?: string;
   imageUrl: string;
   publicId: string;
   items: ClassifiedReceiptItem[];
@@ -411,4 +411,3 @@ export interface ParsedReceipt {
   };
   parsedAt: string;
 }
-

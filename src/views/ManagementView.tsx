@@ -780,15 +780,12 @@ const ManagementView: React.FC<ManagementViewProps> = ({
 
   const handleReceiptPhotoCapture = useCallback(async (photoDataUrl: string, mime: string) => {
     try {
-      if (!activeStoreId || !activeStore) {
-        addToast('Select a store before capturing a receipt.', 'error');
-        return;
-      }
-
+      const storeId = activeStoreId || undefined;
+      const storeName = activeStore?.name || undefined;
       const uploadResult = await uploadReceiptPhoto(
         photoDataUrl,
-        activeStoreId,
-        activeStore.name || 'Unknown Store'
+        storeId,
+        storeName
       );
 
       if (!uploadResult) {
@@ -802,8 +799,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          storeId: activeStoreId,
-          storeName: activeStore.name || 'Unknown Store',
+          storeId,
+          storeName,
           captureRequestId,
           images: [{
             url: uploadResult.secureUrl,
@@ -846,16 +843,14 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       addToast('Capture a receipt image before saving items.', 'error');
       return;
     }
-    if (!activeStoreId || !activeStore) {
-      addToast('Select a store before saving receipt items.', 'error');
-      return;
-    }
 
     try {
+      const storeId = activeStoreId || undefined;
+      const storeName = activeStore?.name || undefined;
       const uploadResult = await uploadReceiptPhoto(
         frame,
-        activeStoreId,
-        activeStore.name || 'Unknown Store'
+        storeId,
+        storeName
       );
 
       if (!uploadResult) {
@@ -869,8 +864,8 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          storeId: activeStoreId,
-          storeName: activeStore.name || 'Unknown Store',
+          storeId,
+          storeName,
           captureRequestId,
           images: [{
             url: uploadResult.secureUrl,
@@ -1992,12 +1987,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           onReceiptParsed={scannerMode === ScannerMode.RECEIPT_PARSE_LIVE ? handleReceiptParsed : undefined}
           onModeChange={handleScannerModeChange}
           receiptHeaderContent={receiptStoreSelector || undefined}
-          receiptSaveDisabled={scannerMode === ScannerMode.RECEIPT_PARSE_LIVE && !activeStoreId}
-          receiptSaveDisabledReason={
-            scannerMode === ScannerMode.RECEIPT_PARSE_LIVE && !activeStoreId
-              ? 'Select a store before saving receipt items.'
-              : undefined
-          }
           bottomSheetContent={
             scannerMode === ScannerMode.INVENTORY_CREATE ? (
               <InventoryCreateForm

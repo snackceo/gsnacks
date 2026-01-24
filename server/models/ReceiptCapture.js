@@ -12,7 +12,6 @@ const receiptCaptureSchema = new mongoose.Schema({
   storeId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Store',
-    required: true,
     index: true
   },
   storeName: String,

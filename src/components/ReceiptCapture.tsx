@@ -21,7 +21,7 @@ interface ReceiptCaptureProps {
 }
 
 const PDF_UPLOAD_MESSAGE = 'PDF upload coming soon.';
-const STORE_REQUIRED_MESSAGE = 'Select a store before uploading a receipt image.';
+const STORE_REQUIRED_MESSAGE = 'Store selection is required to submit receipt items.';
 
 const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
   orderId,
@@ -48,11 +48,6 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
 
   const handlePhotoFile = useCallback((file: File) => {
     if (!file) return;
-
-    if (!storeId) {
-      setError(STORE_REQUIRED_MESSAGE);
-      return;
-    }
 
     if (file.type === 'application/pdf') {
       setError(PDF_UPLOAD_MESSAGE);
@@ -164,9 +159,6 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
 
   const uploadReceiptImage = async () => {
     if (!receiptPhoto) return null;
-    if (!storeId) {
-      throw new Error('Store selection required before uploading a receipt image.');
-    }
 
     setUploadPhase('Uploading receipt image…');
     const uploadResp = await fetch(`${BACKEND_URL}/api/driver/upload-receipt-image`, {
@@ -177,7 +169,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
       },
       body: JSON.stringify({
         image: receiptPhoto,
-        storeId
+        storeId: storeId || undefined
       })
     });
 
@@ -190,10 +182,6 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
   };
 
   const createReceiptCapture = async (imageUrl: string, thumbnailUrl?: string) => {
-    if (!storeId) {
-      throw new Error('Store selection required before capturing receipts.');
-    }
-
     setUploadPhase('Creating receipt capture…');
     const captureRequestId = generateCaptureId();
     const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
@@ -201,8 +189,8 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({
-        storeId,
-        storeName: storeLabel,
+        storeId: storeId || undefined,
+        storeName: storeName || undefined,
         orderId,
         captureRequestId,
         images: [
@@ -230,7 +218,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
     }
 
     if (!storeId && !storeName) {
-      setError('Store selection is required');
+      setError(STORE_REQUIRED_MESSAGE);
       return;
     }
 
@@ -339,11 +327,6 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
               <Camera className="w-4 h-4" />
               Receipt Photo (Optional)
             </label>
-            {!storeId && (
-              <p className="text-xs text-orange-200 mb-3">
-                {STORE_REQUIRED_MESSAGE}
-              </p>
-            )}
             {receiptPhoto ? (
               <div className="relative">
                 <img src={receiptPhoto} alt="Receipt" className="w-full rounded-lg" />

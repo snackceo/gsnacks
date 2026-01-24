@@ -113,15 +113,16 @@ export async function uploadToCloudinary(
  */
 export async function uploadReceiptPhoto(
   dataUrl: string,
-  storeId: string,
-  storeName: string
+  storeId?: string,
+  storeName?: string
 ): Promise<CloudinaryUploadResult | null> {
+  const context: Record<string, string> = {};
+  if (storeId) context.storeId = storeId;
+  if (storeName) context.storeName = storeName;
+
   return uploadToCloudinary(dataUrl, {
     folder: 'receipts',
     tags: ['receipt', 'inventory'],
-    context: {
-      storeId,
-      storeName
-    }
+    context: Object.keys(context).length ? context : undefined
   });
 }
