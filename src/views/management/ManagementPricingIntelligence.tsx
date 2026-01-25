@@ -5,9 +5,7 @@ import {
   Product,
   ReceiptItemClassification,
   ScannerMode,
-  StoreRecord,
-  UnmappedUpcData,
-  UpcItem
+  StoreRecord
 } from '../../types';
 import { BACKEND_URL } from '../../constants';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
@@ -27,10 +25,7 @@ import {
   getSafeCaptureStatus,
   getReceiptItemKey
 } from '../../utils/receiptHelpers';
-import ManagementStores from './ManagementStores';
-import ManagementUpcRegistry from './ManagementUpcRegistry';
 import ManagementReceiptInsights from './ManagementReceiptInsights';
-import { UPC_CONTAINER_LABELS } from './constants';
 
 interface ReceiptCapture {
   _id: string;
@@ -128,30 +123,6 @@ interface ManagementPricingIntelligenceProps {
   isLoadingStores: boolean;
   storeError: string | null;
   setStoreError: (err: string | null) => void;
-  upcItems: UpcItem[];
-  setUpcItems: (items: UpcItem[]) => void;
-  upcInput: string;
-  setUpcInput: (value: string) => void;
-  upcDraft: UpcItem;
-  setUpcDraft: (draft: UpcItem) => void;
-  upcFilter: string;
-  setUpcFilter: (value: string) => void;
-  isUpcLoading: boolean;
-  isUpcSaving: boolean;
-  upcError: string | null;
-  apiLoadUpcItems: () => Promise<void>;
-  handleUpcLookup: (upc?: string) => void;
-  apiSaveUpc: () => Promise<void>;
-  apiDeleteUpc: () => Promise<void>;
-  apiDeleteUpcDirect: (upc: string) => Promise<void>;
-  apiLinkUpc: (upc: string, productId: string) => Promise<void>;
-  filteredUpcItems: UpcItem[];
-  loadUpcDraft: (entry: UpcItem) => void;
-  products: Product[];
-  unmappedUpcModalOpen: boolean;
-  setUnmappedUpcModalOpen: (open: boolean) => void;
-  unmappedUpcPayload: UnmappedUpcData | null;
-  setUnmappedUpcPayload: (payload: UnmappedUpcData | null) => void;
 }
 
 const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps> = ({
@@ -164,44 +135,14 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   refreshStores,
   isLoadingStores,
   storeError,
-  setStoreError,
-  upcItems,
-  setUpcItems,
-  upcInput,
-  setUpcInput,
-  upcDraft,
-  setUpcDraft,
-  upcFilter,
-  setUpcFilter,
-  isUpcLoading,
-  isUpcSaving,
-  upcError,
-  apiLoadUpcItems,
-  handleUpcLookup,
-  apiSaveUpc,
-  apiDeleteUpc,
-  apiDeleteUpcDirect,
-  apiLinkUpc,
-  filteredUpcItems,
-  loadUpcDraft,
-  products,
-  unmappedUpcModalOpen,
-  setUnmappedUpcModalOpen,
-  unmappedUpcPayload,
-  setUnmappedUpcPayload
+  setStoreError
 }) => {
-  const { addToast, fetchProducts, setProducts, settings, currentUser } = useNinpoCore();
-  
-  // Receipt capture hook with auto-refresh
+  const { addToast, settings, currentUser } = useNinpoCore();
   const {
     receiptCaptures,
     setReceiptCaptures,
-    receiptError,
-    setReceiptError,
     refreshReceiptCaptures: fetchReceiptCaptures
   } = useReceiptCapture();
-  
-  // Receipt aliases hook
   const {
     receiptAliases,
     setReceiptAliases,
@@ -218,7 +159,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     refreshAliases: fetchReceiptAliases,
     refreshNoiseRules: fetchNoiseRules
   } = useReceiptAliases(activeStoreId);
-  
+
   const [showReceiptScanner, setShowReceiptScanner] = useState(false);
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
   const [receiptThumbnailUrl, setReceiptThumbnailUrl] = useState<string | null>(null);
@@ -867,6 +808,17 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     setScanTargetItem(null);
   }, []);
 
+  const linkUpcToProduct = useCallback(async (upc: string, productId: string) => {
+    const res = await fetch(`${BACKEND_URL}/api/upc/link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ upc, productId })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || 'Failed to link UPC');
+  }, []);
+
   const handleScannerScan = useCallback((upc: string) => {
     if (!scanTargetItem) return;
     handleScannerClose();
@@ -903,7 +855,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         return;
       }
       try {
-        await apiLinkUpc(productSearchItem.scannedUpc, product.productId);
+        await linkUpcToProduct(productSearchItem.scannedUpc, product.productId);
         addToast('UPC linked to product.', 'success');
       } catch (err: any) {
         addToast(err?.message || 'Failed to link UPC', 'error');
@@ -913,7 +865,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     setProductSearchItem(null);
     setProductSearchQuery('');
     setProductSearchResults([]);
-  }, [addToast, apiLinkUpc, productSearchIntent, productSearchItem]);
+  }, [addToast, linkUpcToProduct, productSearchIntent, productSearchItem]);
 
   const handleCreateProduct = useCallback(async () => {
     if (!createProductItem) return;
@@ -957,14 +909,13 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         isTaxable: null,
         depositEligible: null
       });
-      await fetchProducts();
       await fetchReceiptCaptures();
     } catch (err: any) {
       addToast(err?.message || 'Failed to create product', 'error');
     } finally {
       setIsCreatingProduct(false);
     }
-  }, [activeStoreId, addToast, createProductDraft, createProductItem, fetchProducts, fetchReceiptCaptures]);
+  }, [activeStoreId, addToast, createProductDraft, createProductItem, fetchReceiptCaptures]);
 
   const dismissCreateProduct = useCallback(() => {
     if (!createProductItem) return;
@@ -1777,45 +1728,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
           </div>
         </div>
 
-        <div className="space-y-6">
-          <ManagementStores
-            stores={stores}
-            activeStoreId={activeStoreId}
-            setActiveStoreId={handleStoreSelect}
-            refreshStores={refreshStores}
-            isLoadingStores={isLoadingStores}
-            storeError={storeError}
-            setStoreError={setStoreError}
-          />
-
-          <ManagementUpcRegistry
-            upcItems={upcItems}
-            setUpcItems={setUpcItems}
-            upcInput={upcInput}
-            setUpcInput={setUpcInput}
-            upcDraft={upcDraft}
-            setUpcDraft={setUpcDraft}
-            upcFilter={upcFilter}
-            setUpcFilter={setUpcFilter}
-            isUpcLoading={isUpcLoading}
-            isUpcSaving={isUpcSaving}
-            upcError={upcError}
-            apiLoadUpcItems={apiLoadUpcItems}
-            handleUpcLookup={handleUpcLookup}
-            apiSaveUpc={apiSaveUpc}
-            apiDeleteUpc={apiDeleteUpc}
-            apiDeleteUpcDirect={apiDeleteUpcDirect}
-            apiLinkUpc={apiLinkUpc}
-            filteredUpcItems={filteredUpcItems}
-            loadUpcDraft={loadUpcDraft}
-            products={products}
-            unmappedUpcModalOpen={unmappedUpcModalOpen}
-            setUnmappedUpcModalOpen={setUnmappedUpcModalOpen}
-            unmappedUpcPayload={unmappedUpcPayload}
-            setUnmappedUpcPayload={setUnmappedUpcPayload}
-            containerLabels={UPC_CONTAINER_LABELS}
-          />
-        </div>
       </div>
 
       {showReceiptScanner && (

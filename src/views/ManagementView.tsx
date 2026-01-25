@@ -35,7 +35,9 @@ import {
   EyeOff,
   TrendingUp,
   FileText,
-  ShieldCheck
+  ShieldCheck,
+  Building2,
+  Barcode
 } from 'lucide-react';
 import ScannerModal from '../components/ScannerModal';
 import type { ParsedReceiptItem } from '../components/ScannerPanel';
@@ -63,6 +65,8 @@ import {
 import { useInventoryCreate } from './management/hooks/useInventoryCreate';
 import { useUpcRegistry } from './management/hooks/useUpcRegistry';
 import InventoryCreateForm from './management/InventoryCreateForm';
+import ManagementStores from './management/ManagementStores';
+import ManagementUpcRegistry from './management/ManagementUpcRegistry';
 
 interface ManagementViewProps {
   user: User;
@@ -1380,22 +1384,28 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       icon: FileText,
       render: () => <ManagementReceipts fmtTime={fmtTime} />
     },
-    'pricing-intelligence': {
-      id: 'pricing-intelligence',
-      label: 'Pricing Intelligence',
-      icon: TrendingUp,
+    stores: {
+      id: 'stores',
+      label: 'Stores',
+      icon: Building2,
       render: () => (
-        <ManagementPricingIntelligence
-          setScannerMode={setScannerMode}
-          setScannerModalOpen={setScannerModalOpen}
-          fmtTime={fmtTime}
+        <ManagementStores
           stores={stores}
           activeStoreId={activeStoreId}
           setActiveStoreId={setActiveStoreId}
           refreshStores={loadStores}
-          isLoadingStores={isLoadingStores}
-          storeError={storeError}
-          setStoreError={setStoreError}
+          isLoading={isLoadingStores}
+          error={storeError}
+          setError={setStoreError}
+        />
+      )
+    },
+    'upc-registry': {
+      id: 'upc-registry',
+      label: 'UPC Registry',
+      icon: Barcode,
+      render: () => (
+        <ManagementUpcRegistry
           upcItems={upcItems}
           setUpcItems={setUpcItems}
           upcInput={upcInput}
@@ -1420,6 +1430,27 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           setUnmappedUpcModalOpen={setUnmappedUpcModalOpen}
           unmappedUpcPayload={unmappedUpcPayload}
           setUnmappedUpcPayload={setUnmappedUpcPayload}
+          ScannerModal={<></>}
+          containerLabels={UPC_CONTAINER_LABELS}
+        />
+      )
+    },
+    'pricing-intelligence': {
+      id: 'pricing-intelligence',
+      label: 'Pricing Intelligence',
+      icon: TrendingUp,
+      render: () => (
+        <ManagementPricingIntelligence
+          setScannerMode={setScannerMode}
+          setScannerModalOpen={setScannerModalOpen}
+          fmtTime={fmtTime}
+          stores={stores}
+          activeStoreId={activeStoreId}
+          setActiveStoreId={setActiveStoreId}
+          refreshStores={loadStores}
+          isLoadingStores={isLoadingStores}
+          storeError={storeError}
+          setStoreError={setStoreError}
         />
       )
     },

@@ -217,7 +217,7 @@ Backend is the **source of truth** for inventory, products, stores, and approval
 - Active stores appear in the global store list for future receipts.
 
 **Key File Locations:**
-- Receipt routes: [server/routes/receipt-review.js](../server/routes/receipt-review.js), [server/routes/receipts.js](../server/routes/receipts.js)
+- Receipt routes: [server/routes/receipts.js](../server/routes/receipts.js), [server/routes/receipt-parse.js](../server/routes/receipt-parse.js), [server/routes/receipt-prices.js](../server/routes/receipt-prices.js)
 - Receipt models: [server/models/ReceiptCapture.js](../server/models/ReceiptCapture.js), [server/models/ReceiptParseJob.js](../server/models/ReceiptParseJob.js)
 - Parse worker: [server/workers/receiptWorker.js](../server/workers/receiptWorker.js) (BullMQ)
 - UI components: [src/components/ReceiptCapture.tsx](../src/components/ReceiptCapture.tsx), [src/components/ReceiptCaptureFlow.tsx](../src/components/ReceiptCaptureFlow.tsx)
