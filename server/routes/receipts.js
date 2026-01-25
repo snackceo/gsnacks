@@ -47,7 +47,37 @@ const buildStoreCandidate = (capture, parseJob, body) => {
   };
 };
 
-router.post('/receipts/:captureId/approve', authRequired, async (req, res) => {
+// GET /api/receipts?status=NEEDS_REVIEW
+// Role-neutral endpoint for fetching receipt parse jobs
+router.get('/', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+  if (!canApproveReceipts(req.user)) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  const { status } = req.query;
+  const limit = Math.min(Number(req.query.limit) || 100, 200);
+  const query = status ? { status } : {};
+  const jobs = await ReceiptParseJob.find(query).sort({ createdAt: -1 }).limit(limit).lean();
+  res.json({ ok: true, jobs });
+});
+
+// GET /api/receipts/:id
+// Role-neutral endpoint for fetching a single receipt parse job
+router.get('/:id', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+  if (!canApproveReceipts(req.user)) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  const job = await ReceiptParseJob.findById(req.params.id).lean();
+  if (!job) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true, job });
+});
+
+router.post('/:captureId/approve', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -377,6 +407,35 @@ router.post('/receipts/:captureId/approve', authRequired, async (req, res) => {
   } finally {
     await session.endSession();
   }
+});
+
+// POST /api/receipts/:id/reject
+// Role-neutral endpoint for rejecting a receipt parse job
+router.post('/:id/reject', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+  if (!canApproveReceipts(req.user)) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  const job = await ReceiptParseJob.findById(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Not found' });
+  job.status = 'REJECTED';
+  job.metadata = {
+    ...job.metadata,
+    rejectedBy: req.user?.username,
+    rejectedAt: new Date(),
+    rejectionReason: req.body?.reason || 'unspecified'
+  };
+  await job.save();
+
+  await recordAuditLog({
+    type: 'receipt_rejected',
+    actorId: req.user?.username || 'unknown',
+    details: `jobId=${job._id} reason=${req.body?.reason || 'unspecified'}`
+  });
+
+  res.json({ ok: true });
 });
 
 export default router;
