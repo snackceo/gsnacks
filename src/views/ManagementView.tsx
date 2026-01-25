@@ -20,6 +20,7 @@ import { ScannerMode, OrderStatus } from '../types';
 import ManagementDashboard from './management/ManagementDashboard';
 import ManagementOrders from './management/ManagementOrders';
 import ManagementPricingIntelligence from './management/ManagementPricingIntelligence';
+import ManagementAuthAudit from './management/ManagementAuthAudit';
 import ManagementUsers from './management/ManagementUsers';
 import ManagementInventory from './management/ManagementInventory';
 import ManagementSettings from './management/ManagementSettings';
@@ -33,7 +34,8 @@ import {
   Sliders,
   EyeOff,
   TrendingUp,
-  FileText
+  FileText,
+  ShieldCheck
 } from 'lucide-react';
 import ScannerModal from '../components/ScannerModal';
 import type { ParsedReceiptItem } from '../components/ScannerPanel';
@@ -451,7 +453,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   }, [activeModule]);
 
   useEffect(() => {
-    if (activeModule !== 'pricing-intelligence') return;
+    if (activeModule !== 'auth-audit') return;
 
     let isActive = true;
     const loadAuditLogs = async () => {
@@ -478,7 +480,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   }, [activeModule, fetchAuditLogs]);
 
   useEffect(() => {
-    if (activeModule !== 'pricing-intelligence') return;
+    if (activeModule !== 'auth-audit') return;
     fetchApprovals().catch(() => {});
   }, [activeModule, fetchApprovals]);
 
@@ -1386,13 +1388,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         <ManagementPricingIntelligence
           setScannerMode={setScannerMode}
           setScannerModalOpen={setScannerModalOpen}
-          approvalFilter={approvalFilter}
-          setApprovalFilter={setApprovalFilter}
-          filteredApprovals={filteredApprovals}
-          handleApprove={handleApprove}
-          handleReject={handleReject}
-          setSelectedApproval={setSelectedApproval}
-          setPreviewPhoto={setPreviewPhoto}
           fmtTime={fmtTime}
           stores={stores}
           activeStoreId={activeStoreId}
@@ -1425,6 +1420,23 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           setUnmappedUpcModalOpen={setUnmappedUpcModalOpen}
           unmappedUpcPayload={unmappedUpcPayload}
           setUnmappedUpcPayload={setUnmappedUpcPayload}
+        />
+      )
+    },
+    'auth-audit': {
+      id: 'auth-audit',
+      label: 'Auth & Audit',
+      icon: ShieldCheck,
+      render: () => (
+        <ManagementAuthAudit
+          approvalFilter={approvalFilter}
+          setApprovalFilter={setApprovalFilter}
+          filteredApprovals={filteredApprovals}
+          handleApprove={handleApprove}
+          handleReject={handleReject}
+          setSelectedApproval={setSelectedApproval}
+          setPreviewPhoto={setPreviewPhoto}
+          fmtTime={fmtTime}
           filteredAuditLogs={filteredAuditLogs}
           auditTypeFilter={auditTypeFilter}
           setAuditTypeFilter={setAuditTypeFilter}

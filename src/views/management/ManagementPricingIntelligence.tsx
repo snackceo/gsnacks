@@ -1,9 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Camera, Trash2, Loader2, CheckCircle2, Check } from 'lucide-react';
 import {
-  ApprovalRequest,
-  AuditLog,
-  AuditLogType,
   ClassifiedReceiptItem,
   Product,
   ReceiptItemClassification,
@@ -30,8 +27,6 @@ import {
   getSafeCaptureStatus,
   getReceiptItemKey
 } from '../../utils/receiptHelpers';
-import ManagementApprovals from './ManagementApprovals';
-import ManagementAuditLogs from './ManagementAuditLogs';
 import ManagementStores from './ManagementStores';
 import ManagementUpcRegistry from './ManagementUpcRegistry';
 import ManagementReceiptInsights from './ManagementReceiptInsights';
@@ -125,13 +120,6 @@ interface StoreInventoryEntry {
 interface ManagementPricingIntelligenceProps {
   setScannerMode: (mode: ScannerMode) => void;
   setScannerModalOpen: (open: boolean) => void;
-  approvalFilter: ApprovalRequest['status'];
-  setApprovalFilter: (status: ApprovalRequest['status']) => void;
-  filteredApprovals: ApprovalRequest[];
-  handleApprove: (approval: ApprovalRequest) => void;
-  handleReject: (id: string) => void;
-  setSelectedApproval: (approval: ApprovalRequest | null) => void;
-  setPreviewPhoto: (photo: string | null) => void;
   fmtTime: (iso?: string) => string;
   stores: StoreRecord[];
   activeStoreId: string;
@@ -164,32 +152,11 @@ interface ManagementPricingIntelligenceProps {
   setUnmappedUpcModalOpen: (open: boolean) => void;
   unmappedUpcPayload: UnmappedUpcData | null;
   setUnmappedUpcPayload: (payload: UnmappedUpcData | null) => void;
-  filteredAuditLogs: AuditLog[];
-  auditTypeFilter: 'ALL' | AuditLogType;
-  setAuditTypeFilter: (type: 'ALL' | AuditLogType) => void;
-  auditActorFilter: string;
-  setAuditActorFilter: (actor: string) => void;
-  auditRangeFilter: '24h' | '7d' | '30d';
-  setAuditRangeFilter: (range: '24h' | '7d' | '30d') => void;
-  auditTypeOptions: (string | AuditLogType)[];
-  isAuditLogsLoading: boolean;
-  auditLogsError: string | null;
-  handleDownloadAuditCsv: () => void;
-  runAuditSummary: () => void;
-  auditSummary: string | null;
-  isAuditSummaryLoading: boolean;
 }
 
 const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps> = ({
   setScannerMode,
   setScannerModalOpen,
-  approvalFilter,
-  setApprovalFilter,
-  filteredApprovals,
-  handleApprove,
-  handleReject,
-  setSelectedApproval,
-  setPreviewPhoto,
   fmtTime,
   stores,
   activeStoreId,
@@ -221,21 +188,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   unmappedUpcModalOpen,
   setUnmappedUpcModalOpen,
   unmappedUpcPayload,
-  setUnmappedUpcPayload,
-  filteredAuditLogs,
-  auditTypeFilter,
-  setAuditTypeFilter,
-  auditActorFilter,
-  setAuditActorFilter,
-  auditRangeFilter,
-  setAuditRangeFilter,
-  auditTypeOptions,
-  isAuditLogsLoading,
-  auditLogsError,
-  handleDownloadAuditCsv,
-  runAuditSummary,
-  auditSummary,
-  isAuditSummaryLoading
+  setUnmappedUpcPayload
 }) => {
   const { addToast, fetchProducts, setProducts, settings, currentUser } = useNinpoCore();
   
@@ -1825,34 +1778,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         </div>
 
         <div className="space-y-6">
-          <ManagementApprovals
-            approvalFilter={approvalFilter}
-            setApprovalFilter={setApprovalFilter}
-            filteredApprovals={filteredApprovals}
-            handleApprove={handleApprove}
-            handleReject={handleReject}
-            setSelectedApproval={setSelectedApproval}
-            setPreviewPhoto={setPreviewPhoto}
-            fmtTime={fmtTime}
-          />
-
-          <ManagementAuditLogs
-            auditTypeFilter={auditTypeFilter}
-            setAuditTypeFilter={setAuditTypeFilter}
-            auditActorFilter={auditActorFilter}
-            setAuditActorFilter={setAuditActorFilter}
-            auditRangeFilter={auditRangeFilter}
-            setAuditRangeFilter={setAuditRangeFilter}
-            auditTypeOptions={auditTypeOptions}
-            isAuditLogsLoading={isAuditLogsLoading}
-            auditLogsError={auditLogsError}
-            filteredAuditLogs={filteredAuditLogs}
-            handleDownloadAuditCsv={handleDownloadAuditCsv}
-            runAuditSummary={runAuditSummary}
-            auditSummary={auditSummary}
-            isAuditSummaryLoading={isAuditSummaryLoading}
-          />
-
           <ManagementStores
             stores={stores}
             activeStoreId={activeStoreId}
