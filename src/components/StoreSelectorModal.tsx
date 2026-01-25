@@ -28,18 +28,19 @@ const formatStoreCoordinates = (store: StoreRecord) => {
   return `${store.location.lat.toFixed(4)}, ${store.location.lng.toFixed(4)}`;
 };
 
-const StoreSelectorModal: React.FC<StoreSelectorModalProps> = ({
-  stores,
-  activeStoreId,
-  isOpen,
-  isLoading = false,
-  onStoreChange,
-  onConfirm,
-  onConfirmWithoutStore,
-  onCancel,
-  selectedStoreIsPrimary,
-  onPrimarySupplierToggle
-}) => {
+const StoreSelectorModal: React.FC<StoreSelectorModalProps> = (props) => {
+  const {
+    stores,
+    activeStoreId,
+    isOpen,
+    isLoading = false,
+    onStoreChange,
+    onConfirm,
+    onCancel,
+    selectedStoreIsPrimary,
+    onPrimarySupplierToggle
+  } = props;
+  const onConfirmWithoutStore = props.onConfirmWithoutStore;
   const [filterText, setFilterText] = useState('');
 
   const activeStore = useMemo(
@@ -83,7 +84,9 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = ({
 
   const handleConfirmWithoutStore = useCallback(() => {
     setFilterText('');
-    onConfirmWithoutStore?.();
+    if (onConfirmWithoutStore) {
+      onConfirmWithoutStore();
+    }
   }, [onConfirmWithoutStore]);
 
   const handlePrimarySupplierToggle = useCallback(() => {
