@@ -1347,12 +1347,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
   };
 
   const managementSections = {
-    receipts: {
-      id: 'receipts',
-      label: 'Receipts',
-      icon: FileText,
-      render: () => <ManagementReceipts fmtTime={fmtTime} />
-    },
     dashboard: {
       id: 'dashboard',
       label: 'Dashboard',
@@ -1375,6 +1369,76 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           setAuditModel={setAuditModel}
           runAudit={runAudit}
           runOpsSummary={runOpsSummary}
+        />
+      )
+    },
+    receipts: {
+      id: 'receipts',
+      label: 'Receipts',
+      icon: FileText,
+      render: () => <ManagementReceipts fmtTime={fmtTime} />
+    },
+    'pricing-intelligence': {
+      id: 'pricing-intelligence',
+      label: 'Pricing Intelligence',
+      icon: TrendingUp,
+      render: () => (
+        <ManagementPricingIntelligence
+          setScannerMode={setScannerMode}
+          setScannerModalOpen={setScannerModalOpen}
+          approvalFilter={approvalFilter}
+          setApprovalFilter={setApprovalFilter}
+          filteredApprovals={filteredApprovals}
+          handleApprove={handleApprove}
+          handleReject={handleReject}
+          setSelectedApproval={setSelectedApproval}
+          setPreviewPhoto={setPreviewPhoto}
+          fmtTime={fmtTime}
+          stores={stores}
+          activeStoreId={activeStoreId}
+          setActiveStoreId={setActiveStoreId}
+          refreshStores={loadStores}
+          isLoadingStores={isLoadingStores}
+          storeError={storeError}
+          setStoreError={setStoreError}
+          upcItems={upcItems}
+          setUpcItems={setUpcItems}
+          upcInput={upcInput}
+          setUpcInput={setUpcInput}
+          upcDraft={upcDraft}
+          setUpcDraft={setUpcDraft}
+          upcFilter={upcFilter}
+          setUpcFilter={setUpcFilter}
+          isUpcLoading={isUpcLoading}
+          isUpcSaving={isUpcSaving}
+          upcError={upcError}
+          apiLoadUpcItems={apiLoadUpcItems}
+          handleUpcLookup={handleUpcLookup}
+          apiSaveUpc={apiSaveUpc}
+          apiDeleteUpc={apiDeleteUpc}
+          apiDeleteUpcDirect={apiDeleteUpcDirect}
+          apiLinkUpc={apiLinkUpc}
+          filteredUpcItems={filteredUpcItems}
+          loadUpcDraft={loadUpcDraft}
+          products={products}
+          unmappedUpcModalOpen={unmappedUpcModalOpen}
+          setUnmappedUpcModalOpen={setUnmappedUpcModalOpen}
+          unmappedUpcPayload={unmappedUpcPayload}
+          setUnmappedUpcPayload={setUnmappedUpcPayload}
+          filteredAuditLogs={filteredAuditLogs}
+          auditTypeFilter={auditTypeFilter}
+          setAuditTypeFilter={setAuditTypeFilter}
+          auditActorFilter={auditActorFilter}
+          setAuditActorFilter={setAuditActorFilter}
+          auditRangeFilter={auditRangeFilter}
+          setAuditRangeFilter={setAuditRangeFilter}
+          auditTypeOptions={auditTypeOptions}
+          isAuditLogsLoading={isAuditLogsLoading}
+          auditLogsError={auditLogsError}
+          handleDownloadAuditCsv={handleDownloadAuditCsv}
+          runAuditSummary={runAuditSummary}
+          auditSummary={auditSummary}
+          isAuditSummaryLoading={isAuditSummaryLoading}
         />
       )
     },
@@ -1448,70 +1512,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           apiDeleteProduct={apiDeleteProduct}
           formatSize={formatSize}
           activeStoreName={stores.find(s => s.id === activeStoreId)?.name || ''}
-        />
-      )
-    },
-    'pricing-intelligence': {
-      id: 'pricing-intelligence',
-      label: 'Pricing Intelligence',
-      icon: TrendingUp,
-      render: () => (
-        <ManagementPricingIntelligence
-          setScannerMode={setScannerMode}
-          setScannerModalOpen={setScannerModalOpen}
-          approvalFilter={approvalFilter}
-          setApprovalFilter={setApprovalFilter}
-          filteredApprovals={filteredApprovals}
-          handleApprove={handleApprove}
-          handleReject={handleReject}
-          setSelectedApproval={setSelectedApproval}
-          setPreviewPhoto={setPreviewPhoto}
-          fmtTime={fmtTime}
-          stores={stores}
-          activeStoreId={activeStoreId}
-          setActiveStoreId={setActiveStoreId}
-          refreshStores={loadStores}
-          isLoadingStores={isLoadingStores}
-          storeError={storeError}
-          setStoreError={setStoreError}
-          upcItems={upcItems}
-          setUpcItems={setUpcItems}
-          upcInput={upcInput}
-          setUpcInput={setUpcInput}
-          upcDraft={upcDraft}
-          setUpcDraft={setUpcDraft}
-          upcFilter={upcFilter}
-          setUpcFilter={setUpcFilter}
-          isUpcLoading={isUpcLoading}
-          isUpcSaving={isUpcSaving}
-          upcError={upcError}
-          apiLoadUpcItems={apiLoadUpcItems}
-          handleUpcLookup={handleUpcLookup}
-          apiSaveUpc={apiSaveUpc}
-          apiDeleteUpc={apiDeleteUpc}
-          apiDeleteUpcDirect={apiDeleteUpcDirect}
-          apiLinkUpc={apiLinkUpc}
-          filteredUpcItems={filteredUpcItems}
-          loadUpcDraft={loadUpcDraft}
-          products={products}
-          unmappedUpcModalOpen={unmappedUpcModalOpen}
-          setUnmappedUpcModalOpen={setUnmappedUpcModalOpen}
-          unmappedUpcPayload={unmappedUpcPayload}
-          setUnmappedUpcPayload={setUnmappedUpcPayload}
-          filteredAuditLogs={filteredAuditLogs}
-          auditTypeFilter={auditTypeFilter}
-          setAuditTypeFilter={setAuditTypeFilter}
-          auditActorFilter={auditActorFilter}
-          setAuditActorFilter={setAuditActorFilter}
-          auditRangeFilter={auditRangeFilter}
-          setAuditRangeFilter={setAuditRangeFilter}
-          auditTypeOptions={auditTypeOptions}
-          isAuditLogsLoading={isAuditLogsLoading}
-          auditLogsError={auditLogsError}
-          handleDownloadAuditCsv={handleDownloadAuditCsv}
-          runAuditSummary={runAuditSummary}
-          auditSummary={auditSummary}
-          isAuditSummaryLoading={isAuditSummaryLoading}
         />
       )
     },

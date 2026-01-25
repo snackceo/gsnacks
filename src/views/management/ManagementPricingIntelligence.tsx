@@ -14,16 +14,27 @@ import {
 } from '../../types';
 import { BACKEND_URL } from '../../constants';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
+import { useReceiptCapture } from '../../hooks/useReceiptCapture';
+import { useReceiptAliases } from '../../hooks/useReceiptAliases';
 import ReceiptCaptureFlow from '../../components/ReceiptCaptureFlow';
 import ReceiptItemBucket from '../../components/ReceiptItemBucket';
 import ScannerModal from '../../components/ScannerModal';
 import { uploadReceiptPhoto } from '../../utils/cloudinaryUtils';
 import { classifyItems } from '../../utils/classificationUtils';
 import { formatStoreAddress } from '../../utils/address';
+import {
+  isMongoId,
+  formatReceiptSource,
+  formatReceiptRole,
+  formatReceiptUserId,
+  getSafeCaptureStatus,
+  getReceiptItemKey
+} from '../../utils/receiptHelpers';
 import ManagementApprovals from './ManagementApprovals';
 import ManagementAuditLogs from './ManagementAuditLogs';
 import ManagementStores from './ManagementStores';
 import ManagementUpcRegistry from './ManagementUpcRegistry';
+import ManagementReceiptInsights from './ManagementReceiptInsights';
 import { UPC_CONTAINER_LABELS } from './constants';
 
 interface ReceiptCapture {
@@ -169,21 +180,6 @@ interface ManagementPricingIntelligenceProps {
   isAuditSummaryLoading: boolean;
 }
 
-const isMongoId = (value: string) => /^[a-f0-9]{24}$/i.test(value);
-
-const formatReceiptSource = (source?: string) => (source ? source.replace(/_/g, ' ') : 'unknown');
-
-const formatReceiptRole = (role?: string) => {
-  if (!role) return 'unknown';
-  return `${role.slice(0, 1)}${role.slice(1).toLowerCase()}`;
-};
-
-const formatReceiptUserId = (userId?: string) => {
-  if (!userId) return 'unknown';
-  if (userId.length <= 10) return userId;
-  return `${userId.slice(0, 6)}…${userId.slice(-4)}`;
-};
-
 const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps> = ({
   setScannerMode,
   setScannerModalOpen,
@@ -242,13 +238,34 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   isAuditSummaryLoading
 }) => {
   const { addToast, fetchProducts, setProducts, settings, currentUser } = useNinpoCore();
-  const [receiptCaptures, setReceiptCaptures] = useState<ReceiptCapture[]>([]);
-  const [receiptAliases, setReceiptAliases] = useState<ReceiptAliasRecord[]>([]);
-  const [isAliasLoading, setIsAliasLoading] = useState(false);
-  const [aliasError, setAliasError] = useState<string | null>(null);
-  const [aliasServiceStatus, setAliasServiceStatus] = useState<null | 'pricing-disabled' | 'db-not-ready'>(null);
-  const [aliasActionId, setAliasActionId] = useState<string | null>(null);
-  const [receiptError, setReceiptError] = useState<string | null>(null);
+  
+  // Receipt capture hook with auto-refresh
+  const {
+    receiptCaptures,
+    setReceiptCaptures,
+    receiptError,
+    setReceiptError,
+    refreshReceiptCaptures: fetchReceiptCaptures
+  } = useReceiptCapture();
+  
+  // Receipt aliases hook
+  const {
+    receiptAliases,
+    setReceiptAliases,
+    isAliasLoading,
+    aliasError,
+    setAliasError,
+    aliasServiceStatus,
+    setAliasServiceStatus,
+    aliasActionId,
+    setAliasActionId,
+    noiseRules,
+    setNoiseRules,
+    isLoadingNoiseRules,
+    refreshAliases: fetchReceiptAliases,
+    refreshNoiseRules: fetchNoiseRules
+  } = useReceiptAliases(activeStoreId);
+  
   const [showReceiptScanner, setShowReceiptScanner] = useState(false);
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
   const [receiptThumbnailUrl, setReceiptThumbnailUrl] = useState<string | null>(null);
@@ -278,9 +295,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     depositEligible: null as null | boolean
   });
   const [dismissedCreateItems, setDismissedCreateItems] = useState<Set<string>>(new Set());
-  const [noiseRules, setNoiseRules] = useState<NoiseRuleEntry[]>([]);
   const [showNoiseRules, setShowNoiseRules] = useState(false);
-  const [isLoadingNoiseRules, setIsLoadingNoiseRules] = useState(false);
   const [timelineStoreId, setTimelineStoreId] = useState<string>('');
   const [timelineProductId, setTimelineProductId] = useState<string>('');
   const [storeInventory, setStoreInventory] = useState<StoreInventoryEntry[]>([]);
@@ -305,17 +320,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   }, [settings]);
 
   const canCreateProducts = currentUser?.role === 'OWNER' || currentUser?.role === 'MANAGER';
-
-  const getReceiptItemKey = useCallback((item: ClassifiedReceiptItem) => {
-    if (item.captureId && typeof item.lineIndex === 'number') {
-      return `${item.captureId}:${item.lineIndex}`;
-    }
-    return JSON.stringify({
-      receiptName: item.receiptName,
-      unitPrice: item.unitPrice,
-      totalPrice: item.totalPrice
-    });
-  }, []);
 
   const filteredProducts = useMemo(() => productSearchResults, [productSearchResults]);
 
@@ -369,37 +373,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     return receiptCaptures.filter(capture => capture.status === 'parsed').length;
   }, [receiptCaptures]);
 
-
-
-  const fetchReceiptCaptures = useCallback(async () => {
-    try {
-      const resp = await fetch(
-        `${BACKEND_URL}/api/driver/receipt-captures?status=pending_parse&status=parsed&status=review_complete&status=failed&limit=40`,
-        {
-          credentials: 'include'
-        }
-      );
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to load receipt queue');
-      }
-      const data = await resp.json().catch(() => ({}));
-      const captures = Array.isArray(data.captures) ? data.captures : [];
-      setReceiptCaptures(captures);
-    } catch (err: any) {
-      setReceiptError(err?.message || 'Failed to load receipt queue');
-    }
-  }, []);
-
-  const handleReceiptQueueRefreshEvent = useCallback(() => {
-    void fetchReceiptCaptures();
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener('receipt-queue-refresh', handleReceiptQueueRefreshEvent);
-    return () => window.removeEventListener('receipt-queue-refresh', handleReceiptQueueRefreshEvent);
-  }, [handleReceiptQueueRefreshEvent]);
-
   const createCaptureRequestId = useCallback(() => {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
       return crypto.randomUUID();
@@ -413,11 +386,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     const match = stores.find(store => store.id === activeStoreId);
     return match?.name || 'Unknown';
   }, [activeStore, activeStoreId, stores]);
-
-  const getSafeCaptureStatus = (status?: string) => {
-    if (!status) return 'unknown';
-    return status.replace(/_/g, ' ');
-  };
 
   const parseReviewNeededCount = useMemo(() => {
     const total = receiptCaptures.reduce(
@@ -599,47 +567,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       addToast(err?.message || 'Failed to delete receipt capture', 'error');
     }
   }, [addToast]);
-
-  const fetchReceiptAliases = useCallback(async () => {
-    if (!activeStoreId) return;
-    setIsAliasLoading(true);
-    setAliasError(null);
-    try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-aliases?storeId=${activeStoreId}`, {
-        credentials: 'include'
-      });
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to load aliases');
-      }
-      const data = await resp.json().catch(() => ({}));
-      setReceiptAliases(Array.isArray(data.aliases) ? data.aliases : []);
-    } catch (err: any) {
-      setAliasError(err?.message || 'Failed to load aliases');
-    } finally {
-      setIsAliasLoading(false);
-    }
-  }, [activeStoreId]);
-
-  const fetchNoiseRules = useCallback(async () => {
-    if (!activeStoreId) return;
-    setIsLoadingNoiseRules(true);
-    try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-noise-rules?storeId=${activeStoreId}`, {
-        credentials: 'include'
-      });
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to load noise rules');
-      }
-      const data = await resp.json().catch(() => ({}));
-      setNoiseRules(Array.isArray(data.rules) ? data.rules : []);
-    } catch (err: any) {
-      addToast(err?.message || 'Failed to load noise rules', 'error');
-    } finally {
-      setIsLoadingNoiseRules(false);
-    }
-  }, [activeStoreId, addToast]);
 
   const handleDeleteNoiseRule = useCallback(async (ruleId: string) => {
     if (!activeStoreId) return;
@@ -1505,16 +1432,10 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const handleReceiptUploadDragLeave = useCallback(() => {}, []);
 
   useEffect(() => {
-    void fetchReceiptCaptures();
-  }, [fetchReceiptCaptures]);
-
-  useEffect(() => {
     if (activeStoreId) {
-      void fetchReceiptAliases();
-      void fetchNoiseRules();
       void fetchStoreInventory();
     }
-  }, [activeStoreId, fetchReceiptAliases, fetchNoiseRules, fetchStoreInventory]);
+  }, [activeStoreId, fetchStoreInventory]);
 
   useEffect(() => {
     if (showReceiptReview && activeReceiptCaptureId) {
@@ -1542,13 +1463,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       void fetchReceiptCaptureStats();
     }
   }, [activeReceiptCaptureId, fetchReceiptCaptureStats, showReceiptReview]);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      void fetchReceiptCaptures();
-    }, 30000);
-    return () => window.clearInterval(interval);
-  }, [fetchReceiptCaptures]);
 
   const statusBadge = useMemo(() => {
     if (!activeReceiptCaptureId) return null;
@@ -1638,33 +1552,15 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
           </div>
         </div>
 
-        <div className="bg-gradient-to-r from-emerald-900 to-emerald-800 rounded-2xl p-6 border border-white/10">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h3 className="text-lg font-black uppercase text-white tracking-widest">Receipt Insights</h3>
-              <p className="text-xs text-emerald-200 mt-2">Review alias confidence and drift alerts.</p>
-            </div>
-            <button
-              onClick={() => setShowNoiseRules(true)}
-              className="text-[10px] uppercase tracking-widest font-black text-emerald-200 border border-emerald-300/40 rounded-full px-3 py-2 hover:bg-emerald-500/20"
-            >
-              Noise Rules
-            </button>
-          </div>
-
-          <div className="mt-4 space-y-3">
-            <div className="bg-white/10 rounded-xl p-3 text-white">
-              <p className="text-[10px] uppercase tracking-widest text-emerald-200">Alias Confidence</p>
-              <p className="text-sm font-semibold">
-                {aliasConfidenceSummary.safeCount} safe / {aliasConfidenceSummary.gatedCount} gated
-              </p>
-            </div>
-            <div className="bg-white/10 rounded-xl p-3 text-white">
-              <p className="text-[10px] uppercase tracking-widest text-emerald-200">Avg Confidence</p>
-              <p className="text-sm font-semibold">{(aliasConfidenceSummary.averageEffective * 100).toFixed(0)}%</p>
-            </div>
-          </div>
-        </div>
+        <ManagementReceiptInsights
+          aliasConfidenceSummary={aliasConfidenceSummary}
+          showNoiseRules={showNoiseRules}
+          onToggleNoiseRules={setShowNoiseRules}
+          noiseRules={noiseRules}
+          isLoadingNoiseRules={isLoadingNoiseRules}
+          activeStore={activeStore}
+          onDeleteNoiseRule={handleDeleteNoiseRule}
+        />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -2373,59 +2269,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         </div>
       )}
 
-      {showNoiseRules && (
-        <div className="fixed inset-0 z-50 bg-ninpo-black/90 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-ninpo-card rounded-[2rem] border border-white/10 max-w-lg w-full p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-white font-black uppercase text-sm tracking-widest">Noise Rules</h3>
-                <p className="text-[10px] text-slate-400 uppercase tracking-widest">Store: {activeStore?.name}</p>
-              </div>
-              <button
-                onClick={() => setShowNoiseRules(false)}
-                className="text-slate-400 hover:text-white transition"
-              >
-                ✕
-              </button>
-            </div>
 
-            {isLoadingNoiseRules ? (
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <Loader2 className="w-4 h-4 animate-spin" /> Loading noise rules…
-              </div>
-            ) : (
-              <div className="max-h-64 overflow-y-auto space-y-2">
-                {noiseRules.length === 0 ? (
-                  <p className="text-xs text-slate-500">No noise rules yet.</p>
-                ) : (
-                  noiseRules.map(rule => (
-                    <div
-                      key={rule.id}
-                      className="p-3 rounded-xl bg-white/5 border border-white/10 flex items-start justify-between gap-2"
-                    >
-                      <div>
-                        <div className="text-sm text-white font-semibold">{rule.normalizedName}</div>
-                        {rule.rawNames?.length ? (
-                          <p className="text-[10px] text-slate-400 mt-1">
-                            {rule.rawNames.slice(0, 2).map(entry => entry.name).join(', ')}
-                            {rule.rawNames.length > 2 ? '…' : ''}
-                          </p>
-                        ) : null}
-                      </div>
-                      <button
-                        onClick={() => void handleDeleteNoiseRule(rule.id)}
-                        className="px-2 py-1 rounded-full text-[10px] font-semibold border border-red-500/40 text-red-300 bg-red-500/10 hover:bg-red-500/20"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };
