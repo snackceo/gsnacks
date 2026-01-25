@@ -292,14 +292,16 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   );
 
   const lockDurationDays = useMemo(() => {
-    const rawValue = Number(settings?.priceLockDays);
+    if (!settings) return 7;
+    const rawValue = Number(settings.priceLockDays);
     return Number.isFinite(rawValue) && rawValue > 0 ? rawValue : 7;
-  }, [settings?.priceLockDays]);
+  }, [settings]);
 
   const priceDeltaThreshold = useMemo(() => {
-    const rawValue = Number(settings?.priceDeltaAlert);
+    if (!settings) return 0.50;
+    const rawValue = Number(settings.priceDeltaAlert);
     return Number.isFinite(rawValue) && rawValue > 0 ? rawValue : 0.50;
-  }, [settings?.priceDeltaAlert]);
+  }, [settings]);
 
   const canCreateProducts = currentUser?.role === 'OWNER' || currentUser?.role === 'MANAGER';
 
