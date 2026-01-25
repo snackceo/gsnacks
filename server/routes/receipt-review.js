@@ -36,6 +36,8 @@ const toPlain = value => (value?.toObject ? value.toObject() : value);
 
 // GET /api/receipt-review/receipts?status=NEEDS_REVIEW
 router.get('/receipts', authRequired, async (req, res) => {
+  // Deprecation header for legacy endpoint usage
+  res.set('X-Deprecated-Endpoint', 'true');
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -51,6 +53,7 @@ router.get('/receipts', authRequired, async (req, res) => {
 
 // GET /api/receipt-review/receipts/:id
 router.get('/receipts/:id', authRequired, async (req, res) => {
+  res.set('X-Deprecated-Endpoint', 'true');
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -64,6 +67,7 @@ router.get('/receipts/:id', authRequired, async (req, res) => {
 
 // POST /api/receipt-review/receipts/:id/approve
 router.post('/receipts/:id/approve', authRequired, async (req, res) => {
+  res.set('X-Deprecated-Endpoint', 'true');
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -281,6 +285,7 @@ router.post('/receipts/:id/approve', authRequired, async (req, res) => {
 
 // POST /api/receipt-review/receipts/:id/reject
 router.post('/receipts/:id/reject', authRequired, async (req, res) => {
+  res.set('X-Deprecated-Endpoint', 'true');
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }

@@ -63,21 +63,22 @@ router.get('/', authRequired, async (req, res) => {
   res.json({ ok: true, jobs });
 });
 
-// GET /api/receipts/:id
+// GET /api/receipts/:jobId
 // Role-neutral endpoint for fetching a single receipt parse job
-router.get('/:id', authRequired, async (req, res) => {
+router.get('/:jobId', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
   if (!canApproveReceipts(req.user)) {
     return res.status(403).json({ error: 'Not authorized' });
   }
-  const job = await ReceiptParseJob.findById(req.params.id).lean();
+  const job = await ReceiptParseJob.findById(req.params.jobId).lean();
   if (!job) return res.status(404).json({ error: 'Not found' });
   res.json({ ok: true, job });
 });
 
-router.post('/:captureId/approve', authRequired, async (req, res) => {
+// POST /api/receipts/:jobId/approve
+router.post('/:jobId/approve', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -89,17 +90,42 @@ router.post('/:captureId/approve', authRequired, async (req, res) => {
   const session = await mongoose.startSession();
 
   try {
-    const { captureId } = req.params;
-    const { mode, selectedIndices, lockDurationDays } = req.body || {};
+    const { jobId } = req.params;
+    const { mode, selectedIndices, lockDurationDays, idempotencyKey, forceUpcOverride, finalStoreId } = req.body || {};
     const username = req.user?.username || 'unknown';
 
-    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
-      return res.status(400).json({ error: 'Valid captureId required' });
+    if (!jobId || !mongoose.Types.ObjectId.isValid(jobId)) {
+      return res.status(400).json({ error: 'Valid jobId required' });
     }
 
-    const capture = await ReceiptCapture.findById(captureId).session(session);
+    if (!idempotencyKey || String(idempotencyKey).trim().length < 8) {
+      return res.status(400).json({ error: 'idempotencyKey is required' });
+    }
+
+    const parseJob = await ReceiptParseJob.findById(jobId).session(session);
+    if (!parseJob) {
+      return res.status(404).json({ error: 'Receipt parse job not found' });
+    }
+
+    if (parseJob.status === 'REJECTED') {
+      return res.status(409).json({ error: 'Cannot approve a rejected job' });
+    }
+    if (parseJob.status === 'APPROVED') {
+      // Idempotent success
+      return res.json({ ok: true, idempotent: true, jobId });
+    }
+
+    if (!parseJob.captureId) {
+      return res.status(400).json({ error: 'Parse job missing captureId' });
+    }
+
+    const capture = await ReceiptCapture.findById(parseJob.captureId).session(session);
     if (!capture) {
-      return res.status(404).json({ error: 'Receipt capture not found' });
+      return res.status(404).json({ error: 'Receipt capture not found for job' });
+    }
+
+    if (!['PARSED', 'NEEDS_REVIEW'].includes(parseJob.status)) {
+      return res.status(409).json({ error: 'Job not in approvable status' });
     }
 
     if (capture.status === 'committed') {
@@ -107,7 +133,7 @@ router.post('/:captureId/approve', authRequired, async (req, res) => {
     }
 
     const normalizedMode = mode || 'safe';
-    if (!['safe', 'selected', 'locked'].includes(normalizedMode)) {
+    if (!['safe', 'selected', 'locked', 'all'].includes(normalizedMode)) {
       return res.status(400).json({ error: 'Invalid mode' });
     }
 
@@ -115,26 +141,31 @@ router.post('/:captureId/approve', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'selectedIndices required for selected mode' });
     }
 
-    if (normalizedMode === 'safe' && capture.itemsNeedingReview > 0) {
-      return res.status(400).json({ error: 'Receipt has items needing review' });
-    }
+    // Safe mode: only apply high-confidence items (no warnings, has match.productId)
+    const SAFE_CONFIDENCE = 0.8;
 
     const selectedSet = Array.isArray(selectedIndices)
       ? new Set(selectedIndices.map(Number))
       : null;
 
     session.startTransaction();
-
-    const parseJob = await ReceiptParseJob.findOne({ captureId }).session(session);
     const storeCandidate = buildStoreCandidate(capture, parseJob, req.body);
 
     let store = null;
-    if (storeCandidate?.storeId && mongoose.Types.ObjectId.isValid(storeCandidate.storeId)) {
+    const effectiveStoreId = finalStoreId || storeCandidate?.storeId;
+    if (effectiveStoreId && mongoose.Types.ObjectId.isValid(effectiveStoreId)) {
+      store = await Store.findById(effectiveStoreId).session(session);
+    } else if (storeCandidate) {
       store = await Store.findById(storeCandidate.storeId).session(session);
     }
 
     if (!store && storeCandidate) {
       const matchResult = await matchStoreCandidate(storeCandidate);
+      // Require explicit selection if ambiguous/low confidence
+      if (matchResult?.ambiguous || (matchResult?.confidence !== undefined && matchResult.confidence < 0.7)) {
+        await session.abortTransaction();
+        return res.status(400).json({ error: 'Ambiguous storeCandidate; provide finalStoreId' });
+      }
       if (matchResult?.match?._id) {
         store = await Store.findById(matchResult.match._id).session(session);
       }
@@ -199,7 +230,14 @@ router.post('/:captureId/approve', authRequired, async (req, res) => {
       if (normalizedMode === 'selected') {
         return selectedSet?.has(item.lineIndex);
       }
-      return true;
+      if (normalizedMode === 'safe') {
+        const jobItem = (parseJob.items || []).find(i => Number(i.lineIndex) === Number(item.lineIndex));
+        const confidence = Number(jobItem?.match?.confidence || item.matchConfidence || 0);
+        const hasWarnings = Array.isArray(jobItem?.warnings) && jobItem.warnings.length > 0;
+        const hasProduct = Boolean(jobItem?.match?.productId || item.boundProductId || item.suggestedProduct?.id);
+        return !hasWarnings && hasProduct && confidence >= SAFE_CONFIDENCE;
+      }
+      return true; // 'all' and 'locked' default to everything
     });
 
     for (const item of itemsToApprove) {
@@ -221,14 +259,10 @@ router.post('/:captureId/approve', authRequired, async (req, res) => {
           product = await Product.findById(item.suggestedProduct.id).session(session);
         }
 
-        if (!product && item.suggestedProduct?.sku) {
-          product = await Product.findOne({ sku: item.suggestedProduct.sku }).session(session);
-        }
-
         if (!product && normalizedUpc) {
           const upcEntry = await UpcItem.findOne({ upc: normalizedUpc }).session(session);
-          if (upcEntry?.sku) {
-            product = await Product.findOne({ sku: upcEntry.sku }).session(session);
+          if (upcEntry?.productId) {
+            product = await Product.findById(upcEntry.productId).session(session);
           }
         }
 
@@ -288,6 +322,27 @@ router.post('/:captureId/approve', authRequired, async (req, res) => {
         item.confirmedAt = item.confirmedAt || new Date();
         item.confirmedBy = item.confirmedBy || username;
         item.needsReview = false;
+
+        // Concurrency guard: insert apply ledger; skip if duplicate
+        const { default: ReceiptApplyLedger } = await import('../models/ReceiptApplyLedger.js');
+        try {
+          await ReceiptApplyLedger.create([
+            {
+              captureId: capture._id.toString(),
+              lineIndex: Number(item.lineIndex),
+              productId: product._id,
+              storeId: store._id,
+              idempotencyKey: String(idempotencyKey)
+            }
+          ], { session });
+        } catch (dupeErr) {
+          if (dupeErr?.code === 11000) {
+            // Already applied for this line; skip
+            matchedProducts.push({ id: product._id, sku: product.sku, name: product.name, lineIndex: item.lineIndex });
+            continue;
+          }
+          throw dupeErr;
+        }
 
         const inventory = await StoreInventory.findOneAndUpdate(
           { storeId: store._id, productId: product._id },
@@ -350,6 +405,38 @@ router.post('/:captureId/approve', authRequired, async (req, res) => {
           inventoryId: inventory._id,
           lineIndex: item.lineIndex
         });
+
+        // UPC linking to productId, with conflict handling
+        if (normalizedUpc) {
+          const existingUpc = await UpcItem.findOne({ upc: normalizedUpc }).session(session);
+          if (existingUpc && existingUpc.productId && String(existingUpc.productId) !== String(product._id)) {
+            if (!forceUpcOverride) {
+              errors.push({ lineIndex: item.lineIndex, error: 'UPC already linked to different product', upc: normalizedUpc });
+            } else {
+              await UpcItem.updateOne(
+                { upc: normalizedUpc },
+                { $set: { productId: product._id, name: product.name } },
+                { session }
+              );
+              await recordAuditLog({
+                type: 'upc_linked_from_receipt',
+                actorId: username,
+                details: `captureId=${capture._id.toString()} upc=${normalizedUpc} productId=${product._id.toString()} override=true`
+              });
+            }
+          } else {
+            await UpcItem.findOneAndUpdate(
+              { upc: normalizedUpc },
+              { $set: { productId: product._id, name: product.name } },
+              { new: true, upsert: true, setDefaultsOnInsert: true, session }
+            );
+            await recordAuditLog({
+              type: 'upc_linked_from_receipt',
+              actorId: username,
+              details: `captureId=${capture._id.toString()} upc=${normalizedUpc} productId=${product._id.toString()}`
+            });
+          }
+        }
       } catch (itemError) {
         errors.push({ lineIndex: item.lineIndex, error: itemError.message });
       }
@@ -388,11 +475,12 @@ router.post('/:captureId/approve', authRequired, async (req, res) => {
     await recordAuditLog({
       type: 'receipt_approved',
       actorId: username,
-      details: `captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} mode=${normalizedMode}`
+      details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} mode=${normalizedMode}`
     });
 
     res.json({
       ok: true,
+      jobId,
       captureId: capture._id.toString(),
       storeId: store._id,
       createdProducts,
@@ -409,17 +497,21 @@ router.post('/:captureId/approve', authRequired, async (req, res) => {
   }
 });
 
-// POST /api/receipts/:id/reject
+// POST /api/receipts/:jobId/reject
 // Role-neutral endpoint for rejecting a receipt parse job
-router.post('/:id/reject', authRequired, async (req, res) => {
+router.post('/:jobId/reject', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
   if (!canApproveReceipts(req.user)) {
     return res.status(403).json({ error: 'Not authorized' });
   }
-  const job = await ReceiptParseJob.findById(req.params.id);
+  const job = await ReceiptParseJob.findById(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Not found' });
+  if (job.status === 'APPROVED') {
+    return res.status(409).json({ error: 'Cannot reject an approved job' });
+  }
+  const alreadyRejected = job.status === 'REJECTED';
   job.status = 'REJECTED';
   job.metadata = {
     ...job.metadata,
@@ -429,11 +521,13 @@ router.post('/:id/reject', authRequired, async (req, res) => {
   };
   await job.save();
 
-  await recordAuditLog({
-    type: 'receipt_rejected',
-    actorId: req.user?.username || 'unknown',
-    details: `jobId=${job._id} reason=${req.body?.reason || 'unspecified'}`
-  });
+  if (!alreadyRejected) {
+    await recordAuditLog({
+      type: 'receipt_rejected',
+      actorId: req.user?.username || 'unknown',
+      details: `jobId=${job._id} reason=${req.body?.reason || 'unspecified'}`
+    });
+  }
 
   res.json({ ok: true });
 });
