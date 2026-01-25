@@ -296,6 +296,11 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     return Number.isFinite(rawValue) && rawValue > 0 ? rawValue : 7;
   }, [settings?.priceLockDays]);
 
+  const priceDeltaThreshold = useMemo(() => {
+    const rawValue = Number(settings?.priceDeltaAlert);
+    return Number.isFinite(rawValue) && rawValue > 0 ? rawValue : 0.50;
+  }, [settings?.priceDeltaAlert]);
+
   const canCreateProducts = currentUser?.role === 'OWNER' || currentUser?.role === 'MANAGER';
 
   const getReceiptItemKey = useCallback((item: ClassifiedReceiptItem) => {
@@ -1202,7 +1207,13 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       return;
     }
     try {
-      const uploadResult = await uploadReceiptPhoto(file, activeStoreId, getDefaultStoreName());
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const uploadResult = await uploadReceiptPhoto(dataUrl, activeStoreId, getDefaultStoreName());
       if (!uploadResult) {
         addToast('Cloudinary not configured. Please set up image uploads.', 'error');
         return;
@@ -1307,7 +1318,13 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const handleUploadReceiptImage = useCallback(async (file: File) => {
     if (!file) return;
     try {
-      const uploadResult = await uploadReceiptPhoto(file, activeStoreId || undefined, getDefaultStoreName());
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const uploadResult = await uploadReceiptPhoto(dataUrl, activeStoreId || undefined, getDefaultStoreName());
       if (!uploadResult) {
         addToast('Cloudinary not configured. Please set up image uploads.', 'error');
         return;
@@ -1748,7 +1765,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                         <button
                           onClick={event => {
                             event.stopPropagation();
-                            deleteReceiptCapture(capture._id);
+                            handleDeleteReceiptCapture(capture._id);
                           }}
                           className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-500/30 rounded text-red-400 hover:text-red-300"
                           title="Delete this receipt"

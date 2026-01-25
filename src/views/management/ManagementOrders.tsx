@@ -320,14 +320,14 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
                   {(o.status === OrderStatus.PAID || o.status === OrderStatus.ASSIGNED) && (
                     <button
                       className="flex-1 px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3"
-                      onClick={() => handleLogisticsUpdate(o.id, OrderStatus.OUT_FOR_DELIVERY)}
+                      onClick={() => handleLogisticsUpdate(o.id, OrderStatus.ARRIVING)}
                     >
                       <Navigation2 className="w-4 h-4" />
                       Out for Delivery
                     </button>
                   )}
 
-                  {o.status === OrderStatus.OUT_FOR_DELIVERY && (
+                  {o.status === OrderStatus.ARRIVING && (
                     <button
                       className="flex-1 px-6 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3"
                       onClick={() => handleLogisticsUpdate(o.id, OrderStatus.DELIVERED)}
@@ -350,7 +350,7 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
                   {canCancel(o) && (
                     <button
                       className="flex-1 px-6 py-4 rounded-2xl bg-ninpo-red/10 text-ninpo-red text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 border border-ninpo-red/20"
-                      onClick={() => handleLogisticsUpdate(o.id, OrderStatus.CANCELED)}
+                      onClick={() => handleLogisticsUpdate(o.id, OrderStatus.REFUND_REQUESTED)}
                     >
                       <XCircle className="w-4 h-4" />
                       Cancel
