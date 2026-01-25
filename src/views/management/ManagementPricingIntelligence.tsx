@@ -782,14 +782,19 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
     setIsCommitting(true);
     try {
+      const idempotencyKey = `rcpt-commit-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const payload: {
         captureId: string;
         mode: 'safe' | 'selected' | 'locked';
         selectedIndices?: number[];
         lockDurationDays?: number;
+        idempotencyKey: string;
+        finalStoreId?: string;
       } = {
         captureId: activeReceiptCaptureId,
-        mode: commitIntent
+        mode: commitIntent,
+        idempotencyKey,
+        finalStoreId: activeStoreId || undefined
       };
 
       if (commitIntent === 'selected') {
@@ -1298,11 +1303,17 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const handleCommitReceiptChanges = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
+      const idempotencyKey = `rcpt-commit-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const resp = await fetch(`${BACKEND_URL}/api/receipts/${activeReceiptCaptureId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ captureId: activeReceiptCaptureId, mode: 'safe' })
+        body: JSON.stringify({
+          captureId: activeReceiptCaptureId,
+          mode: 'safe',
+          idempotencyKey,
+          finalStoreId: activeStoreId || undefined
+        })
       });
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
@@ -1519,14 +1530,9 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   }, [handleSearchProducts, productSearchQuery]);
 
   useEffect(() => {
-    if (receiptImageUrl && receiptThumbnailUrl && showReceiptScanner) {
-      const timeoutId = window.setTimeout(() => {
-        if (receiptImageUrl && receiptThumbnailUrl && showReceiptScanner) {
-          void handleCreateReceiptCapture(activeStoreId || undefined, getDefaultStoreName());
-        }
-      }, 4000);
-      return () => window.clearTimeout(timeoutId);
-    }
+    // Removed auto-create timer: receipt captures must be user-initiated
+    // to avoid duplicates and comply with backend idempotency contracts.
+    // Keep this effect as a no-op; capture creation happens via explicit UI actions.
     return undefined;
   }, [activeStoreId, getDefaultStoreName, handleCreateReceiptCapture, receiptImageUrl, receiptThumbnailUrl, showReceiptScanner]);
 

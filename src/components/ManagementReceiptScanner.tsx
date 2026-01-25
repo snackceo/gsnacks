@@ -215,6 +215,8 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
 
     setCommitting(true);
     try {
+      const idempotencyKey = `rcpt-commit-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      
       const resp = await fetch(`${BACKEND_URL}/api/receipts/${captureId}/approve`, {
         method: 'POST',
         headers: {
@@ -225,7 +227,8 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
           captureId,
           storeId: capture.storeId,
           storeName: capture.storeName
-        })
+          idempotencyKey,
+          finalStoreId: capture.storeId || undefined
       });
 
       if (!resp.ok) throw new Error('Failed to commit receipt');

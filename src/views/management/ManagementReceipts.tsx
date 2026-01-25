@@ -90,6 +90,8 @@ const ManagementReceipts: React.FC<ManagementReceiptsProps> = ({ fmtTime }) => {
 
   const handleApprove = async () => {
     if (!selectedReceipt) return;
+    // Generate an idempotency key per approval attempt
+    const idempotencyKey = `rcpt-approve-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     setIsProcessing(true);
     try {
@@ -100,8 +102,17 @@ const ManagementReceipts: React.FC<ManagementReceiptsProps> = ({ fmtTime }) => {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            // Preserve any store data from draft or parsed job
             storeCandidate: storeCandidateDraft || selectedReceipt.storeCandidate,
-            items: selectedReceipt.items
+            items: selectedReceipt.items,
+            // Unified approval semantics: default to safe mode
+            mode: 'safe',
+            idempotencyKey,
+            // If we already have a storeId, pass it to avoid ambiguity prompts
+            finalStoreId:
+              (storeCandidateDraft && (storeCandidateDraft as any).storeId) ||
+              (selectedReceipt.storeCandidate && (selectedReceipt.storeCandidate as any).storeId) ||
+              undefined
           })
         }
       );
