@@ -78,7 +78,6 @@ const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
     if (createError) {
       addToast(createError, 'error');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createError]);
 
   React.useEffect(() => {

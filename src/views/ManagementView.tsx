@@ -48,6 +48,7 @@ import {
 import { useNinpoCore } from '../hooks/useNinpoCore';
 import { BACKEND_URL } from '../constants';
 import { uploadReceiptPhoto } from '../utils/cloudinaryUtils';
+import { formatStoreCityStateZip } from '../utils/address';
 import { SETTINGS_STORAGE_KEY, SIZE_UNIT_OPTIONS, UPC_CONTAINER_LABELS } from './management/constants';
 import {
   countTotalUpcs,
@@ -935,9 +936,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     if (store.storeType) {
       meta.push(store.storeType.charAt(0).toUpperCase() + store.storeType.slice(1));
     }
-    const locationParts = [store.address?.city, store.address?.state, store.address?.zip].filter(Boolean);
-    if (locationParts.length) {
-      meta.push(locationParts.join(', '));
+    const locationLabel = formatStoreCityStateZip(store.address);
+    if (locationLabel) {
+      meta.push(locationLabel);
     }
     if (store.isPrimarySupplier) {
       meta.push('Primary supplier');

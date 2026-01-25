@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Check, MapPin, Loader2 } from 'lucide-react';
 import { StoreRecord } from '../types';
+import { formatStoreAddress, formatStoreCityStateZip } from '../utils/address';
 
 interface StoreSelectorModalProps {
   stores: StoreRecord[];
@@ -20,10 +21,7 @@ const formatStoreType = (storeType?: string) => {
   return storeType.charAt(0).toUpperCase() + storeType.slice(1);
 };
 
-const formatStoreLocation = (store: StoreRecord) =>
-  [store.address?.city, store.address?.state, store.address?.zip, store.address?.country]
-    .filter(Boolean)
-    .join(', ');
+const formatStoreLocation = (store: StoreRecord) => formatStoreCityStateZip(store.address, '');
 
 const formatStoreCoordinates = (store: StoreRecord) => {
   if (!store.location?.lat || !store.location?.lng) return '';
@@ -52,14 +50,15 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = ({
     if (!filterText) return stores;
     const lc = filterText.toLowerCase();
     return stores.filter(
-      s =>
-        s.name.toLowerCase().includes(lc) ||
-        s.storeType?.toLowerCase().includes(lc) ||
-        s.address?.street?.toLowerCase().includes(lc) ||
-        s.address?.city?.toLowerCase().includes(lc) ||
-        s.address?.state?.toLowerCase().includes(lc) ||
-        s.address?.zip?.toLowerCase().includes(lc) ||
-        s.address?.country?.toLowerCase().includes(lc)
+      s => {
+        const addressText = formatStoreAddress(s.address, '').toLowerCase();
+        const typeText = s.storeType ? s.storeType.toLowerCase() : '';
+        return (
+          s.name.toLowerCase().includes(lc) ||
+          (typeText && typeText.includes(lc)) ||
+          (addressText && addressText.includes(lc))
+        );
+      }
     );
   }, [stores, filterText]);
 
@@ -122,9 +121,10 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = ({
         <div className="overflow-y-auto flex-1 px-6 py-4 space-y-2">
           {filteredStores.length > 0 ? (
             filteredStores.map(store => {
-              const locationLine = formatStoreLocation(store) || 'No location';
+              const locationLine = formatStoreLocation(store);
               const coordinates = formatStoreCoordinates(store);
               const brandLabel = formatStoreType(store.storeType);
+              const fullAddress = formatStoreAddress(store.address, '');
 
               return (
                 <button
@@ -153,10 +153,10 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = ({
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] uppercase tracking-widest text-slate-500">Location</span>
-                        <span className="text-slate-300 truncate">{locationLine}</span>
+                        <span className="text-slate-300 truncate">{locationLine || 'No location'}</span>
                       </div>
-                      {store.address?.street && (
-                        <p className="text-xs text-slate-500 truncate">{store.address.street}</p>
+                      {fullAddress && (
+                        <p className="text-xs text-slate-500 truncate">{fullAddress}</p>
                       )}
                       {coordinates && (
                         <p className="text-[11px] text-slate-500">Coords: {coordinates}</p>

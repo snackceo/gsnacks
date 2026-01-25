@@ -3,6 +3,7 @@ import ScannerPanel, { ScannerPanelProps } from './ScannerPanel';
 import StoreSelectorModal from './StoreSelectorModal';
 import { StoreRecord } from '../types';
 import { ScannerMode } from '../types';
+import { formatStoreAddress } from '../utils/address';
 
 interface ReceiptCaptureFlowProps
   extends Omit<
@@ -176,16 +177,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
           selectedStoreName={selectedStore?.name}
           selectedStoreBrand={selectedStore ? formatStoreBrand(selectedStore.storeType) : undefined}
           selectedStoreLocation={
-            selectedStore?.address
-              ? [
-                  selectedStore.address.street,
-                  selectedStore.address.city,
-                  selectedStore.address.state,
-                  selectedStore.address.zip
-                ]
-                  .filter(Boolean)
-                  .join(', ')
-              : undefined
+            selectedStore ? formatStoreAddress(selectedStore.address, undefined) || undefined : undefined
           }
           selectedStoreIsPrimary={selectedStoreIsPrimary}
           onTogglePrimarySupplier={selectedStore ? handlePrimarySupplierToggleForScanner : undefined}

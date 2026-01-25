@@ -19,6 +19,7 @@ import ReceiptItemBucket from '../../components/ReceiptItemBucket';
 import ScannerModal from '../../components/ScannerModal';
 import { uploadReceiptPhoto } from '../../utils/cloudinaryUtils';
 import { classifyItems } from '../../utils/classificationUtils';
+import { formatStoreAddress } from '../../utils/address';
 import ManagementApprovals from './ManagementApprovals';
 import ManagementAuditLogs from './ManagementAuditLogs';
 import ManagementStores from './ManagementStores';
@@ -1699,7 +1700,9 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                 <div className="bg-white/5 rounded-xl p-4">
                   <p className="text-[10px] uppercase tracking-widest text-slate-400">Active Store</p>
                   <p className="text-white font-semibold mt-1">{activeStore.name}</p>
-                  <p className="text-xs text-slate-400 mt-1">{activeStore.address}</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {formatStoreAddress(activeStore.address, 'No address provided')}
+                  </p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-4">
                   <p className="text-[10px] uppercase tracking-widest text-slate-400">Receipt Activity</p>

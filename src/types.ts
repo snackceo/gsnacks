@@ -132,17 +132,19 @@ export interface UpcItem {
   updatedAt?: string;
 }
 
+export interface AddressObject {
+  street?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+}
+
 export interface StoreRecord {
   id: string;
   name: string;
   phone?: string;
-  address?: {
-    street?: string;
-    city?: string;
-    state?: string;
-    zip?: string;
-    country?: string;
-  };
+  address?: AddressObject | string;
   storeType?: string;
   createdFrom?: string;
   createdAt?: string;

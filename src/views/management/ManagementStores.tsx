@@ -3,6 +3,7 @@ import { Wand2, MapPin, Loader2, CheckCircle2, Trash2 } from 'lucide-react';
 import { BACKEND_URL } from '../../constants';
 import { StoreRecord } from '../../types';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
+import { formatStoreAddress } from '../../utils/address';
 
 interface ManagementStoresProps {
   stores: StoreRecord[];
@@ -21,10 +22,20 @@ const formatStoreType = (storeType?: string) => {
   return storeType.charAt(0).toUpperCase() + storeType.slice(1);
 };
 
-const formatLocation = (store: StoreRecord) =>
-  [store.address?.street, store.address?.city, store.address?.state, store.address?.zip, store.address?.country]
-    .filter(Boolean)
-    .join(', ');
+const formatLocation = (store: StoreRecord) => formatStoreAddress(store.address, 'No address provided');
+
+const normalizeAddressObject = (address?: StoreRecord['address']) => {
+  if (!address || typeof address === 'string') {
+    return { ...emptyAddress };
+  }
+  return {
+    street: address.street || '',
+    city: address.city || '',
+    state: address.state || '',
+    zip: address.zip || '',
+    country: address.country || ''
+  };
+};
 
 const ManagementStores: React.FC<ManagementStoresProps> = ({
   stores,
@@ -48,6 +59,8 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
     storeType: 'other'
   });
 
+  const draftAddress = normalizeAddressObject(draft.address);
+
   const handleEnrich = useCallback(async () => {
     setError(null);
     setIsEnriching(true);
@@ -60,17 +73,12 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Enrich failed');
+      const enrichedAddress = normalizeAddressObject(data.store?.address);
       setDraft(prev => ({
         ...prev,
         name: data.store?.name || prev.name,
         storeType: data.store?.storeType || prev.storeType,
-        address: {
-          street: data.store?.address?.street || '',
-          city: data.store?.address?.city || '',
-          state: data.store?.address?.state || '',
-          zip: data.store?.address?.zip || '',
-          country: data.store?.address?.country || ''
-        },
+        address: enrichedAddress,
         location: data.store?.location
       }));
       addToast('Gemini filled the address.', 'success');
@@ -97,7 +105,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
         body: JSON.stringify({
           name,
           phone: draft.phone || '',
-          address: draft.address || emptyAddress,
+          address: normalizeAddressObject(draft.address),
           storeType: draft.storeType || 'other',
           location: draft.location
         })
@@ -220,41 +228,56 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <input
-              value={draft.address?.street || ''}
+              value={draftAddress.street}
               onChange={e =>
-                setDraft(prev => ({ ...prev, address: { ...(prev.address || emptyAddress), street: e.target.value } }))
+                setDraft(prev => ({
+                  ...prev,
+                  address: { ...normalizeAddressObject(prev.address), street: e.target.value }
+                }))
               }
               placeholder="Street"
               className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
             />
             <input
-              value={draft.address?.city || ''}
+              value={draftAddress.city}
               onChange={e =>
-                setDraft(prev => ({ ...prev, address: { ...(prev.address || emptyAddress), city: e.target.value } }))
+                setDraft(prev => ({
+                  ...prev,
+                  address: { ...normalizeAddressObject(prev.address), city: e.target.value }
+                }))
               }
               placeholder="City"
               className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
             />
             <input
-              value={draft.address?.state || ''}
+              value={draftAddress.state}
               onChange={e =>
-                setDraft(prev => ({ ...prev, address: { ...(prev.address || emptyAddress), state: e.target.value } }))
+                setDraft(prev => ({
+                  ...prev,
+                  address: { ...normalizeAddressObject(prev.address), state: e.target.value }
+                }))
               }
               placeholder="State"
               className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
             />
             <input
-              value={draft.address?.zip || ''}
+              value={draftAddress.zip}
               onChange={e =>
-                setDraft(prev => ({ ...prev, address: { ...(prev.address || emptyAddress), zip: e.target.value } }))
+                setDraft(prev => ({
+                  ...prev,
+                  address: { ...normalizeAddressObject(prev.address), zip: e.target.value }
+                }))
               }
               placeholder="ZIP"
               className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
             />
             <input
-              value={draft.address?.country || ''}
+              value={draftAddress.country}
               onChange={e =>
-                setDraft(prev => ({ ...prev, address: { ...(prev.address || emptyAddress), country: e.target.value } }))
+                setDraft(prev => ({
+                  ...prev,
+                  address: { ...normalizeAddressObject(prev.address), country: e.target.value }
+                }))
               }
               placeholder="Country"
               className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
