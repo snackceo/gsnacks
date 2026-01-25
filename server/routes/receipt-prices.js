@@ -1947,6 +1947,12 @@ router.post('/receipt-commit', authRequired, async (req, res) => {
     return res.status(503).json({ error: 'Database not ready' });
   }
 
+  console.warn('Deprecated endpoint /api/driver/receipt-commit called. Use /api/receipts/:captureId/approve instead.');
+  res.set('Deprecation', 'true');
+  res.set('Link', '</api/receipts/:captureId/approve>; rel="successor-version"');
+  res.set('Sunset', 'Wed, 01 Oct 2025 00:00:00 GMT');
+  res.set('Warning', '299 - "Deprecated endpoint. Use /api/receipts/:captureId/approve before Oct 1, 2025."');
+
   const session = await mongoose.startSession();
 
   try {

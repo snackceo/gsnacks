@@ -135,7 +135,7 @@ Line Item | Receipt Name + Badge | Qty | Unit Price | Match Info | Action
 ---
 
 ### ✅ 6. Commit with Atomic Transactions
-**Endpoint**: `POST /api/driver/receipt-commit`
+**Endpoint**: `POST /api/receipts/:captureId/approve` (replaces deprecated `POST /api/driver/receipt-commit`, sunset Oct 1, 2025)
 
 #### Commit Operations:
 
@@ -401,7 +401,7 @@ Note: No deposit fee if customer receives instant credit; no handling surcharge
 
 4. COMMIT (ATOMIC TRANSACTION)
    ↓
-   POST /api/driver/receipt-commit
+   POST /api/receipts/:captureId/approve (deprecated: POST /api/driver/receipt-commit)
    MongoDB Transaction Begins:
    ↓
    For each confirmed item:

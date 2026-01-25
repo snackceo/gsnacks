@@ -215,7 +215,7 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
 
     setCommitting(true);
     try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-commit`, {
+      const resp = await fetch(`${BACKEND_URL}/api/receipts/${captureId}/approve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

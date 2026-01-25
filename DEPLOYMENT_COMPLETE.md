@@ -42,7 +42,7 @@ Implemented 10 critical production-hardening fixes to the receipt-based pricing 
 
 #### Backend (3 files)
 1. **`server/routes/receipt-prices.js`**
-   - ✅ Added MongoDB transactions to `/receipt-commit`
+   - ✅ Added MongoDB transactions to `/receipt-commit` (now deprecated in favor of `/api/receipts/:captureId/approve`, sunset Oct 1, 2025)
    - ✅ Authorization checks to `/receipt-capture` and `/receipt-parse`
    - ✅ Storebuildin validation
    - ✅ Image size validation (max 5MB)
@@ -131,7 +131,7 @@ Implemented 10 critical production-hardening fixes to the receipt-based pricing 
 | Operation | Before | After | Impact |
 |-----------|--------|-------|--------|
 | POST /receipt-capture | 50ms | 60ms | +20% (acceptable) |
-| POST /receipt-commit | 100ms | 150ms | +50% (acceptable) |
+| POST /receipt-commit (deprecated, sunset Oct 1, 2025) | 100ms | 150ms | +50% (acceptable) |
 | POST /receipt-confirm-item | 30ms | 40ms | +33% (negligible) |
 | DB Authorization Check | N/A | <5ms | Minimal |
 | Image Validation | N/A | <10ms | Minimal |
