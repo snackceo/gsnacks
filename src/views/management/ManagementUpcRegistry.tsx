@@ -28,7 +28,7 @@ interface ManagementUpcRegistryProps {
   unmappedUpcPayload: any;
   setUnmappedUpcPayload: (payload: any) => void;
   ScannerModal: React.ReactNode;
-  UPC_CONTAINER_LABELS: Record<UpcContainerType, string>;
+  containerLabels: Record<UpcContainerType, string>;
 }
 
 const fmtTime = (iso?: string) => {
@@ -63,7 +63,7 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
     apiDeleteUpcDirect,
     filteredUpcItems,
     loadUpcDraft,
-    UPC_CONTAINER_LABELS
+    containerLabels
   } = props;
   return (
     <div className="space-y-6">
@@ -173,8 +173,8 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
               className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full opacity-70"
               placeholder="Unknown"
               value={
-                upcDraft.containerType
-                  ? UPC_CONTAINER_LABELS[upcDraft.containerType]
+                upcDraft.containerType && containerLabels
+                  ? containerLabels[upcDraft.containerType]
                   : ''
               }
               readOnly
@@ -231,11 +231,16 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
           </p>
         ) : (
           <div className="space-y-3">
-            {filteredUpcItems.map(item => (
-              <div
-                key={item.upc}
-                className="flex items-center gap-3 p-4 rounded-2xl border border-white/5 bg-black/40"
-              >
+            {filteredUpcItems.map(item => {
+              const containerLabel = item.containerType && containerLabels
+                ? containerLabels[item.containerType]
+                : containerLabels?.plastic || 'Plastic';
+              
+              return (
+                <div
+                  key={item.upc}
+                  className="flex items-center gap-3 p-4 rounded-2xl border border-white/5 bg-black/40"
+                >
                 <button
                   onClick={() => {
                     setUpcInput(item.upc);
@@ -251,7 +256,7 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
                         {Number(item.depositValue || 0).toFixed(2)} • Price $
                         {Number(item.price || 0).toFixed(2)} •{' '}
                         {formatSize(item.sizeOz, item.sizeUnit)} •{' '}
-                        {UPC_CONTAINER_LABELS[item.containerType || 'plastic']} •{' '}
+                        {containerLabel} •{' '}
                         {item.isEligible ? 'ELIGIBLE' : 'INELIGIBLE'}
                       </p>
                     </div>
@@ -274,7 +279,8 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
