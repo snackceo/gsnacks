@@ -1341,7 +1341,15 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         {statusLabel}
       </span>
     );
-  }, [activeReceiptCaptureId, receiptCaptures]);
+  const sortedReceiptCaptures = useMemo(() => {
+    return [...receiptCaptures].sort((a, b) => {
+      const aIsParsed = a.status === 'parsed';
+      const bIsParsed = b.status === 'parsed';
+      if (aIsParsed && !bIsParsed) return -1;
+      if (!aIsParsed && bIsParsed) return 1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }, [receiptCaptures]);
 
   return (
     <div className="space-y-6">
@@ -1503,9 +1511,9 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
               </div>
             </div>
 
-            {receiptCaptures.length > 0 ? (
+            {sortedReceiptCaptures.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {receiptCaptures.slice(0, 6).map(capture => (
+                {sortedReceiptCaptures.map(capture => (
                   <div
                     key={capture._id}
                     className="bg-white/10 backdrop-blur-sm rounded-lg p-4 hover:bg-white/20 transition-all border border-white/10 group"
