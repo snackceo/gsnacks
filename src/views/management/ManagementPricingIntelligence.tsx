@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Camera, Trash2, Loader2, CheckCircle2, Check } from 'lucide-react';
+import { Camera, Trash2, Loader2, CheckCircle2 } from 'lucide-react';
 import {
   ClassifiedReceiptItem,
   Product,
@@ -95,23 +95,6 @@ interface PriceHistoryEntry {
   workflowType?: string;
 }
 
-interface StoreInventoryEntry {
-  _id: string;
-  storeId: string;
-  productId?: string | { _id?: string; id?: string };
-  product?: {
-    _id?: string;
-    id?: string;
-    name?: string;
-    sku?: string;
-    upc?: string;
-    price?: number;
-  };
-  observedPrice?: number;
-  observedAt?: string;
-  priceHistory?: PriceHistoryEntry[];
-}
-
 interface ManagementPricingIntelligenceProps {
   setScannerMode: (mode: ScannerMode) => void;
   setScannerModalOpen: (open: boolean) => void;
@@ -192,9 +175,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const [showNoiseRules, setShowNoiseRules] = useState(false);
   const [timelineStoreId, setTimelineStoreId] = useState<string>('');
   const [timelineProductId, setTimelineProductId] = useState<string>('');
-  const [storeInventory, setStoreInventory] = useState<StoreInventoryEntry[]>([]);
-  const [isInventoryLoading, setIsInventoryLoading] = useState(false);
-  const [inventoryError, setInventoryError] = useState<string | null>(null);
 
   const activeStore = useMemo(
     () => stores.find(store => store.id === activeStoreId) || null,
@@ -485,26 +465,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     }
   }, [activeStoreId, addToast]);
 
-  const fetchStoreInventory = useCallback(async () => {
-    if (!activeStoreId) return;
-    setIsInventoryLoading(true);
-    setInventoryError(null);
-    try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-inventory/${activeStoreId}`, {
-        credentials: 'include'
-      });
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to load store inventory');
-      }
-      const data = await resp.json().catch(() => ({}));
-      setStoreInventory(Array.isArray(data.inventory) ? data.inventory : []);
-    } catch (err: any) {
-      setInventoryError(err?.message || 'Failed to load store inventory');
-    } finally {
-      setIsInventoryLoading(false);
-    }
-  }, [activeStoreId]);
 
   const handleStoreSelect = useCallback((id: string) => {
     setActiveStoreId(id);
@@ -1335,11 +1295,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
   const handleReceiptUploadDragLeave = useCallback(() => {}, []);
 
-  useEffect(() => {
-    if (activeStoreId) {
-      void fetchStoreInventory();
-    }
-  }, [activeStoreId, fetchStoreInventory]);
 
   useEffect(() => {
     if (showReceiptReview && activeReceiptCaptureId) {
@@ -1879,30 +1834,8 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                       {isCommitting ? 'Committing…' : 'Commit Items'}
                     </button>
                   </div>
-
-                  <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
-                    <p className="text-[10px] text-slate-400 uppercase tracking-widest">Inventory Snapshot</p>
-                    {isInventoryLoading ? (
-                      <p className="text-xs text-slate-500 mt-2">Loading inventory…</p>
-                    ) : inventoryError ? (
-                      <p className="text-xs text-red-400 mt-2">{inventoryError}</p>
-                    ) : (
-                      <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
-                        {storeInventory.length === 0 ? (
-                          <p className="text-xs text-slate-500">No inventory data available.</p>
-                        ) : (
-                          storeInventory.map(entry => (
-                            <div key={entry._id} className="text-[10px] text-slate-300">
-                              <span className="font-semibold text-white">{entry.product?.name || 'Unknown'}</span>
-                              {entry.observedPrice ? ` • $${entry.observedPrice.toFixed(2)}` : ' • no price'}
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>
-              </div>
             </div>
           </div>
         </div>
