@@ -10,7 +10,8 @@ Sentry.init({
   
   // Setting this option to true will send default PII data to Sentry.
   // For example, automatic IP address collection on events
-  sendDefaultPii: true,
+  // SECURITY: Disabled in production to prevent accidental PII leakage in error reports
+  sendDefaultPii: process.env.NODE_ENV === 'production' ? false : true,
   
   // Performance Monitoring
   tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,

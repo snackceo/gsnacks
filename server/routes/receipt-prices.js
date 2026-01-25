@@ -3651,26 +3651,4 @@ router.get('/receipt-health', authRequired, async (req, res) => {
   }
 });
 
-/**
- * GET /api/driver/receipt-settings-debug
- * Debug receipt settings
- */
-router.get('/receipt-settings-debug', authRequired, async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    res.json({
-      ok: true,
-      ingestionMode: receiptIngestionMode(),
-      allowlist: Array.from(receiptStoreAllowlist()),
-      dailyCap: receiptDailyCap()
-    });
-  } catch (error) {
-    console.error('Error fetching receipt settings debug:', error);
-    res.status(500).json({ error: 'Failed to fetch receipt settings debug' });
-  }
-});
-
 export default router;

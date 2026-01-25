@@ -15,7 +15,8 @@ Sentry.init({
   dsn: sentryDsn,
   environment: import.meta.env.MODE,
   release: import.meta.env.VITE_APP_VERSION || '1.0.0',
-  sendDefaultPii: true,
+  // SECURITY: Disable PII collection in production to prevent accidental data leakage
+  sendDefaultPii: import.meta.env.MODE === 'production' ? false : true,
   
   // Performance Monitoring
   tracesSampleRate: import.meta.env.MODE === 'production' ? 0.1 : 1.0,

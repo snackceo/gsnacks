@@ -173,13 +173,6 @@ app.use('/api/scan-sessions', scanSessionsRouter);
 app.use('/api/distance', distanceRouter);
 app.use('/api/inventory-audit', inventoryAuditRouter);
 
-// Debug endpoint for testing Sentry (REMOVE IN PRODUCTION)
-if (process.env.NODE_ENV !== 'production') {
-  app.get("/api/debug-sentry", function mainHandler(req, res) {
-    throw new Error("My first Sentry error!");
-  });
-}
-
 /* =========================
    SENTRY ERROR HANDLER
    Must be registered AFTER all controllers and BEFORE other error middleware

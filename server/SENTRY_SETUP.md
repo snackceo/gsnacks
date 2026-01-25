@@ -107,7 +107,7 @@ Users can provide the `sentryId` for support, and you can search for it in Sentr
 Before deploying:
 
 - [ ] `NODE_ENV=production` set
-- [ ] Remove or comment out `/api/debug-sentry` endpoint
+- [x] ✅ Removed `/api/debug-sentry` endpoint (production hardening)
 - [ ] Verify SENTRY_DSN is in production environment variables
 - [ ] Test error reporting in staging environment
 - [ ] Set up Sentry alert rules
