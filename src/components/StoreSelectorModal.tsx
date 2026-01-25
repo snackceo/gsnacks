@@ -35,6 +35,7 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = ({
   isLoading = false,
   onStoreChange,
   onConfirm,
+  onConfirmWithoutStore,
   onCancel,
   selectedStoreIsPrimary,
   onPrimarySupplierToggle
