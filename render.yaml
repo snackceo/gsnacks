@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: gsnnacks-frontend
+    env: static
+    rootDirectory: .
+    buildCommand: npm install && npm run build
+    publishPath: dist
+
+  - type: web
+    name: gsnnacks-backend
+    env: node
+    rootDirectory: server
+    buildCommand: npm install
+    startCommand: node index.js
+
+  - type: worker
+    name: gsnnacks-backgroundworker
+    env: node
+    rootDirectory: server
+    buildCommand: npm install
+    startCommand: node workers/receiptWorker.js

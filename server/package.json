@@ -4,6 +4,9 @@
   "description": "Secure Logistics Hub for Ninpo Snacks",
   "main": "index.js",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node index.js",
     "create-owner": "node scripts/create-owner.js",
