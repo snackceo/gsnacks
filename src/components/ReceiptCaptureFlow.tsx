@@ -30,7 +30,7 @@ const formatStoreBrand = (storeType?: string) => {
 };
 
 const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
-  stores,
+  stores = [],
   defaultStoreId,
   onStoreSelected,
   onPrimarySupplierToggle,

@@ -1999,6 +1999,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
       {showReceiptScanner && (
         <ReceiptCaptureFlow
+          stores={stores}
           isOpen={showReceiptScanner}
           onClose={handleReceiptScannerClose}
           onImageUploaded={handleReceiptImageUploaded}
