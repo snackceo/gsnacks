@@ -1,4 +1,3 @@
-import receiptReviewRouter from './routes/receipt-review.js';
 import receiptsRouter from './routes/receipts.js';
 // IMPORTANT: Import Sentry instrument FIRST before any other modules
 import './instrument.js';
@@ -161,9 +160,8 @@ app.use('/api/driver', receiptPricesRouter); // Receipt-based price updates
 app.use('/api/driver', receiptAliasesRouter); // Receipt alias bindings
 app.use('/api/stores', storesRouter); // Store management
 
-// Role-neutral receipt workflow (replaces split receipt-review/receipts routes)
-app.use('/api/receipts', receiptsRouter); // New unified receipt endpoint (approvals, uploads, reviews)
-app.use('/api/receipt-review', receiptReviewRouter); // Legacy endpoint for backward compatibility
+// Role-neutral receipt workflow (unified receipt endpoint)
+app.use('/api/receipts', receiptsRouter); // Approvals, uploads, reviews
 
 app.use('/api/approvals', approvalsRouter);
 app.use('/api/settings', settingsRouter);

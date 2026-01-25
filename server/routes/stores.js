@@ -40,7 +40,42 @@ const toStoreResponse = store => ({
   createdFrom: store.createdFrom,
   createdAt: store.createdAt ? new Date(store.createdAt).toISOString() : undefined,
   location: store.location,
-  isPrimarySupplier: store.isPrimarySupplier
+  isPrimarySupplier: store.isPrimarySupplier,
+  isActive: store.isActive
+});
+
+// Activate a draft store (created from receipt uploads)
+router.post('/:storeId/activate', managerOrOwnerRequired, async (req, res) => {
+  try {
+    const store = await Store.findById(req.params.storeId);
+    if (!store) {
+      return res.status(404).json({ error: 'Store not found' });
+    }
+
+    if (store.isActive) {
+      return res.json({ ok: true, message: 'Store already active', store: toStoreResponse(store) });
+    }
+
+    // Validate required fields before activation
+    if (!store.name || !store.name.trim()) {
+      return res.status(400).json({ error: 'Store name is required for activation' });
+    }
+
+    // Activate the store
+    store.isActive = true;
+    await store.save();
+
+    await recordAuditLog({
+      type: 'store_activated',
+      actorId: req.user?.username || 'unknown',
+      details: `storeId=${store._id} name=${store.name} createdFrom=${store.createdFrom || 'manual'}`
+    });
+
+    res.json({ ok: true, store: toStoreResponse(store) });
+  } catch (err) {
+    console.error('Store activation error:', err);
+    res.status(500).json({ error: 'Failed to activate store' });
+  }
 });
 
 // Enrich store details using Gemini (normalize address + store type)

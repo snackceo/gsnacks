@@ -56,9 +56,17 @@ router.get('/', authRequired, async (req, res) => {
   if (!canApproveReceipts(req.user)) {
     return res.status(403).json({ error: 'Not authorized' });
   }
+  
   const { status } = req.query;
   const limit = Math.min(Number(req.query.limit) || 100, 200);
-  const query = status ? { status } : {};
+  const baseQuery = status ? { status } : {};
+  
+  // Role-based filtering: drivers see only their captures
+  const isDriver = req.user?.role === 'DRIVER';
+  const query = isDriver && req.user?.id
+    ? { ...baseQuery, createdByUserId: req.user.id }
+    : baseQuery;
+  
   const jobs = await ReceiptParseJob.find(query).sort({ createdAt: -1 }).limit(limit).lean();
   res.json({ ok: true, jobs });
 });
@@ -342,6 +350,22 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
             continue;
           }
           throw dupeErr;
+        }
+
+        // Check if price is locked
+        const existingInventory = await StoreInventory.findOne({
+          storeId: store._id,
+          productId: product._id
+        }).session(session);
+
+        const isLocked = existingInventory?.priceLockUntil && new Date(existingInventory.priceLockUntil) > new Date();
+        if (isLocked) {
+          errors.push({
+            lineIndex: item.lineIndex,
+            error: 'Price locked',
+            lockedUntil: existingInventory.priceLockUntil
+          });
+          continue;
         }
 
         const inventory = await StoreInventory.findOneAndUpdate(
