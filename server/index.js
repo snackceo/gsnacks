@@ -1,4 +1,5 @@
 import receiptReviewRouter from './routes/receipt-review.js';
+import receiptsRouter from './routes/receipts.js';
 // IMPORTANT: Import Sentry instrument FIRST before any other modules
 import './instrument.js';
 
@@ -159,6 +160,7 @@ app.use('/api/driver', itemsNotFoundRouter); // Items not found tracking
 app.use('/api/driver', receiptPricesRouter); // Receipt-based price updates
 app.use('/api/driver', receiptAliasesRouter); // Receipt alias bindings
 app.use('/api/stores', storesRouter); // Store management
+app.use('/api/receipts', receiptsRouter); // Receipt approvals
 app.use('/api/receipt-review', receiptReviewRouter); // Receipt review endpoints
 app.use('/api/approvals', approvalsRouter);
 app.use('/api/settings', settingsRouter);

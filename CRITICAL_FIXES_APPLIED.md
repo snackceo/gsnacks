@@ -14,7 +14,7 @@ Applied comprehensive security and reliability hardening to receipt-based pricin
 **Fix**: Implemented MongoDB transactions (`session.startTransaction()`) wrapping entire commit operation.
 
 **Files Modified**:
-- `server/routes/receipt-prices.js` - Added transaction wrapper to `/receipt-commit` endpoint
+- `server/routes/receipt-prices.js` - Added transaction wrapper to `/receipt-commit` endpoint (now deprecated in favor of `/api/receipts/:captureId/approve`, sunset Oct 1, 2025)
 
 **Impact**: 
 - Atomic all-or-nothing commits
@@ -56,7 +56,7 @@ try {
 **Endpoints Hardened**:
 1. `/receipt-capture` - Validate storeId, storeName, check Store exists
 2. `/receipt-parse` - Verify authorization before parsing
-3. `/receipt-commit` - Uses transactional session (indirectly auth'd via capture)
+3. `/receipt-commit` - Uses transactional session (indirectly auth'd via capture). Deprecated in favor of `/api/receipts/:captureId/approve` with a sunset of Oct 1, 2025.
 
 **Authorization Pattern**:
 ```javascript

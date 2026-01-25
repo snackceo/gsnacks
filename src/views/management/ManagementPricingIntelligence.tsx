@@ -809,7 +809,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         payload.lockDurationDays = lockDurationDays;
       }
 
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-commit`, {
+      const resp = await fetch(`${BACKEND_URL}/api/receipts/${activeReceiptCaptureId}/approve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1298,7 +1298,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const handleCommitReceiptChanges = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-commit`, {
+      const resp = await fetch(`${BACKEND_URL}/api/receipts/${activeReceiptCaptureId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

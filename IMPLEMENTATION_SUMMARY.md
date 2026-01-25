@@ -20,7 +20,7 @@ Implemented 10 critical production-hardening fixes to receipt-based pricing syst
 
 #### 1. **MongoDB Transactions for Atomic Commits**
 - **File**: `server/routes/receipt-prices.js`
-- **Endpoint**: `POST /api/driver/receipt-commit`
+- **Endpoint**: `POST /api/receipts/:captureId/approve` (replaces deprecated `POST /api/driver/receipt-commit`, sunset Oct 1, 2025)
 - **Changes**:
   - Wrapped entire commit operation in MongoDB transaction
   - All database operations use session for consistency
@@ -35,7 +35,7 @@ Implemented 10 critical production-hardening fixes to receipt-based pricing syst
 - **Endpoints Modified**:
   - `POST /api/driver/receipt-capture` - Added auth check
   - `POST /api/driver/receipt-parse` - Added auth check
-  - `POST /api/driver/receipt-commit` - Implicit via transaction
+  - `POST /api/receipts/:captureId/approve` - Implicit via transaction (supersedes `POST /api/driver/receipt-commit`, sunset Oct 1, 2025)
 - **Changes**:
   - Check if user is `isOwnerUsername()` or `isDriverUsername()`
   - Validate storeId exists in Store collection
@@ -132,7 +132,7 @@ Implemented 10 critical production-hardening fixes to receipt-based pricing syst
 ### Backend
 
 1. **`server/routes/receipt-prices.js`** (9 fixes)
-   - Added MongoDB transaction to `/receipt-commit`
+   - Added MongoDB transaction to `/receipt-commit` (now deprecated in favor of `/api/receipts/:captureId/approve`, sunset Oct 1, 2025)
    - Added authorization to `/receipt-capture` and `/receipt-parse`
    - Added storeId and store validation
    - Added image size validation (max 5MB)
