@@ -361,6 +361,28 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     return receiptCaptures.filter(capture => capture.status === 'parsed').length;
   }, [receiptCaptures]);
 
+
+
+  const fetchReceiptCaptures = useCallback(async () => {
+    try {
+      const resp = await fetch(
+        `${BACKEND_URL}/api/driver/receipt-captures?status=pending_parse&status=parsed&status=review_complete&status=failed&limit=40`,
+        {
+          credentials: 'include'
+        }
+      );
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to load receipt queue');
+      }
+      const data = await resp.json().catch(() => ({}));
+      const captures = Array.isArray(data.captures) ? data.captures : [];
+      setReceiptCaptures(captures);
+    } catch (err: any) {
+      setReceiptError(err?.message || 'Failed to load receipt queue');
+    }
+  }, []);
+
   const handleReceiptQueueRefreshEvent = useCallback(() => {
     void fetchReceiptCaptures();
   }, []);
@@ -463,26 +485,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       addToast('No parsed receipts ready for review.', 'info');
     }
   }, [addToast, loadReceiptCaptureForReview, receiptCaptures]);
-
-  const fetchReceiptCaptures = useCallback(async () => {
-    try {
-      const resp = await fetch(
-        `${BACKEND_URL}/api/driver/receipt-captures?status=pending_parse&status=parsed&status=review_complete&status=failed&limit=40`,
-        {
-          credentials: 'include'
-        }
-      );
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to load receipt queue');
-      }
-      const data = await resp.json().catch(() => ({}));
-      const captures = Array.isArray(data.captures) ? data.captures : [];
-      setReceiptCaptures(captures);
-    } catch (err: any) {
-      setReceiptError(err?.message || 'Failed to load receipt queue');
-    }
-  }, []);
 
   const fetchReceiptCaptureStats = useCallback(async () => {
     try {
