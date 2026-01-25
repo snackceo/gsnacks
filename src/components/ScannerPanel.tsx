@@ -56,7 +56,60 @@ interface ScannerPanelProps {
 const MIN_LEN = 8;
 const MAX_LEN = 14;
 
+// Image handling constants
+const MAX_UPLOAD_MB = 10;
+const MAX_IMAGE_DIMENSION = 1920; // Max width/height
+const IMAGE_COMPRESSION_QUALITY = 0.85; // JPEG quality
+
 const normalizeUpc = (raw: string) => raw.replace(/\D/g, '');
+
+/**
+ * Resizes and compresses an image from a given source.
+ * @param imageSource The source of the image (e.g., HTMLImageElement, HTMLVideoElement).
+ * @param maxWidth The maximum width of the output image.
+ * @param maxHeight The maximum height of the output image.
+ * @param quality The quality of the output JPEG image (0.0 to 1.0).
+ * @returns A Promise that resolves with the data URL of the resized and compressed image.
+ */
+const compressAndResizeImage = (
+  imageSource: HTMLImageElement | HTMLVideoElement,
+  maxWidth: number,
+  maxHeight: number,
+  quality: number
+): Promise<string> => {
+  return new Promise(resolve => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      // Fallback to returning a placeholder or handling error
+      resolve('');
+      return;
+    }
+
+    const sourceWidth = 'videoWidth' in imageSource ? imageSource.videoWidth : imageSource.width;
+    const sourceHeight = 'videoHeight' in imageSource ? imageSource.videoHeight : imageSource.height;
+
+    let targetWidth = sourceWidth;
+    let targetHeight = sourceHeight;
+
+    if (targetWidth > maxWidth || targetHeight > maxHeight) {
+      if (targetWidth / targetHeight > maxWidth / maxHeight) {
+        targetWidth = maxWidth;
+        targetHeight = Math.round((targetWidth / sourceWidth) * sourceHeight);
+      } else {
+        targetHeight = maxHeight;
+        targetWidth = Math.round((targetHeight / sourceHeight) * sourceWidth);
+      }
+    }
+
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+
+    ctx.drawImage(imageSource, 0, 0, targetWidth, targetHeight);
+
+    resolve(canvas.toDataURL('image/jpeg', quality));
+  });
+};
 
 const ScannerPanel: React.FC<ScannerPanelProps> = ({
   mode,
@@ -285,27 +338,24 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     onPhotoCaptured(dataUrl, 'image/jpeg');
   }, [onPhotoCaptured]);
 
-  const captureReceiptAndParse = useCallback(() => {
+  const captureReceiptAndParse = useCallback(async () => {
     if (!videoRef.current) return;
+    void stopScanner();
 
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const w = videoRef.current.videoWidth;
-    const h = videoRef.current.videoHeight;
-    if (!w || !h) return;
-
-    canvas.width = w;
-    canvas.height = h;
-
-    ctx.drawImage(videoRef.current, 0, 0, w, h);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-
-    // Show preview instead of immediately uploading
-    setPreviewImage(dataUrl);
-    setPreviewMime('image/jpeg');
-  }, []);
+    try {
+      const dataUrl = await compressAndResizeImage(
+        videoRef.current,
+        MAX_IMAGE_DIMENSION,
+        MAX_IMAGE_DIMENSION,
+        IMAGE_COMPRESSION_QUALITY
+      );
+      setPreviewImage(dataUrl);
+      setPreviewMime('image/jpeg');
+    } catch (error) {
+      setScannerError('Failed to capture image.');
+      void startScanner(); // Retry if capture failed
+    }
+  }, [stopScanner, startScanner]);
 
   const validateUpc = useCallback((raw: string) => {
     const normalized = normalizeUpc(String(raw || '').trim());
@@ -322,30 +372,51 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
   const handleRetakePhoto = useCallback(() => {
     setPreviewImage(null);
-  }, []);
+    void startScanner();
+  }, [startScanner]);
 
-  const handleReceiptFile = useCallback((file: File) => {
-    if (!file) return;
+  const handleReceiptFile = useCallback(
+    (file: File) => {
+      if (!file) return;
 
-    if (file.type === 'application/pdf') {
-      setScannerError('PDF uploads are coming soon.');
-      return;
-    }
+      if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+        setScannerError(`File too large. Max size is ${MAX_UPLOAD_MB}MB.`);
+        return;
+      }
 
-    if (!file.type.startsWith('image/')) {
-      setScannerError('Unsupported file type. Please upload an image.');
-      return;
-    }
+      if (file.type === 'application/pdf') {
+        setScannerError('PDF uploads are coming soon.');
+        return;
+      }
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const dataUrl = reader.result as string;
-      if (!dataUrl) return;
-      setPreviewImage(dataUrl);
-      setPreviewMime(file.type || 'image/jpeg');
-    };
-    reader.readAsDataURL(file);
-  }, []);
+      if (!file.type.startsWith('image/')) {
+        setScannerError('Unsupported file type. Please upload an image.');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = async () => {
+          try {
+            const dataUrl = await compressAndResizeImage(
+              img,
+              MAX_IMAGE_DIMENSION,
+              MAX_IMAGE_DIMENSION,
+              IMAGE_COMPRESSION_QUALITY
+            );
+            setPreviewImage(dataUrl);
+            setPreviewMime('image/jpeg');
+          } catch (error) {
+            setScannerError('Failed to process image.');
+          }
+        };
+        img.src = e.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    },
+    [/* Dependencies can be added if needed */]
+  );
 
   const handleReceiptFileInput = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -393,8 +464,45 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
       return;
     }
 
+    // In receipt mode, we just need the camera stream. No barcode detection.
+    if (isReceiptMode) {
+      try {
+        const constraints: MediaStreamConstraints = {
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: false
+        };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (cancelledRef.current) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        const track = stream.getVideoTracks()[0];
+        videoTrackRef.current = track;
+        const caps = track.getCapabilities?.();
+        setTorchSupported(Boolean((caps as any)?.torch));
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+          setIsScanning(true);
+        }
+      } catch (err) {
+        setScannerError('Camera blocked. Enable permissions and retry.');
+        setIsScanning(false);
+        setBlocked(true);
+      }
+      return;
+    }
+
+    // For all other modes, use BarcodeDetector
     if (!('BarcodeDetector' in window)) {
-      setScannerError('Scanner not supported.');
+      setScannerError('Scanner not supported on this device.');
+      // Do not set blocked, so user can retry if it was a transient error
       return;
     }
 
@@ -527,7 +635,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
       setIsScanning(false);
       setBlocked(true);
     }
-  }, [acceptScan, stopScanner, validateUpc]);
+  }, [acceptScan, stopScanner, validateUpc, isReceiptMode]);
 
   const handleManualScan = useCallback(() => {
     const { ok, upc } = validateUpc(manualUpc);
