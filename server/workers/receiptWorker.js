@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { isReceiptQueueEnabled, registerReceiptWorker } from '../queues/receiptQueue.js';
-import { isDbReady } from '../db/connect.js';
+import connectDB, { isDbReady } from '../db/connect.js';
 import ReceiptCapture from '../models/ReceiptCapture.js';
 import { executeReceiptParse } from '../utils/receiptParseHelper.js';
 
@@ -8,6 +8,9 @@ if (!isReceiptQueueEnabled()) {
   console.warn('Receipt worker not started because ENABLE_RECEIPT_QUEUE is false or Redis is not configured.');
   process.exit(0);
 }
+
+// Connect to MongoDB before starting worker
+await connectDB();
 
 const worker = registerReceiptWorker(async job => {
   if (job.name !== 'receipt-parse') {
