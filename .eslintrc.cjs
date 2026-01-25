@@ -15,6 +15,16 @@ module.exports = {
   plugins: ['@typescript-eslint'],
   rules: {
     'no-redeclare': 'off',
-    '@typescript-eslint/no-redeclare': 'error'
+    '@typescript-eslint/no-redeclare': 'error',
+    '@typescript-eslint/no-use-before-define': [
+      'error',
+      {
+        functions: false,
+        classes: true,
+        variables: true,
+        enums: true,
+        typedefs: true
+      }
+    ]
   }
 };
