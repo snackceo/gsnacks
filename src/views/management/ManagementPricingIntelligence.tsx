@@ -419,6 +419,42 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     });
   }, [receiptCaptures, addToast]);
 
+  const loadReceiptCaptureForReview = useCallback(async (captureId: string, captureStoreId?: string) => {
+    setIsLoadingReceiptCapture(captureId);
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${captureId}`, {
+        credentials: 'include'
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to load receipt capture');
+      }
+      const data = await resp.json().catch(() => ({}));
+      const capture = data.capture;
+      if (!capture) {
+        throw new Error('Receipt capture missing');
+      }
+      const items = Array.isArray(capture.draftItems) ? capture.draftItems : [];
+      const storeName = capture.storeName;
+      const activeStoreCandidate = captureStoreId || capture.storeId || activeStoreId;
+
+      if (activeStoreCandidate) {
+        setActiveStoreId(activeStoreCandidate);
+      }
+
+      const classified = classifyItems(items);
+      setClassifiedItems(classified);
+      setActiveReceiptCaptureId(captureId);
+      setShowReceiptReview(true);
+      setSelectedItemsForCommit(new Map());
+      addToast(`Loaded ${items.length} items for ${storeName || 'receipt'} review.`, 'success');
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to load receipt capture', 'error');
+    } finally {
+      setIsLoadingReceiptCapture(null);
+    }
+  }, [activeStoreId, addToast, setActiveStoreId]);
+
   const handleReviewPendingReceipts = useCallback(() => {
     const capture = receiptCaptures.find(entry => entry.status === 'parsed');
     if (capture) {
@@ -515,42 +551,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       handleReceiptScannerClose();
     }
   }, [addToast, createCaptureRequestId, fetchReceiptCaptures, handleReceiptScannerClose, receiptImageUrl, receiptThumbnailUrl]);
-
-  const loadReceiptCaptureForReview = useCallback(async (captureId: string, captureStoreId?: string) => {
-    setIsLoadingReceiptCapture(captureId);
-    try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${captureId}`, {
-        credentials: 'include'
-      });
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to load receipt capture');
-      }
-      const data = await resp.json().catch(() => ({}));
-      const capture = data.capture;
-      if (!capture) {
-        throw new Error('Receipt capture missing');
-      }
-      const items = Array.isArray(capture.draftItems) ? capture.draftItems : [];
-      const storeName = capture.storeName;
-      const activeStoreCandidate = captureStoreId || capture.storeId || activeStoreId;
-
-      if (activeStoreCandidate) {
-        setActiveStoreId(activeStoreCandidate);
-      }
-
-      const classified = classifyItems(items);
-      setClassifiedItems(classified);
-      setActiveReceiptCaptureId(captureId);
-      setShowReceiptReview(true);
-      setSelectedItemsForCommit(new Map());
-      addToast(`Loaded ${items.length} items for ${storeName || 'receipt'} review.`, 'success');
-    } catch (err: any) {
-      addToast(err?.message || 'Failed to load receipt capture', 'error');
-    } finally {
-      setIsLoadingReceiptCapture(null);
-    }
-  }, [activeStoreId, addToast, setActiveStoreId]);
 
   const handleOpenReceiptCapture = useCallback(async (capture: ReceiptCapture) => {
     await loadReceiptCaptureForReview(capture._id, capture.storeId);
