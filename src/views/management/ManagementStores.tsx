@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { Wand2, MapPin, Loader2, CheckCircle2, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Wand2, MapPin, Loader2, CheckCircle2, Trash2, Tags } from 'lucide-react';
 import { BACKEND_URL } from '../../constants';
 import { StoreRecord } from '../../types';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
@@ -13,6 +13,27 @@ interface ManagementStoresProps {
   isLoading: boolean;
   error: string | null;
   setError: (err: string | null) => void;
+}
+
+interface StoreInventoryEntry {
+  _id: string;
+  storeId: string;
+  sku?: string;
+  cost?: number;
+  markup?: number;
+  observedPrice?: number;
+  observedAt?: string;
+  available?: boolean;
+  stockLevel?: 'in-stock' | 'low-stock' | 'out-of-stock';
+  priceDrift?: string | null;
+  product?: {
+    _id?: string;
+    id?: string;
+    name?: string;
+    sku?: string;
+    upc?: string;
+    price?: number;
+  };
 }
 
 const emptyAddress = { street: '', city: '', state: '', zip: '', country: '' };
@@ -37,6 +58,37 @@ const normalizeAddressObject = (address?: StoreRecord['address']) => {
   };
 };
 
+const formatMoney = (value?: number | null) => {
+  if (!Number.isFinite(value)) return '—';
+  return `$${Number(value).toFixed(2)}`;
+};
+
+const formatObservedAt = (value?: string) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString();
+};
+
+const resolveStorePrice = (entry: StoreInventoryEntry) => {
+  if (Number.isFinite(entry.observedPrice)) {
+    return { price: entry.observedPrice as number, source: 'Observed' };
+  }
+  if (Number.isFinite(entry.cost)) {
+    const markup = Number.isFinite(entry.markup) ? (entry.markup as number) : 1;
+    return { price: (entry.cost as number) * markup, source: 'Cost + markup' };
+  }
+  return { price: null, source: '—' };
+};
+
+const formatAvailability = (entry: StoreInventoryEntry) => {
+  if (entry.available === false) return 'Unavailable';
+  if (entry.stockLevel === 'low-stock') return 'Low stock';
+  if (entry.stockLevel === 'out-of-stock') return 'Out of stock';
+  if (entry.stockLevel === 'in-stock') return 'In stock';
+  return 'Available';
+};
+
 const ManagementStores: React.FC<ManagementStoresProps> = ({
   stores,
   activeStoreId,
@@ -52,6 +104,9 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [primarySupplierUpdatingId, setPrimarySupplierUpdatingId] = useState<string | null>(null);
   const [deletingStoreId, setDeletingStoreId] = useState<string | null>(null);
+  const [storeInventory, setStoreInventory] = useState<StoreInventoryEntry[]>([]);
+  const [isInventoryLoading, setIsInventoryLoading] = useState(false);
+  const [inventoryError, setInventoryError] = useState<string | null>(null);
   const [draft, setDraft] = useState<StoreRecord>({
     id: '',
     name: '',
@@ -60,6 +115,21 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   });
 
   const draftAddress = normalizeAddressObject(draft.address);
+
+  const activeStore = useMemo(
+    () => stores.find(store => store.id === activeStoreId) || null,
+    [activeStoreId, stores]
+  );
+
+  const sortedInventory = useMemo(() => {
+    return [...storeInventory].sort((a, b) => {
+      const nameA = (a.product?.name || '').toLowerCase();
+      const nameB = (b.product?.name || '').toLowerCase();
+      if (nameA < nameB) return -1;
+      if (nameA > nameB) return 1;
+      return 0;
+    });
+  }, [storeInventory]);
 
   const handleEnrich = useCallback(async () => {
     setError(null);
@@ -181,6 +251,35 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       setDeletingStoreId(null);
     }
   }, [activeStoreId, addToast, refreshStores, setActiveStoreId, setError]);
+
+  const fetchStoreInventory = useCallback(async () => {
+    if (!activeStoreId) return;
+    setIsInventoryLoading(true);
+    setInventoryError(null);
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-inventory/${activeStoreId}`, {
+        credentials: 'include'
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to load store inventory');
+      }
+      const data = await resp.json().catch(() => ({}));
+      setStoreInventory(Array.isArray(data.inventory) ? data.inventory : []);
+    } catch (err: any) {
+      setInventoryError(err?.message || 'Failed to load store inventory');
+    } finally {
+      setIsInventoryLoading(false);
+    }
+  }, [activeStoreId]);
+
+  useEffect(() => {
+    if (activeStoreId) {
+      void fetchStoreInventory();
+    } else {
+      setStoreInventory([]);
+    }
+  }, [activeStoreId, fetchStoreInventory]);
 
   return (
     <div className="space-y-6">
@@ -417,6 +516,85 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
             )}
           </div>
         </div>
+      </div>
+
+      <div className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-white font-black uppercase text-xs tracking-widest">
+            <Tags className="w-4 h-4" /> Store Inventory
+          </div>
+          <button
+            onClick={() => void fetchStoreInventory()}
+            disabled={!activeStoreId || isInventoryLoading}
+            className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 disabled:opacity-60"
+          >
+            {isInventoryLoading ? 'Loading…' : 'Refresh Catalog'}
+          </button>
+        </div>
+
+        <div className="text-[10px] text-slate-400 uppercase tracking-widest">
+          {activeStore
+            ? `Catalog for ${activeStore.name} · ${formatLocation(activeStore)}`
+            : 'Select a store to review its catalog pricing and availability.'}
+        </div>
+
+        {inventoryError && (
+          <p className="text-xs text-ninpo-red font-semibold uppercase tracking-widest">{inventoryError}</p>
+        )}
+
+        {!activeStoreId ? (
+          <div className="text-xs text-slate-400">No active store selected.</div>
+        ) : isInventoryLoading ? (
+          <div className="text-xs text-slate-400">Loading store catalog…</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-xs text-slate-200">
+              <thead className="text-[10px] uppercase tracking-widest text-slate-500 border-b border-white/10">
+                <tr>
+                  <th className="py-2 pr-4">SKU</th>
+                  <th className="py-2 pr-4">UPC</th>
+                  <th className="py-2 pr-4">Store Price</th>
+                  <th className="py-2 pr-4">Availability</th>
+                  <th className="py-2 pr-4">Last Observed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedInventory.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-4 text-slate-400">
+                      No catalog items yet. Receipt parsing and manual updates will populate this list.
+                    </td>
+                  </tr>
+                ) : (
+                  sortedInventory.map(entry => {
+                    const { price, source } = resolveStorePrice(entry);
+                    return (
+                      <tr key={entry._id} className="border-b border-white/5">
+                        <td className="py-3 pr-4">
+                          <div className="font-semibold text-white">{entry.product?.sku || entry.sku || '—'}</div>
+                          <div className="text-[10px] text-slate-500">{entry.product?.name || 'Unnamed product'}</div>
+                        </td>
+                        <td className="py-3 pr-4 text-slate-300">{entry.product?.upc || '—'}</td>
+                        <td className="py-3 pr-4">
+                          <div className="font-semibold text-white">{formatMoney(price)}</div>
+                          <div className="text-[10px] text-slate-500">{source}</div>
+                        </td>
+                        <td className="py-3 pr-4">
+                          <span className="inline-flex px-2 py-1 rounded-full text-[10px] uppercase tracking-widest bg-white/5 border border-white/10">
+                            {formatAvailability(entry)}
+                          </span>
+                        </td>
+                        <td className="py-3 pr-4 text-slate-300">
+                          {formatObservedAt(entry.observedAt)}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
