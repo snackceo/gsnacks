@@ -239,6 +239,19 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
         receiptImageUrl = uploadData.url;
         receiptThumbnailUrl = uploadData.thumbnailUrl || uploadData.url;
         captureId = await createReceiptCapture(receiptImageUrl, receiptThumbnailUrl);
+        
+          // Auto-trigger parsing immediately after capture
+          setUploadPhase('Parsing receipt with AI…');
+          try {
+            await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ captureId })
+            });
+          } catch (parseErr) {
+            console.warn('Auto-parse failed, can be retried manually:', parseErr);
+          }
       }
 
       setUploadPhase('Submitting receipt items…');

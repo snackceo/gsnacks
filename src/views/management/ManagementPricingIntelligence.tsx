@@ -393,6 +393,8 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       if (captureId) {
         setActiveReceiptCaptureId(captureId);
         addToast('Receipt uploaded. Parsing will begin shortly.', 'success');
+        // Auto-trigger parse immediately after capture
+        void handleReceiptParseAuto(captureId);
         void fetchReceiptCaptures();
       } else {
         addToast('Receipt uploaded but no capture ID returned.', 'warning');
@@ -1696,17 +1698,19 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       </div>
 
       {showReceiptScanner && (
-        <ReceiptCaptureFlow
-          stores={stores}
-          isOpen={showReceiptScanner}
-          onClose={handleReceiptScannerClose}
-          onImageUploaded={handleReceiptImageUploaded}
-          onParsedItems={handleReceiptScannerComplete}
-          onCaptureComplete={handleReceiptCaptureComplete}
-          storeId={activeStoreId}
-          storeName={getDefaultStoreName()}
-          onCaptureParse={handleReceiptScannerAction}
-        />
+        <div className="fixed inset-0 z-50 bg-ninpo-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+          <ReceiptCaptureFlow
+            stores={stores}
+            isOpen={showReceiptScanner}
+            onClose={handleReceiptScannerClose}
+            onImageUploaded={handleReceiptImageUploaded}
+            onParsedItems={handleReceiptScannerComplete}
+            onCaptureComplete={handleReceiptCaptureComplete}
+            storeId={activeStoreId}
+            storeName={getDefaultStoreName()}
+            onCaptureParse={handleReceiptScannerAction}
+          />
+        </div>
       )}
 
       {showReceiptReview && activeReceiptCaptureId && (
