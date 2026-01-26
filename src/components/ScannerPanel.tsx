@@ -57,7 +57,7 @@ const MIN_LEN = 8;
 const MAX_LEN = 14;
 
 // Image handling constants
-const MAX_UPLOAD_MB = 10;
+const MAX_UPLOAD_MB = 6; // Reject overly large uploads to avoid memory spikes
 const MAX_IMAGE_DIMENSION = 1920; // Max width/height
 const IMAGE_COMPRESSION_QUALITY = 0.85; // JPEG quality
 
@@ -338,117 +338,11 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
     onPhotoCaptured(dataUrl, 'image/jpeg');
   }, [onPhotoCaptured]);
 
-  const captureReceiptAndParse = useCallback(async () => {
-    if (!videoRef.current) return;
-    void stopScanner();
-
-    try {
-      const dataUrl = await compressAndResizeImage(
-        videoRef.current,
-        MAX_IMAGE_DIMENSION,
-        MAX_IMAGE_DIMENSION,
-        IMAGE_COMPRESSION_QUALITY
-      );
-      setPreviewImage(dataUrl);
-      setPreviewMime('image/jpeg');
-    } catch (error) {
-      setScannerError('Failed to capture image.');
-      void startScanner(); // Retry if capture failed
-    }
-  }, [stopScanner, startScanner]);
-
   const validateUpc = useCallback((raw: string) => {
     const normalized = normalizeUpc(String(raw || '').trim());
     if (!normalized) return { ok: false as const, upc: '' };
     if (normalized.length < MIN_LEN || normalized.length > MAX_LEN) return { ok: false as const, upc: '' };
     return { ok: true as const, upc: normalized };
-  }, []);
-
-  const handleUsePhoto = useCallback(() => {
-    if (!previewImage || !onPhotoCaptured) return;
-    onPhotoCaptured(previewImage, previewMime);
-    setPreviewImage(null);
-  }, [previewImage, previewMime, onPhotoCaptured]);
-
-  const handleRetakePhoto = useCallback(() => {
-    setPreviewImage(null);
-    void startScanner();
-  }, [startScanner]);
-
-  const handleReceiptFile = useCallback(
-    (file: File) => {
-      if (!file) return;
-
-      if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
-        setScannerError(`File too large. Max size is ${MAX_UPLOAD_MB}MB.`);
-        return;
-      }
-
-      if (file.type === 'application/pdf') {
-        setScannerError('PDF uploads are coming soon.');
-        return;
-      }
-
-      if (!file.type.startsWith('image/')) {
-        setScannerError('Unsupported file type. Please upload an image.');
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = e => {
-        const img = new Image();
-        img.onload = async () => {
-          try {
-            const dataUrl = await compressAndResizeImage(
-              img,
-              MAX_IMAGE_DIMENSION,
-              MAX_IMAGE_DIMENSION,
-              IMAGE_COMPRESSION_QUALITY
-            );
-            setPreviewImage(dataUrl);
-            setPreviewMime('image/jpeg');
-          } catch (error) {
-            setScannerError('Failed to process image.');
-          }
-        };
-        img.src = e.target?.result as string;
-      };
-      reader.readAsDataURL(file);
-    },
-    [/* Dependencies can be added if needed */]
-  );
-
-  const handleReceiptFileInput = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (file) {
-        handleReceiptFile(file);
-      }
-      event.target.value = '';
-    },
-    [handleReceiptFile]
-  );
-
-  const handleDrop = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      setIsDragActive(false);
-      const file = event.dataTransfer.files?.[0];
-      if (file) {
-        handleReceiptFile(file);
-      }
-    },
-    [handleReceiptFile]
-  );
-
-  const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setIsDragActive(true);
-  }, []);
-
-  const handleDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setIsDragActive(false);
   }, []);
 
   const startScanner = useCallback(async () => {
@@ -636,6 +530,120 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
       setBlocked(true);
     }
   }, [acceptScan, stopScanner, validateUpc, isReceiptMode]);
+
+
+  const captureReceiptAndParse = useCallback(async () => {
+    if (!videoRef.current) return;
+
+    // Pause camera/detect loop while preview is displayed to reduce device load
+    void stopScanner();
+
+    try {
+      const dataUrl = await compressAndResizeImage(
+        videoRef.current,
+        MAX_IMAGE_DIMENSION,
+        MAX_IMAGE_DIMENSION,
+        IMAGE_COMPRESSION_QUALITY
+      );
+      setPreviewImage(dataUrl);
+      setPreviewMime('image/jpeg');
+    } catch (error) {
+      setScannerError('Failed to capture image.');
+      void startScanner(); // Retry if capture failed
+    }
+  }, [stopScanner, startScanner]);
+
+  const handleUsePhoto = useCallback(() => {
+    if (!previewImage || !onPhotoCaptured) return;
+    onPhotoCaptured(previewImage, previewMime);
+    setPreviewImage(null);
+  }, [previewImage, previewMime, onPhotoCaptured]);
+
+  const handleRetakePhoto = useCallback(() => {
+    setPreviewImage(null);
+    void startScanner();
+  }, [startScanner]);
+
+  const handleReceiptFile = useCallback(
+    (file: File) => {
+      if (!file) return;
+
+      if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+        setScannerError(`File too large. Max size is ${MAX_UPLOAD_MB}MB.`);
+        return;
+      }
+
+      if (file.type === 'application/pdf') {
+        setScannerError('PDF uploads are coming soon.');
+        return;
+      }
+
+      if (!file.type.startsWith('image/')) {
+        setScannerError('Unsupported file type. Please upload an image.');
+        return;
+      }
+
+      // Stop the camera while we process the upload to avoid extra device load
+      void stopScanner();
+
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = async () => {
+          try {
+            const dataUrl = await compressAndResizeImage(
+              img,
+              MAX_IMAGE_DIMENSION,
+              MAX_IMAGE_DIMENSION,
+              IMAGE_COMPRESSION_QUALITY
+            );
+            setPreviewImage(dataUrl);
+            setPreviewMime('image/jpeg');
+          } catch (error) {
+            setScannerError('Failed to process image.');
+            // If processing failed, restart the scanner so the user can retry
+            void startScanner();
+          }
+        };
+        img.src = e.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    },
+    [startScanner]
+  );
+
+  const handleReceiptFileInput = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (file) {
+        handleReceiptFile(file);
+      }
+      event.target.value = '';
+    },
+    [handleReceiptFile]
+  );
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      setIsDragActive(false);
+      const file = event.dataTransfer.files?.[0];
+      if (file) {
+        handleReceiptFile(file);
+      }
+    },
+    [handleReceiptFile]
+  );
+
+  const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragActive(true);
+  }, []);
+
+  const handleDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragActive(false);
+  }, []);
 
   const handleManualScan = useCallback(() => {
     const { ok, upc } = validateUpc(manualUpc);
