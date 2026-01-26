@@ -153,7 +153,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   const shouldRenderCamera = isCameraOpen;
 
   return (
-    <>
+    <div className="fixed inset-0 z-50 flex flex-col bg-black">
       {/* Store selector modal */}
       {isOpen && (
         <StoreSelectorModal
@@ -188,7 +188,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
           }}
         />
       )}
-    </>
+    </div>
   );
 };
 

@@ -1700,19 +1700,17 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       </div>
 
       {showReceiptScanner && (
-        <div className="fixed inset-0 z-50 bg-ninpo-black/90 backdrop-blur-sm flex items-center justify-center p-4">
-          <ReceiptCaptureFlow
-            stores={stores}
-            isOpen={showReceiptScanner}
-            onClose={handleReceiptScannerClose}
-            onImageUploaded={handleReceiptImageUploaded}
-            onParsedItems={handleReceiptScannerComplete}
-            onCaptureComplete={handleReceiptCaptureComplete}
-            storeId={activeStoreId}
-            storeName={getDefaultStoreName()}
-            onCaptureParse={handleReceiptScannerAction}
-          />
-        </div>
+        <ReceiptCaptureFlow
+          stores={stores}
+          isOpen={showReceiptScanner}
+          onClose={handleReceiptScannerClose}
+          onImageUploaded={handleReceiptImageUploaded}
+          onParsedItems={handleReceiptScannerComplete}
+          onCaptureComplete={handleReceiptCaptureComplete}
+          storeId={activeStoreId}
+          storeName={getDefaultStoreName()}
+          onCaptureParse={handleReceiptScannerAction}
+        />
       )}
 
       {showReceiptReview && activeReceiptCaptureId && (
