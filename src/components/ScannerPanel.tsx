@@ -189,6 +189,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
   const canCapturePhoto = Boolean(onPhotoCaptured);
   const receiptUploadBlocked = isReceiptMode && receiptSaveDisabled;
+  const shouldWarnNoStore = isReceiptMode && !selectedStoreId && !receiptSaveDisabled;
 
   useEffect(() => {
     onScanRef.current = onScan;
@@ -848,6 +849,16 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
             <p className="text-[10px] text-white/50 mt-2">
               Use the camera below, or upload an image file.
             </p>
+            {receiptUploadBlocked && (
+              <p className="mt-2 text-[11px] text-amber-200">
+                {receiptSaveDisabledReason || 'Select a store to enable receipt capture.'}
+              </p>
+            )}
+            {shouldWarnNoStore && (
+              <p className="mt-2 text-[11px] text-amber-400">
+                ⚠️ No store selected - AI matching will be less accurate
+              </p>
+            )}
             <div className="mt-3 flex flex-col sm:flex-row items-center justify-center gap-2">
               <label
                 className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 cursor-pointer transition ${
@@ -884,9 +895,17 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
               className={`p-4 rounded-full backdrop-blur-sm transition flex items-center justify-center shadow-lg ${
                 receiptUploadBlocked
                   ? 'bg-gray-600/70 text-gray-300 cursor-not-allowed'
+                  : shouldWarnNoStore
+                  ? 'bg-amber-500/90 text-white hover:bg-amber-600'
                   : 'bg-cyan-500/90 text-white hover:bg-cyan-600'
               }`}
-              title={receiptUploadBlocked ? 'Select a store before uploading' : 'Capture receipt manually'}
+              title={
+                receiptUploadBlocked 
+                  ? (receiptSaveDisabledReason || 'Receipt upload disabled')
+                  : shouldWarnNoStore
+                  ? 'Capture receipt (no store - less accurate matching)'
+                  : 'Capture receipt'
+              }
             >
               <Camera className="w-6 h-6" />
             </button>

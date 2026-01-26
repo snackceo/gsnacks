@@ -125,6 +125,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     setPendingStoreId(null);
     setShowStoreSelector(false);
     setIsCameraOpen(true);
+    // Proceeding without store - AI matching will be less accurate but still possible
   }, []);
 
   const handleStoreModalCancel = useCallback(() => {

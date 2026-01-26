@@ -207,30 +207,37 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = (props) => {
         )}
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-white/10 flex gap-3">
-          <button
-            onClick={handleCancel}
-            disabled={isLoading}
-            className="flex-1 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-semibold text-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            Cancel
-          </button>
+        <div className="px-6 py-4 border-t border-white/10 space-y-3">
           {onConfirmWithoutStore && (
-            <button
-              onClick={handleConfirmWithoutStore}
-              disabled={isLoading}
-              className="flex-1 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white font-semibold text-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              Continue without store
-            </button>
+            <div className="p-3 bg-amber-900/20 border border-amber-500/30 rounded-lg">
+              <p className="text-xs text-amber-200 mb-2">
+                ⚠️ Proceeding without a store will reduce AI matching accuracy for receipt items.
+              </p>
+              <button
+                onClick={handleConfirmWithoutStore}
+                disabled={isLoading}
+                className="w-full px-4 py-2 rounded-lg bg-amber-600/80 hover:bg-amber-600 text-white font-semibold text-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Continue Anyway
+              </button>
+            </div>
           )}
-          <button
-            onClick={handleConfirm}
-            disabled={isLoading || !activeStoreId}
-            className="flex-1 px-4 py-2 rounded-lg bg-ninpo-lime hover:bg-ninpo-lime/90 text-ninpo-black font-semibold text-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            Confirm
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={handleCancel}
+              disabled={isLoading}
+              className="flex-1 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-semibold text-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={isLoading || !activeStoreId}
+              className="flex-1 px-4 py-2 rounded-lg bg-ninpo-lime hover:bg-ninpo-lime/90 text-ninpo-black font-semibold text-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Confirm Store
+            </button>
+          </div>
         </div>
       </div>
     </div>
