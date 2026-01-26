@@ -217,11 +217,6 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
       return;
     }
 
-    if (!storeId && !storeName) {
-      setError(STORE_REQUIRED_MESSAGE);
-      return;
-    }
-
     setSubmitting(true);
     setError(null);
     setUploadPhase(null);
