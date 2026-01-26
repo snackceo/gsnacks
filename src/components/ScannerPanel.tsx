@@ -685,7 +685,7 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   }, [blocked, manualStart, startScanner, stopScanner]);
 
   return (
-    <div className="relative w-full h-full flex flex-col bg-black">
+    <div className={`fixed inset-0 z-50 flex flex-col bg-black ${className || ''}`}>
       {/* Full-screen video */}
       <div className="absolute inset-0 flex items-center justify-center">
         <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />

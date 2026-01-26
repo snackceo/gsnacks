@@ -1048,6 +1048,8 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       if (captureId) {
         await loadReceiptCaptureForReview(captureId, activeStoreId);
         addToast('Receipt uploaded and ready for parsing.', 'success');
+        // Auto-trigger parse immediately after capture
+        void handleReceiptParseAuto(captureId);
       }
     } catch (err: any) {
       addToast(err?.message || 'Receipt upload failed', 'error');
