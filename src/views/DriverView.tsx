@@ -679,7 +679,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
         } else {
           next.push({ key: match.key, upc, quantity: 1, productId: match.productId });
         }
-        counts.set(match.key, (counts.get(match.key) ?? 0) + 1);
+        counts.set(match.key, ((counts.get(match.key) as number) ?? 0) + 1);
         addedCount += 1;
       }
 
@@ -894,7 +894,6 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     }
 
     const expectedReturnCount = getExpectedReturnCount(activeOrder);
-    const requiresReturnPhoto = expectedReturnCount > 0 || verifiedReturnCount > 0;
     const returnAiAnalysis = activeOrder?.returnAiAnalysis;
     const contaminationFlagged =
       returnAiAnalysis?.flags?.some(flag => flag.toLowerCase().includes('contamin')) ?? false;

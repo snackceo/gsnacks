@@ -60,17 +60,24 @@ function App() {
     if (isCloudinaryConfigured()) return;
 
     const isManagementRoute = location.pathname.startsWith('/management');
-    const isStaffUser =
-      core.currentUser?.role === UserRole.OWNER ||
-      core.currentUser?.role === UserRole.MANAGER;
 
-    if (isManagementRoute || isStaffUser) {
-      core.addToast(
-        'Cloudinary not configured. Receipt uploads will fail until VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET are set.',
-        'warning'
-      );
-      setHasWarnedCloudinary(true);
-    }
+const isStaffUser =
+  !!core.currentUser &&
+  (core.currentUser.role === UserRole.OWNER ||
+   core.currentUser.role === UserRole.ADMIN);
+
+if (
+  isManagementRoute &&
+  isStaffUser &&
+  !hasWarnedCloudinary
+) {
+  core.addToast(
+    'Cloudinary not configured. Receipt uploads will fail until VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET are set.',
+    'warning'
+  );
+  setHasWarnedCloudinary(true);
+}
+
   }, [
     core.addToast,
     core.currentUser?.role,

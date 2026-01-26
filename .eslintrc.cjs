@@ -12,7 +12,7 @@ module.exports = {
       jsx: true
     }
   },
-  plugins: ['@typescript-eslint'],
+  plugins: ['@typescript-eslint', 'react-hooks'],
   rules: {
     'no-redeclare': 'off',
     '@typescript-eslint/no-redeclare': 'error',

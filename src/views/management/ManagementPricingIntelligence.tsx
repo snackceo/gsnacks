@@ -1341,6 +1341,8 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         {statusLabel}
       </span>
     );
+  }, [receiptCaptures]);
+
   const sortedReceiptCaptures = useMemo(() => {
     return [...receiptCaptures].sort((a, b) => {
       const aIsParsed = a.status === 'parsed';

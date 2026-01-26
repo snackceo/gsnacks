@@ -226,9 +226,10 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
         body: JSON.stringify({
           captureId,
           storeId: capture.storeId,
-          storeName: capture.storeName
+          storeName: capture.storeName,
           idempotencyKey,
           finalStoreId: capture.storeId || undefined
+        })
       });
 
       if (!resp.ok) throw new Error('Failed to commit receipt');
