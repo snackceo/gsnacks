@@ -32,7 +32,7 @@ export const useReceiptCapture = () => {
   const fetchReceiptCaptures = useCallback(async () => {
     try {
       const resp = await fetch(
-        `${BACKEND_URL}/api/driver/receipt-captures?status=pending_parse&status=parsed&status=review_complete&status=failed&limit=40`,
+        `${BACKEND_URL}/api/receipts?status=pending_parse&status=parsed&status=review_complete&status=failed&limit=40`,
         {
           credentials: 'include'
         }
@@ -42,7 +42,8 @@ export const useReceiptCapture = () => {
         throw new Error(data.error || 'Failed to load receipt queue');
       }
       const data = await resp.json().catch(() => ({}));
-      const captures = Array.isArray(data.captures) ? data.captures : [];
+      // The backend returns { ok: true, jobs: [...] }
+      const captures = Array.isArray(data.jobs) ? data.jobs : [];
       setReceiptCaptures(captures);
       setReceiptError(null);
     } catch (err: any) {
