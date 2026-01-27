@@ -1556,6 +1556,27 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
+                        {capture.status === 'pending_parse' && (
+                          <button
+                            onClick={event => {
+                              event.stopPropagation();
+                              handleRetryParse(capture._id);
+                            }}
+                            className="ml-2 px-2 py-1 rounded bg-yellow-500 text-yellow-900 text-[10px] font-bold hover:bg-yellow-600"
+                            title="Retry Parse"
+                          >
+                            Retry Parse
+                          </button>
+                        )}
+                        // Retry parse for stuck receipts
+                        const handleRetryParse = useCallback(async (captureId: string) => {
+                          try {
+                            await handleReceiptParseAuto(captureId);
+                            addToast('Parse retried.', 'info');
+                          } catch (err: any) {
+                            addToast(err?.message || 'Failed to retry parse.', 'error');
+                          }
+                        }, [handleReceiptParseAuto, addToast]);
                       </div>
                     </div>
 
