@@ -1,3 +1,7 @@
+// Defensive helper for stats fields
+function safeStat(capture: any, key: string): number {
+  return capture && capture.stats && typeof capture.stats[key] === 'number' ? capture.stats[key] : 0;
+}
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Camera, Trash2, Loader2, CheckCircle2, X } from 'lucide-react';
 import {
@@ -35,7 +39,7 @@ interface ReceiptCapture {
   imageCount: number;
   stats: {
     totalItems: number;
-    itemsNeedingReview: number;
+    itemsNeedingReview?: number;
     itemsConfirmed: number;
     itemsCommitted: number;
   };
@@ -262,7 +266,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
   const parseReviewNeededCount = useMemo(() => {
     const total = receiptCaptures.reduce(
-      (sum, capture) => sum + (capture.stats?.itemsNeedingReview || 0),
+      (sum, capture) => sum + safeStat(capture, 'itemsNeedingReview'),
       0
     );
     return total;
@@ -270,7 +274,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
   const parseCompletedCount = useMemo(() => {
     const total = receiptCaptures.reduce(
-      (sum, capture) => sum + (capture.stats?.itemsConfirmed || 0),
+      (sum, capture) => sum + safeStat(capture, 'itemsConfirmed'),
       0
     );
     return total;
@@ -279,7 +283,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   useEffect(() => {
     receiptCaptures.forEach(capture => {
       if (capture.status === 'parsed') {
-        const reviewCount = capture.stats?.itemsNeedingReview || 0;
+        const reviewCount = safeStat(capture, 'itemsNeedingReview');
         if (reviewCount > 0) {
           addToast(
             `Receipt ${capture.storeName || 'Unknown'} needs ${reviewCount} review${reviewCount > 1 ? 's' : ''}.`,
@@ -1553,8 +1557,8 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                           {capture.imageCount} photo{capture.imageCount !== 1 ? 's' : ''}
                         </div>
                         <div>
-                          {capture.stats && typeof capture.stats.itemsConfirmed === 'number' && typeof capture.stats.totalItems === 'number'
-                            ? `${capture.stats.itemsConfirmed}/${capture.stats.totalItems} items confirmed`
+                          {typeof safeStat(capture, 'itemsConfirmed') === 'number' && typeof safeStat(capture, 'totalItems') === 'number' && (safeStat(capture, 'totalItems') > 0 || safeStat(capture, 'itemsConfirmed') > 0)
+                            ? `${safeStat(capture, 'itemsConfirmed')}/${safeStat(capture, 'totalItems')} items confirmed`
                             : '— items confirmed'}
                         </div>
                         <div className="text-[11px] text-purple-100/80">
@@ -1582,9 +1586,9 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                           </div>
                         )}
 
-                        {capture.stats && typeof capture.stats.itemsNeedingReview === 'number' && capture.stats.itemsNeedingReview > 0 && (
+                        {safeStat(capture, 'itemsNeedingReview') > 0 && (
                           <div className="text-yellow-300 font-semibold">
-                            {capture.stats.itemsNeedingReview} need review
+                            {safeStat(capture, 'itemsNeedingReview')} need review
                           </div>
                         )}
                       </div>
