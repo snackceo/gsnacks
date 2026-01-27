@@ -394,40 +394,35 @@ const res = await fetch(`${BACKEND_URL}/api/orders`);
 - SKUs are **never reused**, even if products are deleted
 - Product model: [server/models/Product.js](../server/models/Product.js)
 
-### 3. Barcode Scanning: One Scanner, Many Modes
+### 3. Scanner Implementations: Dedicated Receipt Scanner + Shared UPC Scanners
 
-**One shared ScannerModal** (`src/components/ScannerModal.tsx`) across entire system.
+**Receipt Scanner (Dedicated, Full-Screen)** (`src/components/ReceiptCaptureFlow.tsx`):
+- Full-screen camera/photo capture with big "Capture" button
+- "Upload photo" and "Flash" toggles
+- No store selection in scanner itself
+- Uploads image → Backend creates ReceiptCapture → **Immediately** triggers parse
+- Backend extracts store candidate, items, and auto-matches products
+- Optional review screen before final commit
 
-**Supported Modes** (from [src/types.ts](../src/types.ts)):
-- `INVENTORY_CREATE` — Admin adding stock (creates new product)
-- `UPC_LOOKUP` — UPC registry maintenance
-- `DRIVER_VERIFY_CONTAINERS` — Driver return intake
-- `DRIVER_FULFILL_ORDER` — Driver pack validation (Mode D)
-- `CUSTOMER_RETURN_SCAN` — Customer container returns
-- `RECEIPT_PARSE_LIVE` — Receipt parsing with live camera
+**Barcode/UPC Scanners (Shared When Mechanics Match)** (`src/components/ScannerModal.tsx`):
+- Supported modes:
+  - `INVENTORY_CREATE` — Admin adding stock
+  - `UPC_LOOKUP` — UPC registry maintenance
+  - `DRIVER_VERIFY_CONTAINERS` — Driver return intake
+  - `DRIVER_FULFILL_ORDER` — Driver pack validation
+  - `CUSTOMER_RETURN_SCAN` — Customer container returns
 
-**Scan Flow:**
-```
-UPC (normalized to digits) → UpcItem lookup → SKU mapping → Product update OR "unmapped" state
-```
-
-**Rules:**
-- ScannerModal **never** creates products directly
+**Shared Scanner Rules:**
+- ScannerModal never creates products directly
 - If UPC unmapped: surface explicit **Unmapped UPC state**, never silent fallback
-- For `INVENTORY_CREATE` mode: result panel is a **form** (bottom sheet), not preview cards
+- Result panel is a form (bottom sheet), not preview cards
 - Camera stays active; user edits directly in form
-- ScannerModal responsibilities: camera lifecycle, dedup (cooldown 1200ms), UPC normalization, beep, `onScan(upc)` callback
+- Responsibilities: camera lifecycle, dedup (cooldown 1200ms), UPC normalization, beep, `onScan(upc)` callback
 
-**Example Implementation Pattern:**
-```tsx
-const [scannerMode, setScannerMode] = useState<ScannerMode | null>(null);
-const handleScan = (upc: string) => {
-  // Mode-specific logic: route to appropriate handler
-  if (scannerMode === ScannerMode.INVENTORY_CREATE) {
-    // Resolve UPC → SKU, show product form
-  }
-};
-```
+**Cooldown / Dedup:**
+- Duplicate scans within cooldown must not be silently ignored
+- Show toast: "Same UPC — tap to add again"
+- Blocking still counts as an action
 
 ### 4. Data Model: Users, Credits, and Tiers
 
@@ -585,9 +580,11 @@ Never confuse these:
 - SKUs are **never reused**, even if products are deleted
 - Product model: [server/models/Product.js](../server/models/Product.js)
 
-### Barcode Scanning: One Scanner, Many Modes
+### 3. Scanner Implementations: Dedicated Receipt Scanner + Shared UPC Scanners
 
-**One shared ScannerModal** (`src/components/ScannerModal.tsx`) across entire system.
+**Receipt Scanner (Dedicated)** - Full-screen camera with auto-parse flow
+
+**UPC Scanners (Shared if Mechanics Match)** - Reusable ScannerModal for barcode capture (`src/components/ScannerModal.tsx`)
 
 **Supported Modes** (from [src/types.ts](../src/types.ts)):
 - `INVENTORY_CREATE` — Admin adding stock (creates new product)

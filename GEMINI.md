@@ -5,82 +5,40 @@
 ### Loyalty Points
 
 - Earned on product spend only
-- Rate: 1 point per $1 spent
-- 100 points = $1 credit
-
-### Credits
-
 - Used for purchases per tier rules
 - Only credits originating from bottle returns are eligible for cash payout
-- Credits converted from loyalty points can never be redeemed for cash
-- Credits derived from loyalty points are non-withdrawable and exist solely for in-app use.
 
 ### Additional Safety Clause
 
 - The system must track credit origin (RETURN vs POINTS vs MANUAL) to enforce payout eligibility.
-# NinpoSnacks — GEMINI System Contract (Authoritative)
-
-## Scope
-
 This file defines the system philosophy, contract, and non-negotiable rules for all AI-assisted and future development. For all roles, permissions, scanner modes, and domain terms, see [GLOSSARY.md](GLOSSARY.md). Backend and UI contracts are detailed in [server/GEMINI.md](server/GEMINI.md) and [src/GEMINI.md](src/GEMINI.md).
-
----
-
-> This file is the **source-of-truth contract** for AI-assisted changes and future development.
-> If code behavior conflicts with this document, the code is wrong.
 
 ---
 
 ## 0. Ground Rules (Non‑Negotiable)
 
-* **Do not guess.** If behavior is unclear, locate the existing implementation and extend it.
-* **Full file replacements only** when editing code, unless explicitly requested otherwise.
-* **Backend is authoritative** for money, inventory, SKU identity, and scan resolution.
-* UI may estimate or preview, but the server decides final state.
-
 ---
 
-## 1. Product Identity (Authoritative)
-
-### 1.1 SKU
 
 * `sku` is the **only business identifier** for products.
 * Format: `NP-000001` (prefix `NP-`, 6‑digit zero‑padded sequence).
 * SKUs are **immutable** once assigned.
-* SKUs are **generated server‑side only**.
-
 Legacy identifiers:
 
 * Mongo `_id` = persistence identifier (never shown to operators).
 * `frontendId` exists **only for backward compatibility**.
-* Operator UI must display and reference **SKU**, not legacy IDs.
-
-### 1.2 SKU Generation
 
 * SKUs are generated using an **atomic MongoDB counter**.
-* Implementation:
 
   * `findOneAndUpdate` with `$inc` and `{ upsert: true, new: true }`.
   * Counter key: `productSku`.
-* SKUs are never reused, even if products are deleted.
 * Client‑side SKU generation is forbidden.
 
----
-
-## 2. UPC Registry (Single Source of Truth)
-
-### 2.1 Purpose
 
 There is **one UPC registry**.
 It serves two roles simultaneously:
 
 1. **UPC → SKU mapping** (inventory resolution)
-2. **Deposit eligibility metadata** (MI 10¢ program)
-
-There must never be a second UPC table.
-
-### 2.2 Data Model (Conceptual)
-
 * `upc` (string, digits only, unique)
 * `sku` (optional; links UPC to Product.sku)
 * Deposit metadata:
@@ -104,82 +62,156 @@ UPC → UPC Registry → SKU → Product → Action
 
 ---
 
-## 3. Scanner System (One Scanner, Many Modes)
+## 3. Receipt Scanner (Dedicated Full-Screen)
 
-### 3.1 Single Scanner Component
+### 3.1 Architecture
 
-* There is **one shared ScannerModal** across the entire system.
-* ScannerModal responsibilities:
+**Receipt Scanner (Dedicated, Full-Screen, AI-Powered)**
+- **ALWAYS full-screen** camera/photo capture experience
+- User interface:
+  - Big "Capture" button (full-screen camera with live preview)
+  - "Upload photo" button (file picker for previous photos)
+  - "Flash" toggle (optional, for low-light scenarios)
+  - "Cancel" / back button
+- **No store selection** inside the scanner itself
+- **Automatic immediate parsing** (critical invariant: happens automatically after capture)
+- **Completely separate** from barcode/UPC scanners
+- End-to-end workflow: Capture → Auto-parse → Review (optional safety screen) → Commit
 
-  * camera lifecycle
-  * barcode detection
-  * UPC normalization (digits only)
-  * cooldown / dedup logic
-  * beep + visual feedback
-  * `onScan(upc)` callback
+**Shared UPC Scanners (ScannerModal)**
+- Generic reusable barcode/UPC capture for context-specific workflows
+- Not for receipt parsing (that's the Receipt Scanner's job)
+- Used when barcode scanning is one step within a larger operation
+- Supported modes:
+  * `INVENTORY_CREATE` — Admin stock intake
+  * `UPC_LOOKUP` — UPC registry maintenance
+  * `DRIVER_VERIFY_CONTAINERS` — Returns verification
+  * `DRIVER_FULFILL_ORDER` — Pack validation
+  * `CUSTOMER_RETURN_SCAN` — Customer returns
 
-ScannerModal must **not**:
-
-* mutate inventory
-* create products
-* decide business logic
-
-Result panel requirement:
-
-* The **Create Product form** is the required result panel after scans that lead to product creation.
-* Preview cards are **not** used; all edits happen directly in the form.
-* In Inventory Mode A, the result panel is a bottom sheet that stays open while the camera remains active.
-
-### 3.2 Scanner Modes
-
-Scanner behavior after a scan is determined by **mode**, not by separate scanners.
-
-Supported modes:
-
-* **Mode A — Inventory Add Stock (Receiving)**
-* **Mode C — Returns Intake (Driver / Warehouse)**
-* **Mode D — Pick / Pack Orders (optional, future)**
-
-Management‑only auxiliary flow:
-
-* **UPC Registry Maintenance** (still uses the same ScannerModal)
-
-Modes must be explicit. Using ad‑hoc strings or `as any` is forbidden.
+**Key Distinction:**
+- **Receipt Scanner:** Dedicated full-screen experience for **receipt image capture + automatic store/product detection + AI parsing**. Handles the complete receipt-to-inventory workflow.
+- **Shared Barcode Scanners:** Generic UPC capture for specific workflows. One step in a larger operation. Caller decides what to do with the scanned UPC.
 
 ---
 
-## 4. Scanning UX Invariants (Must Not Drift)
+### 3.2 Complete Receipt Capture Workflow (6 Steps)
 
-### 4.1 One Scan = One Action
+#### **Step 1: Open Receipt Scanner (Full-Screen)**
+- Display full-screen camera with prominent "Capture" button
+- Include "Upload photo" file picker button
+- Provide "Flash" toggle for low-light scenarios
+- "Cancel" / back button to exit
+- **No store selection** required here
 
-* Every scan produces:
+#### **Step 2: Capture/Upload → Create ReceiptCapture**
+- Frontend captures image from camera OR selects from file picker
+- Send image to: `POST /api/driver/receipt-capture`
+- Backend uploads image to Cloudinary (or accepts data URL)
+- Creates `ReceiptCapture` record with `status=pending_parse`
+- Returns `captureId`
 
-  * a beep
-  * a visible result
-  * a recorded outcome
+#### **Step 3: Immediately Trigger Parsing (Automatic & Critical)**
+- Frontend **must immediately** call: `POST /api/driver/receipt-parse { captureId }`
+- **Critical invariant:** Without immediate parse trigger, capture gets stuck in `pending_parse` forever
+- This should happen automatically without user action
 
-### 4.2 Cooldown / Duplicate Handling
+#### **Step 4: Backend Parse (Three Concurrent Operations)**
 
-* Duplicate scans within cooldown **must not be silently ignored**.
-* If blocked:
+**A) Extract storeCandidate + items from receipt image**
+- Gemini Vision API processes receipt image
+- Returns:
+  - Store name, address, phone (whatever is visible on receipt)
+  - Items array: `[{ receiptName, quantity, totalPrice, unitPrice, upc? }]`
 
-  * show a toast (e.g. `Same UPC — tap to add again`).
-* Blocking still counts as an action.
+**B) Resolve store automatically**
+- Backend matches extracted store info against existing stores (by name/phone/address)
+- If match found: use that store
+- If no match: auto-create new store record (as draft, inactive until owner approves)
 
-### 4.3 Always Show What Was Detected
+**C) Resolve products + prices automatically**
+- For each line item:
+  - If UPC present: match product by UPC in registry
+  - Else: fuzzy match by name/size/brand against store inventory
+  - If no match: create product record (draft or active per your config)
+- Write store-specific price observation to `StoreInventory`
 
-After each scan, the UI must display a **post-scan result panel**. In Inventory Mode A, the **Scanned UPC badge + Create Product form** is the result panel, and it only shows the scanned UPC digits. If the team wants the full result panel (UPC + product name + SKU + storage location + confidence/fallback message), the UI code must be updated to add those fields.
+#### **Step 5: Review Screen (Optional but Recommended Safety Step)**
+- Display detected store with override option
+- Show extracted items with confidence scores
+- Highlight new products that will be created
+- Show price changes detected
+- Provide two paths:
+  - **Auto-apply** if confidence is high and few unknowns
+  - **Manual approve** if confidence is low or many new items need verification
 
-### 4.4 Unmapped UPC Handling
+#### **Step 6: Commit Updates (Backend)**
+When approved (auto or manual):
+- Create/activate store record (if new)
+- Create/activate product records (if new)
+- Update `StoreInventory` with price observations
+- Create audit log entry
+- Set `ReceiptParseJob.status = APPROVED`
+- Frontend clears scanner and shows success
 
-If a UPC cannot be resolved:
+### 3.3 Shared Scanners (Separate from Receipt Scanner)
 
-* Show an **Unmapped UPC screen** with exactly two actions:
+**When NOT using Receipt Scanner:**
 
-  1. **Create new product with this UPC**
-  2. **Attach UPC to existing SKU** (search by SKU or name)
+If other workflows need simple barcode/UPC capture, use the shared **ScannerModal** component for:
+- **INVENTORY_CREATE** — Admin stock receiving
+- **UPC_LOOKUP** — UPC registry maintenance
+- **DRIVER_VERIFY_CONTAINERS** — Return verification
+- **DRIVER_FULFILL_ORDER** — Pack validation
+- **CUSTOMER_RETURN_SCAN** — Customer return building
 
-Automatic creation without operator intent is forbidden.
+**Shared Scanner Responsibilities:**
+* Camera lifecycle management
+* Barcode detection and normalization (digits only)
+* Cooldown / dedup logic (1200ms default)
+* Beep + visual feedback
+* `onScan(upc)` callback to handler
+
+**Shared Scanner Must NOT:**
+* Mutate inventory directly
+* Create products without explicit user intent
+* Decide business logic (handler decides intent)
+
+**Result Panel Requirement:**
+* The **Create Product form** is the required result panel for product creation flows
+* Preview cards are **not** used; all edits happen directly in forms
+* Scanners stay open for continuous scanning; close only when explicitly dismissed
+
+---
+
+## 4. Scanner Invariants
+
+### 4.1 Receipt Scanner Invariants
+
+* **Full-screen camera** with prominent capture button
+* **No confirmation dialog** — capture → upload → auto-parse → review
+* **Flash toggle** for low-light scenarios
+* **Cancel** always returns to previous screen
+* **Auto-parsing is critical:** without immediate parse trigger, captures get stuck in pending_parse
+
+### 4.2 Shared UPC Scanner Invariants
+
+* **One Scan = One Action:**
+  * Every scan produces a beep, a visible result, and a recorded outcome
+
+* **Cooldown / Duplicate Handling:**
+  * Duplicate scans within cooldown **must not be silently ignored**
+  * Show toast: "Same UPC — tap to add again"
+  * Blocking still counts as an action
+
+* **Always Show What Was Detected:**
+  * After each scan, display a result panel (Create Product form, search result, etc.)
+
+* **Unmapped UPC Handling:**
+  * Show UnmappedUpcModal with two options:
+    1. Create new product with this UPC
+    2. Attach UPC to existing SKU (search by SKU/name)
+  * Automatic creation without operator intent is forbidden
 
 ---
 
@@ -235,10 +267,15 @@ These fields are operator‑facing and configurable.
 
 Stored in AppSettings:
 
-* `defaultIncrement`
-* `cooldownMs`
-* `requireSkuForScanning`
-* `scanningModesEnabled.{A|B|C|D}`
+* `defaultIncrement` — Default quantity to add per scan (Inventory mode)
+* `cooldownMs` — Scan dedup window (1200ms default)
+* `requireSkuForScanning` — If true, items must have SKU before scanning
+* `beepEnabled` — If true, scanner emits beep on scan
+* `scanningModesEnabled` — Feature toggles for scanner modes:
+  - `inventoryCreate` — Admin stock intake
+  - `upcLookup` — UPC registry maintenance
+  - `driverVerifyContainers` — Returns verification
+  - `customerReturnScan` — Customer returns
 
 ### 7.2 Inventory Configuration
 
@@ -254,23 +291,25 @@ Routes must be updated when new fields are added.
 
 ---
 
-## 8. Role‑Specific Scan Flows
+## 8. Role‑Specific Workflows
 
 ### 8.1 Management
 
-* Uses Mode A.
-* UPC Registry maintenance uses the same scanner.
-* Operators may map UPCs to SKUs and edit deposit metadata.
+* **Receipt Scanner:** For capturing receipts with auto-parse and price detection
+* **INVENTORY_CREATE:** Admin stock intake via shared scanner
+* **UPC_LOOKUP:** UPC registry maintenance via shared scanner
+* Operators may map UPCs to SKUs and edit deposit metadata
 
 ### 8.2 Driver
 
-* Uses Mode C.
-* Focused on return verification and eligibility.
-* Identity verification gates are workflow rules, not scanner rules.
+* **DRIVER_VERIFY_CONTAINERS:** Return verification via shared scanner
+* **DRIVER_FULFILL_ORDER:** Pack validation via shared scanner
+* Focused on return verification and eligibility
+* Identity verification gates are workflow rules, not scanner rules
 
 ### 8.3 Customer
 
-* Uses the same scanner UX.
+* **CUSTOMER_RETURN_SCAN:** Build return lists via shared scanner UX
 * Scans add UPCs to a return list.
 * Eligibility and estimated credit are shown immediately.
 * Customer scans never mutate inventory directly.
@@ -283,14 +322,17 @@ Use these exact terms:
 
 * SKU (never “Product ID”)
 * UPC Registry (internal; UI label may differ)
-* Scanner Mode A/C/D
+* Scanner modes: `INVENTORY_CREATE`, `UPC_LOOKUP`, `DRIVER_VERIFY_CONTAINERS`, `DRIVER_FULFILL_ORDER`, `CUSTOMER_RETURN_SCAN`
+* Receipt Scanner (dedicated, full-screen)
+* ScannerModal (shared, for barcode capture)
 * Inventory Audit
 
 Forbidden drift terms:
 
-* duplicate scanners
+* duplicate scanners (only one Receipt Scanner, one shared ScannerModal)
 * product‑id (for business identity)
 * silent scan ignore
+* Mode A/B/C/D (use explicit mode names instead)
 
 ---
 

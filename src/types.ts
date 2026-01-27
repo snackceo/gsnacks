@@ -29,7 +29,8 @@ export enum OrderStatus {
 }
 
 /**
- * Scanner modes are *intents* for the single ScannerModal.
+ * Scanner modes are *intents* for UPC/barcode capture (shared ScannerModal).
+ * **Receipt Scanner is separate** — dedicated full-screen camera for receipt capture with auto-parse.
  * See GLOSSARY.md for authoritative definitions of all scanner modes.
  * Your UI should decide which mode it opens with, and your handler
  * must enforce what actions are allowed per mode.

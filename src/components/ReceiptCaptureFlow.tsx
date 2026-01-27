@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+
 import ScannerPanel, { ScannerPanelProps } from './ScannerPanel';
 import StoreSelectorModal from './StoreSelectorModal';
-import { StoreRecord } from '../types';
-import { ScannerMode } from '../types';
+import { StoreRecord, ScannerMode } from '../types';
 import { formatStoreAddress } from '../utils/address';
 
 interface ReceiptCaptureFlowProps
@@ -71,14 +72,13 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     sessionStorage.setItem(PRIMARY_SUPPLIER_SESSION_KEY, JSON.stringify(sessionPrimarySupplier));
   }, [sessionPrimarySupplier]);
 
-  // When isOpen changes, show store selector first
+  // When isOpen changes, show store selector first.
   useEffect(() => {
     if (isOpen) {
       setShowStoreSelector(true);
       setIsCameraOpen(false);
       setPendingStoreId(prev => prev ?? selectedStoreId);
     } else {
-      // Closing the flow
       setIsCameraOpen(false);
       setShowStoreSelector(false);
     }
@@ -116,7 +116,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     if (!pendingStoreId) return;
     setSelectedStoreId(pendingStoreId);
     setShowStoreSelector(false);
-    setIsCameraOpen(true); // Open camera after store confirmation
+    setIsCameraOpen(true);
     onStoreSelected?.(pendingStoreId);
   }, [onStoreSelected, pendingStoreId]);
 
@@ -125,7 +125,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     setPendingStoreId(null);
     setShowStoreSelector(false);
     setIsCameraOpen(true);
-    // Proceeding without store - AI matching will be less accurate but still possible
+    // Proceeding without store - AI matching will be less accurate but still possible.
   }, []);
 
   const handleStoreModalCancel = useCallback(() => {
@@ -152,22 +152,25 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   // Render camera when the flow is open (store selection optional)
   const shouldRenderCamera = isCameraOpen;
 
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black">
+  // IMPORTANT: render via portal to avoid CSS "fixed inside transformed parent" bugs.
+  // This is the most common reason a fullscreen overlay shows up as an inline/bottom-sheet.
+  if (!isOpen) return null;
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex flex-col bg-black">
       {/* Store selector modal */}
-      {isOpen && (
-        <StoreSelectorModal
-          stores={stores}
-          activeStoreId={pendingStoreId || ''}
-          isOpen={showStoreSelector}
-          onStoreChange={handleStoreChange}
-          onConfirm={handleStoreConfirm}
-          onConfirmWithoutStore={handleStorelessConfirm}
-          onCancel={handleStoreModalCancel}
-          selectedStoreIsPrimary={pendingStoreIsPrimary}
-          onPrimarySupplierToggle={handlePrimarySupplierToggle}
-        />
-      )}
+      <StoreSelectorModal
+        stores={stores}
+        activeStoreId={pendingStoreId || ''}
+        isOpen={showStoreSelector}
+        onStoreChange={handleStoreChange}
+        onConfirm={handleStoreConfirm}
+        onConfirmWithoutStore={handleStorelessConfirm}
+        onCancel={handleStoreModalCancel}
+        selectedStoreIsPrimary={pendingStoreIsPrimary}
+        onPrimarySupplierToggle={handlePrimarySupplierToggle}
+      />
 
       {/* Camera scanner */}
       {shouldRenderCamera && (
@@ -188,7 +191,8 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
           }}
         />
       )}
-    </div>
+    </div>,
+    document.body
   );
 };
 
