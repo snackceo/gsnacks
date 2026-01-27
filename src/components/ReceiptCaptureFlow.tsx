@@ -59,12 +59,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   // ─────────────────────────────────────────────────────────────
   // STATE
   // ─────────────────────────────────────────────────────────────
-  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(
-    defaultStoreId || null
-  );
-  const [pendingStoreId, setPendingStoreId] = useState<string | null>(
-    defaultStoreId || null
-  );
+  // Store selection is removed; backend will infer store from receipt
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [sessionPrimarySupplier, setSessionPrimarySupplier] = useState<
     Record<string, boolean>
@@ -84,15 +79,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     };
   }, []);
 
-  // ─────────────────────────────────────────────────────────────
-  // DEFAULT STORE SYNC
-  // ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (defaultStoreId) {
-      setSelectedStoreId(defaultStoreId);
-      setPendingStoreId(defaultStoreId);
-    }
-  }, [defaultStoreId]);
+  // Store selection effect removed
 
   // ─────────────────────────────────────────────────────────────
   // SESSION PRIMARY SUPPLIER OVERRIDES
@@ -147,36 +134,18 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     e.target.value = '';
   };
 
-  // ─────────────────────────────────────────────────────────────
-  // DERIVED STATE
-  // ─────────────────────────────────────────────────────────────
-  const selectedStore = useMemo(
-    () => stores.find(s => s.id === selectedStoreId) || null,
-    [stores, selectedStoreId]
-  );
-
-  const selectedStoreIsPrimary = useMemo(() => {
-    if (!selectedStoreId) return undefined;
-    const override = sessionPrimarySupplier[selectedStoreId];
-    if (typeof override === 'boolean') return override;
-    return selectedStore?.isPrimarySupplier ?? false;
-  }, [selectedStoreId, sessionPrimarySupplier, selectedStore]);
+  // Store selection logic removed
 
   // ─────────────────────────────────────────────────────────────
   // 🔥 CORE FIX: RECEIPT CAPTURE + PARSE (FULLY WIRED)
   // ─────────────────────────────────────────────────────────────
   const handleReceiptCaptured = useCallback(
     async (base64Image: string) => {
-      if (!selectedStore) {
-        setError('No store selected');
-        return;
-      }
-
       setIsSubmitting(true);
       setError(null);
 
       try {
-        // 1️⃣ CREATE RECEIPT CAPTURE
+        // 1️⃣ CREATE RECEIPT CAPTURE (no store info, backend infers store)
         const captureRes = await fetch(
           `${BACKEND_URL}/api/driver/receipt-capture`,
           {
@@ -184,8 +153,6 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              storeId: selectedStore.id,
-              storeName: selectedStore.name,
               images: [{ dataUrl: base64Image }]
             })
           }
@@ -230,7 +197,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
         }
       }
     },
-    [selectedStore, onReceiptCreated]
+    [onReceiptCreated]
   );
 
   // ─────────────────────────────────────────────────────────────
@@ -241,17 +208,10 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   return createPortal(
     <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
       {/* CAMERA */}
-      {isCameraOpen && selectedStore && (
+      {isCameraOpen && (
         <ScannerPanel
           {...scannerProps}
           mode={mode}
-          selectedStoreId={selectedStore.id}
-          selectedStoreName={selectedStore.name}
-          selectedStoreBrand={formatStoreBrand(selectedStore.storeType)}
-          selectedStoreLocation={
-            formatStoreAddress(selectedStore.address) || undefined
-          }
-          selectedStoreIsPrimary={selectedStoreIsPrimary}
           onReceiptCaptured={handleReceiptCaptured}
           onClose={() => setIsCameraOpen(false)}
           disabled={isSubmitting}
