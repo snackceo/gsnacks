@@ -1,81 +1,247 @@
-# NinpoSnacks Frontend – Scanner + SKU UX Contract
+NinpoSnacks Frontend — Scanner + Receipt + SKU UX Contract (Hardened)
 
-## Scope
+This document defines non-negotiable UI/UX and control-flow guarantees for scanners, receipts, and SKU identity.
+Any implementation that violates these rules is considered broken, even if it “technically works”.
 
-This file documents UI/UX, scanner, and component contract. For all roles, permissions, scanner modes, and domain terms, see [GLOSSARY.md](../GLOSSARY.md). For system philosophy, see [GEMINI.md](../GEMINI.md). For backend rules, see [server/GEMINI.md](../server/GEMINI.md).
+Related docs:
 
----
+Domain terms & roles: GLOSSARY.md
 
-## Identity
-- In operator UI: show SKU (NP-000001) as the primary identifier.
-- Replace any “Product ID” label with “SKU”.
-- UI may still carry `id` for React list keys, but do not show it as the business identifier.
+System philosophy: GEMINI.md
 
-## Receipt Scanner (Dedicated, Full-Screen)
-- **When to use:** Operator captures receipt image for pricing intelligence
-- **UX:** Full-screen camera with big "Capture" button, "Upload" button, "Flash" toggle, "Cancel"
-- **No store selection required** in the scanner itself
-- **Critical:** Frontend must call `POST /api/driver/receipt-parse` immediately after upload
-- **Workflow:**
-  1. Capture/upload image
-  2. Backend creates ReceiptCapture
-  3. Frontend triggers parse
-  4. Backend extracts store candidate and items
-  5. Optional review screen
-  6. Commit to catalog
+Backend rules & invariants: server/GEMINI.md
 
-## UPC/Barcode Scanners (Shared When Mechanics Match)
-- Use shared ScannerModal component for:
-  - Management inventory receiving (Mode A: `INVENTORY_CREATE`)
-  - Management UPC whitelist maintenance (`UPC_LOOKUP`)
-  - Driver returns intake (Mode C: `DRIVER_VERIFY_CONTAINERS`)
-  - Driver fulfillment (Mode D: `DRIVER_FULFILL_ORDER`)
-  - Customer returns list building (`CUSTOMER_RETURN_SCAN`)
-- **Rule:** Only the callback and mode differ; scanning mechanics must be consistent
-- **Do not use for receipt parsing** — use dedicated Receipt Scanner instead
+1. Identity & Operator Mental Model (HARD RULE)
 
-## Scanning UX Rules (Receipt + UPC Scanners)
+SKU (NP-000001) is the primary business identifier everywhere
 
-### Receipt Scanner Rules
-1) **Full-screen experience** — no hidden modals or overlays
-2) **Auto-parse is critical** — frontend must call `/api/driver/receipt-parse` immediately after upload
-3) **No double confirmation** — capture → upload → auto-parse → optional review
-4) **Flash toggle** for low-light scenarios
+Never display raw database IDs to operators
 
-### UPC Scanner Rules (Shared Barcode Scanners)
-1) **No silent cooldown ignores**
-   - If a scan is blocked by cooldown: show toast "Same UPC — tap to add again"
-   - Blocking still counts as an action
-2) **Show result panel after each scan**
-   - The Create Product form (auto-filled) is the result panel
-   - Bottom sheet stays open while camera remains active
-   - Do not show preview cards or duplicate panels
-   - Display: UPC, Product name, SKU, storageZone/storageBin, status ("Mapped", "Unmapped", etc.)
-3) **Unmapped UPC handling**
-   - Open UnmappedUpcModal with two options:
-     - Create product & link UPC
-     - Attach UPC to existing SKU (search by SKU/name)
+Replace all “Product ID” labels with “SKU”
 
-## Management modes
-- Inventory Mode A:
-  - Flow: scan UPC → bottom sheet intake UI shows UPC while camera stays open → optional photo capture → auto-fill form → create product.
-  - The Create Product form is the intake UI (no separate preview cards).
-  - Photo capture is optional and happens from the intake UI; camera closes only after capture completes.
-- UPC Whitelist module:
-  - scan populates UPC input, then operator saves metadata
-  - can also attach sku mapping from this screen
+Internal id may exist only for:
 
-## Driver modes
-- Mode C:
-  - scan UPCs to verify returns eligibility (deposit program)
-  - duplicate handling must prompt (confirm add) instead of “nothing happened”
-- Mode D optional:
-  - validate items in order by UPC -> SKU.
+React keys
 
-## Customer returns scan
-- Customer scan adds UPC to return list, shows eligibility and estimated credit.
-- Must use the same scan normalization and cooldown rules.
+API references
 
-## Styling/mobile UX
-- Management should use a top horizontal nav on mobile with normal page scroll.
-- Scanner actions should be prominent and consistent across modules.
+If an operator cannot answer “what SKU is this?” → the UI is wrong
+
+2. Receipt Scanner (Dedicated, Full-Screen, Auto-Parse)
+Purpose
+
+Receipt capture exists only to feed pricing intelligence and catalog seeding.
+It must never feel optional, fragile, or silent.
+
+When used
+
+Operator scans or uploads a receipt image
+
+No UPC scanning
+
+No modal reuse
+
+No shared ScannerModal
+
+UX requirements (NON-NEGOTIABLE)
+
+Full-screen camera view
+
+Prominent controls:
+
+Capture
+
+Upload
+
+Flash toggle
+
+Cancel
+
+No store selection required in the scanner
+
+No nested modals, no background UI visible
+
+3. Receipt Capture → Parse Contract (CRITICAL)
+Required flow (cannot be skipped)
+
+Capture or upload image
+
+Backend creates ReceiptCapture
+
+Frontend MUST immediately call
+POST /api/driver/receipt-parse
+
+Backend attempts parse
+
+Result becomes one of:
+
+PARSED
+
+NEEDS_REVIEW
+
+FAILED
+
+UI transitions accordingly
+
+❗ A receipt is considered broken if it exists in pending_parse without an active or scheduled parse attempt.
+
+4. Auto-Parse Is Mandatory (No “Later”)
+
+There is no manual “Parse” button
+
+There is no user confirmation step
+
+Capture always implies parse
+
+If parse fails:
+
+User is told immediately
+
+System retries (see §6)
+
+If the operator points the camera at a receipt and “nothing happens”, this contract is violated.
+
+5. Receipt Status Semantics (HARD DEFINITIONS)
+Status	Meaning	UI Behavior
+pending_parse	Capture exists but parse not yet completed	Temporary only
+parsing	Parse attempt in progress	Show “Parsing…”
+parsed	Parsed cleanly, no review needed	Show result immediately
+needs_review	Parsed with warnings or ambiguity	Show review screen
+failed	Parse exhausted retries	Show error + retry option
+committed	Applied to catalog	Read-only
+Forbidden state
+
+pending_parse lasting longer than a short retry window
+→ must transition to failed
+
+6. Retry & Anti-Stuck Rules (THIS FIXES YOUR SEEDING)
+Retry policy (server-side)
+
+Parse retries are automatic
+
+Retry if:
+
+network error
+
+429 / timeout
+
+Gemini transient failure
+
+Max attempts: 5
+
+Backoff (example):
+
+30s → 2m → 10m → 30m → 2h
+
+After max attempts:
+
+mark FAILED
+
+persist parseError
+
+Frontend guarantees
+
+UI must reflect:
+
+“Retrying parse (attempt 2/5)”
+
+or “Parse failed — retry now”
+
+Silent failure is forbidden
+
+The system must never “wait forever and hope”.
+
+7. Review UX (Make It Impossible to Miss Work)
+
+“Pending Review” must include:
+
+NEEDS_REVIEW
+
+optionally PARSED (if operator validation is desired)
+
+UI must not hide successfully parsed receipts
+
+If nothing appears, the UI is wrong — not the user
+
+8. Barcode / UPC Scanners (Shared Mechanics Only)
+Shared ScannerModal is allowed ONLY for:
+
+Inventory receiving (INVENTORY_CREATE)
+
+UPC registry (UPC_LOOKUP)
+
+Driver returns verification
+
+Driver fulfillment
+
+Customer return list building
+
+Explicitly forbidden
+
+Using shared ScannerModal for receipt parsing
+
+Receipt scanning is not barcode scanning.
+
+9. UPC Scanner UX Rules (Hardened)
+Cooldown behavior
+
+Cooldown blocks must still notify
+
+Toast required:
+
+“Same UPC — tap to add again”
+
+A blocked scan still counts as user feedback
+
+Result panel rules
+
+Bottom sheet stays open
+
+Camera stays active
+
+No duplicate preview cards
+
+Show:
+
+UPC
+
+Product name
+
+SKU
+
+storageZone / storageBin
+
+mapping status
+
+10. Unmapped UPC Handling (No Dead Ends)
+
+When UPC is unmapped:
+
+Open UnmappedUpcModal
+
+Two options, always:
+
+Create product + link UPC
+
+Attach UPC to existing SKU (searchable)
+
+No silent failure. No “nothing happened”.
+
+11. Seeding-First Philosophy (Explicit)
+
+For early seeding:
+
+Prefer review-first over auto-commit
+
+Never mutate catalog without visibility
+
+Receipts are inputs, not truth
+
+Operators must always see what the system believes
+
+If seeding feels unreliable, the contract is being violated.
+
+12. Non-Negotiable UX Principle
+
+Every scan produces an observable outcome.
+If the user acts and the system is silent, the system is broken.

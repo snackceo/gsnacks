@@ -155,21 +155,35 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setScannerMode(mode);
   }, []);
 
-  const handleAccept = (orderId: string) => {
+  const handleAccept = async (orderId: string) => {
     if (!orderId) return;
-    
     // Check if it's a detail view request
     if (orderId.startsWith('detail-')) {
       const actualOrderId = orderId.substring(7);
       setDetailOrderId(actualOrderId);
       return;
     }
-    
-    const order = orders.find(o => o.id === orderId);
-    if (order) {
-      setActiveOrder(order);
-      setWorkflowMode('delivery');
-      setIsVerifying(true);
+    try {
+      // Call backend to assign order to driver
+      const resp = await fetch(`${BACKEND_URL}/api/driver/accept-order`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId })
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to assign order');
+      }
+      // Optionally update local state
+      const order = orders.find(o => o.id === orderId);
+      if (order) {
+        setActiveOrder(order);
+        setWorkflowMode('delivery');
+        setIsVerifying(true);
+      }
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to assign order', 'error');
     }
   };
 

@@ -57,16 +57,30 @@ router.get('/', authRequired, async (req, res) => {
     return res.status(403).json({ error: 'Not authorized' });
   }
   
-  const { status } = req.query;
+  // Support status as comma-separated or repeated query params
+  let statusList = [];
+  if (req.query.status) {
+    if (Array.isArray(req.query.status)) {
+      // Repeated ?status=...&status=...
+      statusList = req.query.status.flatMap(s => String(s).split(',').map(x => x.trim()).filter(Boolean));
+    } else if (typeof req.query.status === 'string') {
+      statusList = String(req.query.status).split(',').map(x => x.trim()).filter(Boolean);
+    }
+  }
   const limit = Math.min(Number(req.query.limit) || 100, 200);
-  const baseQuery = status ? { status } : {};
-  
+  let baseQuery = {};
+  if (statusList.length === 1) {
+    baseQuery.status = statusList[0];
+  } else if (statusList.length > 1) {
+    baseQuery.status = { $in: statusList };
+  }
+
   // Role-based filtering: drivers see only their captures
   const isDriver = req.user?.role === 'DRIVER';
   const query = isDriver && req.user?.id
     ? { ...baseQuery, createdByUserId: req.user.id }
     : baseQuery;
-  
+
   const jobs = await ReceiptParseJob.find(query).sort({ createdAt: -1 }).limit(limit).lean();
   res.json({ ok: true, jobs });
 });

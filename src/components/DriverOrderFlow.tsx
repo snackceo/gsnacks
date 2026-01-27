@@ -418,6 +418,7 @@ const DriverOrderFlow: React.FC<DriverOrderFlowProps> = ({ order, onBack, onRefr
                       <button
                         onClick={() => setDeliveryPhoto(null)}
                         className="absolute top-2 right-2 bg-red-600 text-white p-2 rounded-lg"
+                        aria-label="Remove delivery photo"
                       >
                         Remove
                       </button>
@@ -466,6 +467,7 @@ const DriverOrderFlow: React.FC<DriverOrderFlowProps> = ({ order, onBack, onRefr
                       <button
                         onClick={clearSignature}
                         className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-bold"
+                        aria-label="Clear signature"
                       >
                         Clear
                       </button>
@@ -475,6 +477,7 @@ const DriverOrderFlow: React.FC<DriverOrderFlowProps> = ({ order, onBack, onRefr
                         value={signatureName}
                         onChange={(e) => setSignatureName(e.target.value)}
                         className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40"
+                        aria-label="Signature name"
                       />
                     </div>
                   </div>
