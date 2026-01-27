@@ -663,4 +663,24 @@ router.post('/:jobId/reject', authRequired, async (req, res) => {
   }
 });
 
+// DELETE /api/receipts/:captureId
+// Role-neutral endpoint for deleting both ReceiptParseJob and ReceiptCapture for a given captureId
+router.delete('/:captureId', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+  const { captureId } = req.params;
+  if (!captureId) {
+    return res.status(400).json({ error: 'captureId required' });
+  }
+  try {
+    await ReceiptParseJob.deleteMany({ captureId });
+    await ReceiptCapture.deleteOne({ _id: captureId });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Failed to delete receipt and parse jobs:', err);
+    res.status(500).json({ error: 'Failed to delete receipt and parse jobs' });
+  }
+});
+
 export default router;

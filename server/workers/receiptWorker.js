@@ -25,20 +25,32 @@ if (!isReceiptQueueEnabled()) {
       throw new Error('Database not ready');
     }
 
+    // FIX 1: Always advance state to 'parsing' and increment parseAttempts
+    await ReceiptCapture.updateOne(
+      { _id: captureId },
+      {
+        $inc: { parseAttempts: 1 },
+        $set: { status: 'parsing' }
+      }
+    );
+
     try {
       // Execute the parsing pipeline (shared with receipt-prices route)
       const parseJob = await executeReceiptParse(captureId, actor || 'worker');
       console.log(`Receipt parsed successfully: ${captureId} → job ${parseJob._id}`);
     } catch (err) {
       console.error(`Receipt parse failed for ${captureId}:`, err?.message);
-      // Mark capture as failed
+      // FIX 2: Downgrade to needs_review, do not stall
       try {
-        const capture = await ReceiptCapture.findById(captureId);
-        if (capture) {
-          capture.status = 'failed';
-          capture.parseError = err?.message || 'Unknown error';
-          await capture.save();
-        }
+        await ReceiptCapture.updateOne(
+          { _id: captureId },
+          {
+            $set: {
+              status: 'needs_review',
+              parseError: 'AI parse failed'
+            }
+          }
+        );
       } catch (updateErr) {
         console.error('Failed to update capture status:', updateErr?.message);
       }
