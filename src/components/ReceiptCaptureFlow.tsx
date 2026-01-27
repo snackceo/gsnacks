@@ -47,6 +47,19 @@ const PRIMARY_SUPPLIER_SESSION_KEY = 'receipt.primarySupplierOverrides';
 const formatStoreBrand = (storeType?: string) =>
   storeType ? storeType.charAt(0).toUpperCase() + storeType.slice(1) : 'Other';
 
+// UUID v4 generator (RFC4122 compliant, browser-safe)
+function generateUUIDv4() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for older browsers
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0,
+      v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   stores = [],
   defaultStoreId,
@@ -174,7 +187,8 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
         const { url, thumbnailUrl } = await uploadRes.json();
         if (!url) throw new Error('Image upload failed: no URL returned');
 
-        // 2️⃣ CREATE RECEIPT CAPTURE with image URLs
+        // 2️⃣ CREATE RECEIPT CAPTURE with image URLs and captureRequestId
+        const captureRequestId = generateUUIDv4();
         const captureRes = await fetch(
           `${BACKEND_URL}/api/driver/receipt-capture`,
           {
@@ -182,7 +196,8 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              images: [{ url, thumbnailUrl: thumbnailUrl || url }]
+              images: [{ url, thumbnailUrl: thumbnailUrl || url }],
+              captureRequestId
             })
           }
         );
@@ -218,7 +233,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
       } catch (err: any) {
         console.error('Receipt capture failed:', err);
         if (mountedRef.current) {
-          setError(err.message || 'Receipt capture failed');
+          setError(err.message || 'Failed to capture receipt.');
         }
       } finally {
         if (mountedRef.current) {
