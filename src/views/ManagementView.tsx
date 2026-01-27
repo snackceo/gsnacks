@@ -62,7 +62,6 @@ import {
 } from './management/utils';
 import { useInventoryCreate } from './management/hooks/useInventoryCreate';
 import { useUpcRegistry } from './management/hooks/useUpcRegistry';
-import InventoryCreateForm from './management/InventoryCreateForm';
 import ManagementStores from './management/ManagementStores';
 import ManagementUpcRegistry from './management/ManagementUpcRegistry';
 
@@ -1867,36 +1866,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           onModeChange={handleScannerModeChange}
           bottomSheetContent={
             scannerMode === ScannerMode.INVENTORY_CREATE ? (
-              <InventoryCreateForm
-                scannedUpcForCreation={scannedUpcForCreation}
-                setScannedUpcForCreation={setScannedUpcForCreation}
-                handleManualUpcChange={handleManualUpcChange}
-                fetchOffLookup={fetchOffLookup}
-                offLookupStatus={offLookupStatus}
-                offLookupMessage={offLookupMessage}
-                createError={createError}
-                newProduct={newProduct}
-                setNewProduct={setNewProduct}
-                upcDraft={upcDraft}
-                setUpcDraft={setUpcDraft}
-                sizeUnitOptions={SIZE_UNIT_OPTIONS}
-                offLookupIngredients={offLookupIngredients}
-                offNutritionEntries={offNutritionEntries}
-                handleCancelCreate={handleCancelCreate}
-                apiCreateProduct={apiCreateProduct}
-                isCreating={isCreating}
-                isDirty={isDirty}
-                setIsDirty={setIsDirty}
-                pendingUpc={pendingUpc}
-                setPendingUpc={setPendingUpc}
-                draftStatus={draftStatus}
-                setDraftStatus={setDraftStatus}
-                batchMode={batchMode}
-                toggleBatchMode={toggleBatchMode}
-                batchQueue={batchQueue}
-                setBatchQueue={setBatchQueue}
-                addBatchQueueToRegistry={addBatchQueueToRegistry}
-              />
+              <div className="p-6 text-center text-white/60 text-xs">
+                Inventory create form is unavailable (InventoryCreateForm component was removed).
+              </div>
             ) : scannerMode === ScannerMode.CUSTOMER_RETURN_SCAN ? (
               <div className="p-6 space-y-4">
                 <div className="flex items-center justify-between gap-3">
