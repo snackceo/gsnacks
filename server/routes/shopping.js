@@ -91,45 +91,58 @@ const geocodeDeliveryAddress = async address => {
 };
 
 // Checkout preview: Calculate route, fees, and total for customer
+
+// Hardened: Multi-store checkout preview with strict input validation, explicit error states, and contract enforcement
 router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
   try {
-    const { cartItems, deliveryAddress } = req.body;
-
+    const { cartItems, deliveryAddress } = req.body || {};
     if (!Array.isArray(cartItems) || cartItems.length === 0) {
       return res.status(400).json({ error: 'Cart items required' });
     }
-
+    if (!deliveryAddress || (typeof deliveryAddress !== 'object' && typeof deliveryAddress !== 'string')) {
+      return res.status(400).json({ error: 'Delivery address required' });
+    }
     let resolvedDeliveryAddress = deliveryAddress;
-    if ((!deliveryAddress?.lat || !deliveryAddress?.lng) && deliveryAddress) {
+    if (typeof deliveryAddress === 'object' && (!deliveryAddress.lat || !deliveryAddress.lng)) {
       const addressValue = typeof deliveryAddress === 'string'
         ? deliveryAddress
         : deliveryAddress?.address || deliveryAddress?.formattedAddress;
       if (addressValue) {
-        const geocoded = await geocodeDeliveryAddress(addressValue);
-        resolvedDeliveryAddress = {
-          ...deliveryAddress,
-          lat: geocoded.lat,
-          lng: geocoded.lng,
-          formattedAddress: geocoded.formattedAddress || deliveryAddress?.formattedAddress
-        };
+        try {
+          const geocoded = await geocodeDeliveryAddress(addressValue);
+          resolvedDeliveryAddress = {
+            ...deliveryAddress,
+            lat: geocoded.lat,
+            lng: geocoded.lng,
+            formattedAddress: geocoded.formattedAddress || deliveryAddress?.formattedAddress
+          };
+        } catch (err) {
+          return res.status(400).json({ error: 'Failed to geocode delivery address' });
+        }
       }
     }
-
     if (!resolvedDeliveryAddress?.lat || !resolvedDeliveryAddress?.lng) {
       return res.status(400).json({ error: 'Valid delivery address required' });
     }
 
+
     const { normalizedItems, productsByFrontendId } = await normalizeCartItems(cartItems);
+    if (!Array.isArray(normalizedItems) || normalizedItems.length === 0) {
+      return res.status(400).json({ error: 'No valid cart items after normalization' });
+    }
     const storeSelectionContext = resolveStoreSelectionContext(req.body, resolvedDeliveryAddress);
 
     // Find cheapest stores for fulfillment
-    const fulfillmentPlan = await findCheapestStores(normalizedItems, storeSelectionContext);
-    const optimized = await optimizeStoreSelection(fulfillmentPlan, storeSelectionContext);
+    let fulfillmentPlan, optimized;
+    try {
+      fulfillmentPlan = await findCheapestStores(normalizedItems, storeSelectionContext);
+      optimized = await optimizeStoreSelection(fulfillmentPlan, storeSelectionContext);
+    } catch (err) {
+      return res.status(500).json({ error: 'Failed to find or optimize store fulfillment' });
+    }
 
-    if (optimized.unfulfilled.length > 0) {
-      const hasClosedStore = optimized.unfulfilled.some(item =>
-        item.reason === 'No open stores available'
-      );
+    if (optimized?.unfulfilled && Array.isArray(optimized.unfulfilled) && optimized.unfulfilled.length > 0) {
+      const hasClosedStore = optimized.unfulfilled.some(item => item.reason === 'No open stores available');
       return res.status(400).json({
         error: hasClosedStore
           ? 'Some items are unavailable because no stores are open'
@@ -139,11 +152,15 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     }
 
     // Get store locations
-    const stores = await Store.find({
-      _id: { $in: optimized.storePlans.map(p => p.storeId) }
-    }).lean();
+
+    const storeIds = Array.isArray(optimized?.storePlans) ? optimized.storePlans.map(p => p.storeId) : [];
+    if (!storeIds.length) {
+      return res.status(400).json({ error: 'No stores found for fulfillment' });
+    }
+    const stores = await Store.find({ _id: { $in: storeIds } }).lean();
 
     // Get hub location (DB first, fallback to env HUB_LAT/HUB_LNG)
+
     let hub = await Store.findOne({ storeType: 'hub' }).lean();
     if (!hub) {
       const envLat = Number(process.env.HUB_LAT);
@@ -158,66 +175,78 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     }
 
     // Calculate route: hub → stores → customer
-    const route = await calculateMultiStopRoute(
-      [{ location: hub.location }, ...stores.map(s => ({ location: s.location }))],
-      [resolvedDeliveryAddress]
-    );
+
+    let route;
+    try {
+      route = await calculateMultiStopRoute(
+        [{ location: hub.location }, ...stores.map(s => ({ location: s.location }))],
+        [resolvedDeliveryAddress]
+      );
+    } catch (err) {
+      return res.status(500).json({ error: 'Failed to calculate delivery route' });
+    }
 
     // Get customer-facing prices from Product model
     const roundCurrency = value => Math.round(Number(value || 0) * 100) / 100;
+
     const storePricingByProductId = new Map();
-    const storePricingDetails = optimized.storePlans.map(plan => {
-      const items = plan.items.map(item => {
-        const useObservedPrice = Number.isFinite(item.observedPrice);
-        const observedPriceIsCost = item.observedPriceIsCost === true;
-        const basePrice = useObservedPrice
-          ? (observedPriceIsCost ? item.observedPrice * item.markup : item.observedPrice)
-          : item.cost * item.markup;
-        const unitPrice = roundCurrency(basePrice);
-        const total = roundCurrency(unitPrice * item.quantity);
-        const priceSource = useObservedPrice
-          ? (observedPriceIsCost ? 'observedCostWithMarkup' : 'observedShelfPrice')
-          : 'costMarkup';
-        storePricingByProductId.set(String(item.productId), {
+    const storePricingDetails = Array.isArray(optimized?.storePlans)
+      ? optimized.storePlans.map(plan => {
+        const items = Array.isArray(plan.items)
+          ? plan.items.map(item => {
+              const useObservedPrice = Number.isFinite(item.observedPrice);
+              const observedPriceIsCost = item.observedPriceIsCost === true;
+              const basePrice = useObservedPrice
+                ? (observedPriceIsCost ? item.observedPrice * item.markup : item.observedPrice)
+                : item.cost * item.markup;
+              const unitPrice = roundCurrency(basePrice);
+              const total = roundCurrency(unitPrice * item.quantity);
+              const priceSource = useObservedPrice
+                ? (observedPriceIsCost ? 'observedCostWithMarkup' : 'observedShelfPrice')
+                : 'costMarkup';
+              storePricingByProductId.set(String(item.productId), {
+                storeId: plan.storeId,
+                storeName: plan.storeName,
+                storeType: plan.storeType,
+                cost: item.cost,
+                markup: item.markup,
+                observedPrice: item.observedPrice,
+                unitPrice,
+                priceSource,
+                productName: item.productName,
+                availability: item.availability
+              });
+              return {
+                productId: item.productId,
+                productName: item.productName,
+                quantity: item.quantity,
+                cost: item.cost,
+                markup: item.markup,
+                observedPrice: item.observedPrice ?? null,
+                priceSource,
+                unitPrice,
+                total,
+                availability: item.availability
+              };
+            })
+          : [];
+        const customerTotal = roundCurrency(items.reduce((sum, item) => sum + item.total, 0));
+        return {
           storeId: plan.storeId,
           storeName: plan.storeName,
           storeType: plan.storeType,
-          cost: item.cost,
-          markup: item.markup,
-          observedPrice: item.observedPrice,
-          unitPrice,
-          priceSource,
-          productName: item.productName,
-          availability: item.availability
-        });
-        return {
-          productId: item.productId,
-          productName: item.productName,
-          quantity: item.quantity,
-          cost: item.cost,
-          markup: item.markup,
-          observedPrice: item.observedPrice ?? null,
-          priceSource,
-          unitPrice,
-          total,
-          availability: item.availability
+          totalCost: roundCurrency(plan.totalCost),
+          customerTotal,
+          items
         };
-      });
-      const customerTotal = roundCurrency(items.reduce((sum, item) => sum + item.total, 0));
-      return {
-        storeId: plan.storeId,
-        storeName: plan.storeName,
-        storeType: plan.storeType,
-        totalCost: roundCurrency(plan.totalCost),
-        customerTotal,
-        items
-      };
-    });
+      })
+      : [];
 
     // Calculate list amount (what customer pays for products)
     let listAmount = 0;
     const itemizedList = [];
-    for (const item of normalizedItems) {
+
+    for (const item of Array.isArray(normalizedItems) ? normalizedItems : []) {
       const product = productsByFrontendId.get(item.productId);
       const storePricing = storePricingByProductId.get(String(item.productId));
       const availability = storePricing?.availability;
@@ -263,13 +292,20 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     const grandTotal = listAmount + totalFees;
 
     // Check batch eligibility
+
     const { totalLoad, heavyPoints } = await calculateOrderLoad(normalizedItems);
-    const batch = await findEligibleBatch({
-      items: normalizedItems,
-      deliveryAddress: resolvedDeliveryAddress,
-      createdAt: new Date(),
-      storeIds: stores.map(s => s._id)
-    });
+    let batch = null;
+    try {
+      batch = await findEligibleBatch({
+        items: normalizedItems,
+        deliveryAddress: resolvedDeliveryAddress,
+        createdAt: new Date(),
+        storeIds: stores.map(s => s._id)
+      });
+    } catch (err) {
+      // If batching fails, do not block checkout, just log
+      console.error('Batch eligibility error:', err);
+    }
 
     // Create pricing lock (signed snapshot so fees won't change later)
     const pricingPayload = {
@@ -290,18 +326,23 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     const pricingLock = { payload: pricingPayload, signature };
 
     const scheduledItems = [];
-    for (const plan of optimized.storePlans) {
-      for (const item of plan.items) {
-        if (item.availability?.status === 'scheduled') {
-          scheduledItems.push({
-            productId: item.productId,
-            productName: item.productName,
-            storeId: plan.storeId,
-            storeName: plan.storeName,
-            nextOpen: item.availability.nextOpen,
-            nextOpenLabel: formatNextOpenLabel(item.availability.nextOpen),
-            timeZone: item.availability.nextOpen?.timeZone ?? null
-          });
+
+    if (Array.isArray(optimized?.storePlans)) {
+      for (const plan of optimized.storePlans) {
+        if (Array.isArray(plan.items)) {
+          for (const item of plan.items) {
+            if (item.availability?.status === 'scheduled') {
+              scheduledItems.push({
+                productId: item.productId,
+                productName: item.productName,
+                storeId: plan.storeId,
+                storeName: plan.storeName,
+                nextOpen: item.availability.nextOpen,
+                nextOpenLabel: formatNextOpenLabel(item.availability.nextOpen),
+                timeZone: item.availability.nextOpen?.timeZone ?? null
+              });
+            }
+          }
         }
       }
     }
@@ -338,7 +379,7 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
           fees: Math.round(totalFees * 100) / 100,
           total: Math.round(grandTotal * 100) / 100
         },
-        batch: batch ? {
+        batch: batch && batch.batchId ? {
           type: 'batch',
           eta: `${Math.round(route.duration + 60)}-${Math.round(route.duration + 120)} minutes`,
           description: 'Grouped delivery - may take longer but same price',
@@ -361,10 +402,11 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
         name: tier,
         discount: fees.routeFeeDiscountPercent
       },
-      stores: stores.map(s => ({ id: s._id, name: s.name, type: s.storeType })),
+      stores: Array.isArray(stores) ? stores.map(s => ({ id: s._id, name: s.name, type: s.storeType })) : [],
       storePricing: storePricingDetails
     });
   } catch (error) {
+    // Fail loudly, never silent
     console.error('Checkout preview error:', error);
     return res.status(500).json({ error: 'Failed to calculate checkout preview' });
   }

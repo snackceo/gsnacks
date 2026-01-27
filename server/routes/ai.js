@@ -176,14 +176,15 @@ const parseLabelText = rawText => {
     return true;
   });
 
-  return {
-    upc: normalizeUpc(upcCandidate),
-    brand: brandCandidate || '',
-    sizeValue: Number.isFinite(sizeValue) ? sizeValue : 0,
-    sizeUnit,
-    snippet: normalizeVisionText(normalizedText).slice(0, 280)
+    return {
+      upc: normalizeUpc(upcCandidate),
+      brand: brandCandidate || '',
+      sizeValue: Number.isFinite(sizeValue) ? sizeValue : 0,
+      sizeUnit,
+      snippet: normalizeVisionText(normalizedText).slice(0, 280)
+    };
   };
-};
+
 
 const detectLabelText = async (imageData, mimeType) => {
   const visionReady = ensureVisionReady();
@@ -1536,19 +1537,37 @@ Examples of queries to handle:
 // Does NOT calculate anything - only reads and explains
 // ============================================================
 
-router.post('/explain-checkout', async (req, res) => {
-  const { checkoutData, question } = req.body ?? {};
 
-  if (!checkoutData) {
+// Hardened: Gemini checkout explanation endpoint
+router.post('/explain-checkout', async (req, res) => {
+  // Defensive: always destructure safely
+  const { checkoutData, question, model } = req.body ?? {};
+
+  // Strict input validation
+  if (!checkoutData || typeof checkoutData !== 'object') {
     return res.status(400).json({ error: 'Checkout data required' });
   }
+  if (!Array.isArray(checkoutData.items)) {
+    return res.status(400).json({ error: 'Checkout data must include items array' });
+  }
+  if (typeof checkoutData.listAmount !== 'number' || !Number.isFinite(checkoutData.listAmount)) {
+    return res.status(400).json({ error: 'Checkout data must include valid listAmount' });
+  }
+  if (typeof checkoutData.total !== 'number' || !Number.isFinite(checkoutData.total)) {
+    return res.status(400).json({ error: 'Checkout data must include valid total' });
+  }
+  if (!checkoutData.fees || typeof checkoutData.fees !== 'object') {
+    return res.status(400).json({ error: 'Checkout data must include fees object' });
+  }
 
+  // Enforce Gemini API key presence
   const apiReady = ensureGeminiReady();
   if (!apiReady.ok) {
     return res.status(503).json({ error: apiReady.error });
   }
 
-  const modelSelection = resolveModelName(req.body?.model);
+  // Model selection validation
+  const modelSelection = resolveModelName(model);
   if (!modelSelection.ok) {
     return res.status(400).json({
       error: modelSelection.error,
@@ -1558,6 +1577,7 @@ router.post('/explain-checkout', async (req, res) => {
   }
 
   try {
+    // Defensive destructure with defaults
     const {
       items = [],
       listAmount = 0,
@@ -1569,18 +1589,23 @@ router.post('/explain-checkout', async (req, res) => {
       capacity = {}
     } = checkoutData;
 
+    // Defensive: ensure all items are objects with required fields
+    const safeItems = Array.isArray(items)
+      ? items.filter(item => item && typeof item === 'object' && typeof item.name === 'string' && typeof item.quantity === 'number' && typeof item.price === 'number' && typeof item.total === 'number')
+      : [];
+
     const prompt = `You are a helpful delivery service assistant. Explain the checkout pricing to the customer in plain English.
 
 CHECKOUT SUMMARY:
-Items: ${items.length} items totaling $${listAmount.toFixed(2)}
-${items.map(item => `  - ${item.name} x${item.quantity} @ $${item.price} = $${item.total.toFixed(2)}`).join('\n')}
+Items: ${safeItems.length} items totaling $${listAmount.toFixed(2)}
+${safeItems.map(item => `  - ${item.name} x${item.quantity} @ $${item.price.toFixed(2)} = $${item.total.toFixed(2)}`).join('\n')}
 
 FEES BREAKDOWN:
-- Route Fee: $${fees.routeFee?.toFixed(2) || '0.00'}
-- Distance Fee: $${fees.distanceFee?.toFixed(2) || '0.00'} (${route.distance?.toFixed(1) || '0'} miles)
-- Heavy Item Fee: $${fees.heavyItemFee?.toFixed(2) || '0.00'}
-- Large Order Fee: $${fees.largeOrderFee?.toFixed(2) || '0.00'}
-Total Fees: $${fees.total?.toFixed(2) || '0.00'}
+- Route Fee: $${Number(fees.routeFee ?? 0).toFixed(2)}
+- Distance Fee: $${Number(fees.distanceFee ?? 0).toFixed(2)} (${Number(route.distance ?? 0).toFixed(1)} miles)
+- Heavy Item Fee: $${Number(fees.heavyItemFee ?? 0).toFixed(2)}
+- Large Order Fee: $${Number(fees.largeOrderFee ?? 0).toFixed(2)}
+Total Fees: $${Number(fees.total ?? 0).toFixed(2)}
 
 GRAND TOTAL: $${total.toFixed(2)}
 
@@ -1591,14 +1616,13 @@ DELIVERY OPTIONS:
 Standard: ${deliveryOptions.standard?.eta || 'N/A'} - Direct delivery
 ${deliveryOptions.batch ? `Batch: ${deliveryOptions.batch.eta} - Grouped with ${deliveryOptions.batch.customersInBatch || 0} other customers (same price, longer wait)` : 'Batch: Not available for this order'}
 
-ROUTE: ${route.distance?.toFixed(1) || '0'} miles, ~${route.duration || '0'} min drive time
+ROUTE: ${Number(route.distance ?? 0).toFixed(1)} miles, ~${route.duration || '0'} min drive time
 
 CAPACITY: ${capacity.orderLoad || 0} handling points (${capacity.heavyPoints || 0} heavy)
 
 ${question ? `\nCUSTOMER QUESTION: "${question}"\n` : ''}
 
 Provide a friendly, clear explanation. If customer asked a question, answer it directly. If not, give a brief overview.
-
 Rules:
 - Be conversational and helpful
 - Explain fees in simple terms (e.g., "Heavy items like milk cost $1.50 each to handle")
@@ -1624,7 +1648,7 @@ Rules:
       explanation,
       model: modelSelection.modelName,
       summary: {
-        itemCount: items.length,
+        itemCount: safeItems.length,
         listAmount,
         fees: fees.total || 0,
         total,
@@ -1634,6 +1658,7 @@ Rules:
       }
     });
   } catch (error) {
+    // Fail loudly, never silent
     console.error('Checkout explanation failed:', error);
     return res.status(502).json({
       error: 'Failed to generate explanation',

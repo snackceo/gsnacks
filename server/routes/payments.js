@@ -8,7 +8,7 @@ import StoreInventory from '../models/StoreInventory.js';
 import UpcItem from '../models/UpcItem.js';
 import AppSettings from '../models/AppSettings.js';
 import User from '../models/User.js';
-import LedgerEntry from '../models/LedgerEntry.js';
+import LedgerEntry, { CREDIT_ORIGINS_ENUM } from '../models/LedgerEntry.js';
 import CashPayout from '../models/CashPayout.js';
 import {
   authRequired,
@@ -196,11 +196,16 @@ const normalizeTier = tier => {
   return 'COMMON';
 };
 
+// Hardened: enforce tier and contract for payout method
 const normalizePayoutMethodForTier = (payoutMethod, tier, eligibility) => {
   const normalizedPayout = normalizeReturnPayoutMethod(payoutMethod);
   const cashEligibleSet = eligibility?.cashPayoutEligibleTiers || CASH_PAYOUT_ELIGIBLE_TIERS;
-  if (normalizedPayout === 'CASH' && !cashEligibleSet.has(normalizeTier(tier))) {
-    return 'CREDIT';
+  const normalizedTier = normalizeTier(tier);
+  if (normalizedPayout === 'CASH') {
+    if (!cashEligibleSet.has(normalizedTier)) {
+      // Not eligible for cash payout
+      return 'CREDIT';
+    }
   }
   return normalizedPayout;
 };
@@ -333,7 +338,7 @@ const awardLoyaltyPoints = async ({ order, user, productPaidCents, session }) =>
   await user.save({ session });
 
   await LedgerEntry.create(
-    [{ userId: user._id, delta: pointsToAdd, reason: `POINTS_EARNED:${order.orderId}` }],
+    [{ userId: user._id, delta: pointsToAdd, reason: `POINTS_EARNED:${order.orderId}`, origin: 'POINTS' }],
     { session }
   );
 
@@ -375,8 +380,14 @@ const createPaymentsRouter = ({ stripe }) => {
       const tierLookupUser = userId
         ? await User.findById(userId, { membershipTier: 1 }).lean()
         : null;
-      // Centralized delivery fee calculation
+      const userTier = tierLookupUser?.membershipTier || 'COMMON';
 
+      // Defensive: enforce tier contract for credit/cash eligibility
+      if (req.body?.payoutMethod === 'CASH' && !CASH_PAYOUT_ELIGIBLE_TIERS.has(userTier)) {
+        return res.status(400).json({ error: 'This tier is not eligible for cash payout' });
+      }
+
+      // Centralized delivery fee calculation
       let distanceMiles = 0;
       if (address) {
         try {
@@ -389,7 +400,7 @@ const createPaymentsRouter = ({ stripe }) => {
       const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
       const fees = await getDeliveryOptions({
         orderType,
-        tier: tierLookupUser?.membershipTier,
+        tier: userTier,
         distanceMiles,
         items,
         productsByFrontendId: new Map() // not needed in quote
@@ -436,7 +447,7 @@ const createPaymentsRouter = ({ stripe }) => {
         );
         const recalculated = await getDeliveryOptions({
           orderType,
-          tier: tierLookupUser?.membershipTier,
+          tier: userTier,
           distanceMiles,
           items,
           productsByFrontendId: productsForFees
@@ -1234,7 +1245,7 @@ const createPaymentsRouter = ({ stripe }) => {
         const delta = Number(user.creditBalance || 0) - previousCredits;
         if (delta) {
           await LedgerEntry.create(
-            [{ userId: order.customerId, delta, reason: `RETURN_CREDIT_REMAINDER:${order.orderId}` }],
+            [{ userId: order.customerId, delta, reason: `RETURN_CREDIT_REMAINDER:${order.orderId}`, origin: 'RETURN' }],
             { session }
           );
           creditedUserId = order.customerId;

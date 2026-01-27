@@ -30,7 +30,7 @@ router.get('/:id/bottle-returns', authRequired, async (req, res) => {
 
 import Order from '../models/Order.js';
 import User from '../models/User.js';
-import LedgerEntry from '../models/LedgerEntry.js';
+import LedgerEntry, { CREDIT_ORIGINS_ENUM } from '../models/LedgerEntry.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { authRequired, ownerRequired } from '../utils/helpers.js';
 
@@ -60,12 +60,16 @@ const canManageUser = (req, userId) =>
   req.user?.id === userId ||
   req.user?.role === 'OWNER';
 
-const recordLedgerEntry = async ({ userId, delta, reason }) => {
+const recordLedgerEntry = async ({ userId, delta, reason, origin }) => {
   if (!delta) return;
+  if (!origin || !CREDIT_ORIGINS_ENUM.includes(origin)) {
+    throw new Error(`Invalid credit origin: ${origin}`);
+  }
   await LedgerEntry.create({
     userId,
     delta: Number(delta),
-    reason: String(reason || '')
+    reason: String(reason || ''),
+    origin
   });
 };
 
@@ -304,14 +308,16 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
         ? recordLedgerEntry({
             userId,
             delta: nextCredits - previousCredits,
-            reason: 'ADMIN_SET_CREDITS'
+            reason: 'ADMIN_SET_CREDITS',
+            origin: 'MANUAL'
           })
         : Promise.resolve(),
       updates.loyaltyPoints !== undefined
         ? recordLedgerEntry({
             userId,
             delta: nextPoints - previousPoints,
-            reason: 'ADMIN_SET_POINTS'
+            reason: 'ADMIN_SET_POINTS',
+            origin: 'MANUAL'
           })
         : Promise.resolve()
     ]);
@@ -343,7 +349,8 @@ router.patch('/:id/credits', authRequired, ownerRequired, async (req, res) => {
     await recordLedgerEntry({
       userId,
       delta: Number(user.creditBalance || 0) - previousCredits,
-      reason: String(req.body?.reason || 'CREDITS_ADJUSTMENT')
+      reason: String(req.body?.reason || 'CREDITS_ADJUSTMENT'),
+      origin: 'MANUAL'
     });
 
     await recordAuditLog({
@@ -413,12 +420,14 @@ router.post('/:id/redeem-points', authRequired, async (req, res) => {
       recordLedgerEntry({
         userId,
         delta: Number(user.loyaltyPoints || 0) - currentPoints,
-        reason: 'POINTS_REDEEMED'
+        reason: 'POINTS_REDEEMED',
+        origin: 'POINTS'
       }),
       recordLedgerEntry({
         userId,
         delta: Number(user.creditBalance || 0) - previousCredits,
-        reason: 'CREDITS_FROM_POINTS'
+        reason: 'CREDITS_FROM_POINTS',
+        origin: 'POINTS'
       })
     ]);
 

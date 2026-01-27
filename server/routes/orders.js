@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 import Order from '../models/Order.js';
 import UpcItem from '../models/UpcItem.js';
 import User from '../models/User.js';
-import LedgerEntry from '../models/LedgerEntry.js';
+import LedgerEntry, { CREDIT_ORIGINS_ENUM } from '../models/LedgerEntry.js';
 import CashPayout from '../models/CashPayout.js';
 import {
   authRequired,
@@ -551,7 +551,8 @@ const createOrdersRouter = ({ stripe }) => {
                         {
                           userId: order.customerId,
                           delta,
-                          reason: `RETURN_ONLY_CREDIT:${order.orderId}`
+                          reason: `RETURN_ONLY_CREDIT:${order.orderId}`,
+                          origin: 'RETURN'
                         }
                       ],
                       { session: sessionDb }
