@@ -1,3 +1,57 @@
+  // ...existing code...
+
+  const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps> = ({
+    setScannerMode,
+    setScannerModalOpen,
+    fmtTime,
+    stores,
+    activeStoreId,
+    setActiveStoreId,
+    refreshStores,
+    isLoadingStores,
+    storeError,
+    setStoreError
+  }) => {
+    const { addToast, settings, currentUser } = useNinpoCore();
+    const {
+      receiptCaptures = [],
+      setReceiptCaptures,
+      refreshReceiptCaptures: fetchReceiptCaptures
+    } = useReceiptCapture();
+    // ...existing code...
+
+    // Auto-parse a receipt by captureId (for retry)
+    const handleReceiptParseAuto = useCallback(async (captureId: string) => {
+      if (!captureId) return;
+      try {
+        const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ captureId })
+        });
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to parse receipt');
+        }
+        addToast('Receipt parsing started.', 'success');
+        await fetchReceiptCaptures();
+      } catch (err: any) {
+        addToast(err?.message || 'Failed to parse receipt', 'error');
+      }
+    }, [addToast, fetchReceiptCaptures]);
+
+    // Retry parse for stuck receipts
+    const handleRetryParse = useCallback(async (captureId: string) => {
+      try {
+        await handleReceiptParseAuto(captureId);
+        addToast('Parse retried.', 'info');
+      } catch (err: any) {
+        addToast(err?.message || 'Failed to retry parse.', 'error');
+      }
+    }, [handleReceiptParseAuto, addToast]);
+
+    // ...existing code...
 // Defensive helper for stats fields
 function safeStat(capture: any, key: string): number {
   return capture && capture.stats && typeof capture.stats[key] === 'number' ? capture.stats[key] : 0;
@@ -1568,15 +1622,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                             Retry Parse
                           </button>
                         )}
-                        // Retry parse for stuck receipts
-                        const handleRetryParse = useCallback(async (captureId: string) => {
-                          try {
-                            await handleReceiptParseAuto(captureId);
-                            addToast('Parse retried.', 'info');
-                          } catch (err: any) {
-                            addToast(err?.message || 'Failed to retry parse.', 'error');
-                          }
-                        }, [handleReceiptParseAuto, addToast]);
                       </div>
                     </div>
 
