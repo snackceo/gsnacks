@@ -360,19 +360,36 @@ const createPaymentsRouter = ({ stripe }) => {
    * - estimates subtotal + fees based on backend logic
    */
   router.post('/quote', async (req, res) => {
+    // Strict contract: reject unknown fields
+    const allowedFields = ['items', 'userId', 'address', 'returnUpcCounts', 'returnUpcs', 'payoutMethod'];
+    for (const key of Object.keys(req.body)) {
+      if (!allowedFields.includes(key)) {
+        return res.status(400).json({ error: `Unknown field: ${key}` });
+      }
+    }
     if (!isDbReady() && process.env.SKIP_DB_CHECKS_FOR_TESTS !== '1') {
       return res.status(503).json({ error: 'Database not ready' });
     }
     try {
       const rawItems = req.body?.items;
       const userId = req.body?.userId;
-      const address = String(req.body?.address || '').trim();
+      const address = typeof req.body?.address === 'string' ? req.body.address.trim() : '';
       const rawReturnUpcs = req.body?.returnUpcCounts ?? req.body?.returnUpcs;
+
+      // Validate types
+      if (rawItems !== undefined && !Array.isArray(rawItems)) {
+        return res.status(400).json({ error: 'items must be an array' });
+      }
+      if (userId !== undefined && typeof userId !== 'string') {
+        return res.status(400).json({ error: 'userId must be a string' });
+      }
+      if (address && typeof address !== 'string') {
+        return res.status(400).json({ error: 'address must be a string' });
+      }
 
       const items = normalizeCart(rawItems);
       const normalizedReturnUpcs = normalizeUpcCounts(rawReturnUpcs);
-      const isReturnOnly =
-        Array.isArray(items) && items.length === 0 && normalizedReturnUpcs.uniqueUpcs.length > 0;
+      const isReturnOnly = Array.isArray(items) && items.length === 0 && normalizedReturnUpcs.uniqueUpcs.length > 0;
       if ((!Array.isArray(items) || items.length === 0) && !isReturnOnly) {
         return res.status(400).json({ error: 'Cart is empty' });
       }
@@ -472,6 +489,7 @@ const createPaymentsRouter = ({ stripe }) => {
         totalCents += heavyItemFeeCents;
       }
 
+      // Always return all fields, even if empty, for determinism
       return res.json({
         subtotal: productSubtotalCents / 100,
         total: totalCents / 100,
@@ -481,14 +499,11 @@ const createPaymentsRouter = ({ stripe }) => {
         orderType,
         largeOrderFee: largeOrderFeeCents / 100,
         heavyItemFee: heavyItemFeeCents / 100,
-        stalenessWarnings:
-          stalenessWarnings.length + pricingWarnings.length > 0
-            ? [...stalenessWarnings, ...pricingWarnings]
-            : undefined
+        stalenessWarnings: stalenessWarnings.length + pricingWarnings.length > 0 ? [...stalenessWarnings, ...pricingWarnings] : [],
       });
     } catch (err) {
       console.error('QUOTE ERROR:', err);
-      return res.status(500).json({ error: 'Quote failed' });
+      return res.status(500).json({ error: 'Quote failed', details: String(err && err.message) });
     }
   });
 

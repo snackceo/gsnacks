@@ -244,8 +244,12 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
               credentials: 'include',
               body: JSON.stringify({ captureId })
             });
-          } catch (parseErr) {
-            console.warn('Auto-parse failed, can be retried manually:', parseErr);
+          } catch (parseErr: any) {
+            // Show a visible error toast if auto-parse fails
+            setError(
+              (parseErr?.message || 'Receipt auto-parse failed. Please try again or contact support.') +
+              ' (Auto-parse error)'
+            );
           }
       }
 
