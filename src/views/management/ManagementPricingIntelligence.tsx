@@ -339,10 +339,9 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
   const fetchReceiptCaptureStats = useCallback(async () => {
     try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-captures-summary`, {
+      const resp = await fetch(`${BACKEND_URL}/api/receipts-captures-summary`, {
         credentials: 'include'
       });
-
       if (!resp.ok) return null;
       return await resp.json();
     } catch (err) {
