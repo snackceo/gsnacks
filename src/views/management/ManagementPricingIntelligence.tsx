@@ -202,7 +202,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const filteredProducts = useMemo(() => productSearchResults, [productSearchResults]);
 
   const safeItemsForCommit = useMemo(
-    () => classifiedItems.filter(item => item.classification === 'A' && item.suggestedProduct && typeof item.lineIndex === 'number'),
+    () => (Array.isArray(classifiedItems) ? classifiedItems : []).filter(item => item.classification === 'A' && item.suggestedProduct && typeof item.lineIndex === 'number'),
     [classifiedItems]
   );
 
