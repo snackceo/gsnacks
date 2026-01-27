@@ -979,7 +979,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       )}
     </div>
   );
-};
 
 export type { ScannerPanelProps, ParsedReceiptItem };
 export default ScannerPanel;
