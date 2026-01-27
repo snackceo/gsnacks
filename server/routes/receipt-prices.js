@@ -3651,4 +3651,83 @@ router.get('/receipt-health', authRequired, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/driver/receipt-confirm-match
+ * Confirms and binds a receipt item to a product SKU during review phase
+ * Creates/updates ReceiptNameAlias for future matching
+ */
+router.post('/receipt-confirm-match', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+
+  try {
+    const { receiptName, sku, storeId } = req.body;
+    
+    // Validate inputs
+    if (!receiptName || !sku) {
+      return res.status(400).json({ error: 'receiptName and sku are required' });
+    }
+
+    // Find the product by SKU
+    const product = await Product.findOne({ sku }).lean();
+    if (!product) {
+      return res.status(404).json({ error: `Product with SKU ${sku} not found` });
+    }
+
+    // Validate storeId if provided
+    let store = null;
+    if (storeId) {
+      if (!mongoose.Types.ObjectId.isValid(storeId)) {
+        return res.status(400).json({ error: 'Invalid storeId' });
+      }
+      store = await Store.findById(storeId).lean();
+      if (!store) {
+        return res.status(404).json({ error: 'Store not found' });
+      }
+    }
+
+    // Normalize receipt name
+    const normalizedName = receiptName.trim().toUpperCase();
+
+    // Create or update a receipt name alias (binding for future matches)
+    const updatedAlias = await ReceiptNameAlias.findOneAndUpdate(
+      {
+        normalizedName,
+        storeId: storeId || { $exists: false }
+      },
+      {
+        normalizedName,
+        storeId: storeId || null,
+        productId: product._id,
+        upc: product.upc,
+        confirmedCount: { $inc: 1 },
+        lastConfirmedAt: new Date(),
+        lastSeenAt: new Date()
+      },
+      { new: true, upsert: true }
+    );
+
+    // Record audit log
+    await recordAuditLog({
+      type: 'RECEIPT_ALIAS_CONFIRMED',
+      actorId: req.user?.username || req.user?.id,
+      details: `Confirmed receipt "${receiptName}" → SKU ${sku}${storeId ? ` @ Store ${storeId}` : ''}`
+    });
+
+    res.json({ 
+      ok: true, 
+      message: 'Receipt item match confirmed',
+      receiptName: normalizedName,
+      sku,
+      productId: product._id,
+      storeId: storeId || null,
+      aliasId: updatedAlias._id
+    });
+  } catch (error) {
+    console.error('Receipt confirm match error:', error);
+    res.status(500).json({ error: 'Failed to confirm match' });
+  }
+});
+
 export default router;
