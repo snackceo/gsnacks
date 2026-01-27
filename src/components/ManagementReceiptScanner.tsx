@@ -1,4 +1,16 @@
 import React, { useState, useEffect, useRef, FormEvent } from 'react';
+// Helper to upload image to backend
+async function uploadReceiptImage(file: File, captureId: string): Promise<void> {
+  const formData = new FormData();
+  formData.append('image', file);
+  formData.append('captureId', captureId);
+  const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-upload`, {
+    method: 'POST',
+    credentials: 'include',
+    body: formData
+  });
+  if (!resp.ok) throw new Error('Failed to upload receipt image');
+}
 import { Check, X, Camera, AlertTriangle, Package } from 'lucide-react';
 import { BACKEND_URL } from '../constants';
 
@@ -61,6 +73,21 @@ interface ManagementReceiptScannerProps {
 }
 
 export default function ManagementReceiptScanner({ captureId, onClose, onCommit }: ManagementReceiptScannerProps) {
+  const [uploading, setUploading] = useState(false);
+    // Handle file input change
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setUploading(true);
+      try {
+        await uploadReceiptImage(file, captureId);
+        await fetchCapture();
+      } catch (err: any) {
+        setError(err.message || 'Failed to upload image');
+      } finally {
+        setUploading(false);
+      }
+    };
   const [capture, setCapture] = useState<ReceiptCapture | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -307,7 +334,7 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
           </div>
         )}
 
-        {/* Receipt images */}
+        {/* Receipt images and upload */}
         <div className="px-6 py-4 border-b bg-gray-50">
           <div className="flex gap-2 overflow-x-auto">
             {capture.images.map((img: ReceiptImage, idx: number) => (
@@ -319,6 +346,20 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
                 onClick={() => window.open(img.url, '_blank')}
               />
             ))}
+          </div>
+          <div className="mt-4 flex gap-4 items-center">
+            <label className="inline-block bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg cursor-pointer transition-all">
+              {uploading ? 'Uploading...' : 'Capture/Upload Receipt'}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileChange}
+                disabled={uploading}
+                style={{ display: 'none' }}
+              />
+            </label>
+            <span className="text-xs text-gray-500">Add a new receipt image</span>
           </div>
         </div>
 
