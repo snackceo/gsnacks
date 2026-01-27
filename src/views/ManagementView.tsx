@@ -249,7 +249,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     handleScannerScan: handleInventoryScannerScan,
     handleCancelCreate,
     apiCreateProduct,
-    handleAddToUpcRegistry,
     draftStatus,
     setDraftStatus,
     isDirty,
@@ -1874,7 +1873,6 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                 handleManualUpcChange={handleManualUpcChange}
                 fetchOffLookup={fetchOffLookup}
                 offLookupStatus={offLookupStatus}
-                handleAddToUpcRegistry={handleAddToUpcRegistry}
                 offLookupMessage={offLookupMessage}
                 createError={createError}
                 newProduct={newProduct}
