@@ -1702,12 +1702,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
           stores={stores}
           isOpen={showReceiptScanner}
           onClose={handleReceiptScannerClose}
-          onImageUploaded={handleReceiptImageUploaded}
-          onParsedItems={handleReceiptScannerComplete}
-          onCaptureComplete={handleReceiptCaptureComplete}
-          storeId={activeStoreId}
-          storeName={getDefaultStoreName()}
-          onCaptureParse={handleReceiptScannerAction}
         />
       )}
 
