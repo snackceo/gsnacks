@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Camera, Trash2, Loader2, CheckCircle2 } from 'lucide-react';
+import { Camera, Trash2, Loader2, CheckCircle2, X } from 'lucide-react';
 import {
   ClassifiedReceiptItem,
   Product,
@@ -25,7 +25,6 @@ import {
   getSafeCaptureStatus,
   getReceiptItemKey
 } from '../../utils/receiptHelpers';
-import ManagementReceiptInsights from './ManagementReceiptInsights';
 
 interface ReceiptCapture {
   _id: string;
@@ -1424,16 +1423,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
             </label>
           </div>
         </div>
-
-        <ManagementReceiptInsights
-          aliasConfidenceSummary={aliasConfidenceSummary}
-          showNoiseRules={showNoiseRules}
-          onToggleNoiseRules={setShowNoiseRules}
-          noiseRules={noiseRules}
-          isLoadingNoiseRules={isLoadingNoiseRules}
-          activeStore={activeStore}
-          onDeleteNoiseRule={handleDeleteNoiseRule}
-        />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
