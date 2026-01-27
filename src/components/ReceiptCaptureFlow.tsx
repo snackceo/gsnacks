@@ -223,10 +223,11 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
         const parseData = await parseRes.json();
 
         if (!parseRes.ok) {
-          // ONLY throw if enqueue failed
-          throw new Error(parseData?.error || 'Failed to enqueue receipt parse');
+          // ONLY toast if enqueue failed
+          setError(parseData?.error || 'Failed to enqueue receipt parse');
+          return;
         }
-        // DO NOT throw if parse is pending. This is SUCCESS.
+        // DO NOT throw or toast if parse is pending. This is SUCCESS.
         // Proceed to review UI, show "Parsing in progress..."
 
         if (!mountedRef.current) return;
