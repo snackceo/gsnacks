@@ -6,15 +6,6 @@ import React, {
   useState
 } from 'react';
 
-// Ref to access ScannerPanel's capture method
-const scannerPanelRef = useRef<any>(null);
-
-// Handler to trigger photo capture in ScannerPanel
-const handleCaptureClick = () => {
-  if (scannerPanelRef.current && typeof scannerPanelRef.current.capturePhoto === 'function') {
-    scannerPanelRef.current.capturePhoto();
-  }
-};
 import { createPortal } from 'react-dom';
 
 import ScannerPanel, { ScannerPanelProps } from './ScannerPanel';
@@ -66,6 +57,16 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   onPrimarySupplierToggle,
   ...scannerProps
 }) => {
+  // Ref to access ScannerPanel's capture method
+  const scannerPanelRef = useRef<any>(null);
+
+  // Handler to trigger photo capture in ScannerPanel
+  const handleCaptureClick = () => {
+    if (scannerPanelRef.current && typeof scannerPanelRef.current.capturePhoto === 'function') {
+      scannerPanelRef.current.capturePhoto();
+    }
+  };
+
   // ─────────────────────────────────────────────────────────────
   // STATE
   // ─────────────────────────────────────────────────────────────
