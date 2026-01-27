@@ -204,7 +204,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const aliasConfidenceThreshold = 0.8;
 
   const aliasConfidenceSummary = useMemo(() => {
-    const confidences = receiptAliases.map(alias => ({
+    const confidences = (Array.isArray(receiptAliases) ? receiptAliases : []).map(alias => ({
       effective: alias.effectiveConfidence ?? alias.matchConfidence,
       base: alias.baseConfidence ?? alias.matchConfidence,
       lastSeen: alias.lastSeenAt || alias.lastConfirmedAt || ''
@@ -235,15 +235,15 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const selectedForCommitCount = useMemo(() => selectedItemsForCommit.size, [selectedItemsForCommit]);
 
   const priceReviewItems = useMemo(() => {
-    return classifiedItems.filter(item => item.priceDelta?.flag && item.classification !== 'A');
+    return (Array.isArray(classifiedItems) ? classifiedItems : []).filter(item => item.priceDelta?.flag && item.classification !== 'A');
   }, [classifiedItems]);
 
   const pendingReceiptCount = useMemo(() => {
-    return receiptCaptures.filter(capture => capture.status === 'pending_parse').length;
+    return (Array.isArray(receiptCaptures) ? receiptCaptures : []).filter(capture => capture.status === 'pending_parse').length;
   }, [receiptCaptures]);
 
   const parsedReceiptCount = useMemo(() => {
-    return receiptCaptures.filter(capture => capture.status === 'parsed').length;
+    return (Array.isArray(receiptCaptures) ? receiptCaptures : []).filter(capture => capture.status === 'parsed').length;
   }, [receiptCaptures]);
 
   const createCaptureRequestId = useCallback(() => {
@@ -301,6 +301,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         throw new Error(data.error || 'Failed to load receipt capture');
       }
       const data = await resp.json().catch(() => ({}));
+      console.log('[PricingIntelligence]', data);
       const capture = data.capture;
       if (!capture) {
         throw new Error('Receipt capture missing');
@@ -314,6 +315,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       }
 
       const classified = classifyItems(items);
+      console.log('[PricingIntelligence]', classified);
       setClassifiedItems(classified);
       setActiveReceiptCaptureId(captureId);
       setShowReceiptReview(true);
@@ -742,6 +744,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       }
 
       const classified = classifyItems(items);
+      console.log('[PricingIntelligence]', classified);
       setClassifiedItems(classified);
       setShowReceiptReview(true);
       setShowReceiptScanner(false);
@@ -800,6 +803,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         throw new Error(data.error || 'Failed to search products');
       }
       const data = await resp.json().catch(() => ({}));
+      console.log('[PricingIntelligence]', data);
       setProductSearchResults(Array.isArray(data.products) ? data.products : []);
     } catch (err: any) {
       addToast(err?.message || 'Failed to search products', 'error');
@@ -1439,7 +1443,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                 className="bg-slate-900 border border-white/10 text-white text-xs rounded-full px-3 py-2"
               >
                 <option value="">Select Store</option>
-                {stores.map(store => (
+                {(Array.isArray(stores) ? stores : []).map(store => (
                   <option key={store.id} value={store.id}>
                     {store.name}
                   </option>
@@ -1506,7 +1510,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
               </div>
             </div>
 
-            {sortedReceiptCaptures.length > 0 ? (
+            {Array.isArray(sortedReceiptCaptures) && sortedReceiptCaptures.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {sortedReceiptCaptures.map(capture => (
                   <div
@@ -1653,7 +1657,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
               </div>
             ) : (
               <div className="mt-4 space-y-3">
-                {priceReviewItems.map(({
+                {(Array.isArray(priceReviewItems) ? priceReviewItems : []).map(({
                   captureId,
                   receiptName,
                   unitPrice,
@@ -1757,7 +1761,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                   {classifiedItems.length === 0 ? (
                     <div className="text-xs text-slate-400">No items to review.</div>
                   ) : (
-                    classifiedItems.map((item, idx) => (
+                    (Array.isArray(classifiedItems) ? classifiedItems : []).map((item, idx) => (
                       <ReceiptItemBucket
                         key={`${item.captureId}:${item.lineIndex ?? idx}`}
                         item={item}
@@ -2001,10 +2005,10 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
               </div>
             ) : (
               <div className="max-h-64 overflow-y-auto space-y-2">
-                {filteredProducts.length === 0 ? (
+                {Array.isArray(filteredProducts) && filteredProducts.length === 0 ? (
                   <p className="text-xs text-slate-500">No products match this search.</p>
                 ) : (
-                  filteredProducts.map(product => (
+                  (Array.isArray(filteredProducts) ? filteredProducts : []).map(product => (
                     <button
                       key={product.productId}
                       onClick={() => void handleProductSelect(product)}
