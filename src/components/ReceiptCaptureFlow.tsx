@@ -276,17 +276,20 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
       {/* CAMERA */}
       {isCameraOpen && (
         <>
-          <ScannerPanel
-            ref={scannerPanelRef}
-            {...scannerProps}
-            mode={mode}
-            onReceiptCaptured={handleReceiptCaptured}
-            showClose={true}
-            onClose={() => setIsCameraOpen(false)}
-            disabled={isSubmitting}
-          />
+          <div className="w-full h-full flex flex-col items-center justify-center">
+            <ScannerPanel
+              ref={scannerPanelRef}
+              {...scannerProps}
+              mode={mode}
+              onReceiptCaptured={handleReceiptCaptured}
+              showClose={true}
+              onClose={() => setIsCameraOpen(false)}
+              disabled={isSubmitting}
+            />
+          </div>
           <button
-            className="mt-4 py-3 px-8 bg-ninpo-lime text-ninpo-black rounded-xl font-black uppercase tracking-widest hover:bg-white transition-colors"
+            className="fixed bottom-0 left-0 w-full z-50 py-5 bg-ninpo-lime text-ninpo-black text-lg font-black uppercase tracking-widest rounded-none sm:rounded-xl sm:w-auto sm:bottom-8 sm:left-1/2 sm:-translate-x-1/2 sm:px-12 shadow-neon hover:bg-white transition-colors"
+            style={{maxWidth: '100vw'}} 
             onClick={handleCaptureClick}
             disabled={isSubmitting}
           >
@@ -297,7 +300,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
 
       {/* ERROR TOAST */}
       {error && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-red-900/90 text-white px-4 py-2 rounded-lg shadow-lg">
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-red-900/90 text-white px-4 py-2 rounded-lg shadow-lg z-50">
           {error}
         </div>
       )}
