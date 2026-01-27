@@ -36,6 +36,8 @@ interface ReceiptCaptureFlowProps
 
   /** Fired once a receipt is captured + parse triggered */
   onReceiptCreated?: (captureId: string) => void;
+  onParsedItems?: (items: any) => void;
+  onImageUploaded?: (url: string, thumbnailUrl?: string) => void;
 
   /** Existing callbacks you already use elsewhere */
   onStoreSelected?: (storeId: string) => void;
@@ -66,6 +68,8 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   isOpen = false,
   mode = ScannerMode.RECEIPT_PARSE_LIVE,
   onReceiptCreated,
+  onParsedItems,
+  onImageUploaded,
   onStoreSelected,
   onPrimarySupplierToggle,
   ...scannerProps
@@ -234,6 +238,16 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
 
         // 4️⃣ HAND OFF TO REVIEW / QUEUE
         onReceiptCreated?.(captureId);
+
+        // Optionally notify parent of parsed items (if implemented in future)
+        if (typeof onParsedItems === 'function' && parseData?.items) {
+          onParsedItems?.(parseData.items);
+        }
+
+        // Optionally notify parent of image upload
+        if (typeof onImageUploaded === 'function' && url) {
+          onImageUploaded?.(url, thumbnailUrl || url);
+        }
 
         // Close camera after success
         setIsCameraOpen(false);
