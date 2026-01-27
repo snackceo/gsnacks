@@ -1,61 +1,3 @@
-  // ...existing code...
-
-  const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps> = ({
-    setScannerMode,
-    setScannerModalOpen,
-    fmtTime,
-    stores,
-    activeStoreId,
-    setActiveStoreId,
-    refreshStores,
-    isLoadingStores,
-    storeError,
-    setStoreError
-  }) => {
-    const { addToast, settings, currentUser } = useNinpoCore();
-    const {
-      receiptCaptures = [],
-      setReceiptCaptures,
-      refreshReceiptCaptures: fetchReceiptCaptures
-    } = useReceiptCapture();
-    // ...existing code...
-
-    // Auto-parse a receipt by captureId (for retry)
-    const handleReceiptParseAuto = useCallback(async (captureId: string) => {
-      if (!captureId) return;
-      try {
-        const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ captureId })
-        });
-        if (!resp.ok) {
-          const data = await resp.json().catch(() => ({}));
-          throw new Error(data.error || 'Failed to parse receipt');
-        }
-        addToast('Receipt parsing started.', 'success');
-        await fetchReceiptCaptures();
-      } catch (err: any) {
-        addToast(err?.message || 'Failed to parse receipt', 'error');
-      }
-    }, [addToast, fetchReceiptCaptures]);
-
-    // Retry parse for stuck receipts
-    const handleRetryParse = useCallback(async (captureId: string) => {
-      try {
-        await handleReceiptParseAuto(captureId);
-        addToast('Parse retried.', 'info');
-      } catch (err: any) {
-        addToast(err?.message || 'Failed to retry parse.', 'error');
-      }
-    }, [handleReceiptParseAuto, addToast]);
-
-    // ...existing code...
-// Defensive helper for stats fields
-function safeStat(capture: any, key: string): number {
-  return capture && capture.stats && typeof capture.stats[key] === 'number' ? capture.stats[key] : 0;
-}
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Camera, Trash2, Loader2, CheckCircle2, X } from 'lucide-react';
 import {
@@ -83,6 +25,11 @@ import {
   getSafeCaptureStatus,
   getReceiptItemKey
 } from '../../utils/receiptHelpers';
+
+// Defensive helper for stats fields
+function safeStat(capture: any, key: string): number {
+  return capture && capture.stats && typeof capture.stats[key] === 'number' ? capture.stats[key] : 0;
+}
 
 interface ReceiptCapture {
   _id: string;
@@ -386,6 +333,26 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     }
   }, [activeStoreId, addToast, setActiveStoreId]);
 
+    const handleReceiptParseAuto = useCallback(async (captureId: string) => {
+    if (!captureId) return;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ captureId })
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to parse receipt');
+      }
+      addToast('Receipt parsing started.', 'success');
+      await fetchReceiptCaptures();
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to parse receipt', 'error');
+    }
+  }, [addToast, fetchReceiptCaptures]);
+
   const handleReviewPendingReceipts = useCallback(() => {
     const capture = receiptCaptures.find(entry => entry.status === 'parsed');
     if (capture) {
@@ -462,7 +429,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     } finally {
       handleReceiptScannerClose();
     }
-  }, [addToast, createCaptureRequestId, fetchReceiptCaptures, handleReceiptScannerClose, receiptImageUrl, receiptThumbnailUrl]);
+  }, [addToast, createCaptureRequestId, fetchReceiptCaptures, handleReceiptScannerClose, receiptImageUrl, receiptThumbnailUrl, handleReceiptParseAuto]);
 
   const handleOpenReceiptCapture = useCallback(async (capture: ReceiptCapture) => {
     await loadReceiptCaptureForReview(capture._id, capture.storeId);
@@ -473,7 +440,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       addToast('No receipts in queue yet.', 'info');
       return;
     }
-    const captures = await fetchReceiptCaptures();
+    await fetchReceiptCaptures();
     const pendingCapture = receiptCaptures.find(capture => capture.status === 'parsed');
     if (pendingCapture) {
       await loadReceiptCaptureForReview(pendingCapture._id, pendingCapture.storeId);
@@ -500,7 +467,16 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     } catch (err: any) {
       addToast(err?.message || 'Failed to delete receipt capture', 'error');
     }
-  }, [addToast]);
+  }, [addToast, setReceiptCaptures]);
+
+    const handleRetryParse = useCallback(async (captureId: string) => {
+      try {
+        await handleReceiptParseAuto(captureId);
+        addToast('Parse retried.', 'info');
+      } catch (err: any) {
+        addToast(err?.message || 'Failed to retry parse.', 'error');
+      }
+    }, [handleReceiptParseAuto, addToast]);
 
   const handleDeleteNoiseRule = useCallback(async (ruleId: string) => {
     if (!activeStoreId) return;
@@ -523,7 +499,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     } catch (err: any) {
       addToast(err?.message || 'Failed to delete noise rule', 'error');
     }
-  }, [activeStoreId, addToast]);
+  }, [activeStoreId, addToast, setNoiseRules]);
 
 
   const handleStoreSelect = useCallback((id: string) => {
@@ -591,7 +567,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       }
       return updated;
     });
-  }, [getReceiptItemKey]);
+  }, []);
 
   const handleSelectAllForCommit = useCallback(() => {
     const updated = new Map<string, boolean>();
@@ -601,7 +577,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       }
     });
     setSelectedItemsForCommit(updated);
-  }, [classifiedItems, getReceiptItemKey]);
+  }, [classifiedItems]);
 
   const handleClearSelectedForCommit = useCallback(() => {
     setSelectedItemsForCommit(new Map());
@@ -686,10 +662,10 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     commitIntent,
     fetchReceiptCaptureStats,
     fetchReceiptCaptures,
-    getReceiptItemKey,
     lockDurationDays,
     resetReceiptReview,
-    selectedItemsForCommit
+    selectedItemsForCommit,
+    activeStoreId
   ]);
 
   const handleCreateReceiptFromLiveScan = useCallback(async (items: ClassifiedReceiptItem[]) => {
@@ -747,7 +723,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
       handleReceiptScannerClose();
     } catch (err: any) {
       addToast(err?.message || 'Receipt save failed', 'error');
-    }
+    } 
   }, [
     activeStoreId,
     addToast,
@@ -944,7 +920,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     const key = getReceiptItemKey(createProductItem);
     setDismissedCreateItems(prev => new Set(prev).add(key));
     setCreateProductItem(null);
-  }, [createProductItem, getReceiptItemKey]);
+  }, [createProductItem]);
 
   const isCreateProductReady = useMemo(() => {
     return Boolean(createProductDraft.name && createProductDraft.price > 0);
@@ -1114,27 +1090,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     } catch (err: any) {
       addToast(err?.message || 'Receipt upload failed', 'error');
     }
-  }, [activeStoreId, addToast, createCaptureRequestId, getDefaultStoreName, loadReceiptCaptureForReview]);
-
-  const handleReceiptParseAuto = useCallback(async (captureId: string) => {
-    if (!captureId) return;
-    try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ captureId })
-      });
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to parse receipt');
-      }
-      addToast('Receipt parsing started.', 'success');
-      await fetchReceiptCaptures();
-    } catch (err: any) {
-      addToast(err?.message || 'Failed to parse receipt', 'error');
-    }
-  }, [addToast, fetchReceiptCaptures]);
+  }, [activeStoreId, addToast, createCaptureRequestId, getDefaultStoreName, handleReceiptParseAuto, loadReceiptCaptureForReview]);
 
   const handleAddNoiseRule = useCallback(async (normalizedName: string) => {
     if (!activeStoreId) return;
@@ -1182,7 +1138,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     } catch (err: any) {
       addToast(err?.message || 'Failed to commit receipt', 'error');
     }
-  }, [activeReceiptCaptureId, addToast, fetchReceiptCaptureStats, fetchReceiptCaptures, resetReceiptReview]);
+  }, [activeReceiptCaptureId, activeStoreId, addToast, fetchReceiptCaptureStats, fetchReceiptCaptures, resetReceiptReview]);
 
   const handleUploadReceiptImage = useCallback(async (file: File) => {
     if (!file) return;
@@ -1335,7 +1291,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     await handleReceiptParseAuto(captureId);
   }, [handleReceiptParseAuto]);
 
-  const handleReceiptCommitChanges = useCallback(async () => {
+  const handleReceiptCommitChangesAction = useCallback(async () => {
     await handleCommitReceiptChanges();
   }, [handleCommitReceiptChanges]);
 
@@ -1402,7 +1358,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     const statusLabel = getSafeCaptureStatus(capture.status);
     return (
       <span
-        className={`text-[10px] uppercase tracking-widest px-2 py-1 rounded ${
+        className={`text-[10px] uppercase tracking-widest px-2 py-1 rounded ${ 
           capture.status === 'parsed'
             ? 'bg-yellow-500 text-yellow-900'
             : capture.status === 'review_complete'
@@ -1413,7 +1369,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         {statusLabel}
       </span>
     );
-  }, [receiptCaptures]);
+  }, [receiptCaptures, activeReceiptCaptureId]);
 
   const sortedReceiptCaptures = useMemo(() => {
     return [...receiptCaptures].sort((a, b) => {
@@ -1563,7 +1519,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                 <button
                   onClick={handleReviewPendingReceipts}
                   disabled={pendingReceiptCount === 0}
-                  className={`px-4 py-2 rounded-lg text-white text-sm font-semibold flex items-center gap-2 transition-all ${
+                  className={`px-4 py-2 rounded-lg text-white text-sm font-semibold flex items-center gap-2 transition-all ${ 
                     pendingReceiptCount === 0
                       ? 'bg-white/10 text-white/50 cursor-not-allowed'
                       : 'bg-white/20 hover:bg-white/30'
@@ -1589,7 +1545,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
                       <div className="flex items-center gap-2">
                         <span
-                          className={`text-xs px-2 py-1 rounded ${
+                          className={`text-xs px-2 py-1 rounded ${ 
                             capture.status === 'parsed'
                               ? 'bg-yellow-500 text-yellow-900'
                               : capture.status === 'review_complete'
@@ -1675,7 +1631,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                         <button
                           onClick={() => handleOpenReceiptCapture(capture)}
                           disabled={capture.status !== 'parsed' || isLoadingReceiptCapture === capture._id}
-                          className={`px-3 py-2 rounded-lg text-[10px] font-semibold border transition ${
+                          className={`px-3 py-2 rounded-lg text-[10px] font-semibold border transition ${ 
                             capture.status !== 'parsed' || isLoadingReceiptCapture === capture._id
                               ? 'border-white/20 text-white/50 bg-white/10 cursor-not-allowed'
                               : 'border-white/30 text-white bg-white/20 hover:bg-white/30'
@@ -1715,7 +1671,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                 <button
                   onClick={handleOpenPriceReview}
                   disabled={priceReviewItems.length === 0}
-                  className={`px-3 py-2 rounded-lg text-xs font-semibold border ${
+                  className={`px-3 py-2 rounded-lg text-xs font-semibold border ${ 
                     priceReviewItems.length === 0
                       ? 'border-white/20 text-white/50 bg-white/10'
                       : 'border-white/30 text-white bg-white/20 hover:bg-white/30'
@@ -1867,7 +1823,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         onClick={() => handleReceiptCommitMode('safe')}
-                        className={`px-3 py-2 rounded-full text-[10px] font-semibold border ${
+                        className={`px-3 py-2 rounded-full text-[10px] font-semibold border ${ 
                           commitIntent === 'safe'
                             ? 'border-white/50 text-white bg-white/20'
                             : 'border-white/10 text-slate-300'
@@ -1877,7 +1833,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                       </button>
                       <button
                         onClick={() => handleReceiptCommitMode('selected')}
-                        className={`px-3 py-2 rounded-full text-[10px] font-semibold border ${
+                        className={`px-3 py-2 rounded-full text-[10px] font-semibold border ${ 
                           commitIntent === 'selected'
                             ? 'border-white/50 text-white bg-white/20'
                             : 'border-white/10 text-slate-300'
@@ -1887,7 +1843,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                       </button>
                       <button
                         onClick={() => handleReceiptCommitMode('locked')}
-                        className={`px-3 py-2 rounded-full text-[10px] font-semibold border ${
+                        className={`px-3 py-2 rounded-full text-[10px] font-semibold border ${ 
                           commitIntent === 'locked'
                             ? 'border-white/50 text-white bg-white/20'
                             : 'border-white/10 text-slate-300'
