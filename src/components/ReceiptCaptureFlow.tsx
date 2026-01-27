@@ -8,13 +8,13 @@ import React, {
 import { createPortal } from 'react-dom';
 
 import ScannerPanel, { ScannerPanelProps } from './ScannerPanel';
-import StoreSelectorModal from './StoreSelectorModal';
+// ...existing code...
 import { StoreRecord, ScannerMode } from '../types';
 import { formatStoreAddress } from '../utils/address';
 import { BACKEND_URL } from '../constants';
 
 /**
- * This file is intentionally LARGE.
+ * This file is intentionally LARGE. 
  * It preserves ALL existing UX behavior while finally wiring the backend.
  */
 
@@ -225,31 +225,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   return createPortal(
     <div className="fixed inset-0 z-50 bg-black/80">
       {/* STORE SELECTION */}
-      {showStoreSelector && (
-        <StoreSelectorModal
-          stores={stores}
-          selectedStoreId={pendingStoreId}
-          onConfirm={storeId => {
-            setSelectedStoreId(storeId);
-            setPendingStoreId(storeId);
-            setShowStoreSelector(false);
-            setIsCameraOpen(true);
-            onStoreSelected?.(storeId);
-          }}
-          onCancel={() => {
-            setShowStoreSelector(false);
-            setIsCameraOpen(false);
-          }}
-          selectedStoreIsPrimary={selectedStoreIsPrimary}
-          onPrimarySupplierToggle={(storeId, nextValue) => {
-            setSessionPrimarySupplier(prev => ({
-              ...prev,
-              [storeId]: nextValue
-            }));
-            onPrimarySupplierToggle?.(storeId, nextValue);
-          }}
-        />
-      )}
+      {/* StoreSelectorModal removed: camera will open immediately, backend will infer store from receipt */}
 
       {/* CAMERA */}
       {isCameraOpen && selectedStore && (
