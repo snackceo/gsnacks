@@ -121,12 +121,12 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 }) => {
   const { addToast, settings, currentUser } = useNinpoCore();
   const {
-    receiptCaptures,
+    receiptCaptures = [],
     setReceiptCaptures,
     refreshReceiptCaptures: fetchReceiptCaptures
   } = useReceiptCapture();
   const {
-    receiptAliases,
+    receiptAliases = [],
     setReceiptAliases,
     isAliasLoading,
     aliasError,
@@ -135,7 +135,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     setAliasServiceStatus,
     aliasActionId,
     setAliasActionId,
-    noiseRules,
+    noiseRules = [],
     setNoiseRules,
     isLoadingNoiseRules,
     refreshAliases: fetchReceiptAliases,
