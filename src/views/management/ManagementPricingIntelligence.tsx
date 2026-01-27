@@ -1553,7 +1553,9 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                           {capture.imageCount} photo{capture.imageCount !== 1 ? 's' : ''}
                         </div>
                         <div>
-                          {capture.stats.itemsConfirmed}/{capture.stats.totalItems} items confirmed
+                          {capture.stats && typeof capture.stats.itemsConfirmed === 'number' && typeof capture.stats.totalItems === 'number'
+                            ? `${capture.stats.itemsConfirmed}/${capture.stats.totalItems} items confirmed`
+                            : '— items confirmed'}
                         </div>
                         <div className="text-[11px] text-purple-100/80">
                           <span className="font-semibold">Captured by:</span>{' '}
