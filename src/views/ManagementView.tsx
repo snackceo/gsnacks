@@ -1236,6 +1236,15 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       render: () => (
         <ManagementPricingIntelligence
           fmtTime={fmtTime}
+          stores={stores}
+          activeStoreId={activeStoreId}
+          setActiveStoreId={setActiveStoreId}
+          refreshStores={loadStores}
+          isLoadingStores={isLoadingStores}
+          storeError={storeError}
+          setStoreError={setStoreError}
+          setScannerMode={setScannerMode}
+          setScannerModalOpen={setScannerModalOpen}
         />
       )
     },

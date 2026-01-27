@@ -133,6 +133,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   // ─────────────────────────────────────────────────────────────
   // OPEN / CLOSE FLOW
   // ─────────────────────────────────────────────────────────────
+  // Always open camera when modal is open (for debugging and strict UX)
   useEffect(() => {
     if (isOpen) {
       setIsCameraOpen(true);
