@@ -220,10 +220,14 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
             body: JSON.stringify({ captureId })
           }
         );
+        const parseData = await parseRes.json();
 
         if (!parseRes.ok) {
-          throw new Error(await parseRes.text());
+          // ONLY throw if enqueue failed
+          throw new Error(parseData?.error || 'Failed to enqueue receipt parse');
         }
+        // DO NOT throw if parse is pending. This is SUCCESS.
+        // Proceed to review UI, show "Parsing in progress..."
 
         if (!mountedRef.current) return;
 
