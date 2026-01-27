@@ -100,8 +100,38 @@ const parseOptionalNumber = (value, field) => {
   return { value: number };
 };
 
+const allowedArrayFields = ['storageZones', 'productTypes'];
+const allowedObjectFields = ['scanningModesEnabled'];
 const parseSettingsInput = (payload, { partial }) => {
   const updates = partial ? {} : { ...defaultSettings };
+  // Check for unknown fields
+  const allowedFields = new Set([
+    ...numericFields,
+    ...booleanFields,
+    ...optionalNumericFields,
+    ...allowedArrayFields,
+    ...allowedObjectFields,
+    'priceLockDays',
+    'defaultIncrement',
+    'cooldownMs',
+    'requireSkuForScanning',
+    'shelfGroupingEnabled',
+    'dailyReturnLimit',
+    'heavyItemFeePerUnit',
+    'largeOrderIncludedItems',
+    'largeOrderPerItemFee',
+    'glassHandlingFeePercent',
+    'michiganDepositValue',
+    'processingFeePercent',
+    'returnProcessingFeePercent',
+    'glassHandlingFeePerContainer',
+    'returnHandlingFeePerContainer'
+  ]);
+  for (const key of Object.keys(payload || {})) {
+    if (!allowedFields.has(key)) {
+      return { error: `Unknown field: ${key}` };
+    }
+  }
   for (const field of numericFields) {
     if (payload?.[field] !== undefined || !partial) {
       const value = Number(
@@ -113,7 +143,6 @@ const parseSettingsInput = (payload, { partial }) => {
       updates[field] = value;
     }
   }
-
   for (const field of booleanFields) {
     if (payload?.[field] !== undefined || !partial) {
       updates[field] = Boolean(
@@ -121,7 +150,6 @@ const parseSettingsInput = (payload, { partial }) => {
       );
     }
   }
-
   for (const field of optionalNumericFields) {
     if (payload?.[field] !== undefined || !partial) {
       const rawValue =
@@ -133,7 +161,57 @@ const parseSettingsInput = (payload, { partial }) => {
       updates[field] = value;
     }
   }
-
+  // Validate arrays
+  for (const field of allowedArrayFields) {
+    if (payload?.[field] !== undefined || !partial) {
+      const arr = payload?.[field] !== undefined ? payload[field] : defaultSettings[field];
+      if (!Array.isArray(arr)) {
+        return { error: `${field} must be an array of strings` };
+      }
+      if (arr.some(v => typeof v !== 'string' || v.length > 64)) {
+        return { error: `${field} must only contain strings (max 64 chars each)` };
+      }
+      updates[field] = arr;
+    }
+  }
+  // Validate scanningModesEnabled object
+  if (payload?.scanningModesEnabled !== undefined || !partial) {
+    const obj = payload?.scanningModesEnabled !== undefined ? payload.scanningModesEnabled : defaultSettings.scanningModesEnabled;
+    if (typeof obj !== 'object' || Array.isArray(obj) || obj === null) {
+      return { error: 'scanningModesEnabled must be an object' };
+    }
+    const allowedModes = ['A','B','C','D','inventoryCreate','upcLookup','driverVerifyContainers','customerReturnScan'];
+    for (const k of Object.keys(obj)) {
+      if (!allowedModes.includes(k)) {
+        return { error: `Unknown scanning mode: ${k}` };
+      }
+      if (typeof obj[k] !== 'boolean') {
+        return { error: `scanningModesEnabled.${k} must be a boolean` };
+      }
+    }
+    updates.scanningModesEnabled = obj;
+  }
+  // Validate additional simple fields
+  if (payload?.defaultIncrement !== undefined || !partial) {
+    const v = Number(payload?.defaultIncrement ?? defaultSettings.defaultIncrement);
+    if (!Number.isFinite(v) || v < 1 || v > 100) {
+      return { error: 'defaultIncrement must be a number between 1 and 100' };
+    }
+    updates.defaultIncrement = v;
+  }
+  if (payload?.cooldownMs !== undefined || !partial) {
+    const v = Number(payload?.cooldownMs ?? defaultSettings.cooldownMs);
+    if (!Number.isFinite(v) || v < 0 || v > 60000) {
+      return { error: 'cooldownMs must be a number between 0 and 60000' };
+    }
+    updates.cooldownMs = v;
+  }
+  if (payload?.requireSkuForScanning !== undefined || !partial) {
+    updates.requireSkuForScanning = Boolean(payload.requireSkuForScanning);
+  }
+  if (payload?.shelfGroupingEnabled !== undefined || !partial) {
+    updates.shelfGroupingEnabled = Boolean(payload.shelfGroupingEnabled);
+  }
   return { updates };
 };
 

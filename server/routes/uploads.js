@@ -48,39 +48,61 @@ const saveImage = async ({ orderId, payload, folder }) => {
   return `/uploads/${folder}/${fileName}`;
 };
 
+
+function validateUploadInput(body) {
+  const allowed = ['orderId', 'imageData'];
+  for (const key of Object.keys(body)) {
+    if (!allowed.includes(key)) {
+      return `Unknown field: ${key}`;
+    }
+  }
+  if (!body.orderId || typeof body.orderId !== 'string') return 'orderId is required';
+  if (!body.imageData || typeof body.imageData !== 'string') return 'imageData is required';
+  return null;
+}
+
 router.post('/proof', authRequired, async (req, res) => {
   try {
+    const error = validateUploadInput(req.body);
+    if (error) return res.status(400).json({ error });
     const orderId = String(req.body?.orderId || '').trim();
     const payload = parseImagePayload(req.body?.imageData);
-
-    if (!orderId) return res.status(400).json({ error: 'orderId is required' });
     if (!payload?.base64) {
       return res.status(400).json({ error: 'imageData is required' });
     }
-
     const url = await saveImage({ orderId, payload, folder: 'proofs' });
     res.json({ ok: true, url });
   } catch (err) {
-    console.error('PROOF UPLOAD ERROR:', err);
-    res.status(500).json({ error: 'Failed to upload proof' });
+    console.error('PROOF UPLOAD ERROR:', {
+      error: err,
+      user: req?.user || 'unknown',
+      body: req?.body,
+      time: new Date().toISOString()
+    });
+    res.status(500).json({ error: 'Failed to upload proof. Please try again later or contact support.' });
   }
 });
 
+
 router.post('/return-photo', authRequired, async (req, res) => {
   try {
+    const error = validateUploadInput(req.body);
+    if (error) return res.status(400).json({ error });
     const orderId = String(req.body?.orderId || '').trim();
     const payload = parseImagePayload(req.body?.imageData);
-
-    if (!orderId) return res.status(400).json({ error: 'orderId is required' });
     if (!payload?.base64) {
       return res.status(400).json({ error: 'imageData is required' });
     }
-
     const url = await saveImage({ orderId, payload, folder: 'return-photos' });
     res.json({ ok: true, url });
   } catch (err) {
-    console.error('RETURN PHOTO UPLOAD ERROR:', err);
-    res.status(500).json({ error: 'Failed to upload return photo' });
+    console.error('RETURN PHOTO UPLOAD ERROR:', {
+      error: err,
+      user: req?.user || 'unknown',
+      body: req?.body,
+      time: new Date().toISOString()
+    });
+    res.status(500).json({ error: 'Failed to upload return photo. Please try again later or contact support.' });
   }
 });
 

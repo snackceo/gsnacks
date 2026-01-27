@@ -91,6 +91,22 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
     if (price === undefined || price === null || Number.isNaN(Number(price))) {
       return res.status(400).json({ error: 'price is required' });
     }
+    // Validate storage fields
+    const validateString = (val, field, max = 64) => {
+      if (val === undefined || val === null) return '';
+      if (typeof val !== 'string') throw new Error(`${field} must be a string`);
+      if (val.length > max) throw new Error(`${field} too long (max ${max})`);
+      return val.trim();
+    };
+    let safeBrand, safeProductType, safeStorageZone, safeStorageBin;
+    try {
+      safeBrand = validateString(brand, 'brand');
+      safeProductType = validateString(productType, 'productType');
+      safeStorageZone = validateString(storageZone, 'storageZone');
+      safeStorageBin = validateString(storageBin, 'storageBin');
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
+    }
 
     // Generate a SKU and use it as frontendId for backwards compatibility
     const sku = await generateSku();
@@ -106,10 +122,10 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       category: category || 'DRINK',
       image: image || '',
       isGlass: !!isGlass,
-      brand: brand || '',
-      productType: productType || '',
-      storageZone: storageZone || '',
-      storageBin: storageBin || '',
+      brand: safeBrand,
+      productType: safeProductType,
+      storageZone: safeStorageZone,
+      storageBin: safeStorageBin,
       isHeavy: !!isHeavy,
       upc: normalizedUpc || undefined
     });
@@ -150,8 +166,26 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
       'upc'
     ];
 
+    // Validate and normalize string fields
+    const validateString = (val, field, max = 64) => {
+      if (val === undefined || val === null) return '';
+      if (typeof val !== 'string') throw new Error(`${field} must be a string`);
+      if (val.length > max) throw new Error(`${field} too long (max ${max})`);
+      return val.trim();
+    };
+
     for (const k of allowed) {
-      if (req.body?.[k] !== undefined) updates[k] = req.body[k];
+      if (req.body?.[k] !== undefined) {
+        if (["brand","productType","storageZone","storageBin"].includes(k)) {
+          try {
+            updates[k] = validateString(req.body[k], k);
+          } catch (e) {
+            return res.status(400).json({ error: e.message });
+          }
+        } else {
+          updates[k] = req.body[k];
+        }
+      }
     }
 
     if (updates.price !== undefined) updates.price = Number(updates.price);
@@ -168,6 +202,10 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
       } else {
         delete updates.upc;
       }
+    }
+    // If any of the storage fields are set to empty string, persist as empty string (never undefined/null)
+    for (const k of ["brand","productType","storageZone","storageBin"]) {
+      if (updates[k] === '') updates[k] = '';
     }
 
     const updated = await Product.findOneAndUpdate(
