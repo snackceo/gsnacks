@@ -1242,8 +1242,16 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   }, [handleReviewPendingReceipts]);
 
   const handleDeleteReceiptQueueItem = useCallback(async (captureId: string) => {
-    await handleDeleteReceiptCapture(captureId);
-  }, [handleDeleteReceiptCapture]);
+    try {
+      await handleDeleteReceiptCapture(captureId);
+    } catch (err: any) {
+      if (err?.message?.includes('404')) {
+        addToast('Receipt not found or already deleted.', 'warning');
+      } else {
+        addToast(err?.message || 'Failed to delete receipt.', 'error');
+      }
+    }
+  }, [handleDeleteReceiptCapture, addToast]);
 
   const handleReceiptCaptureComplete = useCallback(async (imageUrl: string, thumbnailUrl?: string) => {
     setReceiptImageUrl(imageUrl);

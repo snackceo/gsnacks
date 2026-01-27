@@ -295,22 +295,6 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
         </>
       )}
 
-      {/* UPLOAD BUTTON */}
-      <button
-        className="mt-6 py-3 px-6 bg-ninpo-lime text-ninpo-black rounded-xl font-black uppercase tracking-widest hover:bg-white transition-colors"
-        onClick={handleUploadClick}
-        disabled={isSubmitting}
-      >
-        Upload Receipt Image
-      </button>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        style={{ display: 'none' }}
-        onChange={handleFileChange}
-      />
-
       {/* ERROR TOAST */}
       {error && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-red-900/90 text-white px-4 py-2 rounded-lg shadow-lg">
