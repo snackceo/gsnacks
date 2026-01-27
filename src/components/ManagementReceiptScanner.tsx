@@ -504,7 +504,7 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
         </div>
 
         {/* Footer */}
-        <div className="border-t px-6 py-4 bg-gray-50 flex items-center justify-between">
+        <div className="border-t px-6 py-4 bg-gray-50 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="text-sm text-gray-600">
             {capture.stats.itemsConfirmed} of {capture.stats.totalItems} items confirmed
             {capture.reviewExpiresAt && (
@@ -513,7 +513,18 @@ export default function ManagementReceiptScanner({ captureId, onClose, onCommit 
               </span>
             )}
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-3 flex-wrap items-center">
+            <label className="inline-block bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg cursor-pointer transition-all mb-0">
+              {uploading ? 'Uploading...' : 'Capture/Upload Receipt'}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileChange}
+                disabled={uploading}
+                style={{ display: 'none' }}
+              />
+            </label>
             <button
               onClick={onClose}
               className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
