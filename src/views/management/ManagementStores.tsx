@@ -257,7 +257,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
     setIsInventoryLoading(true);
     setInventoryError(null);
     try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-inventory/${activeStoreId}`, {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-items/${activeStoreId}`, {
         credentials: 'include'
       });
       if (!resp.ok) {
@@ -265,7 +265,8 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
         throw new Error(data.error || 'Failed to load store inventory');
       }
       const data = await resp.json().catch(() => ({}));
-      setStoreInventory(Array.isArray(data.inventory) ? data.inventory : []);
+      // The backend returns { ok: true, aliases: [...] }
+      setStoreInventory(Array.isArray(data.aliases) ? data.aliases : []);
     } catch (err: any) {
       setInventoryError(err?.message || 'Failed to load store inventory');
     } finally {
