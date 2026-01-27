@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import {
   X,
   ScanLine,
@@ -13,18 +13,18 @@ import {
 // See GLOSSARY.md for authoritative definitions of all scanner modes.
 import { ScannerMode } from '../types';
 
-interface ParsedReceiptItem {
+export interface ParsedReceiptItem {
   receiptName: string;
   quantity: number;
   totalPrice: number;
 }
 
-interface ScannerPanelProps {
+export interface ScannerPanelProps {
   mode?: ScannerMode;
-  onScan: (upc: string) => void;
+  onScan?: (upc: string) => void;
   onCooldown?: (upc: string, reason: 'cooldown' | 'duplicate') => void;
-  title: string;
-  subtitle: string;
+  title?: string;
+  subtitle?: string;
   beepEnabled?: boolean;
   cooldownMs?: number;
   onPhotoCaptured?: (photoDataUrl: string, mime: string) => void;
@@ -39,7 +39,6 @@ interface ScannerPanelProps {
   showClose?: boolean;
   className?: string;
   bottomSheetContent?: React.ReactNode;
-  // Store context
   selectedStoreId?: string;
   selectedStoreName?: string;
   selectedStoreBrand?: string;
@@ -111,8 +110,6 @@ const compressAndResizeImage = (
   });
 };
 
-import React, { useRef, useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
-// ...existing imports...
 
 const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   mode,
@@ -977,8 +974,9 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
           {scannerError}
         </div>
       )}
+
     </div>
   );
+});
 
-export type { ScannerPanelProps, ParsedReceiptItem };
 export default ScannerPanel;
