@@ -65,13 +65,13 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   const [pendingStoreId, setPendingStoreId] = useState<string | null>(
     defaultStoreId || null
   );
-  const [showStoreSelector, setShowStoreSelector] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [sessionPrimarySupplier, setSessionPrimarySupplier] = useState<
     Record<string, boolean>
   >({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const mountedRef = useRef(true);
 
@@ -120,16 +120,32 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (isOpen) {
-      setShowStoreSelector(true);
-      setIsCameraOpen(false);
-      setPendingStoreId(prev => prev ?? selectedStoreId);
+      setIsCameraOpen(true);
       setError(null);
     } else {
-      setShowStoreSelector(false);
       setIsCameraOpen(false);
       setError(null);
     }
-  }, [isOpen, selectedStoreId]);
+  }, [isOpen]);
+  // Handle file upload (image)
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64Image = event.target?.result;
+      if (typeof base64Image === 'string') {
+        await handleReceiptCaptured(base64Image);
+      }
+    };
+    reader.readAsDataURL(file);
+    // Reset input so same file can be uploaded again if needed
+    e.target.value = '';
+  };
 
   // ─────────────────────────────────────────────────────────────
   // DERIVED STATE
@@ -223,10 +239,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 bg-black/80">
-      {/* STORE SELECTION */}
-      {/* StoreSelectorModal removed: camera will open immediately, backend will infer store from receipt */}
-
+    <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
       {/* CAMERA */}
       {isCameraOpen && selectedStore && (
         <ScannerPanel
@@ -244,6 +257,22 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
           disabled={isSubmitting}
         />
       )}
+
+      {/* UPLOAD BUTTON */}
+      <button
+        className="mt-6 py-3 px-6 bg-ninpo-lime text-ninpo-black rounded-xl font-black uppercase tracking-widest hover:bg-white transition-colors"
+        onClick={handleUploadClick}
+        disabled={isSubmitting}
+      >
+        Upload Receipt Image
+      </button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
 
       {/* ERROR TOAST */}
       {error && (
