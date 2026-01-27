@@ -111,7 +111,10 @@ const compressAndResizeImage = (
   });
 };
 
-const ScannerPanel: React.FC<ScannerPanelProps> = ({
+import React, { useRef, useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
+// ...existing imports...
+
+const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   mode,
   onScan,
   onCooldown,
@@ -137,7 +140,11 @@ const ScannerPanel: React.FC<ScannerPanelProps> = ({
   selectedStoreLocation,
   selectedStoreIsPrimary = false,
   onTogglePrimarySupplier
-}) => {
+}, ref) => {
+    // Expose capturePhoto method to parent via ref
+    useImperativeHandle(ref, () => ({
+      capturePhoto: takePhoto
+    }));
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);

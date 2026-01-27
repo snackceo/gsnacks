@@ -1,3 +1,12 @@
+  // Ref to access ScannerPanel's capture method
+  const scannerPanelRef = useRef<any>(null);
+
+  // Handler to trigger photo capture in ScannerPanel
+  const handleCaptureClick = () => {
+    if (scannerPanelRef.current && typeof scannerPanelRef.current.capturePhoto === 'function') {
+      scannerPanelRef.current.capturePhoto();
+    }
+  };
 import React, {
   useCallback,
   useEffect,
@@ -145,7 +154,25 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
       setError(null);
 
       try {
-        // 1️⃣ CREATE RECEIPT CAPTURE (no store info, backend infers store)
+        // 1️⃣ Upload image to backend to get imageUrl and thumbnailUrl
+        const uploadRes = await fetch(
+          `${BACKEND_URL}/api/driver/upload-receipt-image`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: base64Image })
+          }
+        );
+
+        if (!uploadRes.ok) {
+          throw new Error(await uploadRes.text());
+        }
+
+        const { url, thumbnailUrl } = await uploadRes.json();
+        if (!url) throw new Error('Image upload failed: no URL returned');
+
+        // 2️⃣ CREATE RECEIPT CAPTURE with image URLs
         const captureRes = await fetch(
           `${BACKEND_URL}/api/driver/receipt-capture`,
           {
@@ -153,7 +180,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              images: [{ dataUrl: base64Image }]
+              images: [{ url, thumbnailUrl: thumbnailUrl || url }]
             })
           }
         );
@@ -164,7 +191,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
 
         const { captureId } = await captureRes.json();
 
-        // 2️⃣ IMMEDIATE PARSE (CRITICAL — NO USER ACTION)
+        // 3️⃣ IMMEDIATE PARSE (CRITICAL — NO USER ACTION)
         const parseRes = await fetch(
           `${BACKEND_URL}/api/driver/receipt-parse`,
           {
@@ -181,7 +208,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
 
         if (!mountedRef.current) return;
 
-        // 3️⃣ HAND OFF TO REVIEW / QUEUE
+        // 4️⃣ HAND OFF TO REVIEW / QUEUE
         onReceiptCreated?.(captureId);
 
         // Close camera after success
@@ -209,13 +236,24 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
       {/* CAMERA */}
       {isCameraOpen && (
-        <ScannerPanel
-          {...scannerProps}
-          mode={mode}
-          onReceiptCaptured={handleReceiptCaptured}
-          onClose={() => setIsCameraOpen(false)}
-          disabled={isSubmitting}
-        />
+        <>
+          <ScannerPanel
+            ref={scannerPanelRef}
+            {...scannerProps}
+            mode={mode}
+            onReceiptCaptured={handleReceiptCaptured}
+            showClose={true}
+            onClose={() => setIsCameraOpen(false)}
+            disabled={isSubmitting}
+          />
+          <button
+            className="mt-4 py-3 px-8 bg-ninpo-lime text-ninpo-black rounded-xl font-black uppercase tracking-widest hover:bg-white transition-colors"
+            onClick={handleCaptureClick}
+            disabled={isSubmitting}
+          >
+            Capture Receipt
+          </button>
+        </>
       )}
 
       {/* UPLOAD BUTTON */}
