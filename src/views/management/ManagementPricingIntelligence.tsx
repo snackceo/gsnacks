@@ -1582,7 +1582,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                           </div>
                         )}
 
-                        {capture.stats.itemsNeedingReview > 0 && (
+                        {capture.stats && typeof capture.stats.itemsNeedingReview === 'number' && capture.stats.itemsNeedingReview > 0 && (
                           <div className="text-yellow-300 font-semibold">
                             {capture.stats.itemsNeedingReview} need review
                           </div>
