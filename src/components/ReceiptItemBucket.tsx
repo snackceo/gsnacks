@@ -6,14 +6,25 @@ import { getBucketInfo } from '../utils/classificationUtils';
 interface ReceiptItemBucketProps {
   items: ClassifiedReceiptItem[];
   selectedItems?: Map<string, boolean>;
-  onItemToggle?: (item: ClassifiedReceiptItem, classification: ReceiptItemClassification, checked: boolean) => void;
+  onItemToggle?: (
+    item: ClassifiedReceiptItem,
+    classification: ReceiptItemClassification,
+    checked: boolean
+  ) => void;
   onItemReclassify?: (item: ClassifiedReceiptItem, classification: ReceiptItemClassification) => void;
   onItemScanUpc?: (item: ClassifiedReceiptItem) => void;
   onItemSearchProduct?: (item: ClassifiedReceiptItem) => void;
   onItemCreateProduct?: (item: ClassifiedReceiptItem) => void;
   onItemAttachExisting?: (item: ClassifiedReceiptItem) => void;
   onItemNeverMatch?: (item: ClassifiedReceiptItem) => void;
+
+  /**
+   * IMPORTANT:
+   * Your ClassifiedReceiptItem doesn't have a stable `id`.
+   * If caller doesn't provide getItemKey, we generate a stable-enough key.
+   */
   getItemKey?: (item: ClassifiedReceiptItem) => string;
+
   isReadOnly?: boolean;
 }
 
@@ -51,6 +62,17 @@ const formatHistoryEntry = (entry: NonNullable<ClassifiedReceiptItem['matchHisto
   return `$${entry.price.toFixed(2)} on ${dateLabel}${method}${confidence}`;
 };
 
+const defaultItemKey = (item: ClassifiedReceiptItem) => {
+  // Prefer lineIndex if present; it's the closest thing to a stable identity.
+  // Fall back to a deterministic composite key.
+  const li = typeof item.lineIndex === 'number' ? item.lineIndex : 'x';
+  const qty = item.quantity ?? 0;
+  const unit = typeof item.unitPrice === 'number' ? item.unitPrice.toFixed(4) : '0';
+  const tot = typeof item.totalPrice === 'number' ? item.totalPrice.toFixed(4) : '0';
+  const name = item.receiptName ?? '';
+  return `${item.captureId ?? 'cap'}:${li}:${name}:${qty}:${unit}:${tot}`;
+};
+
 const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
   items = [],
   selectedItems = new Map(),
@@ -81,9 +103,15 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
 
   const bucketOrder: ReceiptItemClassification[] = ['A', 'B', 'C', 'D'];
 
-  const hasItemActions = !isReadOnly && (
-    onItemScanUpc || onItemSearchProduct || onItemCreateProduct || onItemAttachExisting || onItemNeverMatch
-  );
+  const hasItemActions =
+    !isReadOnly &&
+    Boolean(
+      onItemScanUpc ||
+        onItemSearchProduct ||
+        onItemCreateProduct ||
+        onItemAttachExisting ||
+        onItemNeverMatch
+    );
 
   return (
     <div className="space-y-6">
@@ -109,7 +137,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
             {bucketItems.length > 0 ? (
               <div className="space-y-2 pl-3 border-l-2 border-white/10">
                 {bucketItems.map((item, idx) => {
-                  const itemKey = getItemKey ? getItemKey(item) : JSON.stringify(item);
+                  const itemKey = (getItemKey ?? defaultItemKey)(item);
                   const isSelected = selectedItems.get(itemKey) ?? (bucket === 'A' && !isReadOnly);
                   const tokenSummary = formatTokens(item.tokens);
                   const history = item.matchHistory?.slice(0, 3) ?? [];
@@ -125,7 +153,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
 
                   return (
                     <div
-                      key={idx}
+                      key={`${itemKey}:${idx}`}
                       onClick={() => {
                         if (!isReadOnly && onItemToggle) {
                           onItemToggle(item, bucket, !isSelected);
@@ -144,35 +172,43 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                           <p className="text-sm font-semibold text-white truncate">
                             {item.receiptName}
                           </p>
+
                           {item.normalizedName && (
                             <p className="text-[10px] text-slate-500 mt-0.5 truncate">
                               Normalized: {item.normalizedName}
                             </p>
                           )}
+
                           <div className="flex gap-3 mt-1 text-xs text-slate-400">
                             <span>Qty: {item.quantity}</span>
                             <span>Total: ${item.totalPrice.toFixed(2)}</span>
                             <span>Unit: ${item.unitPrice.toFixed(2)}</span>
                           </div>
+
                           {tokenSummary && (
                             <p className="text-xs text-slate-500 mt-1">
                               Tokens: {tokenSummary}
                             </p>
                           )}
+
                           {priceDelta !== undefined && (
                             <p
-                              className={
-                                `text-xs mt-1 ${priceDelta >= 0 ? 'text-red-400' : 'text-green-400'}`
-                              }
+                              className={`text-xs mt-1 ${
+                                priceDelta >= 0 ? 'text-red-400' : 'text-green-400'
+                              }`}
                             >
-                              Δ {priceDelta >= 0 ? '+' : '-'}${Math.abs(priceDelta).toFixed(2)} vs last price
+                              Δ {priceDelta >= 0 ? '+' : '-'}$
+                              {Math.abs(priceDelta).toFixed(2)} vs last price
                             </p>
                           )}
+
                           {(matchMethod || matchScore) && (
                             <p className="text-xs text-slate-500 mt-1">
-                              Match: {matchMethod || 'unknown'}{matchScore ? ` • ${matchScore}` : ''}
+                              Match: {matchMethod || 'unknown'}
+                              {matchScore ? ` • ${matchScore}` : ''}
                             </p>
                           )}
+
                           {history.length > 0 && (
                             <div className="text-[10px] text-slate-500 mt-1">
                               <p>Last 3 prices:</p>
@@ -183,17 +219,21 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                               </ul>
                             </div>
                           )}
+
                           {item.suggestedProduct && (
                             <div className="text-xs text-ninpo-lime mt-1">
                               ✓ {item.suggestedProduct.name}
                             </div>
                           )}
+
                           {displayUpc && (
                             <p className="text-xs text-slate-500 mt-1">UPC: {displayUpc}</p>
                           )}
+
                           {item.isNoiseRule && (
                             <p className="text-xs text-slate-400 mt-1">Noise rule applied</p>
                           )}
+
                           {!isReadOnly && onItemReclassify && (
                             <div className="mt-2 flex flex-wrap gap-1">
                               {bucketOptions.map(option => (
@@ -217,6 +257,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                               ))}
                             </div>
                           )}
+
                           {hasItemActions && (
                             <div className="mt-2 flex flex-wrap gap-2">
                               {onItemScanUpc && (
@@ -231,6 +272,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                                   Scan UPC
                                 </button>
                               )}
+
                               {onItemSearchProduct && (
                                 <button
                                   type="button"
@@ -243,6 +285,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                                   Search Catalog
                                 </button>
                               )}
+
                               {onItemAttachExisting && (
                                 <button
                                   type="button"
@@ -260,6 +303,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                                   Attach to existing
                                 </button>
                               )}
+
                               {onItemCreateProduct && canCreateProduct && (
                                 <button
                                   type="button"
@@ -272,6 +316,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                                   Create Product
                                 </button>
                               )}
+
                               {onItemNeverMatch && (
                                 <button
                                   type="button"
@@ -287,6 +332,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                             </div>
                           )}
                         </div>
+
                         {!isReadOnly && (
                           <div className="flex-shrink-0 w-5 h-5 rounded border border-white/20 mt-0.5">
                             {isSelected && (
