@@ -176,7 +176,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const [timelineProductId, setTimelineProductId] = useState<string>('');
 
   const activeStore = useMemo(
-    () => stores.find(store => store.id === activeStoreId) || null,
+    () => (stores || []).find(store => store.id === activeStoreId) || null,
     [activeStoreId, stores]
   );
 
@@ -1832,7 +1832,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                     <button
                       onClick={handleCommitReceipt}
                       disabled={!commitIntent || isCommitting}
-                      className="mt-4 w-full px-4 py-3 rounded-2xl text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20 disabled:opacity-50"
+                      className="mt-4 w-full px-4 py-3 rounded-2xl text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isCommitting ? 'Committing…' : 'Commit Items'}
                     </button>
@@ -1911,24 +1911,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
               </label>
               <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
                 <span>Taxability</span>
-                <select
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
-                  value={createProductDraft.isTaxable === null ? '' : createProductDraft.isTaxable ? 'taxable' : 'non-taxable'}
-                  onChange={e => {
-                    const value = e.target.value;
-                    setCreateProductDraft(prev => ({
-                      ...prev,
-                      isTaxable: value === '' ? null : value === 'taxable'
-                    }));
-                  }}
-                >
-                  <option value="" disabled>Select taxability</option>
-                  <option value="taxable">Taxable</option>
-                  <option value="non-taxable">Non-taxable</option>
-                </select>
-              </label>
-              <label className="space-y-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                <span>Deposit Eligibility</span>
                 <select
                   className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white"
                   value={
