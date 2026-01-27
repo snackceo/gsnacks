@@ -189,16 +189,18 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
 
         // 2️⃣ CREATE RECEIPT CAPTURE with image URLs and captureRequestId
         const captureRequestId = generateUUIDv4();
+        const captureBody = {
+          images: [{ url, thumbnailUrl: thumbnailUrl || url }],
+          captureRequestId
+        };
+        console.log('DEBUG: captureRequestId', captureRequestId, 'captureBody', captureBody);
         const captureRes = await fetch(
           `${BACKEND_URL}/api/driver/receipt-capture`,
           {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              images: [{ url, thumbnailUrl: thumbnailUrl || url }],
-              captureRequestId
-            })
+            body: JSON.stringify(captureBody)
           }
         );
 
