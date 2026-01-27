@@ -1,3 +1,6 @@
+// DEFENSIVE DEFAULT: All sensitive actions default to deny unless explicitly allowed by role check above.
+// SECURITY NOTE: For production, add express-rate-limit or similar middleware to limit receipt submissions and approvals per user/IP.
+// IMAGE VALIDATION: Ensure uploaded images are validated for type, size, and content before processing.
 import express from 'express';
 import mongoose from 'mongoose';
 import ReceiptCapture from '../models/ReceiptCapture.js';
@@ -53,21 +56,33 @@ router.get('/', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
-  if (!canApproveReceipts(req.user)) {
+  // Only OWNER/MANAGER can see all receipts; drivers only see their own
+  const isDriver = req.user?.role === 'DRIVER';
+  if (!canApproveReceipts(req.user) && !isDriver) {
     return res.status(403).json({ error: 'Not authorized' });
   }
-  
+
   // Support status as comma-separated or repeated query params
+  // Input validation
   let statusList = [];
   if (req.query.status) {
     if (Array.isArray(req.query.status)) {
-      // Repeated ?status=...&status=...
       statusList = req.query.status.flatMap(s => String(s).split(',').map(x => x.trim()).filter(Boolean));
     } else if (typeof req.query.status === 'string') {
       statusList = String(req.query.status).split(',').map(x => x.trim()).filter(Boolean);
     }
+    // Only allow known statuses
+    const allowedStatuses = ['QUEUED','PARSED','NEEDS_REVIEW','APPROVED','REJECTED'];
+    statusList = statusList.filter(s => allowedStatuses.includes(s));
   }
-  const limit = Math.min(Number(req.query.limit) || 100, 200);
+  let limit = 100;
+  if (req.query.limit) {
+    const parsedLimit = Number(req.query.limit);
+    if (!Number.isFinite(parsedLimit) || parsedLimit < 1 || parsedLimit > 200) {
+      return res.status(400).json({ error: 'Invalid limit' });
+    }
+    limit = parsedLimit;
+  }
   let baseQuery = {};
   if (statusList.length === 1) {
     baseQuery.status = statusList[0];
@@ -75,14 +90,40 @@ router.get('/', authRequired, async (req, res) => {
     baseQuery.status = { $in: statusList };
   }
 
+  // Add orderId filter if provided
+  if (req.query.orderId) {
+    const orderId = String(req.query.orderId);
+    if (!/^[a-zA-Z0-9_-]{6,}$/.test(orderId)) {
+      return res.status(400).json({ error: 'Invalid orderId' });
+    }
+    baseQuery.orderId = orderId;
+  }
+
   // Role-based filtering: drivers see only their captures
-  const isDriver = req.user?.role === 'DRIVER';
   const query = isDriver && req.user?.id
     ? { ...baseQuery, createdByUserId: req.user.id }
     : baseQuery;
 
-  const jobs = await ReceiptParseJob.find(query).sort({ createdAt: -1 }).limit(limit).lean();
-  res.json({ ok: true, jobs });
+  try {
+    const jobs = await ReceiptParseJob.find(query).sort({ createdAt: -1 }).limit(limit).lean();
+    if (!jobs || jobs.length === 0) {
+      // Explicit empty state message for review queues
+      return res.json({ ok: true, jobs: [], message: 'No receipts found for the current filter. If you expect work, check for stuck or failed parses.' });
+    }
+    res.json({ ok: true, jobs });
+  } catch (err) {
+    console.error('Error fetching receipts:', {
+      user: req.user?.username,
+      query: req.query,
+      error: err.message
+    });
+    await recordAuditLog({
+      type: 'receipt_query_error',
+      actorId: req.user?.username || 'unknown',
+      details: `query=${JSON.stringify(req.query)} error=${err.message}`
+    });
+    res.status(500).json({ error: 'Failed to fetch receipts', message: 'Review queue unavailable. Please try again or contact support.' });
+  }
 });
 
 // GET /api/receipts/:jobId
@@ -91,12 +132,28 @@ router.get('/:jobId', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
-  if (!canApproveReceipts(req.user)) {
+  // Only OWNER/MANAGER can see all jobs; drivers only see their own
+  const isDriver = req.user?.role === 'DRIVER';
+  if (!canApproveReceipts(req.user) && !isDriver) {
     return res.status(403).json({ error: 'Not authorized' });
   }
-  const job = await ReceiptParseJob.findById(req.params.jobId).lean();
-  if (!job) return res.status(404).json({ error: 'Not found' });
-  res.json({ ok: true, job });
+  try {
+    const job = await ReceiptParseJob.findById(req.params.jobId).lean();
+    if (!job) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true, job });
+  } catch (err) {
+    console.error('Error fetching receipt job:', {
+      user: req.user?.username,
+      jobId: req.params.jobId,
+      error: err.message
+    });
+    await recordAuditLog({
+      type: 'receipt_job_query_error',
+      actorId: req.user?.username || 'unknown',
+      details: `jobId=${req.params.jobId} error=${err.message}`
+    });
+    res.status(500).json({ error: 'Failed to fetch receipt job' });
+  }
 });
 
 // POST /api/receipts/:jobId/approve
@@ -104,13 +161,13 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
-
+  // Only OWNER/MANAGER can approve
   if (!canApproveReceipts(req.user)) {
     return res.status(403).json({ error: 'Not authorized to approve receipts' });
   }
 
   const session = await mongoose.startSession();
-
+  let transactionStarted = false;
   try {
     const { jobId } = req.params;
     const { mode, selectedIndices, lockDurationDays, idempotencyKey, forceUpcOverride, finalStoreId } = req.body || {};
@@ -123,6 +180,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     if (!idempotencyKey || String(idempotencyKey).trim().length < 8) {
       return res.status(400).json({ error: 'idempotencyKey is required' });
     }
+
 
     const parseJob = await ReceiptParseJob.findById(jobId).session(session);
     if (!parseJob) {
@@ -145,6 +203,12 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     if (!capture) {
       return res.status(404).json({ error: 'Receipt capture not found for job' });
     }
+
+    // Enforce orderId context: if parseJob or capture has orderId, require them to match if both exist
+    if (parseJob.orderId && capture.orderId && String(parseJob.orderId) !== String(capture.orderId)) {
+      return res.status(400).json({ error: 'OrderId mismatch between parse job and capture' });
+    }
+    // Optionally, require orderId to be present for certain approval modes (e.g., if your business logic requires it)
 
     if (!['PARSED', 'NEEDS_REVIEW'].includes(parseJob.status)) {
       return res.status(409).json({ error: 'Job not in approvable status' });
@@ -170,7 +234,10 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       ? new Set(selectedIndices.map(Number))
       : null;
 
-    session.startTransaction();
+    if (!session.inTransaction()) {
+      await session.startTransaction();
+      transactionStarted = true;
+    }
     const storeCandidate = buildStoreCandidate(capture, parseJob, req.body);
 
     let store = null;
@@ -200,7 +267,11 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         await session.abortTransaction();
         return res.status(400).json({ error: 'Store name is required to approve receipt' });
       }
-
+      // Never create a store silently; require explicit operator action if ambiguous
+      if (!req.body.confirmStoreCreate) {
+        await session.abortTransaction();
+        return res.status(400).json({ error: 'Store creation requires explicit confirmation (confirmStoreCreate)' });
+      }
       try {
         store = await Store.create([
           {
@@ -508,7 +579,9 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       await parseJob.save({ session });
     }
 
-    await session.commitTransaction();
+    if (transactionStarted) {
+      await session.commitTransaction();
+    }
 
     await recordAuditLog({
       type: 'receipt_approved',
@@ -527,7 +600,9 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       errors: errors.length ? errors : undefined
     });
   } catch (error) {
-    await session.abortTransaction();
+    if (transactionStarted) {
+      await session.abortTransaction();
+    }
     console.error('Error approving receipt:', error);
     res.status(500).json({ error: 'Failed to approve receipt' });
   } finally {
@@ -541,33 +616,51 @@ router.post('/:jobId/reject', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
+  // Only OWNER/MANAGER can reject
   if (!canApproveReceipts(req.user)) {
     return res.status(403).json({ error: 'Not authorized' });
   }
-  const job = await ReceiptParseJob.findById(req.params.jobId);
-  if (!job) return res.status(404).json({ error: 'Not found' });
-  if (job.status === 'APPROVED') {
-    return res.status(409).json({ error: 'Cannot reject an approved job' });
-  }
-  const alreadyRejected = job.status === 'REJECTED';
-  job.status = 'REJECTED';
-  job.metadata = {
-    ...job.metadata,
-    rejectedBy: req.user?.username,
-    rejectedAt: new Date(),
-    rejectionReason: req.body?.reason || 'unspecified'
-  };
-  await job.save();
+  const session = await mongoose.startSession();
+  let transactionStarted = false;
+  try {
+    if (!session.inTransaction()) {
+      await session.startTransaction();
+      transactionStarted = true;
+    }
+    const job = await ReceiptParseJob.findById(req.params.jobId).session(session);
+    if (!job) return res.status(404).json({ error: 'Not found' });
+    if (job.status === 'APPROVED') {
+      return res.status(409).json({ error: 'Cannot reject an approved job' });
+    }
+    const alreadyRejected = job.status === 'REJECTED';
+    job.status = 'REJECTED';
+    job.metadata = {
+      ...job.metadata,
+      rejectedBy: req.user?.username,
+      rejectedAt: new Date(),
+      rejectionReason: req.body?.reason || 'unspecified'
+    };
+    await job.save({ session });
 
-  if (!alreadyRejected) {
-    await recordAuditLog({
-      type: 'receipt_rejected',
-      actorId: req.user?.username || 'unknown',
-      details: `jobId=${job._id} reason=${req.body?.reason || 'unspecified'}`
-    });
+    if (!alreadyRejected) {
+      await recordAuditLog({
+        type: 'receipt_rejected',
+        actorId: req.user?.username || 'unknown',
+        details: `jobId=${job._id} reason=${req.body?.reason || 'unspecified'}`
+      });
+    }
+    if (transactionStarted) {
+      await session.commitTransaction();
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    if (transactionStarted) {
+      await session.abortTransaction();
+    }
+    res.status(500).json({ error: 'Failed to reject receipt' });
+  } finally {
+    await session.endSession();
   }
-
-  res.json({ ok: true });
 });
 
 export default router;

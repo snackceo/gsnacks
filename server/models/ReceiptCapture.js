@@ -37,6 +37,11 @@ const receiptCaptureSchema = new mongoose.Schema({
     default: 'pending_parse',
     index: true
   },
+  // Expiry for review/cleanup
+  reviewExpiresAt: {
+    type: Date,
+    index: { expireAfterSeconds: 0, sparse: true }
+  },
   
   // Draft line items from Gemini parse
   draftItems: [{
