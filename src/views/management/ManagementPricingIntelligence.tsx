@@ -25,6 +25,7 @@ import {
   getSafeCaptureStatus,
   getReceiptItemKey
 } from '../../utils/receiptHelpers';
+import { onReceiptCaptureDeleted } from '../../services/socketService';
 
 // Defensive helper for stats fields
 function safeStat(capture: any, key: string): number {

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { onReceiptCaptureDeleted } from '../../services/socketService';
 import {
   Camera,
   Loader2,
@@ -131,6 +132,16 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       loadParseJobs();
     }
   }, [receiptFlow, loadParseJobs]);
+
+  // Real-time: Remove deleted receipt parse jobs instantly
+  useEffect(() => {
+    const unsub = onReceiptCaptureDeleted(({ captureId }) => {
+      setParseJobs(prev => prev.filter(j => j.captureId !== captureId));
+    });
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
+  }, []);
 
   const handleReceiptCaptured = useCallback((captureId: string) => {
     addToast('Receipt captured & parsing started', 'success');

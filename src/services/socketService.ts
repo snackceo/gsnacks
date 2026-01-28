@@ -1,74 +1,84 @@
-/**
- * Socket.IO Service - Disabled for now
- * 
- * The app works perfectly WITHOUT real-time sync:
- * ✅ Cart works (syncs via REST API)
- * ✅ Orders work (refresh on page load)
- * ✅ Products work (refresh on page load)
- * ✅ Offline mode works
- * ✅ All features work
- * 
- * Real-time sync is an OPTIONAL enhancement.
- * If you want to enable it later, uncomment the socket.io-client imports.
- */
 
-let socket: any = null;
+import { io, Socket } from 'socket.io-client';
+import { BACKEND_URL } from '../constants';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+let socket: Socket | null = null;
 
-/**
- * Connect socket (currently disabled)
- */
 export const connectSocket = async (userId: string) => {
-  console.log('[Socket] WebSocket disabled - app works via REST API polling');
-  return null;
-};
-
-/**
- * Disconnect socket (no-op)
- */
-export const disconnectSocket = () => {
-  console.log('[Socket] WebSocket disabled');
-};
-
-/**
- * Get socket instance (always null when disabled)
- */
-export const getSocket = (): any => {
+  if (socket && socket.connected) return socket;
+  socket = io(BACKEND_URL, { withCredentials: true });
+  socket.on('connect', () => {
+    socket?.emit('join', userId);
+    console.log('[Socket] Connected and joined as', userId);
+  });
+  socket.on('disconnect', () => {
+    console.log('[Socket] Disconnected');
+  });
   return socket;
 };
 
-/**
- * Event listeners (no-ops when WebSocket disabled)
- */
+export const disconnectSocket = () => {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+};
+
+export const getSocket = (): Socket | null => {
+  return socket;
+};
+
 export const onCartUpdate = (callback: (data: any) => void) => {
-  return () => {};
-};
-
-export const onDriverNotFoundUpdate = (callback: (data: { orderId: string; items: any[] }) => void) => {
-  return () => {};
-};
-
-export const onDriverNotFoundDelete = (callback: (data: { orderId: string }) => void) => {
-  return () => {};
-};
-
-export const onReturnUpcsUpdate = (callback: (data: { upcs: string[]; eligibilityCache: any }) => void) => {
-  return () => {};
-};
-
-export const onReturnUpcsDelete = (callback: () => void) => {
-  return () => {};
+  if (!socket) return () => {};
+  socket.on('cart:update', callback);
+  return () => socket?.off('cart:update', callback);
 };
 
 export const onOrderUpdate = (callback: (data: any) => void) => {
-  return () => {};
+  if (!socket) return () => {};
+  socket.on('order:update', callback);
+  return () => socket?.off('order:update', callback);
 };
 
 export const onOrderCreated = (callback: (data: any) => void) => {
-  return () => {};
+  if (!socket) return () => {};
+  socket.on('order:created', callback);
+  return () => socket?.off('order:created', callback);
 };
 
 export const onProductUpdate = (callback: (data: any) => void) => {
-  return () => {};
+  if (!socket) return () => {};
+  socket.on('product:update', callback);
+  return () => socket?.off('product:update', callback);
+};
+
+export const onDriverNotFoundUpdate = (callback: (data: { orderId: string; items: any[] }) => void) => {
+  if (!socket) return () => {};
+  socket.on('driver:notfound:update', callback);
+  return () => socket?.off('driver:notfound:update', callback);
+};
+
+export const onDriverNotFoundDelete = (callback: (data: { orderId: string }) => void) => {
+  if (!socket) return () => {};
+  socket.on('driver:notfound:delete', callback);
+  return () => socket?.off('driver:notfound:delete', callback);
+};
+
+export const onReturnUpcsUpdate = (callback: (data: { upcs: string[]; eligibilityCache: any }) => void) => {
+  if (!socket) return () => {};
+  socket.on('returnupcs:update', callback);
+  return () => socket?.off('returnupcs:update', callback);
+};
+
+export const onReturnUpcsDelete = (callback: () => void) => {
+  if (!socket) return () => {};
+  socket.on('returnupcs:delete', callback);
+  return () => socket?.off('returnupcs:delete', callback);
+};
+
+// Receipt deleted event for instant UI update
+export const onReceiptCaptureDeleted = (callback: (data: { captureId: string }) => void) => {
+  if (!socket) return () => {};
+  socket.on('receipt:capture:deleted', callback);
+  return () => socket?.off('receipt:capture:deleted', callback);
 };
