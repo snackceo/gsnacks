@@ -82,8 +82,19 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   const scannerPanelRef = useRef<any>(null);
 
   // Handler to trigger photo capture in ScannerPanel
+  // Defensive: Only allow capture if valid
+  const isValidImage = (img: any) => {
+    if (!img || typeof img !== 'string') return false;
+    return img.startsWith('data:image/jpeg;base64,') || img.startsWith('data:image/png;base64,');
+  };
+
   const handleCaptureClick = () => {
     if (scannerPanelRef.current && typeof scannerPanelRef.current.capturePhoto === 'function') {
+      const capturedImage = scannerPanelRef.current.getPreviewImage?.();
+      if (!capturedImage || !isValidImage(capturedImage)) {
+        addToast('Invalid image, please retake the photo', { type: 'error' });
+        return;
+      }
       scannerPanelRef.current.capturePhoto();
     }
   };
@@ -95,6 +106,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   // ─────────────────────────────────────────────────────────────
   // Store selection is removed; backend will infer store from receipt
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [sessionPrimarySupplier, setSessionPrimarySupplier] = useState<
     Record<string, boolean>
   >({});
@@ -284,6 +296,12 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   // RENDER
   // ─────────────────────────────────────────────────────────────
   if (!isOpen) return null;
+
+  // Stricter guard: if overlay is open but neither camera nor preview is visible, auto-close
+  if (!isCameraOpen && !previewImage) {
+    if (typeof onCancel === 'function') onCancel();
+    return null;
+  }
 
   return createPortal(
     <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">

@@ -142,7 +142,12 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 }, ref) => {
     // Expose capturePhoto method to parent via ref
     useImperativeHandle(ref, () => ({
-      capturePhoto: takePhoto
+      capturePhoto: () => {
+        if (mode === ScannerMode.RECEIPT_PARSE_LIVE) {
+          return captureReceiptAndParse();
+        }
+        return takePhoto();
+      }
     }));
 
     // Toast context
