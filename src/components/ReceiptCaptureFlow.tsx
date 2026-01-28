@@ -39,6 +39,9 @@ interface ReceiptCaptureFlowProps
   onParsedItems?: (items: any) => void;
   onImageUploaded?: (url: string, thumbnailUrl?: string) => void;
 
+  /** Called when the flow should close (camera exit or after capture) */
+  onCancel?: () => void;
+
   /** Existing callbacks you already use elsewhere */
   onStoreSelected?: (storeId: string) => void;
   onPrimarySupplierToggle?: (storeId: string, nextValue: boolean) => void;
@@ -70,6 +73,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   onReceiptCreated,
   onParsedItems,
   onImageUploaded,
+  onCancel,
   onStoreSelected,
   onPrimarySupplierToggle,
   ...scannerProps
@@ -250,8 +254,9 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
           onImageUploaded?.(url, thumbnailUrl || url);
         }
 
-        // Close camera after success
+        // Close camera and overlay after success
         setIsCameraOpen(false);
+        if (typeof onCancel === 'function') onCancel();
       } catch (err: any) {
         console.error('Receipt capture failed:', err);
         if (mountedRef.current) {
@@ -281,9 +286,12 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
               ref={scannerPanelRef}
               {...scannerProps}
               mode={mode}
-              onReceiptCaptured={handleReceiptCaptured}
+              onPhotoCaptured={handleReceiptCaptured}
               showClose={true}
-              onClose={() => setIsCameraOpen(false)}
+              onClose={() => {
+                setIsCameraOpen(false);
+                if (typeof onCancel === 'function') onCancel();
+              }}
               disabled={isSubmitting}
             />
           </div>
