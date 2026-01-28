@@ -454,28 +454,9 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     setShowReceiptScanner(true);
   }, []);
 
-  const handleDeleteReceiptCapture = useCallback(async (captureId: string) => {
-    if (!window.confirm('Delete this receipt capture? This cannot be undone.')) return;
-    try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${captureId}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      });
-      if (!resp.ok) {
-        if (resp.status === 404) {
-          addToast('Receipt already deleted or not found.', 'warning');
-          setReceiptCaptures(prev => prev.filter(c => c._id !== captureId));
-          return;
-        }
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to delete receipt capture');
-      }
-      setReceiptCaptures(prev => prev.filter(c => c._id !== captureId));
-      addToast('Receipt capture deleted.', 'success');
-    } catch (err: any) {
-      addToast(err?.message || 'Failed to delete receipt capture', 'error');
-    }
-  }, [addToast, setReceiptCaptures]);
+  // Receipt lifecycle actions (delete, retry, etc.) are not allowed in Pricing Intelligence.
+  // These actions must be performed in the Receipts tab only.
+  // UI disables or hides these controls here.
 
     const handleRetryParse = useCallback(async (captureId: string) => {
       try {
@@ -1259,17 +1240,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
     await handleReviewPendingReceipts();
   }, [handleReviewPendingReceipts]);
 
-  const handleDeleteReceiptQueueItem = useCallback(async (captureId: string) => {
-    try {
-      await handleDeleteReceiptCapture(captureId);
-    } catch (err: any) {
-      if (err?.message?.includes('404')) {
-        addToast('Receipt not found or already deleted.', 'warning');
-      } else {
-        addToast(err?.message || 'Failed to delete receipt.', 'error');
-      }
-    }
-  }, [handleDeleteReceiptCapture, addToast]);
+  // Disabled: Receipt queue item deletion is not permitted here.
 
   const handleReceiptCaptureComplete = useCallback(async (imageUrl: string, thumbnailUrl?: string) => {
     setReceiptImageUrl(imageUrl);
@@ -1563,28 +1534,18 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
                           {capture.status.replace(/_/g, ' ')}
                         </span>
 
-                        <button
-                          onClick={event => {
-                            event.stopPropagation();
-                            handleDeleteReceiptCapture(capture._id);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-500/30 rounded text-red-400 hover:text-red-300"
-                          title="Delete this receipt"
+                        {/* View in Receipts: Ownership boundary enforced */}
+                        <a
+                          href="/admin/receipts"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1 rounded text-ninpo-lime underline font-bold hover:text-ninpo-lime/80 transition"
+                          title="View this receipt in Receipts tab"
+                          onClick={e => e.stopPropagation()}
                         >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                        {capture.status === 'pending_parse' && (
-                          <button
-                            onClick={event => {
-                              event.stopPropagation();
-                              handleRetryParse(capture._id);
-                            }}
-                            className="ml-2 px-2 py-1 rounded bg-yellow-500 text-yellow-900 text-[10px] font-bold hover:bg-yellow-600"
-                            title="Retry Parse"
-                          >
-                            Retry Parse
-                          </button>
-                        )}
+                          View in Receipts
+                        </a>
+                        {/* Retry/parse actions removed: Only Receipts tab manages raw receipt mechanics */}
                       </div>
                     </div>
 
