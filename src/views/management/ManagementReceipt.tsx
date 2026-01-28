@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import ReceiptReviewPanel from './receipt/ReceiptReviewPanel';
+import { classifyItems } from '../../utils/classificationUtils';
+import { getReceiptItemKey } from '../../utils/receiptHelpers';
 import { onReceiptCaptureDeleted } from '../../services/socketService';
 import {
   Camera,
@@ -109,6 +112,18 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [selectedJob, setSelectedJob] = useState<ReceiptParseJob | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Receipt review state (moved from Pricing Intelligence)
+  const [activeReceiptCaptureId, setActiveReceiptCaptureId] = useState<string | null>(null);
+  const [classifiedItems, setClassifiedItems] = useState<any[]>([]);
+  const [commitIntent, setCommitIntent] = useState<'safe' | 'selected' | 'locked' | null>(null);
+  const [selectedItemsForCommit, setSelectedItemsForCommit] = useState<Map<string, boolean>>(new Map());
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [showReceiptReview, setShowReceiptReview] = useState(false);
+  const [scanTargetItem, setScanTargetItem] = useState<any | null>(null);
+  const [scanModalOpen, setScanModalOpen] = useState(false);
+  const [lockDurationDays] = useState(7); // Or get from settings if available
+  const [settings] = useState<any>({}); // Placeholder for settings if needed
+
   // Load pending parse jobs
   const loadParseJobs = useCallback(async () => {
     setIsLoadingJobs(true);
@@ -190,7 +205,6 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   // Tab content
   const tabContent = useMemo(() => {
     if (receiptFlow === 'capture') {
-      // Only one entry point for receipt capture: Open scanner overlay
       return (
         <div className="space-y-6">
           <button
@@ -210,6 +224,73 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     }
 
     if (receiptFlow === 'pending') {
+      // If a job is selected, show the review panel (placeholder for now)
+      if (selectedJob) {
+        // When a job is selected, load its items for review
+        if (!showReceiptReview || activeReceiptCaptureId !== selectedJob.captureId) {
+          // Classify items and open review
+          setActiveReceiptCaptureId(selectedJob.captureId);
+          setClassifiedItems(classifyItems(selectedJob.items || []).items || []);
+          setShowReceiptReview(true);
+          setSelectedItemsForCommit(new Map());
+        }
+        return (
+          <ReceiptReviewPanel
+            activeReceiptCaptureId={activeReceiptCaptureId || ''}
+            classifiedItems={classifiedItems}
+            commitIntent={commitIntent}
+            isCommitting={isCommitting}
+            lockDurationDays={lockDurationDays}
+            selectedItemsForCommit={selectedItemsForCommit}
+            show={showReceiptReview}
+            onClose={() => {
+              setShowReceiptReview(false);
+              setSelectedJob(null);
+            }}
+            onParse={() => {/* Implement parse handler if needed */}}
+            onConfirmAll={() => {/* Implement confirm all handler if needed */}}
+            onResetReview={() => {/* Implement reset handler if needed */}}
+            onLock={() => {/* Implement lock handler if needed */}}
+            onUnlock={() => {/* Implement unlock handler if needed */}}
+            onCommitMode={mode => setCommitIntent(mode)}
+            onSelectAll={() => {
+              const updated = new Map<string, boolean>();
+              classifiedItems.forEach(item => {
+                updated.set(getReceiptItemKey(item), true);
+              });
+              setSelectedItemsForCommit(updated);
+            }}
+            onClearSelection={() => setSelectedItemsForCommit(new Map())}
+            onCommit={() => {/* Implement commit handler if needed */}}
+            onConfirmItem={item => {/* Implement confirm item handler if needed */}}
+            onScanItem={item => {
+              setScanTargetItem(item);
+              setScanModalOpen(true);
+            }}
+            onSearchProduct={item => {/* Implement search product handler if needed */}}
+            onCreateProduct={item => {/* Implement create product handler if needed */}}
+            onSelectForCommit={item => {
+              const key = getReceiptItemKey(item);
+              setSelectedItemsForCommit(prev => {
+                const updated = new Map(prev);
+                if (updated.has(key)) {
+                  updated.delete(key);
+                } else {
+                  updated.set(key, true);
+                }
+                return updated;
+              });
+            }}
+            onAddNoiseRule={() => {/* Implement noise rule handler if needed */}}
+            scanModalOpen={scanModalOpen}
+            scanTargetItem={scanTargetItem}
+            handleScannerScan={() => {/* Implement scanner scan handler if needed */}}
+            handleScannerClose={() => setScanModalOpen(false)}
+            settings={settings}
+          />
+        );
+      }
+      // Otherwise, show the jobs list as before
       return (
         <div className="space-y-6">
           <div className="flex items-center justify-between">

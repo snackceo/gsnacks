@@ -20,7 +20,7 @@ import { ScannerMode, OrderStatus } from '../types';
 import ManagementDashboard from './management/ManagementDashboard';
 import ManagementOrders from './management/ManagementOrders';
 import ManagementReceipt from './management/ManagementReceipt';
-import ManagementPricingIntelligence from './management/ManagementPricingIntelligence';
+
 import ManagementAuthAudit from './management/ManagementAuthAudit';
 import ManagementUsers from './management/ManagementUsers';
 import ManagementInventory from './management/ManagementInventory';
@@ -1043,32 +1043,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
     };
   }, [activeModule, fetchUsers, users.length]);
 
-  // Load return verifications when pricing intelligence module is active
-  useEffect(() => {
-    if (activeModule !== 'pricing-intelligence') return;
 
-    let mounted = true;
-    setIsReturnVerificationsLoading(true);
-    setReturnVerificationsError(null);
-
-    fetchReturnVerifications()
-      .then(verifications => {
-        if (!mounted) return;
-        setReturnVerifications(verifications);
-      })
-      .catch(e => {
-        if (!mounted) return;
-        setReturnVerificationsError(e?.message || 'Failed to load return verifications');
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setIsReturnVerificationsLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [activeModule, fetchReturnVerifications]);
 
   const filteredUsers = useMemo(() => {
     const needle = userFilter.trim().toLowerCase();
@@ -1230,25 +1205,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
         />
       )
     },
-    'pricing-intelligence': {
-      id: 'pricing-intelligence',
-      label: 'Pricing Intelligence',
-      icon: TrendingUp,
-      render: () => (
-        <ManagementPricingIntelligence
-          fmtTime={fmtTime}
-          stores={stores}
-          activeStoreId={activeStoreId}
-          setActiveStoreId={setActiveStoreId}
-          refreshStores={loadStores}
-          isLoadingStores={isLoadingStores}
-          storeError={storeError}
-          setStoreError={setStoreError}
-          setScannerMode={setScannerMode}
-          setScannerModalOpen={setScannerModalOpen}
-        />
-      )
-    },
+
     stores: {
       id: 'stores',
       label: 'Stores',

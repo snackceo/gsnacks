@@ -1,7 +1,7 @@
 import { ClassifiedReceiptItem } from '../types';
 
 /**
- * Receipt utility functions extracted from ManagementPricingIntelligence
+ * Receipt utility functions for receipt workflows
  * for reusability and reduced component complexity.
  */
 

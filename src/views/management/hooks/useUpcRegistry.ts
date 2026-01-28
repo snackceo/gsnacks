@@ -204,7 +204,7 @@ export const useUpcRegistry = ({ activeModule }: UseUpcRegistryParams) => {
   }, []);
 
   useEffect(() => {
-    const shouldLoad = ['upc', 'upc-registry', 'pricing-intelligence', 'inventory'].includes(activeModule);
+    const shouldLoad = ['upc', 'upc-registry', 'inventory'].includes(activeModule);
     if (shouldLoad && upcItems.length === 0 && !isUpcLoading) {
       apiLoadUpcItems();
     }
