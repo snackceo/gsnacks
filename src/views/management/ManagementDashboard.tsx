@@ -3,33 +3,52 @@ import React, { useState, useEffect, useMemo } from 'react';
 function safeStat(capture, key) {
   return capture && capture.stats && typeof capture.stats[key] === 'number' ? capture.stats[key] : 0;
 }
-// Receipt summary state for price intelligence
-const [receiptSummary, setReceiptSummary] = useState({
-  parsedReceiptCount: 0,
-  pendingReceiptCount: 0,
-  parseReviewNeededCount: 0,
-  parseCompletedCount: 0
-});
 
-useEffect(() => {
-  // Fetch summary from backend (same as fetchReceiptCaptureStats in PricingIntelligence)
-  async function fetchReceiptCaptureStats() {
-    try {
-      const resp = await fetch('/api/receipts-captures-summary', { credentials: 'include' });
-      if (!resp.ok) return;
-      const data = await resp.json();
-      setReceiptSummary({
-        parsedReceiptCount: data.parsedReceiptCount ?? 0,
-        pendingReceiptCount: data.pendingReceiptCount ?? 0,
-        parseReviewNeededCount: data.parseReviewNeededCount ?? 0,
-        parseCompletedCount: data.parseCompletedCount ?? 0
-      });
-    } catch {
-      // fail silently for dashboard
+const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
+  auditModel,
+  auditModels,
+  auditModelsError,
+  isAuditModelsLoading,
+  isAuditing,
+  isOpsSummaryLoading,
+  orders,
+  aiInsights,
+  opsSummary,
+  chartData,
+  isChartReady,
+  isChartVisible,
+  chartContainerRef,
+  setAuditModel,
+  runAudit,
+  runOpsSummary
+}) => {
+  // Receipt summary state for price intelligence
+  const [receiptSummary, setReceiptSummary] = useState({
+    parsedReceiptCount: 0,
+    pendingReceiptCount: 0,
+    parseReviewNeededCount: 0,
+    parseCompletedCount: 0
+  });
+
+  useEffect(() => {
+    // Fetch summary from backend (same as fetchReceiptCaptureStats in PricingIntelligence)
+    async function fetchReceiptCaptureStats() {
+      try {
+        const resp = await fetch('/api/receipts-captures-summary', { credentials: 'include' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        setReceiptSummary({
+          parsedReceiptCount: data.parsedReceiptCount ?? 0,
+          pendingReceiptCount: data.pendingReceiptCount ?? 0,
+          parseReviewNeededCount: data.parseReviewNeededCount ?? 0,
+          parseCompletedCount: data.parseCompletedCount ?? 0
+        });
+      } catch {
+        // fail silently for dashboard
+      }
     }
-  }
-  fetchReceiptCaptureStats();
-}, []);
+    fetchReceiptCaptureStats();
+  }, []);
 import { ErrorMonitorPanel } from './ErrorMonitorPanel';
 import { BarChart3, ShieldAlert, Loader2, BrainCircuit, TrendingUp, Users, ShoppingCart, Package, RefreshCw, TrendingDown, Sparkles } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
