@@ -1,4 +1,6 @@
-import React, { useRef, useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useImperativeHandle, forwardRef, useContext } from 'react';
+// Toast context (assume addToast is provided at app root)
+const ToastContext = React.createContext<{ addToast: (msg: string, opts?: { type?: 'success' | 'error' | 'info' }) => void } | null>(null);
 import {
   X,
   ScanLine,
@@ -142,6 +144,10 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     useImperativeHandle(ref, () => ({
       capturePhoto: takePhoto
     }));
+
+    // Toast context
+    const toastCtx = useContext(ToastContext);
+    const addToast = toastCtx?.addToast || (() => {});
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
@@ -310,38 +316,50 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   const toggleTorch = useCallback(async () => {
     if (!torchSupported) {
       setScannerError('Torch not supported on this device.');
+      addToast('Torch not supported', { type: 'error' });
       return;
     }
     if (!videoTrackRef.current) return;
-
     const next = !torchOnRef.current;
     try {
       await videoTrackRef.current.applyConstraints({ advanced: [{ torch: next } as any] });
       setTorchOn(next);
+      addToast(next ? 'Torch enabled' : 'Torch disabled', { type: 'info' });
     } catch (err) {
       setScannerError('Failed to toggle torch. Your device or browser may not support this feature.');
+      addToast('Failed to toggle torch', { type: 'error' });
       // Do not restart or stop the camera, just show error
     }
-  }, [torchSupported]);
+  }, [torchSupported, addToast]);
 
   const takePhoto = useCallback(() => {
-    if (!videoRef.current || !onPhotoCaptured) return;
+    if (!videoRef.current || !onPhotoCaptured) {
+      addToast('Camera not ready for photo', { type: 'error' });
+      return;
+    }
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      addToast('Failed to access camera', { type: 'error' });
+      return;
+    }
 
     const w = videoRef.current.videoWidth;
     const h = videoRef.current.videoHeight;
-    if (!w || !h) return;
+    if (!w || !h) {
+      addToast('Camera not ready for photo', { type: 'error' });
+      return;
+    }
 
     canvas.width = w;
     canvas.height = h;
 
     ctx.drawImage(videoRef.current, 0, 0, w, h);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    addToast('Photo captured', { type: 'success' });
     onPhotoCaptured(dataUrl, 'image/jpeg');
-  }, [onPhotoCaptured]);
+  }, [onPhotoCaptured, addToast]);
 
   const validateUpc = useCallback((raw: string) => {
     const normalized = normalizeUpc(String(raw || '').trim());
@@ -538,7 +556,10 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 
 
   const captureReceiptAndParse = useCallback(async () => {
-    if (!videoRef.current) return;
+    if (!videoRef.current) {
+      addToast('Camera not ready for capture', { type: 'error' });
+      return;
+    }
 
     // Pause camera/detect loop while preview is displayed to reduce device load
     void stopScanner();
@@ -552,45 +573,53 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       );
       setPreviewImage(dataUrl);
       setPreviewMime('image/jpeg');
+      addToast('Receipt photo ready for review', { type: 'info' });
     } catch (error) {
       setScannerError('Failed to capture image.');
+      addToast('Failed to capture image', { type: 'error' });
       void startScanner(); // Retry if capture failed
     }
-  }, [stopScanner, startScanner]);
+  }, [stopScanner, startScanner, addToast]);
 
   const handleUsePhoto = useCallback(() => {
-    if (!previewImage || !onPhotoCaptured) return;
+    if (!previewImage || !onPhotoCaptured) {
+      addToast('No photo to use', { type: 'error' });
+      return;
+    }
+    addToast('Photo submitted for parsing', { type: 'success' });
     onPhotoCaptured(previewImage, previewMime);
     setPreviewImage(null);
-  }, [previewImage, previewMime, onPhotoCaptured]);
+  }, [previewImage, previewMime, onPhotoCaptured, addToast]);
 
   const handleRetakePhoto = useCallback(() => {
     setPreviewImage(null);
+    addToast('Retake photo', { type: 'info' });
     void startScanner();
-  }, [startScanner]);
+  }, [startScanner, addToast]);
 
   const handleReceiptFile = useCallback(
     (file: File) => {
-      if (!file) return;
-
+      if (!file) {
+        addToast('No file selected', { type: 'error' });
+        return;
+      }
       if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
         setScannerError(`File too large. Max size is ${MAX_UPLOAD_MB}MB.`);
+        addToast('File too large', { type: 'error' });
         return;
       }
-
       if (file.type === 'application/pdf') {
         setScannerError('PDF uploads are coming soon.');
+        addToast('PDF uploads not supported yet', { type: 'info' });
         return;
       }
-
       if (!file.type.startsWith('image/')) {
         setScannerError('Unsupported file type. Please upload an image.');
+        addToast('Unsupported file type', { type: 'error' });
         return;
       }
-
       // Stop the camera while we process the upload to avoid extra device load
       void stopScanner();
-
       const reader = new FileReader();
       reader.onload = e => {
         const img = new Image();
@@ -604,8 +633,10 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
             );
             setPreviewImage(dataUrl);
             setPreviewMime('image/jpeg');
+            addToast('Image ready for review', { type: 'info' });
           } catch (error) {
             setScannerError('Failed to process image.');
+            addToast('Failed to process image', { type: 'error' });
             // If processing failed, restart the scanner so the user can retry
             void startScanner();
           }
@@ -614,7 +645,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       };
       reader.readAsDataURL(file);
     },
-    [startScanner]
+    [startScanner, addToast]
   );
 
   const handleReceiptFileInput = useCallback(
@@ -652,11 +683,14 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 
   const handleManualScan = useCallback(() => {
     const { ok, upc } = validateUpc(manualUpc);
-    if (!ok) return;
-
+    if (!ok) {
+      addToast('Invalid UPC', { type: 'error' });
+      return;
+    }
+    addToast('Manual UPC submitted', { type: 'success' });
     acceptScan(upc);
     setManualUpc('');
-  }, [acceptScan, manualUpc, validateUpc]);
+  }, [acceptScan, manualUpc, validateUpc, addToast]);
 
   const handleToggleSheet = useCallback(() => {
     setIsSheetOpen(prev => !prev);
@@ -688,6 +722,13 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 
     void startScanner();
   }, [blocked, manualStart, startScanner, stopScanner]);
+
+  // Add toast for all scanner/camera errors
+  useEffect(() => {
+    if (scannerError) {
+      addToast(scannerError, { type: 'error' });
+    }
+  }, [scannerError, addToast]);
 
   return (
     <div className={`fixed inset-0 z-50 flex flex-col bg-black ${className || ''}`}>
