@@ -9,6 +9,7 @@ import React, {
 import { createPortal } from 'react-dom';
 
 import ScannerPanel, { ScannerPanelProps } from './ScannerPanel';
+import { Loader2, CheckCircle2 } from 'lucide-react';
 // ...existing code...
 import { StoreRecord, ScannerMode } from '../types';
 import { formatStoreAddress } from '../utils/address';
@@ -97,6 +98,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     Record<string, boolean>
   >({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -178,6 +180,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
       setError(null);
 
       try {
+        setShowSuccess(false);
         // 1️⃣ Upload image to backend to get imageUrl and thumbnailUrl
         const uploadRes = await fetch(
           `${BACKEND_URL}/api/driver/upload-receipt-image`,
@@ -242,7 +245,11 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
         if (!mountedRef.current) return;
 
         // 4️⃣ HAND OFF TO REVIEW / QUEUE
-        onReceiptCreated?.(captureId);
+        setShowSuccess(true);
+        setTimeout(() => {
+          setShowSuccess(false);
+          onReceiptCreated?.(captureId);
+        }, 1200);
 
         // Optionally notify parent of parsed items (if implemented in future)
         if (typeof onParsedItems === 'function' && parseData?.items) {
@@ -294,6 +301,18 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
               }}
               disabled={isSubmitting}
             />
+            {isSubmitting && (
+              <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80">
+                <Loader2 className="w-12 h-12 text-ninpo-lime animate-spin mb-4" />
+                <div className="text-white font-black text-lg uppercase tracking-widest">Uploading & Parsing…</div>
+              </div>
+            )}
+            {showSuccess && !isSubmitting && (
+              <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80">
+                <CheckCircle2 className="w-16 h-16 text-ninpo-lime mb-4" />
+                <div className="text-ninpo-lime font-black text-lg uppercase tracking-widest">Receipt Added!<br/>Parsing in Progress…</div>
+              </div>
+            )}
           </div>
           <button
             className="fixed bottom-0 left-0 w-full z-50 py-5 bg-ninpo-lime text-ninpo-black text-lg font-black uppercase tracking-widest rounded-none sm:rounded-xl sm:w-auto sm:bottom-8 sm:left-1/2 sm:-translate-x-1/2 sm:px-12 shadow-neon hover:bg-white transition-colors"
