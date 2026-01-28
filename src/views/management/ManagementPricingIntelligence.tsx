@@ -202,7 +202,9 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   const filteredProducts = useMemo(() => productSearchResults, [productSearchResults]);
 
   const safeItemsForCommit = useMemo(
-    () => (Array.isArray(classifiedItems) ? classifiedItems : []).filter(item => item.classification === 'A' && item.suggestedProduct && typeof item.lineIndex === 'number'),
+    () => (Array.isArray(classifiedItems) ? classifiedItems : []).filter(
+      item => item && typeof item === 'object' && item.classification === 'A' && item.suggestedProduct && typeof item.lineIndex === 'number'
+    ),
     [classifiedItems]
   );
 
@@ -321,7 +323,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
       const classified = classifyItems(items);
       console.log('[PricingIntelligence]', classified);
-      setClassifiedItems(classified);
+      setClassifiedItems(Array.isArray(classified?.items) ? classified.items : []);
       setActiveReceiptCaptureId(captureId);
       setShowReceiptReview(true);
       setSelectedItemsForCommit(new Map());
@@ -778,7 +780,7 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
 
       const classified = classifyItems(items);
       console.log('[PricingIntelligence]', classified);
-      setClassifiedItems(classified);
+      setClassifiedItems(Array.isArray(classified?.items) ? classified.items : []);
       setShowReceiptReview(true);
       setShowReceiptScanner(false);
     } catch (err: any) {
