@@ -834,7 +834,46 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
         </div>
       )}
 
-      {/* Bottom capture button (receipt mode) removed to avoid duplicate. Upload/drag-drop UI remains. */}
+
+      {/* Bottom capture/upload button (receipt mode) with upload/drag-drop UI */}
+      {isReceiptMode && canCapturePhoto && !previewImage && (
+        <div className="absolute bottom-0 left-0 right-0 z-30 flex flex-col items-center justify-end pb-8 pointer-events-none">
+          <div className="flex flex-col items-center gap-3 pointer-events-auto">
+            <button
+              onClick={captureReceiptAndParse}
+              className="w-20 h-20 rounded-full bg-ninpo-lime text-ninpo-black flex items-center justify-center shadow-neon text-3xl font-black focus:outline-none focus:ring-4 focus:ring-ninpo-lime/40 transition hover:bg-ninpo-lime/90"
+              aria-label="Capture photo"
+              type="button"
+              disabled={receiptUploadBlocked}
+            >
+              <Camera className="w-10 h-10" />
+            </button>
+            <label className="flex flex-col items-center gap-2 cursor-pointer text-xs text-white/80 font-bold uppercase tracking-widest mt-2">
+              <Upload className="w-5 h-5 mb-1" />
+              Upload
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={handleReceiptFileInput}
+                disabled={receiptUploadBlocked}
+              />
+            </label>
+            <div
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              className={`mt-2 w-48 h-16 flex items-center justify-center border-2 border-dashed rounded-xl transition-colors ${isDragActive ? 'border-ninpo-lime bg-ninpo-lime/10' : 'border-white/20 bg-black/30'}`}
+              style={{ pointerEvents: 'auto' }}
+            >
+              <span className="text-xs text-white/60">Drag & drop image or PDF</span>
+            </div>
+            {receiptSaveDisabledReason && (
+              <div className="mt-2 text-xs text-ninpo-red font-bold">{receiptSaveDisabledReason}</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {bottomSheetContent && (
         <div
