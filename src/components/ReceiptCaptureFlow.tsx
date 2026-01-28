@@ -10,9 +10,8 @@ import { createPortal } from 'react-dom';
 
 import ScannerPanel, { ScannerPanelProps } from './ScannerPanel';
 import { Loader2, CheckCircle2 } from 'lucide-react';
-// ...existing code...
-import { StoreRecord, ScannerMode } from '../types';
-import { formatStoreAddress } from '../utils/address';
+import { useNinpoCore } from '../hooks/useNinpoCore';
+import { ScannerMode, StoreRecord } from '../types';
 import { BACKEND_URL } from '../constants';
 
 /**
@@ -88,6 +87,8 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
       scannerPanelRef.current.capturePhoto();
     }
   };
+
+  const { addToast } = useNinpoCore ? useNinpoCore() : { addToast: () => {} };
 
   // ─────────────────────────────────────────────────────────────
   // STATE
@@ -175,10 +176,10 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   // 🔥 CORE FIX: RECEIPT CAPTURE + PARSE (FULLY WIRED)
   // ─────────────────────────────────────────────────────────────
   const handleReceiptCaptured = useCallback(
-    async (base64Image: string) => {
+    async (photoDataUrl: string, mime: string) => {
       setIsSubmitting(true);
       setError(null);
-
+      addToast('Uploading receipt…', { type: 'info' });
       try {
         setShowSuccess(false);
         // 1️⃣ Upload image to backend to get imageUrl and thumbnailUrl
@@ -188,7 +189,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: base64Image })
+            body: JSON.stringify({ image: photoDataUrl, mime })
           }
         );
 
@@ -248,6 +249,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
         setShowSuccess(true);
         setTimeout(() => {
           setShowSuccess(false);
+          addToast('Receipt added! Parsing in progress…', { type: 'success' });
           onReceiptCreated?.(captureId);
         }, 1200);
 

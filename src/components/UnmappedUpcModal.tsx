@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { XCircle, Plus, Search } from 'lucide-react';
 import { UnmappedUpcData, SizeUnit } from '../types';
+import { useNinpoCore } from '../hooks/useNinpoCore';
 
 interface UnmappedUpcModalProps {
   data: UnmappedUpcData;
@@ -26,6 +27,7 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
   onClose,
   products
 }) => {
+  const { addToast } = useNinpoCore ? useNinpoCore() : { addToast: () => {} };
   const [activeTab, setActiveTab] = useState<'create' | 'attach'>('create');
   const [createForm, setCreateForm] = useState({
     name: '',
@@ -64,13 +66,21 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
   );
 
   const handleCreate = () => {
+    if (!createForm.name.trim()) {
+      addToast('Product name is required', 'error');
+      return;
+    }
     onCreateProduct(createForm);
+    addToast('Product created and UPC linked', 'success');
   };
 
   const handleAttach = () => {
-    if (selectedProductId) {
-      onAttachToExisting(selectedProductId);
+    if (!selectedProductId) {
+      addToast('Select a product to attach', 'error');
+      return;
     }
+    onAttachToExisting(selectedProductId);
+    addToast('UPC linked to selected product', 'success');
   };
 
   return (

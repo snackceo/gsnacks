@@ -461,6 +461,11 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
         credentials: 'include'
       });
       if (!resp.ok) {
+        if (resp.status === 404) {
+          addToast('Receipt already deleted or not found.', 'warning');
+          setReceiptCaptures(prev => prev.filter(c => c._id !== captureId));
+          return;
+        }
         const data = await resp.json().catch(() => ({}));
         throw new Error(data.error || 'Failed to delete receipt capture');
       }
@@ -1324,7 +1329,6 @@ const ManagementPricingIntelligence: React.FC<ManagementPricingIntelligenceProps
   }, []);
 
   const handleReceiptUploadDragLeave = useCallback(() => {}, []);
-
 
   useEffect(() => {
     if (showReceiptReview && activeReceiptCaptureId) {

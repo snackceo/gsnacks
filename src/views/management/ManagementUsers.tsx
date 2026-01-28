@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { LedgerEntry, User, UserStatsSummary } from '../../types';
 import { Loader2, RefreshCw, Users } from 'lucide-react';
+import { useNinpoCore } from '../../hooks/useNinpoCore';
 
 interface ManagementUsersProps {
   currentUser: User;
@@ -61,6 +62,20 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
   getTierStyles,
   isNewSignupWithBonus
 }) => {
+  const { addToast } = useNinpoCore ? useNinpoCore() : { addToast: () => {} };
+
+  // Toast for usersError
+  useEffect(() => {
+    if (usersError) addToast(usersError, 'error');
+  }, [usersError, addToast]);
+
+  // Toast for ledger errors
+  useEffect(() => {
+    Object.values(ledgerErrors).forEach(err => {
+      if (err) addToast(err, 'error');
+    });
+  }, [ledgerErrors, addToast]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -281,6 +296,7 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
                           onClick={e => {
                             e.stopPropagation();
                             saveUserDraft(u.id);
+                            addToast('User updated', 'success');
                           }}
                           className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
                         >
@@ -291,6 +307,7 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
                             onClick={e => {
                               e.stopPropagation();
                               apiDeleteUser(u.id);
+                              addToast('User deleted', 'success');
                             }}
                             className="px-6 py-3 rounded-2xl bg-ninpo-red text-white text-[10px] font-black uppercase tracking-widest"
                           >
