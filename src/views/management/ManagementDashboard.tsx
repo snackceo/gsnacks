@@ -1,27 +1,86 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
+import { ErrorMonitorPanel } from './ErrorMonitorPanel';
+import { BarChart3, ShieldAlert, Loader2, BrainCircuit, TrendingUp, Users, ShoppingCart, Package, RefreshCw, TrendingDown, Sparkles } from 'lucide-react';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { Order } from '../../types';
+import { analytics } from '../../services/analyticsService';
+import { getDemandForecast, DemandForecastItem } from '../../services/geminiService';
+
 // Defensive helper for stats fields
 function safeStat(capture, key) {
   return capture && capture.stats && typeof capture.stats[key] === 'number' ? capture.stats[key] : 0;
 }
 
-const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
-  auditModel,
-  auditModels,
-  auditModelsError,
-  isAuditModelsLoading,
-  isAuditing,
-  isOpsSummaryLoading,
-  orders,
-  aiInsights,
-  opsSummary,
-  chartData,
-  isChartReady,
-  isChartVisible,
-  chartContainerRef,
-  setAuditModel,
-  runAudit,
-  runOpsSummary
-}) => {
+interface AnalyticsEvent {
+  category: 'user' | 'product' | 'order' | 'scanner' | 'returns' | 'payment' | 'navigation';
+  action: string;
+  label?: string;
+  value?: number;
+  metadata?: Record<string, any>;
+  timestamp: string;
+}
+
+interface ManagementDashboardProps {
+  auditModel: string;
+  auditModels: string[];
+  auditModelsError: string | null;
+  isAuditModelsLoading: boolean;
+  isAuditing: boolean;
+  isOpsSummaryLoading: boolean;
+  orders: Order[];
+  aiInsights: string | null;
+  opsSummary: string;
+  chartData: any[];
+  isChartReady: boolean;
+  isChartVisible: boolean;
+  chartContainerRef: React.RefObject<HTMLDivElement>;
+  setAuditModel: (model: string) => void;
+  runAudit?: () => void;
+  runOpsSummary: () => void;
+}
+
+// StatCard component
+const StatCard: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  subtitle?: string;
+}> = ({ icon, label, value, subtitle }) => (
+  <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+    <div className="flex items-center gap-2 mb-2">
+      <div className="text-ninpo-lime">{icon}</div>
+      <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+        {label}
+      </span>
+    </div>
+    <div className="text-2xl font-black text-white">{value}</div>
+    {subtitle && (
+      <div className="text-xs text-slate-500 mt-1">{subtitle}</div>
+    )}
+  </div>
+);
+
+const ManagementDashboard: React.FC<ManagementDashboardProps> = (props) => {
+  const {
+    auditModel,
+    auditModels,
+    auditModelsError,
+    isAuditModelsLoading,
+    isAuditing,
+    isOpsSummaryLoading,
+    orders,
+    aiInsights,
+    opsSummary,
+    chartData,
+    isChartReady,
+    isChartVisible,
+    chartContainerRef,
+    setAuditModel,
+    runAudit,
+    runOpsSummary
+  } = props;
+
   // Receipt summary state for price intelligence
   const [receiptSummary, setReceiptSummary] = useState({
     parsedReceiptCount: 0,
@@ -49,12 +108,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     }
     fetchReceiptCaptureStats();
   }, []);
-import { ErrorMonitorPanel } from './ErrorMonitorPanel';
-import { BarChart3, ShieldAlert, Loader2, BrainCircuit, TrendingUp, Users, ShoppingCart, Package, RefreshCw, TrendingDown, Sparkles } from 'lucide-react';
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { Order } from '../../types';
-import { analytics } from '../../services/analyticsService';
-import { getDemandForecast, DemandForecastItem } from '../../services/geminiService';
+// ...existing code...
 
 interface AnalyticsEvent {
   category: 'user' | 'product' | 'order' | 'scanner' | 'returns' | 'payment' | 'navigation';
@@ -448,5 +502,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     </div>
   );
 };
+
+}
 
 export default ManagementDashboard;
