@@ -299,6 +299,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
 
   // Stricter guard: if overlay is open but neither camera nor preview is visible, auto-close
   if (!isCameraOpen && !previewImage) {
+    addToast('Camera closed or unavailable. Exiting receipt flow.', { type: 'warning' });
     if (typeof onCancel === 'function') onCancel();
     return null;
   }
@@ -306,21 +307,22 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   return createPortal(
     <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
       {/* CAMERA */}
-      {isCameraOpen && (
+      {isCameraOpen ? (
         <>
           <div className="w-full h-full flex flex-col items-center justify-center">
-            <ScannerPanel
-              ref={scannerPanelRef}
-              {...scannerProps}
-              mode={mode}
-              onPhotoCaptured={handleReceiptCaptured}
-              showClose={true}
-              onClose={() => {
-                setIsCameraOpen(false);
-                if (typeof onCancel === 'function') onCancel();
-              }}
-              disabled={isSubmitting}
-            />
+              {/* Removed fixed bottom Capture Receipt button. Capture is now only via ScannerPanel shutter. */}
+              <ScannerPanel
+                ref={scannerPanelRef}
+                {...scannerProps}
+                mode={mode}
+                onPhotoCaptured={handleReceiptCaptured}
+                showClose={true}
+                onClose={() => {
+                  setIsCameraOpen(false);
+                  if (typeof onCancel === 'function') onCancel();
+                }}
+                disabled={isSubmitting}
+              />
             {isSubmitting && (
               <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80">
                 <Loader2 className="w-12 h-12 text-ninpo-lime animate-spin mb-4" />
@@ -334,15 +336,21 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
               </div>
             )}
           </div>
-          <button
-            className="fixed bottom-0 left-0 w-full z-50 py-5 bg-ninpo-lime text-ninpo-black text-lg font-black uppercase tracking-widest rounded-none sm:rounded-xl sm:w-auto sm:bottom-8 sm:left-1/2 sm:-translate-x-1/2 sm:px-12 shadow-neon hover:bg-white transition-colors"
-            style={{maxWidth: '100vw'}} 
-            onClick={handleCaptureClick}
-            disabled={isSubmitting}
-          >
-            Capture Receipt
-          </button>
         </>
+      ) : (
+        <div className="flex flex-col items-center justify-center w-full h-full">
+          <div className="text-white text-lg font-bold mb-4">Camera unavailable or closed.</div>
+          <button
+            className="py-3 px-8 bg-ninpo-lime text-ninpo-black rounded-xl font-black uppercase tracking-widest hover:bg-white transition-colors"
+            onClick={() => {
+              setIsCameraOpen(true);
+              setError(null);
+              addToast('Camera re-opened.', { type: 'info' });
+            }}
+          >
+            Reopen Camera
+          </button>
+        </div>
       )}
 
       {/* ERROR TOAST */}

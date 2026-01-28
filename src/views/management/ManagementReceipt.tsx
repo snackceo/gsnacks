@@ -190,23 +190,15 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   // Tab content
   const tabContent = useMemo(() => {
     if (receiptFlow === 'capture') {
+      // Only one entry point for receipt capture: Open scanner overlay
       return (
         <div className="space-y-6">
-          <div className="bg-ninpo-card border border-white/10 rounded-2xl p-6 space-y-4">
-            <h3 className="text-white font-black uppercase tracking-widest flex items-center gap-2">
-              <Camera className="w-5 h-5 text-ninpo-lime" /> Capture Receipt
-            </h3>
-            <p className="text-[11px] text-slate-400">
-              Upload receipt images to automatically detect store, items, and prices.
-            </p>
-            <button
-              onClick={() => setIsReceiptFlowOpen(true)}
-              className="w-full py-4 bg-ninpo-lime text-ninpo-black rounded-xl font-black uppercase tracking-widest hover:bg-white transition-colors"
-            >
-              Open Receipt Scanner
-            </button>
-          </div>
-
+          <button
+            onClick={() => setIsReceiptFlowOpen(true)}
+            className="w-full py-4 bg-ninpo-lime text-ninpo-black rounded-xl font-black uppercase tracking-widest hover:bg-white transition-colors"
+          >
+            Capture or Upload Receipt
+          </button>
           <ReceiptCaptureFlow
             stores={stores}
             isOpen={isReceiptFlowOpen}
