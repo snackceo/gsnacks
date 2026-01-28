@@ -81,23 +81,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   // Ref to access ScannerPanel's capture method
   const scannerPanelRef = useRef<any>(null);
 
-  // Handler to trigger photo capture in ScannerPanel
-  // Defensive: Only allow capture if valid
-  const isValidImage = (img: any) => {
-    if (!img || typeof img !== 'string') return false;
-    return img.startsWith('data:image/jpeg;base64,') || img.startsWith('data:image/png;base64,');
-  };
-
-  const handleCaptureClick = () => {
-    if (scannerPanelRef.current && typeof scannerPanelRef.current.capturePhoto === 'function') {
-      const capturedImage = scannerPanelRef.current.getPreviewImage?.();
-      if (!capturedImage || !isValidImage(capturedImage)) {
-        addToast('Invalid image, please retake the photo', { type: 'error' });
-        return;
-      }
-      scannerPanelRef.current.capturePhoto();
-    }
-  };
+  // Removed legacy handler for extra capture button. Only ScannerPanel shutter is used.
 
   const { addToast } = useNinpoCore ? useNinpoCore() : { addToast: () => {} };
 
@@ -310,7 +294,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
       {isCameraOpen ? (
         <>
           <div className="w-full h-full flex flex-col items-center justify-center">
-              {/* Removed fixed bottom Capture Receipt button. Capture is now only via ScannerPanel shutter. */}
+              {/* Only ScannerPanel shutter triggers capture. No extra full-width button. */}
               <ScannerPanel
                 ref={scannerPanelRef}
                 {...scannerProps}

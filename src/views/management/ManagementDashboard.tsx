@@ -1,4 +1,35 @@
 import React, { useState, useEffect, useMemo } from 'react';
+// Defensive helper for stats fields
+function safeStat(capture, key) {
+  return capture && capture.stats && typeof capture.stats[key] === 'number' ? capture.stats[key] : 0;
+}
+// Receipt summary state for price intelligence
+const [receiptSummary, setReceiptSummary] = useState({
+  parsedReceiptCount: 0,
+  pendingReceiptCount: 0,
+  parseReviewNeededCount: 0,
+  parseCompletedCount: 0
+});
+
+useEffect(() => {
+  // Fetch summary from backend (same as fetchReceiptCaptureStats in PricingIntelligence)
+  async function fetchReceiptCaptureStats() {
+    try {
+      const resp = await fetch('/api/receipts-captures-summary', { credentials: 'include' });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      setReceiptSummary({
+        parsedReceiptCount: data.parsedReceiptCount ?? 0,
+        pendingReceiptCount: data.pendingReceiptCount ?? 0,
+        parseReviewNeededCount: data.parseReviewNeededCount ?? 0,
+        parseCompletedCount: data.parseCompletedCount ?? 0
+      });
+    } catch {
+      // fail silently for dashboard
+    }
+  }
+  fetchReceiptCaptureStats();
+}, []);
 import { ErrorMonitorPanel } from './ErrorMonitorPanel';
 import { BarChart3, ShieldAlert, Loader2, BrainCircuit, TrendingUp, Users, ShoppingCart, Package, RefreshCw, TrendingDown, Sparkles } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
@@ -160,6 +191,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         </button>
       </div>
 
+
       {/* Quick Stats Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
@@ -183,6 +215,26 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           label="Containers"
           value={stats.totalContainers}
         />
+      </div>
+
+      {/* Price Intelligence Summary (live data) */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+          <span className="text-[10px] text-slate-400 uppercase tracking-widest">Parsed Receipts</span>
+          <div className="text-2xl font-black text-white mt-1">{receiptSummary.parsedReceiptCount}</div>
+        </div>
+        <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+          <span className="text-[10px] text-slate-400 uppercase tracking-widest">Pending Items</span>
+          <div className="text-2xl font-black text-white mt-1">{receiptSummary.parseReviewNeededCount}</div>
+        </div>
+        <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+          <span className="text-[10px] text-slate-400 uppercase tracking-widest">Confirmed Items</span>
+          <div className="text-2xl font-black text-white mt-1">{receiptSummary.parseCompletedCount}</div>
+        </div>
+        <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+          <span className="text-[10px] text-slate-400 uppercase tracking-widest">Queue Pending</span>
+          <div className="text-2xl font-black text-white mt-1">{receiptSummary.pendingReceiptCount}</div>
+        </div>
       </div>
 
       {/* AI Operations Summary Section */}
