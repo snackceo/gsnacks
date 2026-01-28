@@ -836,7 +836,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 
       {/* Bottom capture button (receipt mode) removed to avoid duplicate. Upload/drag-drop UI remains. */}
 
-      {bottomSheetContent && !isReceiptMode && (
+      {bottomSheetContent && (
         <div
           className={`relative z-10 mt-auto w-full overflow-hidden rounded-t-[2rem] bg-ninpo-black/95 backdrop-blur-xl border-t border-white/10 shadow-2xl transition-all duration-300 ease-out ${
             isSheetOpen ? 'max-h-[70vh]' : 'max-h-[96px]'

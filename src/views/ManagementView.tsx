@@ -86,6 +86,7 @@ interface ManagementViewProps {
   fetchReturnVerifications: () => Promise<ReturnVerification[]>;
   settleReturnVerification: (verificationId: string, finalAcceptedCount: number, creditAmount: number, cashAmount: number) => Promise<void>;
 }
+import { InventoryCreateForm } from "./management/ManagementInventory";
 
 const ManagementView: React.FC<ManagementViewProps> = ({
   user,
@@ -1875,9 +1876,9 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           onModeChange={handleScannerModeChange}
           bottomSheetContent={
             scannerMode === ScannerMode.INVENTORY_CREATE ? (
-              <div className="p-6 text-center text-white/60 text-xs">
-                Inventory create form is unavailable (InventoryCreateForm component was removed).
-              </div>
+              <InventoryCreateForm
+                {...inventoryCreate}
+              />
             ) : scannerMode === ScannerMode.CUSTOMER_RETURN_SCAN ? (
               <div className="p-6 space-y-4">
                 <div className="flex items-center justify-between gap-3">
