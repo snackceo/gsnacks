@@ -181,16 +181,11 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
       }
 
       try {
-        const controller = new AbortController();
-        const t = setTimeout(() => controller.abort(), 15000); // 15s timeout
-
+        // DO NOT pass abort signal to parse trigger (fire-and-forget)
         const parseData = await apiFetch('/api/driver/receipt-parse', {
           method: 'POST',
-          body: JSON.stringify({ captureId }),
-          signal: controller.signal
+          body: JSON.stringify({ captureId })
         });
-
-        clearTimeout(t);
 
         setParseRetryCaptureId(null);
         if (isRetry) {
@@ -199,11 +194,10 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
 
         return { ok: true, data: parseData };
       } catch (err: any) {
-        const message =
-          err?.name === 'AbortError'
-            ? 'Parse request timed out (will retry in Pending).'
-            : err?.message || 'Parse request failed.';
+        // ✅ Ignore AbortError (user closed camera, etc.)
+        if (err?.name === 'AbortError' || err?.code === 20) return { ok: false };
 
+        const message = err?.message || 'Parse request failed.';
         console.error('Receipt parse trigger failed:', { captureId, error: err });
         setError(message);
         setParseRetryCaptureId(captureId);
@@ -228,10 +222,12 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
       try {
         setShowSuccess(false);
         // 1️⃣ Upload image to backend to get imageUrl and thumbnailUrl
-        const { url, thumbnailUrl } = await apiFetch('/api/driver/upload-receipt-image', {
+        const uploadResp = await apiFetch<{ url: string; thumbnailUrl?: string }>('/api/driver/upload-receipt-image', {
           method: 'POST',
           body: JSON.stringify({ image: photoDataUrl, mime })
         });
+        const url = uploadResp.url;
+        const thumbnailUrl = uploadResp.thumbnailUrl;
         if (!url) throw new Error('Image upload failed: no URL returned');
 
         // 2️⃣ CREATE RECEIPT CAPTURE with image URLs and captureRequestId
@@ -241,10 +237,11 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
           captureRequestId
         };
         console.log('DEBUG: captureRequestId', captureRequestId, 'captureBody', captureBody);
-        const { captureId } = await apiFetch('/api/driver/receipt-capture', {
+        const captureResp = await apiFetch<{ captureId: string }>('/api/driver/receipt-capture', {
           method: 'POST',
           body: JSON.stringify(captureBody)
         });
+        const captureId = captureResp.captureId;
 
         // 3️⃣ IMMEDIATE PARSE (do not block UI forever)
 

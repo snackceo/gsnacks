@@ -567,7 +567,8 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
                           key={matchIndex}
                           onClick={async () => {
                             try {
-                              const res = await fetch(`${BACKEND_URL}/api/driver/receipt-confirm-match`, {
+                              const backendUrl = process.env.REACT_APP_BACKEND_URL || '';
+                              const res = await fetch(`${backendUrl}/api/driver/receipt-confirm-match`, {
                                 method: 'POST',
                                 credentials: 'include',
                                 headers: {
