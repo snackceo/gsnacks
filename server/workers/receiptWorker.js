@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { isReceiptQueueEnabled, registerReceiptWorker } from '../queues/receiptQueue.js';
 import connectDB, { isDbReady } from '../db/connect.js';
 import ReceiptCapture from '../models/ReceiptCapture.js';
+import ReceiptParseJob from '../models/ReceiptParseJob.js';
 import { executeReceiptParse } from '../utils/receiptParseHelper.js';
 
 if (!isReceiptQueueEnabled()) {
@@ -39,6 +40,15 @@ if (!isReceiptQueueEnabled()) {
       await job.remove();
       return;
     }
+
+    await ReceiptParseJob.findOneAndUpdate(
+      { captureId: captureId.toString() },
+      {
+        captureId: captureId.toString(),
+        status: 'PARSING'
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
 
     try {
       // Execute the parsing pipeline (shared with receipt-prices route)

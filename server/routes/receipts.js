@@ -73,7 +73,7 @@ router.get('/', authRequired, async (req, res) => {
       statusList = String(req.query.status).split(',').map(x => x.trim()).filter(Boolean);
     }
     // Only allow known statuses
-    const allowedStatuses = ['QUEUED','PARSED','NEEDS_REVIEW','APPROVED','REJECTED'];
+    const allowedStatuses = ['QUEUED', 'PARSING', 'PARSED', 'NEEDS_REVIEW', 'APPROVED', 'REJECTED', 'FAILED'];
     statusList = statusList.filter(s => allowedStatuses.includes(s));
   }
   let limit = 100;
