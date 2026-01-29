@@ -1634,7 +1634,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
                   id="editProductImage"
                   name="editProductImage"
                   className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white md:col-span-2"
-                  placeholder="Image URL"
+                  placeholder="Cloudinary image URL"
                   value={editDraft.image}
                   onChange={e => setEditDraft({ ...editDraft, image: e.target.value })}
                 />

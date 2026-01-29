@@ -8,13 +8,13 @@ export const BACKEND_URL =
 export const CATEGORIES = ['ALL', 'Water', 'Soda', 'Sparkling Water', 'Juice', 'Energy Drinks', 'Snacks', 'Candy', 'Condiments & Sauces', 'Coffee & Tea'];
 
 export const MOCK_PRODUCTS: Product[] = [
-  { id: '1', name: 'PURIFIED WATER BOTTLE', price: 2.50, deposit: 0.05, stock: 150, sizeOz: 16.9, category: 'Water', image: 'https://images.unsplash.com/photo-1608270861620-7476ffd00d4d?auto=format&fit=crop&w=400&q=80', isGlass: false },
-  { id: '2', name: 'RAMUNE ORIGINAL SODA', price: 3.50, deposit: 0.10, stock: 40, sizeOz: 12, category: 'Soda', image: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=400&q=80', isGlass: true },
-  { id: '3', name: 'PERRIER SPARKLING WATER', price: 3.99, deposit: 0.10, stock: 60, sizeOz: 11, category: 'Sparkling Water', image: 'https://images.unsplash.com/photo-1599599810694-b5ac4dd64b11?auto=format&fit=crop&w=400&q=80', isGlass: true },
-  { id: '4', name: 'MANGO JUICE NECTAR', price: 4.25, deposit: 0, stock: 35, sizeOz: 16, category: 'Juice', image: 'https://images.unsplash.com/photo-1600788148184-7fdde7f1a5f6?auto=format&fit=crop&w=400&q=80', isGlass: false },
-  { id: '5', name: 'RED BULL ENERGY DRINK', price: 3.99, deposit: 0, stock: 55, sizeOz: 8.4, category: 'Energy Drinks', image: 'https://images.unsplash.com/photo-1624856049230-61c4adb3137d?auto=format&fit=crop&w=400&q=80', isGlass: false },
-  { id: '6', name: 'WASABI PEAS SNACK', price: 4.50, deposit: 0, stock: 50, sizeOz: 0, category: 'Snacks', image: 'https://images.unsplash.com/photo-1599599810769-bcde5a160d32?auto=format&fit=crop&w=400&q=80', isGlass: false },
-  { id: '7', name: 'JAPANESE HARD CANDY', price: 5.99, deposit: 0, stock: 45, sizeOz: 0, category: 'Candy', image: 'https://images.unsplash.com/photo-1599599810694-b5ac4dd64b11?auto=format&fit=crop&w=400&q=80', isGlass: false },
-  { id: '8', name: 'SRIRACHA SAUCE 8OZ', price: 6.50, deposit: 0, stock: 30, sizeOz: 8, category: 'Condiments & Sauces', image: 'https://images.unsplash.com/photo-1585517281735-a265ee5cbff0?auto=format&fit=crop&w=400&q=80', isGlass: false },
-  { id: '9', name: 'MATCHA GREEN TEA POWDER', price: 12.99, deposit: 0, stock: 20, sizeOz: 2, category: 'Coffee & Tea', image: 'https://images.unsplash.com/photo-1597318098226-50cc8ad3f8c1?auto=format&fit=crop&w=400&q=80', isGlass: false },
+  { id: '1', name: 'PURIFIED WATER BOTTLE', price: 2.50, deposit: 0.05, stock: 150, sizeOz: 16.9, category: 'Water', image: '', isGlass: false },
+  { id: '2', name: 'RAMUNE ORIGINAL SODA', price: 3.50, deposit: 0.10, stock: 40, sizeOz: 12, category: 'Soda', image: '', isGlass: true },
+  { id: '3', name: 'PERRIER SPARKLING WATER', price: 3.99, deposit: 0.10, stock: 60, sizeOz: 11, category: 'Sparkling Water', image: '', isGlass: true },
+  { id: '4', name: 'MANGO JUICE NECTAR', price: 4.25, deposit: 0, stock: 35, sizeOz: 16, category: 'Juice', image: '', isGlass: false },
+  { id: '5', name: 'RED BULL ENERGY DRINK', price: 3.99, deposit: 0, stock: 55, sizeOz: 8.4, category: 'Energy Drinks', image: '', isGlass: false },
+  { id: '6', name: 'WASABI PEAS SNACK', price: 4.50, deposit: 0, stock: 50, sizeOz: 0, category: 'Snacks', image: '', isGlass: false },
+  { id: '7', name: 'JAPANESE HARD CANDY', price: 5.99, deposit: 0, stock: 45, sizeOz: 0, category: 'Candy', image: '', isGlass: false },
+  { id: '8', name: 'SRIRACHA SAUCE 8OZ', price: 6.50, deposit: 0, stock: 30, sizeOz: 8, category: 'Condiments & Sauces', image: '', isGlass: false },
+  { id: '9', name: 'MATCHA GREEN TEA POWDER', price: 12.99, deposit: 0, stock: 20, sizeOz: 2, category: 'Coffee & Tea', image: '', isGlass: false },
 ];
