@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+// ...existing code...
 import ReceiptReviewPanel from './receipt/ReceiptReviewPanel';
 import { classifyItems } from '../../utils/classificationUtils';
 import { getReceiptItemKey } from '../../utils/receiptHelpers';
@@ -366,6 +367,49 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     return Date.now() < retryDate.getTime();
   }, []);
 
+
+  // --- Load Capture Items (move up for dependency order) ---
+  const loadCaptureItems = useCallback(async (captureId: string) => {
+    if (captureItemsInFlightRef.current.has(captureId)) {
+      return;
+    }
+    // Abort previous request if any
+    if (captureItemsAbortRef.current) {
+      captureItemsAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    captureItemsAbortRef.current = abortController;
+    captureItemsInFlightRef.current.add(captureId);
+    try {
+      const data: any = await apiFetch(`/api/driver/receipt-capture/${captureId}/items`, {
+        signal: abortController.signal
+      });
+      if (data?.error) throw new Error(data.error || 'Failed to load receipt items');
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const { items: classified } = classifyItems(items);
+      setClassifiedItems(classified);
+      const updated = new Map<string, boolean>();
+      classified
+        .filter(item => item.classification === 'A')
+        .forEach(item => {
+          updated.set(getReceiptItemKey(item), true);
+        });
+      setSelectedItemsForCommit(updated);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        // Silently ignore aborts
+        return;
+      }
+      addToast(err?.message || 'Failed to load receipt items', 'error');
+      setClassifiedItems([]);
+    } finally {
+      captureItemsInFlightRef.current.delete(captureId);
+      if (captureItemsAbortRef.current === abortController) {
+        captureItemsAbortRef.current = null;
+      }
+    }
+  }, [addToast]);
+
   const handleConfirmAll = useCallback(() => {
     // Mark all items as confirmed (example logic)
     setSelectedItemsForCommit(new Map(classifiedItems.map(item => [getReceiptItemKey(item), true])));
@@ -616,44 +660,9 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     setScanModalOpen(false);
   }, []);
 
-  const loadCaptureItems = useCallback(async (captureId: string) => {
-    if (captureItemsInFlightRef.current.has(captureId)) {
-      return;
-    }
-    if (captureItemsAbortRef.current) {
-      captureItemsAbortRef.current.abort();
-    }
-    const abortController = new AbortController();
-    captureItemsAbortRef.current = abortController;
-    captureItemsInFlightRef.current.add(captureId);
-    try {
-      const data: any = await apiFetch(`/api/driver/receipt-capture/${captureId}/items`, {
-        signal: abortController.signal
-      });
-      if (data?.error) throw new Error(data.error || 'Failed to load receipt items');
-      const items = Array.isArray(data?.items) ? data.items : [];
-      const { items: classified } = classifyItems(items);
-      setClassifiedItems(classified);
-      const updated = new Map<string, boolean>();
-      classified
-        .filter(item => item.classification === 'A')
-        .forEach(item => {
-          updated.set(getReceiptItemKey(item), true);
-        });
-      setSelectedItemsForCommit(updated);
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        return;
-      }
-      addToast(err?.message || 'Failed to load receipt items', 'error');
-      setClassifiedItems([]);
-    } finally {
-      captureItemsInFlightRef.current.delete(captureId);
-      if (captureItemsAbortRef.current === abortController) {
-        captureItemsAbortRef.current = null;
-      }
-    }
-  }, [addToast]);
+  // ...existing code...
+
+
 
   // Load pending parse jobs
   const loadParseJobs = useCallback(async () => {

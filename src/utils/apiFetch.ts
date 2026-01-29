@@ -9,7 +9,15 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
   const max429Retries = 3;
   for (let attempt = 0; attempt <= max429Retries; attempt++) {
-    const res = await fetch(url, { ...options, headers, credentials: 'include' });
+    // Ensure signal is not lost if present in options
+    const { signal, ...rest } = options;
+    const fetchOptions: RequestInit = {
+      ...rest,
+      headers,
+      credentials: 'include',
+      ...(signal ? { signal } : {})
+    };
+    const res = await fetch(url, fetchOptions);
 
     if (res.status === 429) {
       // exponential-ish backoff: 500ms, 1000ms, 2000ms...
