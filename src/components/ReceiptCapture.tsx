@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Camera, Plus, X, Package, Check, AlertCircle, Upload } from 'lucide-react';
-import { BACKEND_URL } from '../constants';
+import { apiFetch } from '../utils/apiFetch';
 
 interface ReceiptItem {
   upc?: string;
@@ -43,6 +43,8 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
   const [keepScannerOpen, setKeepScannerOpen] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
   const [uploadPhase, setUploadPhase] = useState<string | null>(null);
+  const [parseRetryCaptureId, setParseRetryCaptureId] = useState<string | null>(null);
+  const [isParseRetrying, setIsParseRetrying] = useState(false);
 
   const storeLabel = useMemo(() => storeName || storeId || 'Unknown Store', [storeId, storeName]);
 
@@ -161,33 +163,22 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
     if (!receiptPhoto) return null;
 
     setUploadPhase('Uploading receipt image…');
-    const uploadResp = await fetch(`${BACKEND_URL}/api/driver/upload-receipt-image`, {
+    const uploadData = await apiFetch<{ url: string; thumbnailUrl?: string }>('/api/driver/upload-receipt-image', {
       method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json'
-      },
       body: JSON.stringify({
         image: receiptPhoto,
         storeId: storeId || undefined
       })
     });
 
-    const uploadData = await uploadResp.json().catch(() => ({}));
-    if (!uploadResp.ok) {
-      throw new Error(uploadData.error || 'Failed to upload receipt image');
-    }
-
-    return uploadData as { url: string; thumbnailUrl?: string };
+    return uploadData;
   };
 
   const createReceiptCapture = async (imageUrl: string, thumbnailUrl?: string) => {
     setUploadPhase('Creating receipt capture…');
     const captureRequestId = generateCaptureId();
-    const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
+    const data = await apiFetch<{ captureId: string }>('/api/driver/receipt-capture', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({
         storeId: storeId || undefined,
         storeName: storeName || undefined,
@@ -203,12 +194,36 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
       })
     });
 
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      throw new Error(data.error || 'Receipt upload failed');
+    return data.captureId;
+  };
+
+  const triggerParse = async (captureId: string, options?: { isRetry?: boolean }) => {
+    const { isRetry = false } = options || {};
+    if (isRetry) {
+      setIsParseRetrying(true);
     }
 
-    return data.captureId as string;
+    try {
+      await apiFetch('/api/driver/receipt-parse', {
+        method: 'POST',
+        body: JSON.stringify({ captureId })
+      });
+
+      setParseRetryCaptureId(null);
+      return true;
+    } catch (parseErr: any) {
+      console.error('Receipt parse trigger failed:', { captureId, error: parseErr });
+      setParseRetryCaptureId(captureId);
+      setError(
+        (parseErr?.message || 'Receipt auto-parse failed. Please try again or contact support.') +
+          ' (Auto-parse error)'
+      );
+      return false;
+    } finally {
+      if (isRetry) {
+        setIsParseRetrying(false);
+      }
+    }
   };
 
   const handleSubmit = async () => {
@@ -220,6 +235,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
     setSubmitting(true);
     setError(null);
     setUploadPhase(null);
+    setParseRetryCaptureId(null);
 
     try {
       let receiptImageUrl: string | undefined;
@@ -237,29 +253,19 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
         
           // Auto-trigger parsing immediately after capture
           setUploadPhase('Parsing receipt with AI…');
-          try {
-            await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ captureId })
-            });
-          } catch (parseErr: any) {
-            // Show a visible error toast if auto-parse fails
-            setError(
-              (parseErr?.message || 'Receipt auto-parse failed. Please try again or contact support.') +
-              ' (Auto-parse error)'
-            );
-          }
+          await triggerParse(captureId);
       }
 
       setUploadPhase('Submitting receipt items…');
-      const res = await fetch(`${BACKEND_URL}/api/driver/receipt-price-update`, {
+      const result = await apiFetch<{
+        reviewItems?: any[];
+        errors?: string[];
+        updated?: number;
+        created?: number;
+        needsReview?: number;
+        autoMatched?: number;
+      }>('/api/driver/receipt-price-update', {
         method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify({
           storeId,
           storeName,
@@ -270,13 +276,6 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
           items
         })
       });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to submit receipt');
-      }
-
-      const result = await res.json();
 
       if (result.reviewItems && result.reviewItems.length > 0) {
         // Show review UI for confirmation
@@ -320,9 +319,21 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
 
         <div className="p-6 space-y-6">
           {error && (
-            <div className="p-4 bg-red-900/20 border border-red-600 rounded-xl text-red-300 flex items-center gap-2">
-              <AlertCircle className="w-5 h-5" />
-              {error}
+            <div className="p-4 bg-red-900/20 border border-red-600 rounded-xl text-red-300 flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-5 h-5" />
+                {error}
+              </div>
+              {parseRetryCaptureId && (
+                <button
+                  type="button"
+                  onClick={() => triggerParse(parseRetryCaptureId, { isRetry: true })}
+                  disabled={isParseRetrying}
+                  className="self-start px-4 py-2 bg-white text-red-900 font-black uppercase tracking-widest rounded-full text-xs hover:bg-red-100 transition-colors disabled:opacity-60"
+                >
+                  {isParseRetrying ? 'Retrying parse…' : 'Parse failed — retry now'}
+                </button>
+              )}
             </div>
           )}
 
