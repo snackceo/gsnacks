@@ -675,7 +675,14 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     try {
       const data: any = await apiFetch('/api/receipts/?status=QUEUED,PARSING,NEEDS_REVIEW,PARSED,FAILED');
       if (data?.error) throw new Error(data.error || 'Failed to load parse jobs');
-      setParseJobs(Array.isArray(data?.jobs) ? data.jobs : []);
+      // Only include jobs with QUEUED, NEEDS_REVIEW, PARSED, FAILED (exclude PARSING)
+      const validStatuses = ['QUEUED', 'NEEDS_REVIEW', 'PARSED', 'FAILED'];
+      let jobs = Array.isArray(data?.jobs) ? data.jobs : [];
+      jobs = jobs.filter(j => validStatuses.includes(j.status));
+      // Sort by required order: QUEUED, NEEDS_REVIEW, PARSED, FAILED
+      const statusOrder = { QUEUED: 0, NEEDS_REVIEW: 1, PARSED: 2, FAILED: 3 };
+      jobs.sort((a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99));
+      setParseJobs(jobs);
     } catch (err: any) {
       setJobsError(err?.message || 'Failed to load parse jobs');
     } finally {

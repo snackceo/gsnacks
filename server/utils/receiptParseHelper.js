@@ -297,9 +297,40 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     throw new Error('Receipt capture not found');
   }
 
+
   let parseFailureDetails = null;
   let skippedImages = [];
   let skippedImageReason = [];
+
+  // --- ENFORCE ALL IMAGES ARE CLOUDINARY OR DATA URL ---
+  const invalidImages = (capture.images || []).filter(img => {
+    if (!img.url) return true;
+    if (img.url.startsWith('https://') && img.url.includes('cloudinary')) return false;
+    if (img.url.startsWith('data:')) return false;
+    return true;
+  });
+  if (invalidImages.length > 0) {
+    const reasons = invalidImages.map(img => img.url || 'missing_url').join(', ');
+    capture.status = 'failed';
+    capture.parseError = `Invalid receipt image URLs: ${reasons}`;
+    await capture.save();
+    const failureDetails = classifyParseError(new Error(capture.parseError));
+    const retryAfter = failureDetails.parseErrorType === 'TRANSIENT'
+      ? getRetryAfter(capture.parseAttempts || 1)
+      : null;
+    await ReceiptParseJob.findOneAndUpdate(
+      { captureId: capture._id.toString() },
+      {
+        captureId: capture._id.toString(),
+        status: 'FAILED',
+        parseError: failureDetails.parseError,
+        parseErrorType: failureDetails.parseErrorType,
+        retryAfter
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+    throw new Error(capture.parseError);
+  }
 
   // Check Gemini API availability
   const apiReady = ensureGeminiReady();
@@ -434,12 +465,19 @@ RULES:
       // Add items from this image
       if (Array.isArray(parsed.items)) {
         for (const item of parsed.items) {
-          if (item.receiptName && item.totalPrice) {
+          // Accept if totalPrice exists (including 0), or unitPrice exists (compute total if quantity exists)
+          const hasTotal = typeof item.totalPrice === 'number';
+          const hasUnit = typeof item.unitPrice === 'number';
+          const hasQty = typeof item.quantity === 'number';
+          if (item.receiptName && (hasTotal || hasUnit)) {
+            let totalPrice = hasTotal ? item.totalPrice : (hasUnit && hasQty ? item.unitPrice * item.quantity : undefined);
+            let unitPrice = hasUnit ? item.unitPrice : (hasTotal && hasQty ? (item.quantity !== 0 ? item.totalPrice / item.quantity : undefined) : undefined);
+            if (typeof totalPrice === 'undefined' && typeof unitPrice === 'undefined') continue;
             draftItems.push({
               receiptName: item.receiptName,
-              quantity: item.quantity || 1,
-              totalPrice: item.totalPrice,
-              unitPrice: item.totalPrice / (item.quantity || 1)
+              quantity: hasQty ? item.quantity : 1,
+              totalPrice: typeof totalPrice === 'number' ? totalPrice : 0,
+              unitPrice: typeof unitPrice === 'number' ? unitPrice : 0
             });
           }
         }
