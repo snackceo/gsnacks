@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import ItemNotFoundTracker from './ItemNotFoundTracker';
 import ReceiptCapture from './ReceiptCapture';
+import ReceiptCaptureFlow from './ReceiptCaptureFlow';
 import ScannerModal from './ScannerModal';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -71,62 +72,14 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' | 'info' } | null>(null);
   const [showReceiptCapture, setShowReceiptCapture] = useState(false);
   const [showPhotoCapture, setShowPhotoCapture] = useState(false);
-  const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
-  const [uploading, setUploading] = useState(false);
 
   const showToast = (message: string, type: 'error' | 'success' | 'info' = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Auto-upload and parse receipt photos
-  const handlePhotoCapture = async (photoDataUrl: string, mime: string) => {
-    try {
-      setUploading(true);
-      setCapturedPhotos(prev => [...prev, photoDataUrl]);
-      
-      // Upload photo to backend immediately
-      const storeName = currentStoreId ? getStoreNameFromId(currentStoreId) : undefined;
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-capture`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          storeId: currentStoreId || undefined,
-          storeName,
-          orderId: order?.orderId || order?.id,
-          images: [{
-            dataUrl: photoDataUrl,
-            mime: mime
-          }]
-        })
-      });
 
-      if (!resp.ok) throw new Error('Upload failed');
-
-      const data = await resp.json();
-      
-      // Auto-parse immediately
-      const parseResp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ captureId: data.captureId })
-      });
-
-      if (parseResp.ok) {
-        showToast('Receipt auto-uploaded & parsed! Check management to review.', 'success');
-        setShowPhotoCapture(false);
-        setCapturedPhotos([]);
-      } else {
-        showToast('Uploaded but parsing failed. Review in management.', 'info');
-      }
-    } catch (err: any) {
-      showToast(err.message || 'Upload failed', 'error');
-    } finally {
-      setUploading(false);
-    }
-  };
+  // Use ReceiptCaptureFlow for all receipt capture/parse
 
   useEffect(() => {
     fetchShoppingList();
@@ -621,19 +574,18 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
           </div>
         </div>
 
-        {/* Auto-Upload Receipt Scanner */}
+
+        {/* Canonical Receipt Capture Flow */}
         {showPhotoCapture && (
-          <ScannerModal
-            onScan={() => {}} // No UPC scanning needed
-            onPhotoCaptured={handlePhotoCapture}
-            onClose={() => {
-              setShowPhotoCapture(false);
-              setCapturedPhotos([]);
-            }}
+          <ReceiptCaptureFlow
+            stores={[]}
             isOpen={showPhotoCapture}
-            title="Receipt Photo"
-            subtitle={uploading ? 'Uploading & parsing...' : `${capturedPhotos.length} captured`}
-            beepEnabled={false}
+            defaultStoreId={currentStoreId || undefined}
+            onReceiptCreated={() => {
+              setShowPhotoCapture(false);
+              showToast('Receipt auto-uploaded & parse started! Check management to review.', 'success');
+            }}
+            onCancel={() => setShowPhotoCapture(false)}
           />
         )}
 
