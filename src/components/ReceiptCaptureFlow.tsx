@@ -299,7 +299,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
                 showClose={true}
                 onClose={() => {
                   setIsCameraOpen(false);
-                  // No longer auto-cancelling the flow here; fallback UI will render.
+                  onCancel?.(); // ✅ close the receipt flow and return to the tab
                 }}
                 disabled={isSubmitting}
               />
