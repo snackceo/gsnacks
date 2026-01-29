@@ -13,22 +13,127 @@ import {
 import {
   ClassifiedReceiptItem,
   FinalStoreMode,
+  ReceiptApprovalAction,
+  ReceiptApprovalCreateProductPayload,
   ReceiptApprovalDraft,
   ReceiptApprovalDraftItem,
   ReceiptParseJob,
+  ReceiptStoreCandidate,
   StoreRecord
 } from '../../types';
 import { BACKEND_URL } from '../../constants';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
 import ReceiptCaptureFlow from '../../components/ReceiptCaptureFlow';
 
-type ReceiptApprovalMode = 'safe' | 'selected' | 'locked' | 'all';
-
 const createIdempotencyKey = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID();
   }
   return `receipt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
+const getReceiptJobItemId = (item: { _id?: string; captureId?: string; lineIndex?: number | string }) => {
+  if (item._id) return item._id;
+  if (item.captureId && typeof item.lineIndex !== 'undefined') {
+    return `${item.captureId}:${item.lineIndex}`;
+  }
+  if (typeof item.lineIndex !== 'undefined') {
+    return `line:${item.lineIndex}`;
+  }
+  return 'receipt-item-unknown';
+};
+
+type ReceiptApprovalMode = 'safe' | 'selected' | 'locked' | 'all';
+
+interface ReceiptApprovalStoreDraft {
+  finalStoreId?: string;
+  storeCandidate?: ReceiptStoreCandidate;
+  confirmStoreCreate?: boolean;
+}
+
+type ReceiptApprovalItemStatus = {
+  blocking: string[];
+  advisory: string[];
+};
+
+const receiptApprovalStatus = (
+  items: Array<ReceiptApprovalDraftItem & { id: string }>,
+  storeDraft: ReceiptApprovalStoreDraft,
+  finalStoreMode: FinalStoreMode
+) => {
+  const itemStatus: Record<string, ReceiptApprovalItemStatus> = {};
+  let hasBlocking = false;
+  let hasAdvisory = false;
+
+  items.forEach(item => {
+    const blocking: string[] = [];
+    const advisory: string[] = [];
+
+    if (item.lineIndex < 0 || Number.isNaN(item.lineIndex)) {
+      blocking.push('Missing receipt line index.');
+    }
+
+    if (item.action === 'LINK_UPC_TO_PRODUCT' && !item.productId) {
+      blocking.push('Link action requires a product selection.');
+    }
+
+    if (item.action === 'CREATE_UPC' && !item.upc) {
+      blocking.push('Create UPC action requires a UPC value.');
+    }
+
+    if (item.action === 'CREATE_PRODUCT') {
+      if (!item.createProduct?.name) {
+        blocking.push('Create product action requires a product name.');
+      }
+      if (!item.createProduct?.price || item.createProduct.price <= 0) {
+        blocking.push('Create product action requires a valid price.');
+      }
+    }
+
+    if (!item.upc && item.action !== 'IGNORE') {
+      advisory.push('UPC missing for item action.');
+    }
+
+    if (blocking.length) hasBlocking = true;
+    if (advisory.length) hasAdvisory = true;
+    itemStatus[item.id] = { blocking, advisory };
+  });
+
+  const storeBlocking: string[] = [];
+  const storeAdvisory: string[] = [];
+
+  if (finalStoreMode === 'EXISTING' && !storeDraft.finalStoreId) {
+    storeBlocking.push('Select a final store before approving.');
+  }
+
+  if (finalStoreMode === 'CREATE_DRAFT' && !storeDraft.confirmStoreCreate) {
+    storeBlocking.push('Confirm store creation before approving.');
+  }
+
+  if (finalStoreMode === 'MATCHED' && !storeDraft.storeCandidate?.storeId) {
+    storeAdvisory.push('Store match not confirmed; review candidate details.');
+  }
+
+  if (storeBlocking.length) hasBlocking = true;
+  if (storeAdvisory.length) hasAdvisory = true;
+
+  return {
+    hasBlocking,
+    hasAdvisory,
+    items: itemStatus,
+    store: {
+      blocking: storeBlocking,
+      advisory: storeAdvisory
+    }
+  };
+};
+
+type ReceiptApprovalDraftState = {
+  finalStoreMode: FinalStoreMode;
+  finalStoreDraft: ReceiptApprovalStoreDraft;
+  receiptApprovalItems: Array<ReceiptApprovalDraftItem & { id: string }>;
+  receiptApprovalNotes: string;
+  receiptApprovalIdempotencyKey: string;
 };
 
 interface ManagementReceiptProps {
@@ -99,15 +204,89 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [classifiedItems, setClassifiedItems] = useState<ClassifiedReceiptItem[]>([]);
   const [approvalMode, setApprovalMode] = useState<ReceiptApprovalMode>('safe');
   const [forceUpcOverride, setForceUpcOverride] = useState(false);
-  const [confirmStoreCreate, setConfirmStoreCreate] = useState(false);
-  const [finalStoreId, setFinalStoreId] = useState<string>('');
-  const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey());
+  const [finalStoreMode, setFinalStoreMode] = useState<FinalStoreMode>('MATCHED');
+  const [finalStoreDraft, setFinalStoreDraft] = useState<ReceiptApprovalStoreDraft>({});
+  const [receiptApprovalItems, setReceiptApprovalItems] = useState<Array<ReceiptApprovalDraftItem & { id: string }>>([]);
+  const [receiptApprovalNotes, setReceiptApprovalNotes] = useState('');
+  const [receiptApprovalIdempotencyKey, setReceiptApprovalIdempotencyKey] = useState(createIdempotencyKey());
+  const [receiptApprovalJobId, setReceiptApprovalJobId] = useState<string | null>(null);
+  const [receiptApprovalDrafts, setReceiptApprovalDrafts] = useState<Map<string, ReceiptApprovalDraftState>>(new Map());
+  const [scanTargetItemId, setScanTargetItemId] = useState<string | null>(null);
   const [selectedItemsForCommit, setSelectedItemsForCommit] = useState<Map<string, boolean>>(new Map());
   const [isCommitting, setIsCommitting] = useState(false);
   const [showReceiptReview, setShowReceiptReview] = useState(false);
   const [scanModalOpen, setScanModalOpen] = useState(false);
   const [lockDurationDays, setLockDurationDays] = useState(7); // Or get from settings if available
   const [settings] = useState<any>({}); // Placeholder for settings if needed
+
+  const finalStoreId = finalStoreDraft.finalStoreId ?? '';
+  const confirmStoreCreate = Boolean(finalStoreDraft.confirmStoreCreate);
+
+  const updateStoreDraft = useCallback((updates: Partial<ReceiptApprovalStoreDraft>) => {
+    setFinalStoreDraft(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  const updateStoreCandidateDraft = useCallback((candidate?: ReceiptStoreCandidate) => {
+    updateStoreDraft({ storeCandidate: candidate });
+  }, [updateStoreDraft]);
+
+  const updateReceiptApprovalItem = useCallback(
+    (itemId: string, updater: (item: ReceiptApprovalDraftItem & { id: string }) => ReceiptApprovalDraftItem & { id: string }) => {
+      setReceiptApprovalItems(prev => prev.map(item => (item.id === itemId ? updater(item) : item)));
+    },
+    []
+  );
+
+  const updateReceiptApprovalItemUpc = useCallback((itemId: string, upc: string) => {
+    updateReceiptApprovalItem(itemId, item => ({ ...item, upc }));
+  }, [updateReceiptApprovalItem]);
+
+  const updateReceiptApprovalItemAction = useCallback((itemId: string, action: ReceiptApprovalAction) => {
+    updateReceiptApprovalItem(itemId, item => ({ ...item, action }));
+  }, [updateReceiptApprovalItem]);
+
+  const updateReceiptApprovalItemCreateProduct = useCallback(
+    (itemId: string, details: Partial<ReceiptApprovalCreateProductPayload>) => {
+      updateReceiptApprovalItem(itemId, item => ({
+        ...item,
+        createProduct: {
+          ...item.createProduct,
+          ...details
+        }
+      }));
+    },
+    [updateReceiptApprovalItem]
+  );
+
+  const approvalStatus = useMemo(
+    () => receiptApprovalStatus(receiptApprovalItems, finalStoreDraft, finalStoreMode),
+    [receiptApprovalItems, finalStoreDraft, finalStoreMode]
+  );
+
+  const approvalIssues = useMemo(() => {
+    const itemsByLineIndex = new Map<number, ClassifiedReceiptItem>();
+    classifiedItems.forEach(item => {
+      if (typeof item.lineIndex === 'number') {
+        itemsByLineIndex.set(item.lineIndex, item);
+      }
+    });
+
+    return receiptApprovalItems.flatMap(item => {
+      const status = approvalStatus.items[item.id];
+      if (!status) return [];
+      const labelSource = itemsByLineIndex.get(item.lineIndex);
+      const label = labelSource?.receiptName || `Line ${item.lineIndex}`;
+      const issues: Array<{ label: string; messages: string[]; severity: 'blocking' | 'advisory' }> = [];
+
+      if (status.blocking.length > 0) {
+        issues.push({ label, messages: status.blocking, severity: 'blocking' });
+      }
+      if (status.advisory.length > 0) {
+        issues.push({ label, messages: status.advisory, severity: 'advisory' });
+      }
+      return issues;
+    });
+  }, [classifiedItems, receiptApprovalItems, approvalStatus.items]);
 
   // --- Receipt Review Handlers (ported from Pricing Intelligence) ---
   const handleParse = useCallback(async () => {
@@ -192,19 +371,14 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleCommit = useCallback(async () => {
     if (!selectedJob) return;
     if (!activeReceiptCaptureId || !approvalMode) return;
-    const hasMatchedStore = Boolean(selectedJob.storeCandidate?.storeId);
-    const finalStoreMode: FinalStoreMode = finalStoreId
-      ? 'EXISTING'
-      : hasMatchedStore
-        ? 'MATCHED'
-        : 'CREATE_DRAFT';
+    if (approvalStatus.hasBlocking) {
+      addToast('Resolve blocking receipt approval items before committing.', 'error');
+      return;
+    }
     setIsCommitting(true);
     try {
-      const selectedItems = classifiedItems
+      const selectedIndices = classifiedItems
         .filter(item => selectedItemsForCommit.get(getReceiptItemKey(item)))
-        .filter(item => typeof item.lineIndex === 'number');
-
-      const selectedIndices = selectedItems
         .map(item => item.lineIndex)
         .filter((lineIndex): lineIndex is number => typeof lineIndex === 'number');
 
@@ -214,7 +388,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         return;
       }
 
-      if (selectedItems.length !== selectedIndices.length) {
+      if (selectedIndices.length === 0) {
         addToast('Selected items must include a line index before committing.', 'error');
         setIsCommitting(false);
         return;
@@ -226,18 +400,16 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         return;
       }
 
-      const draftItems: ReceiptApprovalDraftItem[] = selectedItems.map(item => {
-        const lineIndex = item.lineIndex ?? -1;
-        const jobItem = selectedJob.items?.find(job => Number(job.lineIndex) === Number(lineIndex));
-        const action = jobItem?.actionSuggestion || (item.suggestedProduct?.id ? 'LINK_UPC_TO_PRODUCT' : 'IGNORE');
-        return {
-          lineIndex,
-          action,
-          productId: jobItem?.match?.productId || item.suggestedProduct?.id,
-          sku: item.suggestedProduct?.sku,
-          upc: item.scannedUpc || item.suggestedProduct?.upc
-        };
-      });
+      const draftItems = receiptApprovalItems
+        .filter(item => selectedIndices.includes(item.lineIndex))
+        .map(item => ({
+          lineIndex: item.lineIndex,
+          action: item.action,
+          productId: item.productId,
+          sku: item.sku,
+          upc: item.upc,
+          createProduct: item.createProduct
+        }));
 
       const invalidActions = draftItems.filter(item => item.action === 'LINK_UPC_TO_PRODUCT' && !item.productId);
       if (invalidActions.length > 0) {
@@ -251,7 +423,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         captureId: selectedJob.captureId,
         finalStoreMode,
         finalStoreId: finalStoreId || undefined,
-        storeCandidate: selectedJob.storeCandidate,
+        storeCandidate: finalStoreDraft.storeCandidate,
         confirmStoreCreate,
         items: draftItems
       };
@@ -265,11 +437,12 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           approvalDraft,
           selectedIndices: approvalMode === 'selected' ? selectedIndices : undefined,
           lockDurationDays,
-          idempotencyKey,
+          idempotencyKey: receiptApprovalIdempotencyKey,
           forceUpcOverride,
           finalStoreId: approvalDraft.finalStoreId,
           storeCandidate: approvalDraft.storeCandidate,
-          confirmStoreCreate: approvalDraft.confirmStoreCreate
+          confirmStoreCreate: approvalDraft.confirmStoreCreate,
+          approvalNotes: receiptApprovalNotes || undefined
         })
       });
       if (!resp.ok) throw new Error('Failed to commit items');
@@ -287,28 +460,79 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     activeReceiptCaptureId,
     approvalMode,
     classifiedItems,
+    receiptApprovalItems,
     selectedItemsForCommit,
     lockDurationDays,
-    idempotencyKey,
+    receiptApprovalIdempotencyKey,
     forceUpcOverride,
+    approvalStatus.hasBlocking,
     finalStoreId,
     confirmStoreCreate,
+    finalStoreMode,
+    finalStoreDraft.storeCandidate,
+    receiptApprovalNotes,
     addToast
   ]);
 
-  const handleScanItem = useCallback((_item: any) => {
-    setScanModalOpen(true);
-  }, []);
+  const buildReceiptApprovalItems = useCallback(
+    (job: ReceiptParseJob, items: ClassifiedReceiptItem[]) => {
+      const jobItems = new Map<number, ReceiptParseJob['items'][number]>();
+      job.items?.forEach(jobItem => {
+        if (typeof jobItem.lineIndex === 'number') {
+          jobItems.set(jobItem.lineIndex, jobItem);
+        }
+      });
 
-  const handleSearchProduct = useCallback((item: any) => {
+      return items.map(item => {
+        const lineIndex = item.lineIndex ?? -1;
+        const jobItem = jobItems.get(lineIndex);
+        const action: ReceiptApprovalAction =
+          jobItem?.actionSuggestion || (item.suggestedProduct?.id ? 'LINK_UPC_TO_PRODUCT' : 'IGNORE');
+        return {
+          id: getReceiptJobItemId({ _id: (jobItem as { _id?: string })?._id, captureId: job.captureId, lineIndex }),
+          lineIndex,
+          action,
+          productId: jobItem?.match?.productId || item.suggestedProduct?.id,
+          sku: item.suggestedProduct?.sku,
+          upc: item.scannedUpc || item.suggestedProduct?.upc || jobItem?.upcCandidate
+        };
+      });
+    },
+    []
+  );
+
+  const handleScanItem = useCallback((item: ClassifiedReceiptItem) => {
+    const targetId = getReceiptJobItemId({
+      captureId: activeReceiptCaptureId || selectedJob?.captureId,
+      lineIndex: item.lineIndex
+    });
+    setScanTargetItemId(targetId);
+    setScanModalOpen(true);
+  }, [activeReceiptCaptureId, selectedJob?.captureId]);
+
+  const handleSearchProduct = useCallback((item: ClassifiedReceiptItem) => {
     addToast('Product search not yet implemented.', 'info');
     // Implement product search logic if needed
-  }, [addToast]);
+    const targetId = getReceiptJobItemId({
+      captureId: activeReceiptCaptureId || selectedJob?.captureId,
+      lineIndex: item.lineIndex
+    });
+    updateReceiptApprovalItemAction(targetId, 'LINK_UPC_TO_PRODUCT');
+  }, [activeReceiptCaptureId, selectedJob?.captureId, addToast, updateReceiptApprovalItemAction]);
 
-  const handleCreateProduct = useCallback((item: any) => {
+  const handleCreateProduct = useCallback((item: ClassifiedReceiptItem) => {
     addToast('Product creation not yet implemented.', 'info');
     // Implement create product logic if needed
-  }, [addToast]);
+    const targetId = getReceiptJobItemId({
+      captureId: activeReceiptCaptureId || selectedJob?.captureId,
+      lineIndex: item.lineIndex
+    });
+    updateReceiptApprovalItemAction(targetId, 'CREATE_PRODUCT');
+    updateReceiptApprovalItemCreateProduct(targetId, {
+      name: item.receiptName,
+      price: item.unitPrice || item.totalPrice
+    });
+  }, [activeReceiptCaptureId, selectedJob?.captureId, addToast, updateReceiptApprovalItemAction, updateReceiptApprovalItemCreateProduct]);
 
   const handleAddNoiseRule = useCallback((normalizedName: string) => {
     addToast(`Noise rule added for: ${normalizedName}`, 'info');
@@ -317,8 +541,22 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   const handleScannerScan = useCallback((upc: string) => {
     addToast(`Scanned UPC: ${upc}`, 'info');
+    if (scanTargetItemId) {
+      updateReceiptApprovalItemUpc(scanTargetItemId, upc);
+      setReceiptApprovalItems(prev =>
+        prev.map(item => {
+          if (item.id !== scanTargetItemId) return item;
+          const nextAction: ReceiptApprovalAction = item.productId ? 'LINK_UPC_TO_PRODUCT' : 'CREATE_UPC';
+          return {
+            ...item,
+            upc,
+            action: nextAction
+          };
+        })
+      );
+    }
     setScanModalOpen(false);
-  }, [addToast]);
+  }, [addToast, scanTargetItemId, updateReceiptApprovalItemUpc]);
 
   const handleScannerClose = useCallback(() => {
     setScanModalOpen(false);
@@ -430,16 +668,88 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   useEffect(() => {
     if (!selectedJob) return;
+    const mode: FinalStoreMode = finalStoreDraft.finalStoreId
+      ? 'EXISTING'
+      : selectedJob.storeCandidate?.storeId
+        ? 'MATCHED'
+        : 'CREATE_DRAFT';
+    setFinalStoreMode(mode);
+  }, [selectedJob, finalStoreDraft.finalStoreId]);
+
+  useEffect(() => {
+    if (!receiptApprovalJobId) return;
+    setReceiptApprovalDrafts(prev => {
+      const next = new Map(prev);
+      next.set(receiptApprovalJobId, {
+        finalStoreMode,
+        finalStoreDraft,
+        receiptApprovalItems,
+        receiptApprovalNotes,
+        receiptApprovalIdempotencyKey
+      });
+      return next;
+    });
+  }, [
+    receiptApprovalJobId,
+    finalStoreMode,
+    finalStoreDraft,
+    receiptApprovalItems,
+    receiptApprovalNotes,
+    receiptApprovalIdempotencyKey
+  ]);
+
+  useEffect(() => {
+    if (!selectedJob) return;
     setActiveReceiptCaptureId(selectedJob.captureId);
-    setFinalStoreId(selectedJob.storeCandidate?.storeId || activeStoreId || '');
-    setConfirmStoreCreate(false);
+    setShowReceiptReview(true);
+    updateStoreCandidateDraft(selectedJob.storeCandidate);
     setForceUpcOverride(false);
     setApprovalMode('safe');
-    setIdempotencyKey(createIdempotencyKey());
-    setSelectedItemsForCommit(new Map());
-    setShowReceiptReview(true);
+    setReceiptApprovalIdempotencyKey(createIdempotencyKey());
     loadCaptureItems(selectedJob.captureId);
-  }, [selectedJob, activeStoreId, loadCaptureItems]);
+    if (receiptApprovalJobId !== selectedJob._id) {
+      const existingDraft = receiptApprovalDrafts.get(selectedJob._id);
+      if (existingDraft) {
+        setFinalStoreMode(existingDraft.finalStoreMode);
+        setFinalStoreDraft(existingDraft.finalStoreDraft);
+        setReceiptApprovalItems(existingDraft.receiptApprovalItems);
+        setReceiptApprovalNotes(existingDraft.receiptApprovalNotes);
+        setReceiptApprovalIdempotencyKey(existingDraft.receiptApprovalIdempotencyKey);
+      } else {
+        setFinalStoreDraft({
+          finalStoreId: selectedJob.storeCandidate?.storeId || activeStoreId || '',
+          storeCandidate: selectedJob.storeCandidate,
+          confirmStoreCreate: false
+        });
+        setReceiptApprovalItems(buildReceiptApprovalItems(selectedJob, classifiedItems));
+        setReceiptApprovalNotes('');
+        setSelectedItemsForCommit(new Map());
+      }
+      setReceiptApprovalJobId(selectedJob._id);
+    }
+  }, [
+    selectedJob,
+    activeStoreId,
+    receiptApprovalJobId,
+    receiptApprovalDrafts,
+    loadCaptureItems,
+    buildReceiptApprovalItems,
+    classifiedItems,
+    updateStoreCandidateDraft
+  ]);
+
+  useEffect(() => {
+    if (!selectedJob) return;
+    if (receiptApprovalJobId !== selectedJob._id) return;
+    if (classifiedItems.length === 0 || receiptApprovalItems.length > 0) return;
+    setReceiptApprovalItems(buildReceiptApprovalItems(selectedJob, classifiedItems));
+  }, [
+    selectedJob,
+    receiptApprovalJobId,
+    classifiedItems,
+    receiptApprovalItems.length,
+    buildReceiptApprovalItems
+  ]);
 
   // Tab content
   const tabContent = useMemo(() => {
@@ -471,8 +781,14 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             classifiedItems={classifiedItems}
             approvalMode={approvalMode}
             isCommitting={isCommitting}
+            hasBlockingIssues={approvalStatus.hasBlocking}
             lockDurationDays={lockDurationDays}
             selectedItemsForCommit={selectedItemsForCommit}
+            approvalIssues={approvalIssues}
+            storeBlockingIssues={approvalStatus.store.blocking}
+            storeAdvisoryIssues={approvalStatus.store.advisory}
+            approvalNotes={receiptApprovalNotes}
+            onApprovalNotesChange={setReceiptApprovalNotes}
             show={showReceiptReview}
             onClose={() => {
               setShowReceiptReview(false);
@@ -526,12 +842,12 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             confirmStoreCreate={confirmStoreCreate}
             forceUpcOverride={forceUpcOverride}
             finalStoreId={finalStoreId}
-            onConfirmStoreCreate={setConfirmStoreCreate}
+            onConfirmStoreCreate={value => updateStoreDraft({ confirmStoreCreate: value })}
             onForceUpcOverride={setForceUpcOverride}
-            onFinalStoreIdChange={setFinalStoreId}
+            onFinalStoreIdChange={value => updateStoreDraft({ finalStoreId: value })}
             onLockDurationChange={setLockDurationDays}
             stores={stores}
-            storeCandidate={selectedJob.storeCandidate}
+            storeCandidate={finalStoreDraft.storeCandidate || selectedJob.storeCandidate}
           />
         );
       }
@@ -641,11 +957,16 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     isCommitting,
     lockDurationDays,
     selectedItemsForCommit,
+    approvalIssues,
     showReceiptReview,
     scanModalOpen,
     confirmStoreCreate,
     forceUpcOverride,
     finalStoreId,
+    receiptApprovalNotes,
+    approvalStatus.hasBlocking,
+    approvalStatus.store.blocking,
+    approvalStatus.store.advisory,
     isProcessing,
     handleReceiptCaptured,
     handleParse,
