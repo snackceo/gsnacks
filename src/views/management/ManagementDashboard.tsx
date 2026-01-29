@@ -108,75 +108,6 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = (props) => {
     }
     fetchReceiptCaptureStats();
   }, []);
-// ...existing code...
-
-interface AnalyticsEvent {
-  category: 'user' | 'product' | 'order' | 'scanner' | 'returns' | 'payment' | 'navigation';
-  action: string;
-  label?: string;
-  value?: number;
-  metadata?: Record<string, any>;
-  timestamp: string;
-}
-
-interface ManagementDashboardProps {
-  auditModel: string;
-  auditModels: string[];
-  auditModelsError: string | null;
-  isAuditModelsLoading: boolean;
-  isAuditing: boolean;
-  isOpsSummaryLoading: boolean;
-  orders: Order[];
-  aiInsights: string | null;
-  opsSummary: string;
-  chartData: any[];
-  isChartReady: boolean;
-  isChartVisible: boolean;
-  chartContainerRef: React.RefObject<HTMLDivElement>;
-  setAuditModel: (model: string) => void;
-  runAudit?: () => void;
-  runOpsSummary: () => void;
-}
-
-// StatCard component
-const StatCard: React.FC<{
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  subtitle?: string;
-}> = ({ icon, label, value, subtitle }) => (
-  <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-    <div className="flex items-center gap-2 mb-2">
-      <div className="text-ninpo-lime">{icon}</div>
-      <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-        {label}
-      </span>
-    </div>
-    <div className="text-2xl font-black text-white">{value}</div>
-    {subtitle && (
-      <div className="text-xs text-slate-500 mt-1">{subtitle}</div>
-    )}
-  </div>
-);
-
-const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
-  auditModel,
-  auditModels,
-  auditModelsError,
-  isAuditModelsLoading,
-  isAuditing,
-  isOpsSummaryLoading,
-  orders,
-  aiInsights,
-  opsSummary,
-  chartData,
-  isChartReady,
-  isChartVisible,
-  chartContainerRef,
-  setAuditModel,
-  runAudit,
-  runOpsSummary
-}) => {
   // Analytics state
   const [events, setEvents] = useState<AnalyticsEvent[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -502,7 +433,5 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     </div>
   );
 };
-
-}
 
 export default ManagementDashboard;
