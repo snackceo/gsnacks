@@ -20,6 +20,7 @@ interface ReceiptApprovalIssue {
 }
 
 interface ReceiptReviewPanelProps {
+  canManageProducts: boolean;
   activeReceiptCaptureId: string;
   classifiedItems: any[];
   approvalMode: 'safe' | 'selected' | 'locked' | 'all';
@@ -127,7 +128,8 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   onFinalStoreModeChange,
   onLockDurationChange,
   stores,
-  storeCandidate
+  storeCandidate,
+  canManageProducts
 }) => {
   if (!show) return null;
   const selectedForCommitCount = selectedItemsForCommit.size;
@@ -414,7 +416,9 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                             <select
                               value={item.action}
                               onChange={event => onItemActionChange(item.id, event.target.value as ReceiptApprovalAction)}
-                              className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                              className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white disabled:bg-black/20 disabled:text-slate-500"
+                              disabled={!canManageProducts}
+                              title={!canManageProducts ? 'Only managers can change item actions' : undefined}
                             >
                               {actionOptions.map(option => (
                                 <option key={option.value} value={option.value}>
@@ -422,6 +426,9 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                                 </option>
                               ))}
                             </select>
+                            {!canManageProducts && (
+                              <span className="text-xs text-slate-400 ml-2">Only managers can change item actions</span>
+                            )}
                           </label>
                         </div>
                         {item.action === 'LINK_UPC_TO_PRODUCT' && (
@@ -445,7 +452,9 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onItemCreateProductChange(item.id, buildReceiptDefaults(item.source))}
-                                className="px-3 py-1 rounded-full text-[9px] font-semibold border border-white/10 text-slate-300 hover:bg-white/10"
+                                className="px-3 py-1 rounded-full text-[9px] font-semibold border border-white/10 text-slate-300 hover:bg-white/10 disabled:opacity-50"
+                                disabled={!canManageProducts}
+                                title={!canManageProducts ? 'Only managers can create products' : undefined}
                               >
                                 Apply receipt details
                               </button>
@@ -455,8 +464,10 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                               <input
                                 value={item.createProduct?.name || ''}
                                 onChange={event => onItemCreateProductChange(item.id, { name: event.target.value })}
-                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white disabled:bg-black/20 disabled:text-slate-500"
                                 placeholder="Name"
+                                disabled={!canManageProducts}
+                                title={!canManageProducts ? 'Only managers can create products' : undefined}
                               />
                             </label>
                             <label className="text-[10px] text-slate-400 uppercase tracking-widest">
@@ -471,8 +482,10 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                                     price: event.target.value === '' ? undefined : Number(event.target.value)
                                   })
                                 }
-                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white disabled:bg-black/20 disabled:text-slate-500"
                                 placeholder="0.00"
+                                disabled={!canManageProducts}
+                                title={!canManageProducts ? 'Only managers can create products' : undefined}
                               />
                             </label>
                             <label className="text-[10px] text-slate-400 uppercase tracking-widest">
@@ -487,8 +500,10 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                                     sizeOz: event.target.value === '' ? undefined : Number(event.target.value)
                                   })
                                 }
-                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white disabled:bg-black/20 disabled:text-slate-500"
                                 placeholder="12"
+                                disabled={!canManageProducts}
+                                title={!canManageProducts ? 'Only managers can create products' : undefined}
                               />
                             </label>
                             <label className="text-[10px] text-slate-400 uppercase tracking-widest">
@@ -496,10 +511,15 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                               <input
                                 value={item.createProduct?.brand || ''}
                                 onChange={event => onItemCreateProductChange(item.id, { brand: event.target.value })}
-                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white disabled:bg-black/20 disabled:text-slate-500"
                                 placeholder="Brand"
+                                disabled={!canManageProducts}
+                                title={!canManageProducts ? 'Only managers can create products' : undefined}
                               />
                             </label>
+                            {!canManageProducts && (
+                              <span className="text-xs text-slate-400 ml-2 md:col-span-3">Only managers can create products</span>
+                            )}
                           </div>
                         )}
                         {(status?.blocking.length || status?.advisory.length) && (

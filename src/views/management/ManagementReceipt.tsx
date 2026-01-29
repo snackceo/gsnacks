@@ -186,7 +186,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   storeError,
   setStoreError
 }) => {
-  const { addToast, fetchProducts } = useNinpoCore();
+  const { addToast, fetchProducts, currentUser } = useNinpoCore();
   const [receiptFlow, setReceiptFlow] = useState<'capture' | 'pending'>('capture');
   
   // Capture state
@@ -826,6 +826,9 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   ]);
 
   // Tab content
+  // Only ADMIN and OWNER can manage products
+  const canManageProducts = currentUser?.role === 'ADMIN' || currentUser?.role === 'OWNER';
+
   const tabContent = useMemo(() => {
     if (receiptFlow === 'capture') {
       return (
@@ -851,6 +854,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       if (selectedJob) {
         return (
           <ReceiptReviewPanel
+            canManageProducts={canManageProducts}
             activeReceiptCaptureId={activeReceiptCaptureId || ''}
             classifiedItems={classifiedItems}
             approvalMode={approvalMode}
@@ -930,6 +934,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             onLockDurationChange={setLockDurationDays}
             stores={stores}
             storeCandidate={finalStoreDraft.storeCandidate || selectedJob.storeCandidate}
+          
           />
         );
       }
