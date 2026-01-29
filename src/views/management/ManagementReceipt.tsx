@@ -189,6 +189,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const { addToast, fetchProducts, currentUser } = useNinpoCore();
   const captureItemsInFlightRef = useRef<Set<string>>(new Set());
   const captureItemsAbortRef = useRef<AbortController | null>(null);
+  const lastLoadedCaptureIdRef = useRef<string | null>(null);
   const [receiptFlow, setReceiptFlow] = useState<'capture' | 'pending'>('capture');
   
   // Capture state
@@ -382,11 +383,13 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       if (data?.error) throw new Error(data.error || 'Failed to reset review');
       setSelectedItemsForCommit(new Map());
       setApprovalMode('safe');
+      lastLoadedCaptureIdRef.current = null;
+      loadCaptureItems(activeReceiptCaptureId);
       addToast('Review reset.', 'success');
     } catch (err: any) {
       addToast(err?.message || 'Failed to reset review', 'error');
     }
-  }, [activeReceiptCaptureId, addToast]);
+  }, [activeReceiptCaptureId, addToast, loadCaptureItems]);
 
   const handleLock = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
@@ -825,6 +828,10 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     setForceUpcOverride(false);
     setApprovalMode('safe');
     setReceiptApprovalIdempotencyKey(createIdempotencyKey());
+    if (lastLoadedCaptureIdRef.current === selectedJob.captureId) {
+      return;
+    }
+    lastLoadedCaptureIdRef.current = selectedJob.captureId;
     loadCaptureItems(selectedJob.captureId);
     if (receiptApprovalJobId !== selectedJob._id) {
       const existingDraft = receiptApprovalDrafts.get(selectedJob._id);
