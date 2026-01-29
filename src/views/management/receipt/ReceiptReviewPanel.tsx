@@ -2,13 +2,13 @@
 import React from 'react';
 import ReceiptItemBucket from '../../../components/ReceiptItemBucket';
 import ScannerModal from '../../../components/ScannerModal';
-import { Loader2, CheckCircle2 } from 'lucide-react';
-import { ScannerMode } from '../../../types';
+import { ScannerMode, StoreRecord } from '../../../types';
+import { getReceiptItemKey } from '../../../utils/receiptHelpers';
 
 interface ReceiptReviewPanelProps {
   activeReceiptCaptureId: string;
   classifiedItems: any[];
-  commitIntent: 'safe' | 'selected' | 'locked' | null;
+  approvalMode: 'safe' | 'selected' | 'locked' | 'all';
   isCommitting: boolean;
   lockDurationDays: number;
   selectedItemsForCommit: Map<string, boolean>;
@@ -19,27 +19,41 @@ interface ReceiptReviewPanelProps {
   onResetReview: () => void;
   onLock: () => void;
   onUnlock: () => void;
-  onCommitMode: (mode: 'safe' | 'selected' | 'locked') => void;
+  onApprovalMode: (mode: 'safe' | 'selected' | 'locked' | 'all') => void;
   onSelectAll: () => void;
+  onSelectSafe: () => void;
   onClearSelection: () => void;
   onCommit: () => void;
-  onConfirmItem: (item: any) => void;
   onScanItem: (item: any) => void;
   onSearchProduct: (item: any) => void;
   onCreateProduct: (item: any) => void;
-  onSelectForCommit: (item: any) => void;
+  onSelectForCommit: (item: any, checked?: boolean) => void;
   onAddNoiseRule: (normalizedName: string) => void;
   scanModalOpen: boolean;
-  scanTargetItem: any;
   handleScannerScan: (upc: string) => void;
   handleScannerClose: () => void;
   settings: any;
+  confirmStoreCreate: boolean;
+  forceUpcOverride: boolean;
+  finalStoreId: string;
+  onConfirmStoreCreate: (value: boolean) => void;
+  onForceUpcOverride: (value: boolean) => void;
+  onFinalStoreIdChange: (value: string) => void;
+  onLockDurationChange: (value: number) => void;
+  stores: StoreRecord[];
+  storeCandidate?: {
+    name?: string;
+    phone?: string;
+    storeType?: string;
+    confidence?: number;
+    storeId?: string;
+  };
 }
 
 const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   activeReceiptCaptureId,
   classifiedItems,
-  commitIntent,
+  approvalMode,
   isCommitting,
   lockDurationDays,
   selectedItemsForCommit,
@@ -50,24 +64,35 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   onResetReview,
   onLock,
   onUnlock,
-  onCommitMode,
+  onApprovalMode,
   onSelectAll,
+  onSelectSafe,
   onClearSelection,
   onCommit,
-  onConfirmItem,
   onScanItem,
   onSearchProduct,
   onCreateProduct,
   onSelectForCommit,
   onAddNoiseRule,
   scanModalOpen,
-  scanTargetItem,
   handleScannerScan,
   handleScannerClose,
-  settings
+  settings,
+  confirmStoreCreate,
+  forceUpcOverride,
+  finalStoreId,
+  onConfirmStoreCreate,
+  onForceUpcOverride,
+  onFinalStoreIdChange,
+  onLockDurationChange,
+  stores,
+  storeCandidate
 }) => {
   if (!show) return null;
   const selectedForCommitCount = selectedItemsForCommit.size;
+  const activeStoreLabel = stores.find(store => store.id === finalStoreId)?.name;
+  const storeCandidateLabel = storeCandidate?.name || 'Unknown store';
+  const shouldConfirmStoreCreate = !storeCandidate?.storeId && !finalStoreId;
   return (
     <div className="fixed inset-0 z-50 bg-ninpo-black/90 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-ninpo-card rounded-[2rem] border border-white/10 max-w-6xl w-full h-[85vh] overflow-y-auto">
@@ -96,7 +121,13 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
               onClick={onConfirmAll}
               className="px-4 py-2 rounded-full text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20"
             >
-              Confirm All
+              Select All
+            </button>
+            <button
+              onClick={onSelectSafe}
+              className="px-4 py-2 rounded-full text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20"
+            >
+              Select Auto-Update
             </button>
             <button
               onClick={onResetReview}
@@ -123,19 +154,16 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
               {classifiedItems.length === 0 ? (
                 <div className="text-xs text-slate-400">No items to review.</div>
               ) : (
-                (Array.isArray(classifiedItems) ? classifiedItems : []).map((item, idx) => (
-                  <ReceiptItemBucket
-                    key={`${item.captureId}:${item.lineIndex ?? idx}`}
-                    item={item}
-                    onConfirm={onConfirmItem}
-                    onScan={onScanItem}
-                    onSearchProduct={() => onSearchProduct(item)}
-                    onCreateProduct={() => onCreateProduct(item)}
-                    onSelectForCommit={() => onSelectForCommit(item)}
-                    selectedForCommit={selectedItemsForCommit.has(item.lineIndex?.toString?.() || idx.toString())}
-                    onAddNoiseRule={() => onAddNoiseRule(item.normalizedName || '')}
-                  />
-                ))
+                <ReceiptItemBucket
+                  items={Array.isArray(classifiedItems) ? classifiedItems : []}
+                  selectedItems={selectedItemsForCommit}
+                  getItemKey={getReceiptItemKey}
+                  onItemToggle={(item, _classification, checked) => onSelectForCommit(item, checked)}
+                  onItemScanUpc={onScanItem}
+                  onItemSearchProduct={onSearchProduct}
+                  onItemCreateProduct={onCreateProduct}
+                  onItemNeverMatch={item => onAddNoiseRule(item.normalizedName || '')}
+                />
               )}
             </div>
 
@@ -143,11 +171,14 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
               <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
                 <p className="text-[10px] text-slate-400 uppercase tracking-widest">Commit Summary</p>
                 <p className="text-sm text-white font-semibold mt-2">{selectedForCommitCount} selected</p>
+                <div className="mt-2 text-[10px] text-slate-400">
+                  Store: {activeStoreLabel || storeCandidateLabel}
+                </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
-                    onClick={() => onCommitMode('safe')}
+                    onClick={() => onApprovalMode('safe')}
                     className={`px-3 py-2 rounded-full text-[10px] font-semibold border ${
-                      commitIntent === 'safe'
+                      approvalMode === 'safe'
                         ? 'border-white/50 text-white bg-white/20'
                         : 'border-white/10 text-slate-300'
                     }`}
@@ -155,9 +186,9 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                     Safe
                   </button>
                   <button
-                    onClick={() => onCommitMode('selected')}
+                    onClick={() => onApprovalMode('selected')}
                     className={`px-3 py-2 rounded-full text-[10px] font-semibold border ${
-                      commitIntent === 'selected'
+                      approvalMode === 'selected'
                         ? 'border-white/50 text-white bg-white/20'
                         : 'border-white/10 text-slate-300'
                     }`}
@@ -165,14 +196,24 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                     Selected
                   </button>
                   <button
-                    onClick={() => onCommitMode('locked')}
+                    onClick={() => onApprovalMode('locked')}
                     className={`px-3 py-2 rounded-full text-[10px] font-semibold border ${
-                      commitIntent === 'locked'
+                      approvalMode === 'locked'
                         ? 'border-white/50 text-white bg-white/20'
                         : 'border-white/10 text-slate-300'
                     }`}
                   >
                     Locked
+                  </button>
+                  <button
+                    onClick={() => onApprovalMode('all')}
+                    className={`px-3 py-2 rounded-full text-[10px] font-semibold border ${
+                      approvalMode === 'all'
+                        ? 'border-white/50 text-white bg-white/20'
+                        : 'border-white/10 text-slate-300'
+                    }`}
+                  >
+                    All
                   </button>
                 </div>
 
@@ -191,12 +232,67 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                   </button>
                 </div>
 
+                {approvalMode === 'locked' && (
+                  <label className="mt-3 block text-[10px] text-slate-400 uppercase tracking-widest">
+                    Lock duration (days)
+                    <input
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={lockDurationDays}
+                      onChange={event => onLockDurationChange(Number(event.target.value))}
+                      className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                    />
+                  </label>
+                )}
+
+                <div className="mt-3 space-y-2">
+                  <label className="flex items-center gap-2 text-xs text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={forceUpcOverride}
+                      onChange={event => onForceUpcOverride(event.target.checked)}
+                    />
+                    Force UPC override when conflicts are found
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={confirmStoreCreate}
+                      onChange={event => onConfirmStoreCreate(event.target.checked)}
+                      disabled={!shouldConfirmStoreCreate}
+                    />
+                    Confirm store creation if no match is found
+                  </label>
+                  {shouldConfirmStoreCreate && (
+                    <p className="text-[10px] text-slate-500">
+                      Store candidate: {storeCandidateLabel}. Approvals require explicit confirmation if a new store must be created.
+                    </p>
+                  )}
+                </div>
+
+                <label className="mt-3 block text-[10px] text-slate-400 uppercase tracking-widest">
+                  Final store (override)
+                  <select
+                    value={finalStoreId}
+                    onChange={event => onFinalStoreIdChange(event.target.value)}
+                    className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                  >
+                    <option value="">Use candidate</option>
+                    {stores.map(store => (
+                      <option key={store.id} value={store.id}>
+                        {store.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <button
                   onClick={onCommit}
-                  disabled={!commitIntent || isCommitting}
+                  disabled={!approvalMode || isCommitting}
                   className="mt-4 w-full px-4 py-3 rounded-2xl text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isCommitting ? 'Committing…' : 'Commit Items'}
+                  {isCommitting ? 'Committing…' : 'Approve Receipt'}
                 </button>
               </div>
             </div>
