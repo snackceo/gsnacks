@@ -11,6 +11,11 @@ import {
   AlertCircle
 } from 'lucide-react';
 import {
+  ClassifiedReceiptItem,
+  FinalStoreMode,
+  ReceiptApprovalDraft,
+  ReceiptApprovalDraftItem,
+  ReceiptParseJob,
   StoreRecord
 } from '../../types';
 import { BACKEND_URL } from '../../constants';
@@ -60,38 +65,6 @@ interface ReceiptCapture {
   createdAt: string;
 }
 
-interface ItemMatch {
-  rawLine: string;
-  nameCandidate: string;
-  quantity: number;
-  unitPrice: number;
-  lineTotal: number;
-  actionSuggestion: 'LINK_UPC_TO_PRODUCT' | 'CREATE_UPC' | 'CREATE_PRODUCT' | 'IGNORE';
-  warnings?: string[];
-  match?: {
-    productId?: string;
-    confidence?: number;
-    reason?: string;
-  };
-}
-
-interface ReceiptParseJob {
-  _id: string;
-  captureId: string;
-  status: 'QUEUED' | 'PARSED' | 'NEEDS_REVIEW' | 'APPROVED' | 'REJECTED';
-  createdAt: string;
-  storeCandidate?: {
-    name: string;
-    address?: any;
-    phone?: string;
-    storeType?: string;
-    confidence?: number;
-    storeId?: string;
-  };
-  items?: ItemMatch[];
-  warnings?: string[];
-}
-
 /**
  * Receipt Management Tab
  * Handles:
@@ -123,7 +96,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   // Receipt review state (moved from Pricing Intelligence)
   const [activeReceiptCaptureId, setActiveReceiptCaptureId] = useState<string | null>(null);
-  const [classifiedItems, setClassifiedItems] = useState<any[]>([]);
+  const [classifiedItems, setClassifiedItems] = useState<ClassifiedReceiptItem[]>([]);
   const [approvalMode, setApprovalMode] = useState<ReceiptApprovalMode>('safe');
   const [forceUpcOverride, setForceUpcOverride] = useState(false);
   const [confirmStoreCreate, setConfirmStoreCreate] = useState(false);
@@ -219,10 +192,19 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleCommit = useCallback(async () => {
     if (!selectedJob) return;
     if (!activeReceiptCaptureId || !approvalMode) return;
+    const hasMatchedStore = Boolean(selectedJob.storeCandidate?.storeId);
+    const finalStoreMode: FinalStoreMode = finalStoreId
+      ? 'EXISTING'
+      : hasMatchedStore
+        ? 'MATCHED'
+        : 'CREATE_DRAFT';
     setIsCommitting(true);
     try {
-      const selectedIndices = classifiedItems
+      const selectedItems = classifiedItems
         .filter(item => selectedItemsForCommit.get(getReceiptItemKey(item)))
+        .filter(item => typeof item.lineIndex === 'number');
+
+      const selectedIndices = selectedItems
         .map(item => item.lineIndex)
         .filter((lineIndex): lineIndex is number => typeof lineIndex === 'number');
 
@@ -232,19 +214,62 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         return;
       }
 
+      if (selectedItems.length !== selectedIndices.length) {
+        addToast('Selected items must include a line index before committing.', 'error');
+        setIsCommitting(false);
+        return;
+      }
+
+      if (finalStoreMode === 'CREATE_DRAFT' && !confirmStoreCreate) {
+        addToast('Confirm store creation before committing.', 'error');
+        setIsCommitting(false);
+        return;
+      }
+
+      const draftItems: ReceiptApprovalDraftItem[] = selectedItems.map(item => {
+        const lineIndex = item.lineIndex ?? -1;
+        const jobItem = selectedJob.items?.find(job => Number(job.lineIndex) === Number(lineIndex));
+        const action = jobItem?.actionSuggestion || (item.suggestedProduct?.id ? 'LINK_UPC_TO_PRODUCT' : 'IGNORE');
+        return {
+          lineIndex,
+          action,
+          productId: jobItem?.match?.productId || item.suggestedProduct?.id,
+          sku: item.suggestedProduct?.sku,
+          upc: item.scannedUpc || item.suggestedProduct?.upc
+        };
+      });
+
+      const invalidActions = draftItems.filter(item => item.action === 'LINK_UPC_TO_PRODUCT' && !item.productId);
+      if (invalidActions.length > 0) {
+        addToast('Link actions require a matched product before committing.', 'error');
+        setIsCommitting(false);
+        return;
+      }
+
+      const approvalDraft: ReceiptApprovalDraft = {
+        jobId: selectedJob._id,
+        captureId: selectedJob.captureId,
+        finalStoreMode,
+        finalStoreId: finalStoreId || undefined,
+        storeCandidate: selectedJob.storeCandidate,
+        confirmStoreCreate,
+        items: draftItems
+      };
+
       const resp = await fetch(`${BACKEND_URL}/api/receipts/${selectedJob._id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           mode: approvalMode,
+          approvalDraft,
           selectedIndices: approvalMode === 'selected' ? selectedIndices : undefined,
           lockDurationDays,
           idempotencyKey,
           forceUpcOverride,
-          finalStoreId: finalStoreId || undefined,
-          storeCandidate: selectedJob.storeCandidate,
-          confirmStoreCreate
+          finalStoreId: approvalDraft.finalStoreId,
+          storeCandidate: approvalDraft.storeCandidate,
+          confirmStoreCreate: approvalDraft.confirmStoreCreate
         })
       });
       if (!resp.ok) throw new Error('Failed to commit items');

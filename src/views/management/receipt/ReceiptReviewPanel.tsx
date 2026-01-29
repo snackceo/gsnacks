@@ -2,7 +2,7 @@
 import React from 'react';
 import ReceiptItemBucket from '../../../components/ReceiptItemBucket';
 import ScannerModal from '../../../components/ScannerModal';
-import { ScannerMode, StoreRecord } from '../../../types';
+import { ReceiptStoreCandidate, ScannerMode, StoreRecord } from '../../../types';
 import { getReceiptItemKey } from '../../../utils/receiptHelpers';
 
 interface ReceiptReviewPanelProps {
@@ -41,13 +41,7 @@ interface ReceiptReviewPanelProps {
   onFinalStoreIdChange: (value: string) => void;
   onLockDurationChange: (value: number) => void;
   stores: StoreRecord[];
-  storeCandidate?: {
-    name?: string;
-    phone?: string;
-    storeType?: string;
-    confidence?: number;
-    storeId?: string;
-  };
+  storeCandidate?: ReceiptStoreCandidate;
 }
 
 const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
