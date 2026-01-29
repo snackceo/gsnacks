@@ -21,9 +21,9 @@ import {
   ReceiptStoreCandidate,
   StoreRecord
 } from '../../types';
-import { BACKEND_URL } from '../../constants';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
 import ReceiptCaptureFlow from '../../components/ReceiptCaptureFlow';
+import { apiFetch } from '../../utils/apiFetch';
 
 const createIdempotencyKey = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -319,10 +319,9 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleParse = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
+      const resp = await apiFetch('/api/driver/receipt-parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ captureId: activeReceiptCaptureId })
       });
       if (!resp.ok) {
@@ -345,10 +344,9 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleResetReview = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-reset-review`, {
+      const resp = await apiFetch('/api/driver/receipt-reset-review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ captureId: activeReceiptCaptureId })
       });
       if (!resp.ok) throw new Error('Failed to reset review');
@@ -363,10 +361,9 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleLock = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-lock`, {
+      const resp = await apiFetch('/api/driver/receipt-lock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           captureId: activeReceiptCaptureId,
           lockDurationDays
@@ -382,10 +379,9 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleUnlock = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
-      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-unlock`, {
+      const resp = await apiFetch('/api/driver/receipt-unlock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ captureId: activeReceiptCaptureId })
       });
       if (!resp.ok) throw new Error('Failed to unlock receipt');
@@ -455,10 +451,9 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         items: draftItems
       };
 
-      const resp = await fetch(`${BACKEND_URL}/api/receipts/${selectedJob._id}/approve`, {
+      const resp = await apiFetch(`/api/receipts/${selectedJob._id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           mode: approvalMode,
           approvalDraft,
@@ -591,9 +586,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   const loadCaptureItems = useCallback(async (captureId: string) => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${captureId}/items`, {
-        credentials: 'include'
-      });
+      const res = await apiFetch(`/api/driver/receipt-capture/${captureId}/items`);
       if (!res.ok) throw new Error('Failed to load receipt items');
       const data = await res.json();
       const items = Array.isArray(data?.items) ? data.items : [];
@@ -617,9 +610,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     setIsLoadingJobs(true);
     setJobsError(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/receipts/?status=NEEDS_REVIEW,PARSED`, {
-        credentials: 'include'
-      });
+      const res = await apiFetch('/api/receipts/?status=NEEDS_REVIEW,PARSED');
       if (!res.ok) throw new Error('Failed to load parse jobs');
       const data = await res.json();
       setParseJobs(Array.isArray(data?.jobs) ? data.jobs : []);
@@ -652,21 +643,21 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     setReceiptFlow('pending');
   }, [addToast]);
 
-  const handleApproveParseJob = useCallback(async (jobId: string, mode: 'safe' | 'all' | 'selected' | 'locked' = 'safe') => {
+  const handleApproveReceipt = useCallback(async (job: ReceiptParseJob, mode: 'safe' | 'all' | 'selected' | 'locked' = 'safe') => {
     setIsProcessing(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/receipts/${jobId}/approve`, {
+      const res = await apiFetch(`/api/receipts/${job._id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           mode,
-          idempotencyKey: createIdempotencyKey()
+          idempotencyKey: createIdempotencyKey(),
+          storeCandidate: job.storeCandidate
         })
       });
       if (!res.ok) throw new Error('Failed to approve parse job');
       addToast('Parse job approved', 'success');
-      setParseJobs(prev => prev.filter(j => j._id !== jobId));
+      setParseJobs(prev => prev.filter(j => j._id !== job._id));
       setSelectedJob(null);
     } catch (err: any) {
       addToast(err?.message || 'Failed to approve job', 'error');
@@ -678,9 +669,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleRejectParseJob = useCallback(async (jobId: string) => {
     setIsProcessing(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/receipts/${jobId}/reject`, {
+      const res = await apiFetch(`/api/receipts/${jobId}/reject`, {
         method: 'POST',
-        credentials: 'include'
       });
       if (!res.ok) throw new Error('Failed to reject parse job');
       addToast('Parse job rejected', 'success');
@@ -950,7 +940,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                         <button
                           onClick={e => {
                             e.stopPropagation();
-                            handleApproveParseJob(job._id, 'safe');
+                            handleApproveReceipt(job, 'safe');
                           }}
                           disabled={isProcessing}
                           className="flex-1 py-2 bg-ninpo-lime text-ninpo-black rounded-lg font-bold text-[10px] hover:bg-white transition disabled:opacity-50"
@@ -1017,7 +1007,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     handleScannerScan,
     handleScannerClose,
     loadParseJobs,
-    handleApproveParseJob,
+    handleApproveReceipt,
     handleRejectParseJob
   ]);
 
