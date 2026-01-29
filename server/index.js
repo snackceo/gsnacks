@@ -1,3 +1,4 @@
+import receiptParseRouter from './routes/receipt-parse.js';
 import receiptsRouter from './routes/receipts.js';
 import storeInventoryRouter from './routes/store-inventory.js';
 // IMPORTANT: Import Sentry instrument FIRST before any other modules
@@ -159,6 +160,7 @@ app.use('/api/driver', driverRouter); // Driver operations
 app.use('/api/driver', itemsNotFoundRouter); // Items not found tracking
 app.use('/api/driver', receiptPricesRouter); // Receipt-based price updates
 app.use('/api/driver', receiptAliasesRouter); // Receipt alias bindings
+app.use('/api/driver', receiptParseRouter); // Receipt parse workflow
 
 app.use('/api/stores', storesRouter); // Store management
 app.use('/api/store-inventory', storeInventoryRouter); // Store inventory fetch
