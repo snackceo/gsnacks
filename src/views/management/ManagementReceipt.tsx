@@ -214,6 +214,10 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [receiptApprovalNotes, setReceiptApprovalNotes] = useState('');
   const [receiptApprovalIdempotencyKey, setReceiptApprovalIdempotencyKey] = useState(createIdempotencyKey());
   const [receiptApprovalJobId, setReceiptApprovalJobId] = useState<string | null>(null);
+
+  // Stable job identifiers for idempotency key logic
+  const selectedJobId = selectedJob?._id ?? null;
+  const selectedCaptureId = selectedJob?.captureId ?? null;
   const [receiptApprovalDrafts, setReceiptApprovalDrafts] = useState<Map<string, ReceiptApprovalDraftState>>(new Map());
   const [scanTargetItemId, setScanTargetItemId] = useState<string | null>(null);
   const [selectedItemsForCommit, setSelectedItemsForCommit] = useState<Map<string, boolean>>(new Map());
@@ -836,7 +840,6 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     updateStoreCandidateDraft(selectedJob.storeCandidate);
     setForceUpcOverride(false);
     setApprovalMode('safe');
-    setReceiptApprovalIdempotencyKey(createIdempotencyKey());
     if (lastLoadedCaptureIdRef.current === selectedJob.captureId) {
       return;
     }
@@ -872,6 +875,17 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     classifiedItems,
     updateStoreCandidateDraft
   ]);
+
+  // Only regenerate idempotency key when truly switching jobs
+  useEffect(() => {
+    if (!selectedJobId || !selectedCaptureId) return;
+    // If we're still on the same job, do nothing.
+    if (receiptApprovalJobId === selectedJobId) return;
+    // New job selected: create a fresh idempotency key ONCE.
+    setReceiptApprovalJobId(selectedJobId);
+    setReceiptApprovalIdempotencyKey(createIdempotencyKey());
+    // ...other one-time "open job" setup can go here if needed...
+  }, [selectedJobId, selectedCaptureId, receiptApprovalJobId]);
 
   useEffect(() => {
     if (!selectedJob) return;
