@@ -31,6 +31,9 @@ const ensureGeminiReady = () => {
 };
 
 const DEFAULT_PRICE_LOCK_DAYS = 7;
+const MAX_RECEIPT_IMAGE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+const ALLOWED_IMAGE_HOSTS = ['cloudinary.com', 'res.cloudinary.com'];
 
 const coerceNumber = value => {
   const num = Number(value);
@@ -178,6 +181,45 @@ function parseDataUrl(dataUrl) {
   return { mime: match[1], base64: match[2] };
 }
 
+const isAllowedReceiptMime = mime =>
+  ALLOWED_IMAGE_MIMES.some(allowed => mime?.toLowerCase?.().includes(allowed));
+
+const isCloudinaryUrl = url => {
+  try {
+    const urlObj = new URL(url);
+    return ALLOWED_IMAGE_HOSTS.some(host => urlObj.hostname?.includes(host));
+  } catch (err) {
+    return false;
+  }
+};
+
+const fetchExternalReceiptImage = async url => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status}`);
+    }
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    if (!isAllowedReceiptMime(contentType)) {
+      throw new Error(`Unsupported content-type: ${contentType || 'unknown'}`);
+    }
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength && contentLength > MAX_RECEIPT_IMAGE_BYTES) {
+      throw new Error(`Image too large: ${(contentLength / (1024 * 1024)).toFixed(1)}MB (max 5MB)`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    if (arrayBuffer.byteLength > MAX_RECEIPT_IMAGE_BYTES) {
+      throw new Error(`Image too large: ${(arrayBuffer.byteLength / (1024 * 1024)).toFixed(1)}MB (max 5MB)`);
+    }
+    const base64 = Buffer.from(arrayBuffer).toString('base64');
+    return `data:${contentType.split(';')[0]};base64,${base64}`;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 // Upload handler: Cloudinary if configured, else data URL fallback
 const handleReceiptImageUpload = async (base64Data) => {
   if (!base64Data) {
@@ -244,9 +286,8 @@ function isAllowedImageDataUrl(dataUrl) {
   }
   
   const mime = (match[1] || '').toLowerCase();
-  const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
   
-  if (!allowedMimes.includes(mime)) {
+  if (!ALLOWED_IMAGE_MIMES.includes(mime)) {
     console.error('MIME type not allowed:', mime);
     return false;
   }
@@ -915,7 +956,7 @@ router.post('/receipt-upload', authRequired, receiptLimiter, async (req, res) =>
     }
 
     // Enforce size limit (max 5MB per image, consistent with receipt-capture)
-    if (typeof image === 'string' && image.length > 5 * 1024 * 1024) {
+    if (typeof image === 'string' && image.length > MAX_RECEIPT_IMAGE_BYTES) {
       const sizeMB = (image.length / (1024 * 1024)).toFixed(1);
       return res.status(413).json({ error: `Image too large: ${sizeMB}MB (max 5MB)` });
     }
@@ -960,7 +1001,7 @@ router.post('/upload-receipt-image', authRequired, receiptLimiter, async (req, r
     }
 
     // Enforce size limit (max 5MB per image, consistent with receipt-capture)
-    if (typeof image === 'string' && image.length > 5 * 1024 * 1024) {
+    if (typeof image === 'string' && image.length > MAX_RECEIPT_IMAGE_BYTES) {
       const sizeMB = (image.length / (1024 * 1024)).toFixed(1);
       return res.status(413).json({ error: `Image too large: ${sizeMB}MB (max 5MB)` });
     }
@@ -1072,6 +1113,7 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
     }
 
     // Validate image URLs and sizes
+    const normalizedImages = [];
     for (const img of images) {
       if (!img.url || typeof img.url !== 'string') {
         return res.status(400).json({ error: 'Each image must have a url' });
@@ -1085,41 +1127,67 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
 
         const mimeMatch = img.url.match(/^data:([^;]+);base64,/i);
         const mime = mimeMatch?.[1] || '';
-        const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-        if (!allowedMimes.includes(mime.toLowerCase())) {
+        if (!ALLOWED_IMAGE_MIMES.includes(mime.toLowerCase())) {
           return res.status(400).json({ error: `Unsupported image type: ${mime || 'unknown'}` });
         }
 
         if (!isAllowedImageDataUrl(img.url)) {
           return res.status(400).json({ error: 'Image content failed validation (corrupt or unsupported)' });
         }
+
+        if (!hasCloudinary) {
+          return res.status(503).json({ error: 'Cloudinary not configured for receipt image uploads' });
+        }
+
+        const uploaded = await handleReceiptImageUpload(img.url);
+        normalizedImages.push({
+          url: uploaded.url,
+          thumbnailUrl: uploaded.thumbnailUrl
+        });
       } else {
         // Non-data URLs must be valid image URLs (HTTPS, allowed hosts, content-type check)
         if (!img.url.startsWith('https://')) {
           return res.status(400).json({ error: 'Image URLs must use HTTPS' });
         }
-        
-        const urlObj = new URL(img.url);
-        const allowedHosts = ['cloudinary.com', 'res.cloudinary.com'];
-        const isAllowedHost = allowedHosts.some(host => urlObj.hostname?.includes(host));
-        if (!isAllowedHost) {
-          return res.status(400).json({ error: 'Only Cloudinary image URLs are allowed' });
-        }
-        
-        // Verify content-type by HEAD request
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
-          const headResp = await fetch(img.url, { method: 'HEAD', signal: controller.signal });
-          clearTimeout(timeoutId);
-          const ct = (headResp.headers.get('content-type') || '').toLowerCase();
-          const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-          if (!allowedMimes.some(m => ct.includes(m))) {
-            return res.status(400).json({ error: `Unsupported content-type: ${ct}` });
+
+        const isCloudinaryHost = isCloudinaryUrl(img.url);
+        if (!isCloudinaryHost) {
+          if (!hasCloudinary) {
+            return res.status(503).json({ error: 'Cloudinary not configured for receipt image uploads' });
           }
-        } catch (headErr) {
-          console.warn('HEAD request failed for image URL:', img.url, headErr.message);
-          // Don't fail entirely, but log for investigation
+          try {
+            const dataUrl = await fetchExternalReceiptImage(img.url);
+            const uploaded = await handleReceiptImageUpload(dataUrl);
+            normalizedImages.push({
+              url: uploaded.url,
+              thumbnailUrl: uploaded.thumbnailUrl
+            });
+          } catch (uploadErr) {
+            return res.status(400).json({ error: uploadErr.message || 'Failed to re-upload receipt image' });
+          }
+        } else {
+          // Verify content-type by HEAD request
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            const headResp = await fetch(img.url, { method: 'HEAD', signal: controller.signal });
+            clearTimeout(timeoutId);
+            const ct = (headResp.headers.get('content-type') || '').toLowerCase();
+            if (!isAllowedReceiptMime(ct)) {
+              return res.status(400).json({ error: `Unsupported content-type: ${ct || 'unknown'}` });
+            }
+          } catch (headErr) {
+            console.warn('HEAD request failed for image URL:', img.url, headErr.message);
+            return res.status(400).json({ error: 'Unable to validate receipt image URL' });
+          }
+
+          const thumbnailUrl = img.thumbnailUrl && isCloudinaryUrl(img.thumbnailUrl)
+            ? img.thumbnailUrl
+            : img.url;
+          normalizedImages.push({
+            url: img.url,
+            thumbnailUrl
+          });
         }
       }
     }
@@ -1130,7 +1198,7 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
       storeId: store?._id?.toString(),
       storeName: store?.name || normalizedStoreName,
       orderId: orderId || undefined,
-      images: images.map((img, idx) => ({
+      images: normalizedImages.map((img, idx) => ({
         url: img.url,
         thumbnailUrl: img.thumbnailUrl || img.url,
         uploadedAt: new Date(),

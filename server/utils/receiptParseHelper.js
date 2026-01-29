@@ -271,7 +271,7 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
 
   try {
     const draftItems = [];
-    const geminiOutput = { rawTextByImage: [], parsedByImage: [] };
+    const geminiOutput = { rawTextByImage: [], parsedByImage: [], skippedImages: [] };
     const storeCandidateData = {};
 
     // Parse each image
@@ -283,7 +283,10 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
         geminiImageContent = { url: image.url };
       } else if (image.url.startsWith('data:')) {
         const match = image.url.match(/^data:([^;]+);base64,(.+)$/);
-        if (!match) continue;
+        if (!match) {
+          geminiOutput.skippedImages.push({ url: image.url, reason: 'invalid_data_url' });
+          continue;
+        }
         geminiImageContent = {
           inline_data: {
             data: match[2],
@@ -291,6 +294,7 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
           }
         };
       } else {
+        geminiOutput.skippedImages.push({ url: image.url, reason: 'unsupported_image_url' });
         continue;
       }
 
@@ -381,6 +385,14 @@ RULES:
           }
         }
       }
+    }
+
+    if (geminiOutput.skippedImages.length === capture.images.length) {
+      const skipSummary = geminiOutput.skippedImages.map(skip => skip.reason).join(', ');
+      capture.status = 'failed';
+      capture.parseError = `All receipt images were skipped: ${skipSummary || 'unsupported images'}`;
+      await capture.save();
+      throw new Error(capture.parseError);
     }
 
     // Match items to products
