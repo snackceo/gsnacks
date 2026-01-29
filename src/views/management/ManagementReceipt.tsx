@@ -326,6 +326,27 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   // --- Receipt Review Handlers (ported from Pricing Intelligence) ---
   const handleParse = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
+    // Fetch the capture to check image URLs before triggering parse
+    try {
+      const captureData: any = await apiFetch(`/api/driver/receipt-capture/${activeReceiptCaptureId}`);
+      const images = Array.isArray(captureData?.images) ? captureData.images : [];
+      // Check for valid URLs (Cloudinary/data URLs, not placeholders/404s)
+      const invalidImages = images.filter((img: any) => {
+        if (!img?.url) return true;
+        // Accept Cloudinary, data URLs, or http(s)
+        return !/^https?:\/\//.test(img.url) && !/^data:/.test(img.url) && !/res\.cloudinary\.com/.test(img.url);
+      });
+      if (invalidImages.length > 0) {
+        addToast('Some receipt images are invalid or missing. Please re-upload or check image sources.', 'error');
+        // Optionally: log details for debugging
+        console.warn('Invalid receipt images:', invalidImages);
+        return;
+      }
+    } catch (err: any) {
+      addToast('Failed to validate receipt images before parsing.', 'error');
+      return;
+    }
+    // Now trigger parse (do not abort request)
     try {
       const data: any = await apiFetch('/api/driver/receipt-parse', {
         method: 'POST',
@@ -338,7 +359,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     } catch (err: any) {
       addToast(err?.message || 'Failed to parse receipt', 'error');
     }
-  }, [activeReceiptCaptureId, addToast]);
+  }, [activeReceiptCaptureId, addToast, apiFetch]);
 
   const handleRetryParse = useCallback(
     async (captureId: string) => {
@@ -391,6 +412,10 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       if (data?.error) throw new Error(data.error || 'Failed to load receipt items');
       const items = Array.isArray(data?.items) ? data.items : [];
       const { items: classified } = classifyItems(items);
+      if (!classified || classified.length === 0) {
+        addToast('No items extracted from receipt. Check image quality or parser output.', 'warning');
+        console.warn('No classified items extracted from receipt:', { captureId, items });
+      }
       setClassifiedItems(classified);
       const updated = new Map<string, boolean>();
       classified
@@ -585,6 +610,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         }
       });
 
+      // Do NOT filter out items based on price or any truthy check
       return items.map(item => {
         const lineIndex = item.lineIndex ?? -1;
         const jobItem = jobItems.get(lineIndex);
