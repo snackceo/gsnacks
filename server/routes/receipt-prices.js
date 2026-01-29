@@ -17,6 +17,7 @@ import { isDbReady } from '../db/connect.js';
 import { matchStoreCandidate, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { isPricingLearningEnabled, receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap } from '../utils/featureFlags.js';
 import { enqueueReceiptJob, isReceiptQueueEnabled } from '../queues/receiptQueue.js';
+import { executeReceiptParse } from '../utils/receiptParseHelper.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 
 const getGeminiApiKey = () =>
@@ -1344,15 +1345,27 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
     return res.status(404).json({ error: 'Receipt capture not found' });
   }
 
-  console.log('[receipt-parse] enqueueing job');
-  await receiptParseQueue.add(
-    'receipt-parse',
-    { captureId },
-    { removeOnComplete: true }
-  );
-  console.log('[receipt-parse] enqueue success');
+  // Use canonical queue logic
+  if (isReceiptQueueEnabled()) {
+    try {
+      const result = await enqueueReceiptJob('receipt-parse', { captureId, actor: req.user?._id || 'api' });
+      if (result.ok) {
+        return res.json({ ok: true, queued: true, jobId: result.jobId });
+      } else {
+        return res.status(500).json({ error: 'Failed to enqueue receipt parse job', ...result });
+      }
+    } catch (err) {
+      return res.status(500).json({ error: err.message || 'Failed to enqueue receipt parse job' });
+    }
+  }
 
-  return res.json({ status: 'QUEUED' });
+  // Otherwise, run the parse pipeline directly (synchronous)
+  try {
+    const parseJob = await executeReceiptParse(captureId, req.user?._id || 'api');
+    return res.json({ ok: true, queued: false, job: parseJob });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Receipt parse failed' });
+  }
 });
 
 /**
