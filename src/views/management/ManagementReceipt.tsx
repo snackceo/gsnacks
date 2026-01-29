@@ -241,9 +241,36 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     updateReceiptApprovalItem(itemId, item => ({ ...item, upc }));
   }, [updateReceiptApprovalItem]);
 
-  const updateReceiptApprovalItemAction = useCallback((itemId: string, action: ReceiptApprovalAction) => {
-    updateReceiptApprovalItem(itemId, item => ({ ...item, action }));
-  }, [updateReceiptApprovalItem]);
+  const updateReceiptApprovalItemAction = useCallback(
+    (itemId: string, action: ReceiptApprovalAction) => {
+      updateReceiptApprovalItem(itemId, item => {
+        if (action !== 'CREATE_PRODUCT') {
+          return { ...item, action };
+        }
+        const lineIndex = item.lineIndex;
+        const source = classifiedItems.find(candidate => candidate.lineIndex === lineIndex);
+        const defaultName = source?.receiptName || source?.nameCandidate;
+        const defaultPrice = typeof source?.unitPrice === 'number'
+          ? source.unitPrice
+          : typeof source?.lineTotal === 'number' && typeof source?.quantity === 'number' && source.quantity > 0
+            ? source.lineTotal / source.quantity
+            : undefined;
+        const defaultSize = source?.sizeOz;
+        const nextCreateProduct: ReceiptApprovalCreateProductPayload = {
+          name: item.createProduct?.name || defaultName || '',
+          price: item.createProduct?.price ?? defaultPrice ?? 0,
+          sizeOz: item.createProduct?.sizeOz ?? defaultSize,
+          brand: item.createProduct?.brand || source?.brandCandidate
+        };
+        return {
+          ...item,
+          action,
+          createProduct: nextCreateProduct
+        };
+      });
+    },
+    [classifiedItems, updateReceiptApprovalItem]
+  );
 
   const updateReceiptApprovalItemCreateProduct = useCallback(
     (itemId: string, details: Partial<ReceiptApprovalCreateProductPayload>) => {
@@ -781,14 +808,17 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             classifiedItems={classifiedItems}
             approvalMode={approvalMode}
             isCommitting={isCommitting}
-            hasBlockingIssues={approvalStatus.hasBlocking}
             lockDurationDays={lockDurationDays}
             selectedItemsForCommit={selectedItemsForCommit}
             approvalIssues={approvalIssues}
             storeBlockingIssues={approvalStatus.store.blocking}
             storeAdvisoryIssues={approvalStatus.store.advisory}
+            receiptApprovalStatus={approvalStatus}
+            receiptApprovalItems={receiptApprovalItems}
             approvalNotes={receiptApprovalNotes}
             onApprovalNotesChange={setReceiptApprovalNotes}
+            receiptApprovalIdempotencyKey={receiptApprovalIdempotencyKey}
+            onReceiptApprovalIdempotencyKeyChange={setReceiptApprovalIdempotencyKey}
             show={showReceiptReview}
             onClose={() => {
               setShowReceiptReview(false);
@@ -834,6 +864,9 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                 return updated;
               });
             }}
+            onItemUpcChange={updateReceiptApprovalItemUpc}
+            onItemActionChange={updateReceiptApprovalItemAction}
+            onItemCreateProductChange={updateReceiptApprovalItemCreateProduct}
             onAddNoiseRule={handleAddNoiseRule}
             scanModalOpen={scanModalOpen}
             handleScannerScan={handleScannerScan}
@@ -845,6 +878,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             onConfirmStoreCreate={value => updateStoreDraft({ confirmStoreCreate: value })}
             onForceUpcOverride={setForceUpcOverride}
             onFinalStoreIdChange={value => updateStoreDraft({ finalStoreId: value })}
+            finalStoreMode={finalStoreMode}
+            onFinalStoreModeChange={setFinalStoreMode}
             onLockDurationChange={setLockDurationDays}
             stores={stores}
             storeCandidate={finalStoreDraft.storeCandidate || selectedJob.storeCandidate}
