@@ -158,7 +158,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     reader.onload = async (event) => {
       const base64Image = event.target?.result;
       if (typeof base64Image === 'string') {
-        await handleReceiptCaptured(base64Image);
+        await handleReceiptCaptured(base64Image, file.type || 'image/jpeg');
       }
     };
     reader.readAsDataURL(file);
@@ -219,25 +219,33 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
 
         const { captureId } = await captureRes.json();
 
-        // 3️⃣ IMMEDIATE PARSE (CRITICAL — NO USER ACTION)
-        const parseRes = await fetch(
-          `${BACKEND_URL}/api/driver/receipt-parse`,
-          {
+        // 3️⃣ IMMEDIATE PARSE (do not block UI forever)
+
+        let parseOk = false;
+        let parseData: any = undefined;
+        try {
+          const controller = new AbortController();
+          const t = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+          const parseRes = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ captureId })
-          }
-        );
-        const parseData = await parseRes.json();
+            body: JSON.stringify({ captureId }),
+            signal: controller.signal
+          });
 
-        if (!parseRes.ok) {
-          // ONLY toast if enqueue failed
-          setError(parseData?.error || 'Failed to enqueue receipt parse');
-          return;
+          clearTimeout(t);
+
+          parseData = await parseRes.json().catch(() => ({}));
+          if (!parseRes.ok) {
+            setError(parseData?.error || 'Failed to start receipt parsing');
+          } else {
+            parseOk = true;
+          }
+        } catch (e) {
+          setError(e?.name === 'AbortError' ? 'Parse request timed out (will retry in Pending).' : 'Parse request failed.');
         }
-        // DO NOT throw or toast if parse is pending. This is SUCCESS.
-        // Proceed to review UI, show "Parsing in progress..."
 
         if (!mountedRef.current) return;
 
@@ -245,7 +253,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
         setShowSuccess(true);
         setTimeout(() => {
           setShowSuccess(false);
-          addToast('Receipt added! Parsing in progress…', { type: 'success' });
+          addToast(parseOk ? 'Receipt added! Parsing in progress…' : 'Receipt added! Parse pending…', { type: 'success' });
           onReceiptCreated?.(captureId);
         }, 1200);
 

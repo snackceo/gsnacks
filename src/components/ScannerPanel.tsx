@@ -78,12 +78,11 @@ const compressAndResizeImage = (
   maxHeight: number,
   quality: number
 ): Promise<string> => {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     if (!ctx) {
-      // Fallback to returning a placeholder or handling error
-      resolve('');
+      reject(new Error('Canvas context unavailable'));
       return;
     }
 
@@ -576,6 +575,9 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
         MAX_IMAGE_DIMENSION,
         IMAGE_COMPRESSION_QUALITY
       );
+      if (!dataUrl || !dataUrl.startsWith('data:image/')) {
+        throw new Error('Invalid captured image');
+      }
       setPreviewImage(dataUrl);
       setPreviewMime('image/jpeg');
       addToast('Receipt photo ready for review', { type: 'info' });
@@ -636,6 +638,9 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
               MAX_IMAGE_DIMENSION,
               IMAGE_COMPRESSION_QUALITY
             );
+            if (!dataUrl || !dataUrl.startsWith('data:image/')) {
+              throw new Error('Invalid captured image');
+            }
             setPreviewImage(dataUrl);
             setPreviewMime('image/jpeg');
             addToast('Image ready for review', { type: 'info' });
