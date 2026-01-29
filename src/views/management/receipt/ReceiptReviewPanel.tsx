@@ -1,8 +1,16 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import ReceiptItemBucket from '../../../components/ReceiptItemBucket';
 import ScannerModal from '../../../components/ScannerModal';
-import { ReceiptStoreCandidate, ScannerMode, StoreRecord } from '../../../types';
+import {
+  FinalStoreMode,
+  ReceiptApprovalAction,
+  ReceiptApprovalCreateProductPayload,
+  ReceiptApprovalDraftItem,
+  ReceiptStoreCandidate,
+  ScannerMode,
+  StoreRecord
+} from '../../../types';
 import { getReceiptItemKey } from '../../../utils/receiptHelpers';
 
 interface ReceiptApprovalIssue {
@@ -16,14 +24,22 @@ interface ReceiptReviewPanelProps {
   classifiedItems: any[];
   approvalMode: 'safe' | 'selected' | 'locked' | 'all';
   isCommitting: boolean;
-  hasBlockingIssues: boolean;
   lockDurationDays: number;
   selectedItemsForCommit: Map<string, boolean>;
   approvalIssues: ReceiptApprovalIssue[];
   storeBlockingIssues: string[];
   storeAdvisoryIssues: string[];
+  receiptApprovalStatus: {
+    hasBlocking: boolean;
+    hasAdvisory: boolean;
+    items: Record<string, { blocking: string[]; advisory: string[] }>;
+    store: { blocking: string[]; advisory: string[] };
+  };
+  receiptApprovalItems: Array<ReceiptApprovalDraftItem & { id: string }>;
   approvalNotes: string;
   onApprovalNotesChange: (value: string) => void;
+  receiptApprovalIdempotencyKey: string;
+  onReceiptApprovalIdempotencyKeyChange: (value: string) => void;
   show: boolean;
   onClose: () => void;
   onParse: () => void;
@@ -40,6 +56,9 @@ interface ReceiptReviewPanelProps {
   onSearchProduct: (item: any) => void;
   onCreateProduct: (item: any) => void;
   onSelectForCommit: (item: any, checked?: boolean) => void;
+  onItemUpcChange: (itemId: string, upc: string) => void;
+  onItemActionChange: (itemId: string, action: ReceiptApprovalAction) => void;
+  onItemCreateProductChange: (itemId: string, details: Partial<ReceiptApprovalCreateProductPayload>) => void;
   onAddNoiseRule: (normalizedName: string) => void;
   scanModalOpen: boolean;
   handleScannerScan: (upc: string) => void;
@@ -51,6 +70,8 @@ interface ReceiptReviewPanelProps {
   onConfirmStoreCreate: (value: boolean) => void;
   onForceUpcOverride: (value: boolean) => void;
   onFinalStoreIdChange: (value: string) => void;
+  finalStoreMode: FinalStoreMode;
+  onFinalStoreModeChange: (mode: FinalStoreMode) => void;
   onLockDurationChange: (value: number) => void;
   stores: StoreRecord[];
   storeCandidate?: ReceiptStoreCandidate;
@@ -61,14 +82,17 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   classifiedItems,
   approvalMode,
   isCommitting,
-  hasBlockingIssues,
   lockDurationDays,
   selectedItemsForCommit,
   approvalIssues,
   storeBlockingIssues,
   storeAdvisoryIssues,
+  receiptApprovalStatus,
+  receiptApprovalItems,
   approvalNotes,
   onApprovalNotesChange,
+  receiptApprovalIdempotencyKey,
+  onReceiptApprovalIdempotencyKeyChange,
   show,
   onClose,
   onParse,
@@ -85,6 +109,9 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   onSearchProduct,
   onCreateProduct,
   onSelectForCommit,
+  onItemUpcChange,
+  onItemActionChange,
+  onItemCreateProductChange,
   onAddNoiseRule,
   scanModalOpen,
   handleScannerScan,
@@ -96,6 +123,8 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   onConfirmStoreCreate,
   onForceUpcOverride,
   onFinalStoreIdChange,
+  finalStoreMode,
+  onFinalStoreModeChange,
   onLockDurationChange,
   stores,
   storeCandidate
@@ -107,6 +136,43 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   const shouldConfirmStoreCreate = !storeCandidate?.storeId && !finalStoreId;
   const blockingIssues = approvalIssues.filter(issue => issue.severity === 'blocking');
   const advisoryIssues = approvalIssues.filter(issue => issue.severity === 'advisory');
+  const itemsByLineIndex = useMemo(() => {
+    const mapping = new Map<number, any>();
+    classifiedItems.forEach(item => {
+      if (typeof item.lineIndex === 'number') {
+        mapping.set(item.lineIndex, item);
+      }
+    });
+    return mapping;
+  }, [classifiedItems]);
+  const receiptItemRows = receiptApprovalItems.map(item => ({
+    ...item,
+    source: itemsByLineIndex.get(item.lineIndex)
+  }));
+  const storeStatusBadge = receiptApprovalStatus.store.blocking.length
+    ? { label: 'Blocking', className: 'bg-ninpo-red/20 text-ninpo-red border-ninpo-red/40' }
+    : receiptApprovalStatus.store.advisory.length
+      ? { label: 'Advisory', className: 'bg-yellow-200/10 text-yellow-100 border-yellow-200/40' }
+      : { label: 'Ready', className: 'bg-ninpo-lime/10 text-ninpo-lime border-ninpo-lime/40' };
+  const buildReceiptDefaults = (source?: any): Partial<ReceiptApprovalCreateProductPayload> => {
+    if (!source) return {};
+    const defaultPrice = typeof source.unitPrice === 'number'
+      ? source.unitPrice
+      : typeof source.lineTotal === 'number' && typeof source.quantity === 'number' && source.quantity > 0
+        ? source.lineTotal / source.quantity
+        : undefined;
+    return {
+      name: source.receiptName || source.nameCandidate || '',
+      price: defaultPrice ?? undefined,
+      sizeOz: source.sizeOz ?? undefined,
+      brand: source.brandCandidate || undefined
+    };
+  };
+  const actionOptions: Array<{ value: ReceiptApprovalAction; label: string }> = [
+    { value: 'LINK_UPC_TO_PRODUCT', label: 'Link Existing Product' },
+    { value: 'CREATE_PRODUCT', label: 'Create Product' },
+    { value: 'IGNORE', label: 'Ignore' }
+  ];
   return (
     <div className="fixed inset-0 z-50 bg-ninpo-black/90 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-ninpo-card rounded-[2rem] border border-white/10 max-w-6xl w-full h-[85vh] overflow-y-auto">
@@ -165,6 +231,114 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
 
           <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
             <div className="space-y-4">
+              <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-widest">Store candidate</p>
+                    <p className="text-sm text-white font-semibold mt-2">{storeCandidateLabel}</p>
+                    {storeCandidate?.address && (
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        {storeCandidate.address.street}, {storeCandidate.address.city}
+                      </p>
+                    )}
+                    {storeCandidate?.phone && (
+                      <p className="text-[10px] text-slate-400 mt-1">{storeCandidate.phone}</p>
+                    )}
+                  </div>
+                  <span className={`text-[9px] uppercase tracking-widest rounded-full border px-3 py-1 ${storeStatusBadge.className}`}>
+                    {storeStatusBadge.label}
+                  </span>
+                </div>
+                <div className="mt-4 space-y-3 text-xs text-slate-200">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="finalStoreMode"
+                      checked={finalStoreMode === 'MATCHED'}
+                      onChange={() => onFinalStoreModeChange('MATCHED')}
+                    />
+                    Use matched store (if available)
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="finalStoreMode"
+                      checked={finalStoreMode === 'EXISTING'}
+                      onChange={() => onFinalStoreModeChange('EXISTING')}
+                    />
+                    Select existing store
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="finalStoreMode"
+                      checked={finalStoreMode === 'CREATE_DRAFT'}
+                      onChange={() => onFinalStoreModeChange('CREATE_DRAFT')}
+                    />
+                    Create a store draft
+                  </label>
+                </div>
+                {finalStoreMode === 'EXISTING' && (
+                  <label className="mt-3 block text-[10px] text-slate-400 uppercase tracking-widest">
+                    Existing store
+                    <select
+                      value={finalStoreId}
+                      onChange={event => onFinalStoreIdChange(event.target.value)}
+                      className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                    >
+                      <option value="">Select store</option>
+                      {stores.map(store => (
+                        <option key={store.id} value={store.id}>
+                          {store.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {finalStoreMode === 'CREATE_DRAFT' && (
+                  <div className="mt-3 space-y-2">
+                    <label className="flex items-center gap-2 text-xs text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={confirmStoreCreate}
+                        onChange={event => onConfirmStoreCreate(event.target.checked)}
+                        disabled={!shouldConfirmStoreCreate}
+                      />
+                      Confirm store draft creation
+                    </label>
+                    {shouldConfirmStoreCreate && (
+                      <p className="text-[10px] text-slate-500">
+                        Store candidate: {storeCandidateLabel}. Approvals require explicit confirmation if a new store draft must be created.
+                      </p>
+                    )}
+                  </div>
+                )}
+                {(receiptApprovalStatus.store.blocking.length > 0 || receiptApprovalStatus.store.advisory.length > 0) && (
+                  <div className="mt-4 rounded-xl border border-white/10 bg-black/30 p-3 text-[10px] text-slate-200 space-y-2">
+                    {receiptApprovalStatus.store.blocking.length > 0 && (
+                      <div>
+                        <p className="font-semibold text-ninpo-red uppercase tracking-widest text-[9px]">Store blocking</p>
+                        <ul className="mt-1 space-y-1">
+                          {receiptApprovalStatus.store.blocking.map(issue => (
+                            <li key={issue} className="text-ninpo-red/90">{issue}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {receiptApprovalStatus.store.advisory.length > 0 && (
+                      <div>
+                        <p className="font-semibold text-yellow-200 uppercase tracking-widest text-[9px]">Store advisory</p>
+                        <ul className="mt-1 space-y-1">
+                          {receiptApprovalStatus.store.advisory.map(issue => (
+                            <li key={issue} className="text-yellow-100/80">{issue}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {classifiedItems.length === 0 ? (
                 <div className="text-xs text-slate-400">No items to review.</div>
               ) : (
@@ -179,6 +353,184 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                   onItemNeverMatch={item => onAddNoiseRule(item.normalizedName || '')}
                 />
               )}
+              <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest">Item actions</p>
+                <div className="mt-3 space-y-3">
+                  {receiptItemRows.map(item => {
+                    const status = receiptApprovalStatus.items[item.id];
+                    const blockingCount = status?.blocking.length ?? 0;
+                    const advisoryCount = status?.advisory.length ?? 0;
+                    return (
+                      <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 p-3 space-y-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="text-xs text-white font-semibold">
+                              {item.source?.receiptName || `Line ${item.lineIndex}`}
+                            </p>
+                            <p className="text-[10px] text-slate-400">
+                              {item.source?.quantity ? `${item.source.quantity} × ` : ''}
+                              {typeof item.source?.unitPrice === 'number' ? `$${item.source.unitPrice.toFixed(2)}` : 'No unit price'}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {blockingCount > 0 && (
+                              <span className="text-[9px] uppercase tracking-widest rounded-full border border-ninpo-red/40 bg-ninpo-red/20 text-ninpo-red px-2 py-1">
+                                {blockingCount} blocking
+                              </span>
+                            )}
+                            {advisoryCount > 0 && (
+                              <span className="text-[9px] uppercase tracking-widest rounded-full border border-yellow-200/40 bg-yellow-200/10 text-yellow-100 px-2 py-1">
+                                {advisoryCount} advisory
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-3">
+                          <label className="text-[10px] text-slate-400 uppercase tracking-widest">
+                            UPC
+                            <input
+                              value={item.upc || ''}
+                              onChange={event => onItemUpcChange(item.id, event.target.value)}
+                              className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                              placeholder="Scan or enter UPC"
+                            />
+                            {item.source?.scannedUpc || item.source?.suggestedProduct?.upc ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onItemUpcChange(
+                                    item.id,
+                                    item.source?.scannedUpc || item.source?.suggestedProduct?.upc || ''
+                                  )
+                                }
+                                className="mt-2 px-3 py-1 rounded-full text-[9px] font-semibold border border-white/10 text-slate-300 hover:bg-white/10"
+                              >
+                                Use suggested UPC
+                              </button>
+                            ) : null}
+                          </label>
+                          <label className="text-[10px] text-slate-400 uppercase tracking-widest">
+                            Action
+                            <select
+                              value={item.action}
+                              onChange={event => onItemActionChange(item.id, event.target.value as ReceiptApprovalAction)}
+                              className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                            >
+                              {actionOptions.map(option => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                        {item.action === 'LINK_UPC_TO_PRODUCT' && (
+                          <div className="text-[10px] text-slate-400 flex flex-wrap items-center justify-between gap-2">
+                            <span>
+                              Linked SKU: {item.sku || 'Not selected'}
+                            </span>
+                            {item.source && (
+                              <button
+                                onClick={() => onSearchProduct(item.source)}
+                                className="px-3 py-1 rounded-full text-[9px] font-semibold border border-white/10 text-slate-300 hover:bg-white/10"
+                              >
+                                Search product
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {item.action === 'CREATE_PRODUCT' && (
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div className="md:col-span-3 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => onItemCreateProductChange(item.id, buildReceiptDefaults(item.source))}
+                                className="px-3 py-1 rounded-full text-[9px] font-semibold border border-white/10 text-slate-300 hover:bg-white/10"
+                              >
+                                Apply receipt details
+                              </button>
+                            </div>
+                            <label className="text-[10px] text-slate-400 uppercase tracking-widest md:col-span-2">
+                              Product name
+                              <input
+                                value={item.createProduct?.name || ''}
+                                onChange={event => onItemCreateProductChange(item.id, { name: event.target.value })}
+                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                                placeholder="Name"
+                              />
+                            </label>
+                            <label className="text-[10px] text-slate-400 uppercase tracking-widest">
+                              Price
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={item.createProduct?.price ?? ''}
+                                onChange={event =>
+                                  onItemCreateProductChange(item.id, {
+                                    price: event.target.value === '' ? undefined : Number(event.target.value)
+                                  })
+                                }
+                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                                placeholder="0.00"
+                              />
+                            </label>
+                            <label className="text-[10px] text-slate-400 uppercase tracking-widest">
+                              Size (oz)
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={item.createProduct?.sizeOz ?? ''}
+                                onChange={event =>
+                                  onItemCreateProductChange(item.id, {
+                                    sizeOz: event.target.value === '' ? undefined : Number(event.target.value)
+                                  })
+                                }
+                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                                placeholder="12"
+                              />
+                            </label>
+                            <label className="text-[10px] text-slate-400 uppercase tracking-widest">
+                              Brand
+                              <input
+                                value={item.createProduct?.brand || ''}
+                                onChange={event => onItemCreateProductChange(item.id, { brand: event.target.value })}
+                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                                placeholder="Brand"
+                              />
+                            </label>
+                          </div>
+                        )}
+                        {(status?.blocking.length || status?.advisory.length) && (
+                          <div className="rounded-lg border border-white/10 bg-black/40 p-2 text-[10px] text-slate-200 space-y-2">
+                            {status?.blocking.length ? (
+                              <div>
+                                <p className="text-[9px] uppercase tracking-widest text-ninpo-red">Blocking</p>
+                                <ul className="mt-1 space-y-1">
+                                  {status.blocking.map(message => (
+                                    <li key={message} className="text-ninpo-red/80">{message}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : null}
+                            {status?.advisory.length ? (
+                              <div>
+                                <p className="text-[9px] uppercase tracking-widest text-yellow-200">Advisory</p>
+                                <ul className="mt-1 space-y-1">
+                                  {status.advisory.map(message => (
+                                    <li key={message} className="text-yellow-100/80">{message}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
             <div className="space-y-4">
@@ -293,37 +645,7 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                     />
                     Force UPC override when conflicts are found
                   </label>
-                  <label className="flex items-center gap-2 text-xs text-slate-200">
-                    <input
-                      type="checkbox"
-                      checked={confirmStoreCreate}
-                      onChange={event => onConfirmStoreCreate(event.target.checked)}
-                      disabled={!shouldConfirmStoreCreate}
-                    />
-                    Confirm store creation if no match is found
-                  </label>
-                  {shouldConfirmStoreCreate && (
-                    <p className="text-[10px] text-slate-500">
-                      Store candidate: {storeCandidateLabel}. Approvals require explicit confirmation if a new store must be created.
-                    </p>
-                  )}
                 </div>
-
-                <label className="mt-3 block text-[10px] text-slate-400 uppercase tracking-widest">
-                  Final store (override)
-                  <select
-                    value={finalStoreId}
-                    onChange={event => onFinalStoreIdChange(event.target.value)}
-                    className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
-                  >
-                    <option value="">Use candidate</option>
-                    {stores.map(store => (
-                      <option key={store.id} value={store.id}>
-                        {store.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
 
                 {(blockingIssues.length > 0 || advisoryIssues.length > 0) && (
                   <div className="mt-4 rounded-xl border border-white/10 bg-black/40 p-3 text-[10px] text-slate-200 space-y-3">
@@ -362,7 +684,7 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                 )}
 
                 <label className="mt-4 block text-[10px] text-slate-400 uppercase tracking-widest">
-                  Approval notes
+                  Manager notes
                   <textarea
                     value={approvalNotes}
                     onChange={event => onApprovalNotesChange(event.target.value)}
@@ -372,12 +694,22 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                   />
                 </label>
 
+                <label className="mt-4 block text-[10px] text-slate-400 uppercase tracking-widest">
+                  Idempotency key
+                  <input
+                    value={receiptApprovalIdempotencyKey}
+                    onChange={event => onReceiptApprovalIdempotencyKeyChange(event.target.value)}
+                    className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                    placeholder="receipt-..."
+                  />
+                </label>
+
                 <button
                   onClick={onCommit}
-                  disabled={!approvalMode || isCommitting || hasBlockingIssues}
+                  disabled={!approvalMode || isCommitting || receiptApprovalStatus.hasBlocking}
                   className="mt-4 w-full px-4 py-3 rounded-2xl text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isCommitting ? 'Committing…' : 'Approve Receipt'}
+                  {isCommitting ? 'Approving…' : 'Approve & Apply'}
                 </button>
               </div>
             </div>
