@@ -17,6 +17,15 @@ import { BACKEND_URL } from '../../constants';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
 import ReceiptCaptureFlow from '../../components/ReceiptCaptureFlow';
 
+type ReceiptApprovalMode = 'safe' | 'selected' | 'locked' | 'all';
+
+const createIdempotencyKey = () => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `receipt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
 interface ManagementReceiptProps {
   fmtTime: (iso?: string) => string;
   stores: StoreRecord[];
@@ -115,13 +124,16 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   // Receipt review state (moved from Pricing Intelligence)
   const [activeReceiptCaptureId, setActiveReceiptCaptureId] = useState<string | null>(null);
   const [classifiedItems, setClassifiedItems] = useState<any[]>([]);
-  const [commitIntent, setCommitIntent] = useState<'safe' | 'selected' | 'locked' | null>(null);
+  const [approvalMode, setApprovalMode] = useState<ReceiptApprovalMode>('safe');
+  const [forceUpcOverride, setForceUpcOverride] = useState(false);
+  const [confirmStoreCreate, setConfirmStoreCreate] = useState(false);
+  const [finalStoreId, setFinalStoreId] = useState<string>('');
+  const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey());
   const [selectedItemsForCommit, setSelectedItemsForCommit] = useState<Map<string, boolean>>(new Map());
   const [isCommitting, setIsCommitting] = useState(false);
   const [showReceiptReview, setShowReceiptReview] = useState(false);
-  const [scanTargetItem, setScanTargetItem] = useState<any | null>(null);
   const [scanModalOpen, setScanModalOpen] = useState(false);
-  const [lockDurationDays] = useState(7); // Or get from settings if available
+  const [lockDurationDays, setLockDurationDays] = useState(7); // Or get from settings if available
   const [settings] = useState<any>({}); // Placeholder for settings if needed
 
   // --- Receipt Review Handlers (ported from Pricing Intelligence) ---
@@ -151,58 +163,115 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     addToast('All items selected for commit.', 'info');
   }, [classifiedItems, addToast]);
 
-  const handleResetReview = useCallback(() => {
-    setSelectedItemsForCommit(new Map());
-    setCommitIntent(null);
-    addToast('Review reset.', 'info');
-  }, [addToast]);
-
-  const handleLock = useCallback(() => {
-    addToast(`Receipt locked for ${lockDurationDays} days.`, 'info');
-    // Implement lock logic if needed
-  }, [lockDurationDays, addToast]);
-
-  const handleUnlock = useCallback(() => {
-    addToast('Receipt unlocked.', 'info');
-    // Implement unlock logic if needed
-  }, [addToast]);
-
-  const handleCommit = useCallback(async () => {
-    if (!activeReceiptCaptureId || !commitIntent) return;
-    setIsCommitting(true);
+  const handleResetReview = useCallback(async () => {
+    if (!activeReceiptCaptureId) return;
     try {
-      // Example: POST to commit endpoint
-      const resp = await fetch(`${BACKEND_URL}/api/receipts/${activeReceiptCaptureId}/commit`, {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-reset-review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ captureId: activeReceiptCaptureId })
+      });
+      if (!resp.ok) throw new Error('Failed to reset review');
+      setSelectedItemsForCommit(new Map());
+      setApprovalMode('safe');
+      addToast('Review reset.', 'success');
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to reset review', 'error');
+    }
+  }, [activeReceiptCaptureId, addToast]);
+
+  const handleLock = useCallback(async () => {
+    if (!activeReceiptCaptureId) return;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-lock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          mode: commitIntent,
-          items: Array.from(selectedItemsForCommit.keys())
+          captureId: activeReceiptCaptureId,
+          lockDurationDays
+        })
+      });
+      if (!resp.ok) throw new Error('Failed to lock receipt');
+      addToast(`Receipt locked for ${lockDurationDays} days.`, 'success');
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to lock receipt', 'error');
+    }
+  }, [activeReceiptCaptureId, lockDurationDays, addToast]);
+
+  const handleUnlock = useCallback(async () => {
+    if (!activeReceiptCaptureId) return;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/driver/receipt-unlock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ captureId: activeReceiptCaptureId })
+      });
+      if (!resp.ok) throw new Error('Failed to unlock receipt');
+      addToast('Receipt unlocked.', 'success');
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to unlock receipt', 'error');
+    }
+  }, [activeReceiptCaptureId, addToast]);
+
+  const handleCommit = useCallback(async () => {
+    if (!selectedJob) return;
+    if (!activeReceiptCaptureId || !approvalMode) return;
+    setIsCommitting(true);
+    try {
+      const selectedIndices = classifiedItems
+        .filter(item => selectedItemsForCommit.get(getReceiptItemKey(item)))
+        .map(item => item.lineIndex)
+        .filter((lineIndex): lineIndex is number => typeof lineIndex === 'number');
+
+      if (approvalMode === 'selected' && selectedIndices.length === 0) {
+        addToast('Select at least one item for selected mode.', 'error');
+        setIsCommitting(false);
+        return;
+      }
+
+      const resp = await fetch(`${BACKEND_URL}/api/receipts/${selectedJob._id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          mode: approvalMode,
+          selectedIndices: approvalMode === 'selected' ? selectedIndices : undefined,
+          lockDurationDays,
+          idempotencyKey,
+          forceUpcOverride,
+          finalStoreId: finalStoreId || undefined,
+          storeCandidate: selectedJob.storeCandidate,
+          confirmStoreCreate
         })
       });
       if (!resp.ok) throw new Error('Failed to commit items');
       addToast('Items committed.', 'success');
       setShowReceiptReview(false);
+      setSelectedJob(null);
+      setParseJobs(prev => prev.filter(job => job._id !== selectedJob._id));
     } catch (err: any) {
       addToast(err?.message || 'Failed to commit items', 'error');
     } finally {
       setIsCommitting(false);
     }
-  }, [activeReceiptCaptureId, commitIntent, selectedItemsForCommit, addToast]);
+  }, [
+    selectedJob,
+    activeReceiptCaptureId,
+    approvalMode,
+    classifiedItems,
+    selectedItemsForCommit,
+    lockDurationDays,
+    idempotencyKey,
+    forceUpcOverride,
+    finalStoreId,
+    confirmStoreCreate,
+    addToast
+  ]);
 
-  const handleConfirmItem = useCallback((item: any) => {
-    const key = getReceiptItemKey(item);
-    setSelectedItemsForCommit(prev => {
-      const updated = new Map(prev);
-      updated.set(key, true);
-      return updated;
-    });
-    addToast('Item confirmed.', 'info');
-  }, [addToast]);
-
-  const handleScanItem = useCallback((item: any) => {
-    setScanTargetItem(item);
+  const handleScanItem = useCallback((_item: any) => {
     setScanModalOpen(true);
   }, []);
 
@@ -230,12 +299,35 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     setScanModalOpen(false);
   }, []);
 
+  const loadCaptureItems = useCallback(async (captureId: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/driver/receipt-capture/${captureId}/items`, {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to load receipt items');
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const { items: classified } = classifyItems(items);
+      setClassifiedItems(classified);
+      const updated = new Map<string, boolean>();
+      classified
+        .filter(item => item.classification === 'A')
+        .forEach(item => {
+          updated.set(getReceiptItemKey(item), true);
+        });
+      setSelectedItemsForCommit(updated);
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to load receipt items', 'error');
+      setClassifiedItems([]);
+    }
+  }, [addToast]);
+
   // Load pending parse jobs
   const loadParseJobs = useCallback(async () => {
     setIsLoadingJobs(true);
     setJobsError(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/receipts/?status=NEEDS_REVIEW`, {
+      const res = await fetch(`${BACKEND_URL}/api/receipts/?status=NEEDS_REVIEW,PARSED`, {
         credentials: 'include'
       });
       if (!res.ok) throw new Error('Failed to load parse jobs');
@@ -277,7 +369,10 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ mode })
+        body: JSON.stringify({
+          mode,
+          idempotencyKey: createIdempotencyKey()
+        })
       });
       if (!res.ok) throw new Error('Failed to approve parse job');
       addToast('Parse job approved', 'success');
@@ -308,6 +403,19 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     }
   }, [addToast]);
 
+  useEffect(() => {
+    if (!selectedJob) return;
+    setActiveReceiptCaptureId(selectedJob.captureId);
+    setFinalStoreId(selectedJob.storeCandidate?.storeId || activeStoreId || '');
+    setConfirmStoreCreate(false);
+    setForceUpcOverride(false);
+    setApprovalMode('safe');
+    setIdempotencyKey(createIdempotencyKey());
+    setSelectedItemsForCommit(new Map());
+    setShowReceiptReview(true);
+    loadCaptureItems(selectedJob.captureId);
+  }, [selectedJob, activeStoreId, loadCaptureItems]);
+
   // Tab content
   const tabContent = useMemo(() => {
     if (receiptFlow === 'capture') {
@@ -332,19 +440,11 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     if (receiptFlow === 'pending') {
       // If a job is selected, show the review panel (placeholder for now)
       if (selectedJob) {
-        // When a job is selected, load its items for review
-        if (!showReceiptReview || activeReceiptCaptureId !== selectedJob.captureId) {
-          // Classify items and open review
-          setActiveReceiptCaptureId(selectedJob.captureId);
-          setClassifiedItems(classifyItems(selectedJob.items || []).items || []);
-          setShowReceiptReview(true);
-          setSelectedItemsForCommit(new Map());
-        }
         return (
           <ReceiptReviewPanel
             activeReceiptCaptureId={activeReceiptCaptureId || ''}
             classifiedItems={classifiedItems}
-            commitIntent={commitIntent}
+            approvalMode={approvalMode}
             isCommitting={isCommitting}
             lockDurationDays={lockDurationDays}
             selectedItemsForCommit={selectedItemsForCommit}
@@ -358,7 +458,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             onResetReview={handleResetReview}
             onLock={handleLock}
             onUnlock={handleUnlock}
-            onCommitMode={mode => setCommitIntent(mode)}
+            onApprovalMode={mode => setApprovalMode(mode)}
             onSelectAll={() => {
               const updated = new Map<string, boolean>();
               classifiedItems.forEach(item => {
@@ -366,30 +466,47 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
               });
               setSelectedItemsForCommit(updated);
             }}
+            onSelectSafe={() => {
+              const updated = new Map<string, boolean>();
+              classifiedItems
+                .filter(item => item.classification === 'A')
+                .forEach(item => {
+                  updated.set(getReceiptItemKey(item), true);
+                });
+              setSelectedItemsForCommit(updated);
+            }}
             onClearSelection={() => setSelectedItemsForCommit(new Map())}
             onCommit={handleCommit}
-            onConfirmItem={handleConfirmItem}
             onScanItem={handleScanItem}
             onSearchProduct={handleSearchProduct}
             onCreateProduct={handleCreateProduct}
-            onSelectForCommit={item => {
+            onSelectForCommit={(item, checked) => {
               const key = getReceiptItemKey(item);
               setSelectedItemsForCommit(prev => {
                 const updated = new Map(prev);
-                if (updated.has(key)) {
-                  updated.delete(key);
-                } else {
+                const shouldSelect = checked ?? !updated.has(key);
+                if (shouldSelect) {
                   updated.set(key, true);
+                } else {
+                  updated.delete(key);
                 }
                 return updated;
               });
             }}
             onAddNoiseRule={handleAddNoiseRule}
             scanModalOpen={scanModalOpen}
-            scanTargetItem={scanTargetItem}
             handleScannerScan={handleScannerScan}
             handleScannerClose={handleScannerClose}
             settings={settings}
+            confirmStoreCreate={confirmStoreCreate}
+            forceUpcOverride={forceUpcOverride}
+            finalStoreId={finalStoreId}
+            onConfirmStoreCreate={setConfirmStoreCreate}
+            onForceUpcOverride={setForceUpcOverride}
+            onFinalStoreIdChange={setFinalStoreId}
+            onLockDurationChange={setLockDurationDays}
+            stores={stores}
+            storeCandidate={selectedJob.storeCandidate}
           />
         );
       }
@@ -484,7 +601,44 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         </div>
       );
     }
-  }, [receiptFlow, isReceiptFlowOpen, stores, fmtTime, parseJobs, isLoadingJobs, jobsError, selectedJob, isProcessing, handleReceiptCaptured, loadParseJobs, handleApproveParseJob, handleRejectParseJob]);
+  }, [
+    receiptFlow,
+    isReceiptFlowOpen,
+    stores,
+    fmtTime,
+    parseJobs,
+    isLoadingJobs,
+    jobsError,
+    selectedJob,
+    activeReceiptCaptureId,
+    classifiedItems,
+    approvalMode,
+    isCommitting,
+    lockDurationDays,
+    selectedItemsForCommit,
+    showReceiptReview,
+    scanModalOpen,
+    confirmStoreCreate,
+    forceUpcOverride,
+    finalStoreId,
+    isProcessing,
+    handleReceiptCaptured,
+    handleParse,
+    handleConfirmAll,
+    handleResetReview,
+    handleLock,
+    handleUnlock,
+    handleCommit,
+    handleScanItem,
+    handleSearchProduct,
+    handleCreateProduct,
+    handleAddNoiseRule,
+    handleScannerScan,
+    handleScannerClose,
+    loadParseJobs,
+    handleApproveParseJob,
+    handleRejectParseJob
+  ]);
 
   return (
     <div className="space-y-6">
