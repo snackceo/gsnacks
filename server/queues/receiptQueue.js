@@ -39,6 +39,8 @@ if (receiptQueue) {
   console.log('BullMQ receipt queue enabled.');
 }
 
+let receiptQueueAdmin = null;
+
 const receiptQueueEvents = connection ? new QueueEvents(queueName, { connection }) : null;
 
 export const isReceiptQueueEnabled = () => Boolean(receiptQueue);
@@ -62,6 +64,19 @@ export const registerReceiptWorker = (processor) => {
     removeOnComplete: { count: 1000 },
     removeOnFail: { count: 5000 }
   });
+};
+
+export const getReceiptQueue = ({ allowDisabled = false } = {}) => {
+  if (receiptQueue) {
+    return receiptQueue;
+  }
+  if (!allowDisabled || !connection) {
+    return null;
+  }
+  if (!receiptQueueAdmin) {
+    receiptQueueAdmin = new Queue(queueName, { connection });
+  }
+  return receiptQueueAdmin;
 };
 
 export const getReceiptQueueEvents = () => receiptQueueEvents;

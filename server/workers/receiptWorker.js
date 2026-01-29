@@ -26,13 +26,19 @@ if (!isReceiptQueueEnabled()) {
     }
 
     // FIX 1: Always advance state to 'parsing' and increment parseAttempts
-    await ReceiptCapture.updateOne(
+    const updateResult = await ReceiptCapture.updateOne(
       { _id: captureId },
       {
         $inc: { parseAttempts: 1 },
         $set: { status: 'parsing' }
       }
     );
+
+    if (updateResult.matchedCount === 0) {
+      console.warn(`Receipt capture missing for job ${job.id}; removing job without retry.`);
+      await job.remove();
+      return;
+    }
 
     try {
       // Execute the parsing pipeline (shared with receipt-prices route)
