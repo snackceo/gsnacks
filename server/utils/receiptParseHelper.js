@@ -439,7 +439,7 @@ RULES:
       // Call Gemini Vision API
       const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash-exp',
+        model: process.env.GEMINI_DEFAULT_MODEL || 'gemini-2.5-flash',
         contents: [
           {
             role: 'user',
