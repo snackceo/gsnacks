@@ -83,7 +83,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
 
   // Removed legacy handler for extra capture button. Only ScannerPanel shutter is used.
 
-  const { addToast } = useNinpoCore ? useNinpoCore() : { addToast: () => {} };
+  const { addToast } = useNinpoCore();
 
   // ─────────────────────────────────────────────────────────────
   // STATE

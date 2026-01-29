@@ -16,6 +16,8 @@ module.exports = {
   rules: {
     'no-redeclare': 'off',
     '@typescript-eslint/no-redeclare': 'error',
+    'react-hooks/rules-of-hooks': 'error',
+    'react-hooks/exhaustive-deps': 'warn',
     '@typescript-eslint/no-use-before-define': [
       'error',
       {
