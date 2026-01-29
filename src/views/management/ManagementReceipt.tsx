@@ -1047,95 +1047,111 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              {parseJobs.map(job => (
-                <div
-                  key={job._id}
-                  className="bg-ninpo-card border border-white/10 rounded-2xl p-4 cursor-pointer hover:border-ninpo-lime/50 transition"
-                  onClick={() => setSelectedJob(selectedJob?._id === job._id ? null : job)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-white font-bold text-sm">{job.storeCandidate?.name || 'Unknown Store'}</p>
-                      <p className="text-[10px] text-slate-400 mt-1">{job.items?.length || 0} items • {fmtTime(job.createdAt)}</p>
-                    </div>
-                    <ChevronDown className={`w-4 h-4 text-slate-400 transition ${selectedJob?._id === job._id ? 'rotate-180' : ''}`} />
-                  </div>
-
-                  {(job.items?.length || 0) === 0 && (
-                    <div className="mt-3 rounded-xl border border-yellow-400/40 bg-yellow-200/10 px-3 py-2 text-[11px] text-yellow-100">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <AlertCircle className="w-4 h-4" />
-                          <span className="font-semibold">No items parsed.</span>
-                          {job.parseError && (
-                            <span className="text-yellow-200/80">Reason: {job.parseError}</span>
-                          )}
-                          {!job.parseError && job.skippedImageReason?.length ? (
-                            <span className="text-yellow-200/80">
-                              Skipped images: {job.skippedImageReason.join(', ')}
-                            </span>
-                          ) : null}
-                          {job.parseErrorType === 'TRANSIENT' && formatRetryAfter(job.retryAfter) ? (
-                            <span className="text-yellow-200/80">
-                              Retry after {formatRetryAfter(job.retryAfter)}
-                            </span>
-                          ) : null}
-                        </div>
-                        {job.parseErrorType === 'TRANSIENT' && (
-                          <button
-                            type="button"
-                            onClick={event => {
-                              event.stopPropagation();
-                              handleRetryParse(job.captureId);
-                            }}
-                            disabled={isRetryBlocked(job.retryAfter)}
-                            className="px-3 py-1 rounded-full bg-yellow-200 text-yellow-950 text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-100 transition"
-                          >
-                            {isRetryBlocked(job.retryAfter) ? 'Retry pending' : 'Retry parse'}
-                          </button>
-                        )}
+              {parseJobs.map(job => {
+                const isBroken = (job.items?.length || 0) === 0;
+                return (
+                  <div
+                    key={job._id}
+                    className="bg-ninpo-card border border-white/10 rounded-2xl p-4 cursor-pointer hover:border-ninpo-lime/50 transition"
+                    onClick={() => setSelectedJob(selectedJob?._id === job._id ? null : job)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-white font-bold text-sm">{job.storeCandidate?.name || 'Unknown Store'}</p>
+                        <p className="text-[10px] text-slate-400 mt-1">{job.items?.length || 0} items • {fmtTime(job.createdAt)}</p>
                       </div>
-                    </div>
-                  )}
-
-                  {selectedJob?._id === job._id && (
-                    <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
-                      <div className="space-y-2">
-                        <p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">Items to Review:</p>
-                        {job.items?.map((item, idx) => (
-                          <div key={idx} className="text-[10px] bg-black/30 rounded p-2">
-                            <p className="text-white">{item.nameCandidate}</p>
-                            <p className="text-slate-400">${item.lineTotal.toFixed(2)} × {item.quantity}</p>
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="flex gap-2">
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            handleApproveReceipt(job, 'safe');
-                          }}
-                          disabled={isProcessing}
-                          className="flex-1 py-2 bg-ninpo-lime text-ninpo-black rounded-lg font-bold text-[10px] hover:bg-white transition disabled:opacity-50"
-                        >
-                          Approve (Safe)
-                        </button>
+                      <div className="flex items-center gap-2">
+                        {/* Dismiss/Reject always visible */}
                         <button
                           onClick={e => {
                             e.stopPropagation();
                             handleRejectParseJob(job._id);
                           }}
                           disabled={isProcessing}
-                          className="flex-1 py-2 bg-ninpo-red/20 text-ninpo-red rounded-lg font-bold text-[10px] hover:bg-ninpo-red/30 transition disabled:opacity-50"
+                          className="px-3 py-1 text-xs font-bold rounded bg-red-500/20 text-red-400 hover:bg-red-500/30"
                         >
-                          Reject
+                          Dismiss
                         </button>
+                        <ChevronDown className={`w-4 h-4 text-slate-400 transition ${selectedJob?._id === job._id ? 'rotate-180' : ''}`} />
                       </div>
                     </div>
-                  )}
-                </div>
-              ))}
+
+                    {isBroken && (
+                      <div className="mt-3 rounded-xl border border-yellow-400/40 bg-yellow-200/10 px-3 py-2 text-[11px] text-yellow-100">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4" />
+                            <span className="font-semibold">Parsing failed.</span>
+                            {job.parseError && (
+                              <span className="text-yellow-200/80">Reason: {job.parseError}</span>
+                            )}
+                            {!job.parseError && job.skippedImageReason?.length ? (
+                              <span className="text-yellow-200/80">
+                                Skipped images: {job.skippedImageReason.join(', ')}
+                              </span>
+                            ) : null}
+                            {job.parseErrorType === 'TRANSIENT' && formatRetryAfter(job.retryAfter) ? (
+                              <span className="text-yellow-200/80">
+                                Retry after {formatRetryAfter(job.retryAfter)}
+                              </span>
+                            ) : null}
+                          </div>
+                          {/* Retry Parse always visible for broken jobs */}
+                          <button
+                            type="button"
+                            onClick={event => {
+                              event.stopPropagation();
+                              handleRetryParse(job.captureId);
+                            }}
+                            disabled={isRetryBlocked(job.retryAfter) || isProcessing}
+                            className="px-3 py-1 rounded-full bg-yellow-200 text-yellow-950 text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-100 transition"
+                          >
+                            {isRetryBlocked(job.retryAfter) ? 'Retry pending' : 'Retry parse'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedJob?._id === job._id && !isBroken && (
+                      <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">Items to Review:</p>
+                          {job.items?.map((item, idx) => (
+                            <div key={idx} className="text-[10px] bg-black/30 rounded p-2">
+                              <p className="text-white">{item.nameCandidate}</p>
+                              <p className="text-slate-400">${item.lineTotal.toFixed(2)} × {item.quantity}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleApproveReceipt(job, 'safe');
+                            }}
+                            disabled={isProcessing}
+                            className="flex-1 py-2 bg-ninpo-lime text-ninpo-black rounded-lg font-bold text-[10px] hover:bg-white transition disabled:opacity-50"
+                          >
+                            Approve (Safe)
+                          </button>
+                          {/* Dismiss/Reject also visible here for consistency */}
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleRejectParseJob(job._id);
+                            }}
+                            disabled={isProcessing}
+                            className="flex-1 py-2 bg-ninpo-red/20 text-ninpo-red rounded-lg font-bold text-[10px] hover:bg-ninpo-red/30 transition disabled:opacity-50"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
