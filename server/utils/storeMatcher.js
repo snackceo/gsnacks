@@ -2,13 +2,17 @@ import Store from '../models/Store.js';
 import levenshtein from 'fast-levenshtein';
 
 const normalizePhone = (phone = '') => phone.replace(/\D+/g, '');
+const normalizeZip = (zip = '') => {
+  const match = String(zip).match(/\d{5}/);
+  return match ? match[0] : '';
+};
 const normalizeStr = (str = '') => str.trim().toLowerCase();
 
 const addressKey = (addr = {}) => {
   const street = normalizeStr(addr.street || addr.address || '');
   const city = normalizeStr(addr.city || '');
   const state = normalizeStr(addr.state || '');
-  const zip = normalizeStr(addr.zip || '');
+  const zip = normalizeZip(addr.zip || '');
   return [street, city, state, zip].filter(Boolean).join('|');
 };
 
@@ -50,13 +54,13 @@ export async function matchStoreCandidate(candidate, { nameThreshold = 0.25 } = 
   if (candidate.name) {
     const stores = await Store.find({}).lean();
     const city = normalizeStr(candidate.address?.city || '');
-    const zip = normalizeStr(candidate.address?.zip || '');
+    const zip = normalizeZip(candidate.address?.zip || '');
 
     let best = null;
     let bestScore = 1;
     for (const s of stores) {
       if (city && normalizeStr(s.address?.city) !== city) continue;
-      if (zip && normalizeStr(s.address?.zip) !== zip) continue;
+      if (zip && normalizeZip(s.address?.zip) !== zip) continue;
       const score = fuzzyMatch(candidate.name, s.name);
       if (score < bestScore) {
         bestScore = score;

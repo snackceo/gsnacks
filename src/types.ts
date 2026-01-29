@@ -169,6 +169,7 @@ export interface ReceiptStoreCandidate {
   phone?: string;
   storeType?: string;
   confidence?: number;
+  matchReason?: string;
   storeId?: string;
 }
 

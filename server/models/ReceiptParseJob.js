@@ -39,6 +39,7 @@ const StoreCandidateSchema = new mongoose.Schema(
     phone: String,
     storeType: String,
     confidence: Number,
+    matchReason: String,
     storeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Store' }
   },
   { _id: false }
