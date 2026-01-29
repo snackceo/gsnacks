@@ -17,6 +17,7 @@ import { isDbReady } from '../db/connect.js';
 import { matchStoreCandidate, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { isPricingLearningEnabled, receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap } from '../utils/featureFlags.js';
 import { enqueueReceiptJob, isReceiptQueueEnabled } from '../queues/receiptQueue.js';
+import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 
 const getGeminiApiKey = () =>
   process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
@@ -2293,11 +2294,21 @@ router.get('/receipt-health', authRequired, async (req, res) => {
   }
 
   try {
+    const staleJobCheck = await flushStaleReceiptJobs({ dryRun: true });
+    const staleReceiptJobs = staleJobCheck.ok
+      ? {
+          totalJobs: staleJobCheck.totalJobs,
+          candidates: staleJobCheck.candidates,
+          stale: staleJobCheck.stale,
+          missingCaptureIdsCount: staleJobCheck.missingCaptureIds.length
+        }
+      : { ok: false, reason: staleJobCheck.reason };
     res.json({
       ok: true,
       cloudinary: hasCloudinary,
       queueEnabled: isReceiptQueueEnabled(),
-      learningEnabled: isPricingLearningEnabled()
+      learningEnabled: isPricingLearningEnabled(),
+      staleReceiptJobs
     });
   } catch (error) {
     console.error('Error fetching receipt health:', error);

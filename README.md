@@ -29,6 +29,40 @@ See also: GLOSSARY.md for definitions.
 
 ---
 
+## Operations & Maintenance
+
+### Receipt queue cleanup (stale jobs)
+
+When receipt captures are deleted out-of-band, BullMQ can retain `receipt-parse` jobs that reference missing `ReceiptCapture` records. These jobs should be purged to prevent repeated retries and queue drift.
+
+**On-demand cleanup (script):**
+
+```
+cd server
+npm run cleanup-receipt-queue
+```
+
+Optional filters:
+
+```
+npm run cleanup-receipt-queue -- --capture-id <captureId>
+npm run cleanup-receipt-queue -- --dry-run
+```
+
+**On-demand cleanup (admin API):**
+
+```
+POST /api/receipts/cleanup-queue
+```
+
+Body options:
+- `captureIds`: array of captureIds to target (optional)
+- `dryRun`: boolean to preview without removing jobs
+
+**Monitoring:** check `GET /api/driver/receipt-health` for the `staleReceiptJobs` summary. This returns counts for queued jobs that reference missing captures.
+
+**Recommendation:** schedule `npm run cleanup-receipt-queue` via cron (daily or weekly) and alert on non-zero `staleReceiptJobs.stale` to catch drift early.
+
 ## Tech Stack
 
 - MongoDB (database)

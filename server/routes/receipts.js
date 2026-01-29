@@ -14,6 +14,7 @@ import { authRequired, isOwnerUsername } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { matchStoreCandidate } from '../utils/storeMatcher.js';
 import { generateSku } from '../utils/sku.js';
+import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 
 const router = express.Router();
 
@@ -676,10 +677,35 @@ router.delete('/:captureId', authRequired, async (req, res) => {
   try {
     await ReceiptParseJob.deleteMany({ captureId });
     await ReceiptCapture.deleteOne({ _id: captureId });
+    await flushStaleReceiptJobs({ captureIds: [captureId] });
     res.json({ ok: true });
   } catch (err) {
     console.error('Failed to delete receipt and parse jobs:', err);
     res.status(500).json({ error: 'Failed to delete receipt and parse jobs' });
+  }
+});
+
+// POST /api/receipts/cleanup-queue
+// Admin endpoint to purge receipt queue jobs that reference missing captures
+router.post('/cleanup-queue', authRequired, async (req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({ error: 'Database not ready' });
+  }
+  if (!canApproveReceipts(req.user)) {
+    return res.status(403).json({ error: 'Not authorized to clean receipt queue' });
+  }
+  const captureIds = Array.isArray(req.body?.captureIds) ? req.body.captureIds : null;
+  const dryRun = Boolean(req.body?.dryRun);
+
+  try {
+    const result = await flushStaleReceiptJobs({ captureIds, dryRun });
+    if (!result.ok) {
+      return res.status(503).json({ ok: false, error: result.reason || 'queue_unavailable' });
+    }
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('Failed to clean receipt queue:', err);
+    res.status(500).json({ error: 'Failed to clean receipt queue' });
   }
 });
 
