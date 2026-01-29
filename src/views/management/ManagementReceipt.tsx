@@ -186,7 +186,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   storeError,
   setStoreError
 }) => {
-  const { addToast } = useNinpoCore();
+  const { addToast, fetchProducts } = useNinpoCore();
   const [receiptFlow, setReceiptFlow] = useState<'capture' | 'pending'>('capture');
   
   // Capture state
@@ -643,28 +643,85 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     setReceiptFlow('pending');
   }, [addToast]);
 
-  const handleApproveReceipt = useCallback(async (job: ReceiptParseJob, mode: 'safe' | 'all' | 'selected' | 'locked' = 'safe') => {
-    setIsProcessing(true);
-    try {
-      const res = await apiFetch(`/api/receipts/${job._id}/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+  // Enhanced handleApproveReceipt: builds full payload, posts, resets state, refreshes stores/products
+  const handleApproveReceipt = useCallback(
+    async (job: ReceiptParseJob, mode: ReceiptApprovalMode = 'safe') => {
+      setIsProcessing(true);
+      try {
+        // Build store override if needed
+        let storeCandidateOverride: ReceiptStoreCandidate | undefined = undefined;
+        if (
+          (finalStoreMode === 'MATCHED' && finalStoreDraft.storeCandidate) ||
+          (finalStoreMode === 'CREATE_DRAFT' && finalStoreDraft.storeCandidate)
+        ) {
+          storeCandidateOverride = finalStoreDraft.storeCandidate;
+        } else if (finalStoreMode === 'EXISTING' && finalStoreDraft.finalStoreId) {
+          storeCandidateOverride = undefined;
+        }
+
+        // Build approval items
+        const approvalItems = receiptApprovalItems.map(item => {
+          const base: any = {
+            lineIndex: item.lineIndex,
+            action: item.action,
+            upc: item.upc,
+            productId: item.productId,
+            sku: item.sku
+          };
+          if (item.action === 'CREATE_PRODUCT' && item.createProduct) {
+            base.createProduct = item.createProduct;
+          }
+          return base;
+        });
+
+        // Build payload
+        const payload: any = {
           mode,
-          idempotencyKey: createIdempotencyKey(),
-          storeCandidate: job.storeCandidate
-        })
-      });
-      if (!res.ok) throw new Error('Failed to approve parse job');
-      addToast('Parse job approved', 'success');
-      setParseJobs(prev => prev.filter(j => j._id !== job._id));
-      setSelectedJob(null);
-    } catch (err: any) {
-      addToast(err?.message || 'Failed to approve job', 'error');
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [addToast]);
+          approvalDraft: {
+            jobId: job._id,
+            captureId: job.captureId,
+            finalStoreMode,
+            finalStoreId: finalStoreDraft.finalStoreId || undefined,
+            storeCandidate: storeCandidateOverride,
+            confirmStoreCreate: finalStoreDraft.confirmStoreCreate,
+            items: approvalItems
+          },
+          idempotencyKey: receiptApprovalIdempotencyKey,
+          approvalNotes: receiptApprovalNotes || undefined
+        };
+
+        // POST to canonical approval endpoint
+        const res = await apiFetch(`/api/receipts/${job._id}/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Failed to approve parse job');
+
+        addToast('Parse job approved', 'success');
+
+        // Reset review state/drafts
+        setShowReceiptReview(false);
+        setSelectedJob(null);
+        setParseJobs(prev => prev.filter(j => j._id !== job._id));
+        setReceiptApprovalItems([]);
+        setReceiptApprovalNotes('');
+        setReceiptApprovalIdempotencyKey(createIdempotencyKey());
+        setFinalStoreDraft({});
+
+        // Refresh stores and products
+        await refreshStores();
+        if (typeof fetchProducts === 'function') {
+          await fetchProducts();
+        }
+      } catch (err: any) {
+        addToast(err?.message || 'Failed to approve job', 'error');
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [addToast, finalStoreMode, finalStoreDraft, receiptApprovalItems, receiptApprovalIdempotencyKey, receiptApprovalNotes, refreshStores, fetchProducts]
+  );
 
   const handleRejectParseJob = useCallback(async (jobId: string) => {
     setIsProcessing(true);
