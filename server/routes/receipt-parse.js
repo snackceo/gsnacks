@@ -1,7 +1,10 @@
+
 import express from 'express';
 import mongoose from 'mongoose';
 import ReceiptParseJob from '../models/ReceiptParseJob.js';
 import { isDbReady } from '../db/connect.js';
+import { isReceiptQueueEnabled, enqueueReceiptJob } from '../queues/receiptQueue.js';
+import { executeReceiptParse } from '../utils/receiptParseHelper.js';
 
 const router = express.Router();
 
@@ -21,26 +24,39 @@ router.post('/receipt-capture', async (req, res) => {
   res.json({ ok: true, captureId });
 });
 
+
 // POST /api/driver/receipt-parse
-// Enqueues parse job as a draft proposal
+// Calls the real pipeline: validates, queues or runs parse
 router.post('/receipt-parse', async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
-  const { captureId, rawText, structured, storeCandidate, items } = req.body;
+  const { captureId } = req.body;
   if (!captureId) {
     return res.status(400).json({ error: 'captureId required' });
   }
-  const job = new ReceiptParseJob({
-    captureId,
-    status: 'QUEUED',
-    rawText,
-    structured,
-    storeCandidate,
-    items
-  });
-  await job.save();
-  res.json({ ok: true, jobId: job._id });
+
+  // If queue is enabled, enqueue the job for async processing
+  if (isReceiptQueueEnabled()) {
+    try {
+      const result = await enqueueReceiptJob('receipt-parse', { captureId, actor: req.user?._id || 'api' });
+      if (result.ok) {
+        return res.json({ ok: true, queued: true, jobId: result.jobId });
+      } else {
+        return res.status(500).json({ error: 'Failed to enqueue receipt parse job', ...result });
+      }
+    } catch (err) {
+      return res.status(500).json({ error: err.message || 'Failed to enqueue receipt parse job' });
+    }
+  }
+
+  // Otherwise, run the parse pipeline directly (synchronous)
+  try {
+    const parseJob = await executeReceiptParse(captureId, req.user?._id || 'api');
+    return res.json({ ok: true, queued: false, job: parseJob });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Receipt parse failed' });
+  }
 });
 
 export default router;
