@@ -610,7 +610,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     setIsLoadingJobs(true);
     setJobsError(null);
     try {
-      const res = await apiFetch('/api/receipts/?status=NEEDS_REVIEW,PARSED');
+      const res = await apiFetch('/api/receipts/?status=QUEUED,PARSING,NEEDS_REVIEW,PARSED');
       if (!res.ok) throw new Error('Failed to load parse jobs');
       const data = await res.json();
       setParseJobs(Array.isArray(data?.jobs) ? data.jobs : []);
