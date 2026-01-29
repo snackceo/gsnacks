@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import ReceiptReviewPanel from './receipt/ReceiptReviewPanel';
 import { classifyItems } from '../../utils/classificationUtils';
 import { getReceiptItemKey } from '../../utils/receiptHelpers';
