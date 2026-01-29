@@ -187,6 +187,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   setStoreError
 }) => {
   const { addToast, fetchProducts, currentUser } = useNinpoCore();
+  const captureItemsInFlightRef = useRef<Set<string>>(new Set());
+  const captureItemsAbortRef = useRef<AbortController | null>(null);
   const [receiptFlow, setReceiptFlow] = useState<'capture' | 'pending'>('capture');
   
   // Capture state
@@ -612,8 +614,19 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   }, []);
 
   const loadCaptureItems = useCallback(async (captureId: string) => {
+    if (captureItemsInFlightRef.current.has(captureId)) {
+      return;
+    }
+    if (captureItemsAbortRef.current) {
+      captureItemsAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    captureItemsAbortRef.current = abortController;
+    captureItemsInFlightRef.current.add(captureId);
     try {
-      const data: any = await apiFetch(`/api/driver/receipt-capture/${captureId}/items`);
+      const data: any = await apiFetch(`/api/driver/receipt-capture/${captureId}/items`, {
+        signal: abortController.signal
+      });
       if (data?.error) throw new Error(data.error || 'Failed to load receipt items');
       const items = Array.isArray(data?.items) ? data.items : [];
       const { items: classified } = classifyItems(items);
@@ -626,8 +639,16 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         });
       setSelectedItemsForCommit(updated);
     } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        return;
+      }
       addToast(err?.message || 'Failed to load receipt items', 'error');
       setClassifiedItems([]);
+    } finally {
+      captureItemsInFlightRef.current.delete(captureId);
+      if (captureItemsAbortRef.current === abortController) {
+        captureItemsAbortRef.current = null;
+      }
     }
   }, [addToast]);
 
