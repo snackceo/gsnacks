@@ -1,17 +1,5 @@
-  // Prevent overlapping dashboard refreshes
-  const refreshInFlightRef = useRef(false);
+import { useState, useEffect, useCallback, useRef } from 'react';
 
-  const refreshDashboardDataSafe = useCallback(async () => {
-    if (refreshInFlightRef.current) return;
-    if (typeof document !== 'undefined' && document.hidden) return;
-    refreshInFlightRef.current = true;
-    try {
-      await refreshDashboardData();
-    } finally {
-      refreshInFlightRef.current = false;
-    }
-  }, [refreshDashboardData]);
-import { useState, useEffect, useCallback } from 'react';
 import {
   User,
   Product,
@@ -366,16 +354,15 @@ const persistSettings = (next: AppSettings) => {
 type Toast = { id: string; message: string; type: 'info' | 'success' | 'warning' };
 
 export const useNinpoCore = () => {
+  // --- State ---
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isBackendOnline, setIsBackendOnline] = useState(true);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
-
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [userStats, setUserStats] = useState<Record<string, UserStatsSummary>>({});
-
   const [settings, setSettings] = useState<AppSettings>(() => readStoredSettings() ?? normalizeSettings());
-
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
@@ -384,25 +371,21 @@ export const useNinpoCore = () => {
   const [cart, setCart] = useState<{ productId: string; quantity: number }[]>(
     () => readStoredCart()
   );
-  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
+  // --- Toast ---
   const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   }, []);
 
+  // --- Fetch Callbacks ---
   const fetchProducts = useCallback(async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/products`, {
-        credentials: 'include'
-      });
-
+      const res = await fetch(`${BACKEND_URL}/api/products`, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to load products');
-
       const data = await res.json().catch(() => ({}));
       const list = Array.isArray(data?.products) ? data.products : [];
-
       setProducts(list);
       return list as Product[];
     } catch (e: any) {
@@ -412,15 +395,33 @@ export const useNinpoCore = () => {
     }
   }, [addToast]);
 
+  const fetchOrders = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/orders`, { credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error('Orders fetch failed.', { status: res.status, statusText: res.statusText, data });
+        throw new Error(data?.error || 'Failed to load orders');
+      }
+      const rawOrders = resolveOrdersPayload(data);
+      if (!Array.isArray(rawOrders)) {
+        console.warn('Orders response did not include a list payload.', data);
+      }
+      const list = normalizeOrders(rawOrders);
+      setOrders(list);
+      return list;
+    } catch (e: any) {
+      console.error('Orders fetch error.', e);
+      addToast(e?.message ?? 'Orders feed offline', 'warning');
+      return [];
+    }
+  }, [addToast]);
+
   const fetchSettings = useCallback(async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/settings`, {
-        credentials: 'include'
-      });
-
+      const res = await fetch(`${BACKEND_URL}/api/settings`, { credentials: 'include' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Failed to load settings');
-
       const payload = data?.settings ?? data;
       const normalized = normalizeSettings(payload as Partial<AppSettings>);
       setSettings(normalized);
@@ -437,68 +438,8 @@ export const useNinpoCore = () => {
     }
   }, [addToast]);
 
-  const fetchOrders = useCallback(async () => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/orders`, {
-        credentials: 'include'
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        console.error('Orders fetch failed.', {
-          status: res.status,
-          statusText: res.statusText,
-          data
-        });
-        throw new Error(data?.error || 'Failed to load orders');
-      }
-
-      const rawOrders = resolveOrdersPayload(data);
-      if (!Array.isArray(rawOrders)) {
-        console.warn('Orders response did not include a list payload.', data);
-      }
-
-      const list = normalizeOrders(rawOrders);
-      setOrders(list);
-      return list;
-    } catch (e: any) {
-      console.error('Orders fetch error.', e);
-      addToast(e?.message ?? 'Orders feed offline', 'warning');
-      return [];
-    }
-  }, [addToast]);
-
-  const refreshDashboardData = useCallback(async () => {
-    if (!currentUser) return;
-    
-    try {
-      // Silently refresh orders and products in background
-      await Promise.all([
-        fetchOrders().catch(() => {}),
-        fetchProducts().catch(() => {})
-      ]);
-      setLastSyncTime(new Date());
-    } catch (err) {
-      // Silent fail - don't disrupt user experience
-      console.debug('[refreshDashboardData] Background refresh failed:', err);
-    }
-  }, [currentUser, fetchOrders, fetchProducts]);
-
-  const clearCart = useCallback(() => {
-    setCart([]);
-    persistCart([]);
-    
-    // Sync clear to server
-    fetch(`${BACKEND_URL}/api/cart`, {
-      method: 'DELETE',
-      credentials: 'include'
-    }).catch(err => console.warn('[clearCart] Failed to sync to server:', err));
-  }, []);
-
-  // Sync cart to server
   const syncCartToServer = useCallback(async (items: { productId: string; quantity: number }[]) => {
     if (!currentUser) return;
-    
     try {
       await fetch(`${BACKEND_URL}/api/cart`, {
         method: 'PUT',
@@ -511,31 +452,20 @@ export const useNinpoCore = () => {
     }
   }, [currentUser]);
 
-  // Load cart from server on login
   const loadCartFromServer = useCallback(async () => {
     if (!currentUser) return;
-    
     try {
-      const res = await fetch(`${BACKEND_URL}/api/cart`, {
-        credentials: 'include'
-      });
-      
+      const res = await fetch(`${BACKEND_URL}/api/cart`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.items) && data.items.length > 0) {
-          // Merge server cart with local cart (local takes precedence)
           const localCart = readStoredCart();
           const merged = [...localCart];
-          
           data.items.forEach((serverItem: any) => {
             if (!merged.find(item => item.productId === serverItem.productId)) {
-              merged.push({
-                productId: serverItem.productId,
-                quantity: serverItem.quantity
-              });
+              merged.push({ productId: serverItem.productId, quantity: serverItem.quantity });
             }
           });
-          
           setCart(merged);
           persistCart(merged);
         }
@@ -544,6 +474,15 @@ export const useNinpoCore = () => {
       console.warn('[loadCartFromServer] Failed:', err);
     }
   }, [currentUser]);
+
+  const clearCart = useCallback(() => {
+    setCart([]);
+    persistCart([]);
+    fetch(`${BACKEND_URL}/api/cart`, {
+      method: 'DELETE',
+      credentials: 'include'
+    }).catch(err => console.warn('[clearCart] Failed to sync to server:', err));
+  }, []);
 
   const syncWithBackend = useCallback(async () => {
     try {
@@ -554,19 +493,36 @@ export const useNinpoCore = () => {
     }
   }, []);
 
-  useEffect(() => {
-    syncWithBackend();
-    const syncInterval = setInterval(syncWithBackend, 30000);
-    return () => clearInterval(syncInterval);
-  }, [syncWithBackend]);
+  // --- Refresh Guards and Callbacks ---
+  const refreshInFlightRef = useRef(false);
+  const refreshDashboardData = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      await Promise.all([
+        fetchOrders().catch(() => {}),
+        fetchProducts().catch(() => {})
+      ]);
+      setLastSyncTime(new Date());
+    } catch (err) {
+      console.debug('[refreshDashboardData] Background refresh failed:', err);
+    }
+  }, [currentUser, fetchOrders, fetchProducts]);
+  const refreshDashboardDataSafe = useCallback(async () => {
+    if (refreshInFlightRef.current) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
+    refreshInFlightRef.current = true;
+    try {
+      await refreshDashboardData();
+    } finally {
+      refreshInFlightRef.current = false;
+    }
+  }, [refreshDashboardData]);
 
-  // Auto-refresh dashboard data every 30 seconds when logged in
+  // --- Effects ---
   useEffect(() => {
     if (!currentUser) return;
     refreshDashboardDataSafe();
-    const refreshInterval = setInterval(() => {
-      refreshDashboardDataSafe();
-    }, 30000);
+    const refreshInterval = setInterval(refreshDashboardDataSafe, 30000);
     return () => clearInterval(refreshInterval);
   }, [currentUser, refreshDashboardDataSafe]);
 
@@ -1093,6 +1049,7 @@ export const useNinpoCore = () => {
     isBootstrapping,
     lastSyncTime,
     refreshDashboardData,
+    refreshDashboardDataSafe,
 
     restoreSession,
     logout,
