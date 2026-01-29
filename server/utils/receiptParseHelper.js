@@ -29,6 +29,30 @@ const PRICE_DELTA_POLICY = {
   stalenessDays: 30
 };
 
+const normalizePhone = (phone = '') => phone.replace(/\D+/g, '');
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const parseReceiptAddress = (rawAddress = '') => {
+  if (!rawAddress) return {};
+  const cleaned = rawAddress.trim();
+  const parts = cleaned.split(',').map(part => part.trim()).filter(Boolean);
+  if (parts.length >= 3) {
+    const street = parts[0];
+    const city = parts[1];
+    const stateZip = parts.slice(2).join(' ');
+    const stateZipMatch = stateZip.match(/([A-Z]{2})\s*(\d{5})?/i);
+    const state = stateZipMatch?.[1]?.toUpperCase();
+    const zip = stateZipMatch?.[2];
+    return {
+      street,
+      city,
+      state,
+      zip
+    };
+  }
+  console.warn('Receipt address parse incomplete; storing street only.', { rawAddress });
+  return { street: cleaned };
+};
+
 // Normalize receipt name for matching
 function normalizeReceiptName(name) {
   if (!name || typeof name !== 'string') return '';
@@ -248,7 +272,7 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
   try {
     const draftItems = [];
     const geminiOutput = { rawTextByImage: [], parsedByImage: [] };
-    let storeCandidateOverride = null;
+    const storeCandidateData = {};
 
     // Parse each image
     for (const image of capture.images) {
@@ -273,11 +297,15 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
       // Gemini prompt for receipt parsing
       const prompt = `You are a receipt OCR specialist. Parse this receipt image THOROUGHLY.
 
-FIRST, extract the STORE ADDRESS if visible at the top or bottom of receipt. Return it as:
+FIRST, extract the STORE NAME, PHONE, and ADDRESS if visible at the top or bottom of receipt. Return them as:
+"storeName": "Store Name" (or null if not visible)
+"phone": "555-123-4567" (or null if not visible)
 "address": "123 Main St, City, ST 12345"  (or null if not visible)
 
 THEN, extract ALL line items with prices. Return ONLY valid JSON format:
 {
+  "storeName": "STORE NAME",
+  "phone": "555-123-4567",
   "address": "123 MAIN ST, DEARBORN, MI 48126",
   "items": [
     {"receiptName": "COCA COLA 12PK", "quantity": 2, "totalPrice": 15.98},
@@ -286,7 +314,7 @@ THEN, extract ALL line items with prices. Return ONLY valid JSON format:
 }
 
 RULES:
-1. Extract store address if visible (street, city, state, zip)
+1. Extract store name, phone, and address if visible (street, city, state, zip)
 2. Extract ONLY product line items (skip store name, date, tax, subtotal, total, payment, instructions)
 3. Use exact product names from receipt
 4. For multi-buy items, calculate quantity * unit price = totalPrice
@@ -330,9 +358,14 @@ RULES:
 
       geminiOutput.parsedByImage.push(parsed);
 
-      // Extract store address if present
-      if (parsed.address && !storeCandidateOverride) {
-        storeCandidateOverride = { address: { street: parsed.address } };
+      if (parsed.storeName && !storeCandidateData.name) {
+        storeCandidateData.name = parsed.storeName;
+      }
+      if (parsed.phone && !storeCandidateData.phone) {
+        storeCandidateData.phone = parsed.phone;
+      }
+      if (parsed.address && !storeCandidateData.address) {
+        storeCandidateData.address = parseReceiptAddress(parsed.address);
       }
 
       // Add items from this image
@@ -358,7 +391,50 @@ RULES:
     await capture.save();
 
     // Create ReceiptParseJob for review/approval
-    const storeCandidate = capture.storeId ? await Store.findById(capture.storeId).lean() : null;
+    const candidateName = capture.storeName || storeCandidateData.name;
+    const candidatePhone = storeCandidateData.phone;
+    const candidateAddress = storeCandidateData.address;
+    const normalizedPhone = normalizePhone(candidatePhone);
+
+    let storeCandidate = null;
+    let storeMatchReason = null;
+    let storeMatchConfidence = null;
+    const storeFromCapture = capture.storeId ? await Store.findById(capture.storeId).lean() : null;
+    if (storeFromCapture) {
+      storeCandidate = storeFromCapture;
+      storeMatchReason = 'capture_store';
+      storeMatchConfidence = 1;
+    } else {
+      let matchedStore = null;
+      let matchConfidence = 0;
+      let matchReason = null;
+      if (normalizedPhone) {
+        matchedStore = await Store.findOne({ phone: { $regex: normalizedPhone, $options: 'i' } }).lean();
+        matchConfidence = matchedStore ? 0.9 : 0;
+        matchReason = matchedStore ? 'phone_match' : null;
+      }
+      if (!matchedStore && candidateName) {
+        matchedStore = await Store.findOne({
+          name: { $regex: `^${escapeRegex(candidateName)}$`, $options: 'i' }
+        }).lean();
+        matchConfidence = matchedStore ? 0.75 : 0;
+        matchReason = matchedStore ? 'name_match' : null;
+      }
+      if (matchedStore) {
+        storeCandidate = { ...matchedStore, confidence: matchConfidence };
+        storeMatchReason = matchReason;
+        storeMatchConfidence = matchConfidence;
+      } else if (candidateName || candidatePhone || candidateAddress) {
+        storeCandidate = {
+          name: candidateName || 'Unknown Store',
+          phone: candidatePhone,
+          address: candidateAddress || {},
+          confidence: 0.2
+        };
+        storeMatchReason = 'parsed_store_data';
+        storeMatchConfidence = 0.2;
+      }
+    }
     const items = matchedItems.map(item => ({
       rawLine: item.receiptName,
       nameCandidate: item.normalizedName || item.receiptName,
@@ -389,11 +465,18 @@ RULES:
         geminiOutput,
         storeCandidate: storeCandidate ? {
           name: storeCandidate.name,
-          address: { ...storeCandidate.address, ...storeCandidateOverride?.address },
-          phone: storeCandidate.phone,
+          address: { ...(storeCandidate.address || {}), ...(candidateAddress || {}) },
+          phone: storeCandidate.phone || candidatePhone,
           storeType: storeCandidate.storeType,
           storeId: storeCandidate._id,
-          confidence: 1
+          confidence: storeMatchConfidence ?? storeCandidate.confidence ?? 1,
+          matchReason: storeMatchReason
+        } : (candidateName || candidatePhone || candidateAddress) ? {
+          name: candidateName || 'Unknown Store',
+          address: candidateAddress || {},
+          phone: candidatePhone,
+          confidence: storeMatchConfidence ?? 0.2,
+          matchReason: storeMatchReason || 'parsed_store_data'
         } : null,
         items,
         warnings: matchedItems.filter(it => it.needsReview).map(it => it.reviewReason).filter(Boolean)

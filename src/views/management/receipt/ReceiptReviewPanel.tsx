@@ -136,6 +136,18 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   const activeStoreLabel = stores.find(store => store.id === finalStoreId)?.name;
   const storeCandidateLabel = storeCandidate?.name || 'Unknown store';
   const shouldConfirmStoreCreate = !storeCandidate?.storeId && !finalStoreId;
+  const isStoreCandidateMissing = !storeCandidate;
+  const storeMatchReasonLabel = storeCandidate?.matchReason
+    ? ({
+      capture_store: 'Capture store',
+      phone_match: 'Phone match',
+      name_match: 'Name match',
+      parsed_store_data: 'Parsed store data'
+    } as Record<string, string>)[storeCandidate.matchReason] || storeCandidate.matchReason
+    : null;
+  const storeConfidenceLabel = typeof storeCandidate?.confidence === 'number'
+    ? storeCandidate.confidence.toFixed(2)
+    : null;
   const blockingIssues = approvalIssues.filter(issue => issue.severity === 'blocking');
   const advisoryIssues = approvalIssues.filter(issue => issue.severity === 'advisory');
   const itemsByLineIndex = useMemo(() => {
@@ -246,10 +258,29 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                     {storeCandidate?.phone && (
                       <p className="text-[10px] text-slate-400 mt-1">{storeCandidate.phone}</p>
                     )}
+                    {(storeMatchReasonLabel || storeConfidenceLabel) && (
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        Match: {storeMatchReasonLabel || 'Unknown'}
+                        {storeConfidenceLabel ? ` · Confidence ${storeConfidenceLabel}` : ''}
+                      </p>
+                    )}
+                    {isStoreCandidateMissing && (
+                      <p className="text-[10px] text-yellow-100/80 mt-2">
+                        Store candidate is missing (expected when the receipt header lacks store details or the capture has no
+                        pre-selected store).
+                      </p>
+                    )}
                   </div>
-                  <span className={`text-[9px] uppercase tracking-widest rounded-full border px-3 py-1 ${storeStatusBadge.className}`}>
-                    {storeStatusBadge.label}
-                  </span>
+                  <div className="flex flex-col items-end gap-2">
+                    <span className={`text-[9px] uppercase tracking-widest rounded-full border px-3 py-1 ${storeStatusBadge.className}`}>
+                      {storeStatusBadge.label}
+                    </span>
+                    {isStoreCandidateMissing && (
+                      <span className="text-[9px] uppercase tracking-widest rounded-full border px-3 py-1 bg-yellow-200/10 text-yellow-100 border-yellow-200/40">
+                        Store candidate missing
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="mt-4 space-y-3 text-xs text-slate-200">
                   <label className="flex items-center gap-2">
