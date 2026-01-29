@@ -251,11 +251,55 @@ async function matchReceiptItems(items, storeId) {
  * This is called from both the receipt-parse route and the receipt worker
  * Returns the updated ReceiptParseJob or throws on error
  */
+const TRANSIENT_ERROR_PATTERNS = [
+  /timeout/i,
+  /timed out/i,
+  /ETIMEDOUT/i,
+  /ECONNRESET/i,
+  /ECONNREFUSED/i,
+  /network/i,
+  /temporar/i,
+  /unavailable/i,
+  /rate limit/i,
+  /\b429\b/
+];
+
+const RETRY_BACKOFF_MS = [
+  30 * 1000,
+  2 * 60 * 1000,
+  10 * 60 * 1000,
+  30 * 60 * 1000,
+  2 * 60 * 60 * 1000
+];
+
+const getRetryAfter = (attempts = 1) => {
+  const index = Math.max(1, attempts) - 1;
+  const delayMs = RETRY_BACKOFF_MS[Math.min(index, RETRY_BACKOFF_MS.length - 1)];
+  return new Date(Date.now() + delayMs);
+};
+
+const classifyParseError = err => {
+  const message = err?.message || err?.toString?.() || 'Unknown error';
+  const status = err?.status || err?.response?.status;
+  const isTransient =
+    status === 429 ||
+    status === 503 ||
+    TRANSIENT_ERROR_PATTERNS.some(pattern => pattern.test(message));
+  return {
+    parseError: message,
+    parseErrorType: isTransient ? 'TRANSIENT' : 'PERMANENT'
+  };
+};
+
 export async function executeReceiptParse(captureId, actorId = 'worker', options = {}) {
   const capture = await ReceiptCapture.findById(captureId);
   if (!capture) {
     throw new Error('Receipt capture not found');
   }
+
+  let parseFailureDetails = null;
+  let skippedImages = [];
+  let skippedImageReason = [];
 
   // Check Gemini API availability
   const apiReady = ensureGeminiReady();
@@ -263,6 +307,21 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     capture.status = 'failed';
     capture.parseError = apiReady.error;
     await capture.save();
+    const failureDetails = classifyParseError(new Error(apiReady.error));
+    const retryAfter = failureDetails.parseErrorType === 'TRANSIENT'
+      ? getRetryAfter(capture.parseAttempts || 1)
+      : null;
+    await ReceiptParseJob.findOneAndUpdate(
+      { captureId: capture._id.toString() },
+      {
+        captureId: capture._id.toString(),
+        status: 'FAILED',
+        parseError: failureDetails.parseError,
+        parseErrorType: failureDetails.parseErrorType,
+        retryAfter
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
     throw new Error(apiReady.error);
   }
 
@@ -387,11 +446,18 @@ RULES:
       }
     }
 
+    skippedImages = geminiOutput.skippedImages;
+    skippedImageReason = geminiOutput.skippedImages.map(skip => skip.reason).filter(Boolean);
+
     if (geminiOutput.skippedImages.length === capture.images.length) {
       const skipSummary = geminiOutput.skippedImages.map(skip => skip.reason).join(', ');
       capture.status = 'failed';
       capture.parseError = `All receipt images were skipped: ${skipSummary || 'unsupported images'}`;
       await capture.save();
+      parseFailureDetails = {
+        parseError: capture.parseError,
+        parseErrorType: 'PERMANENT'
+      };
       throw new Error(capture.parseError);
     }
 
@@ -472,6 +538,11 @@ RULES:
       {
         captureId: capture._id.toString(),
         status: needsReview ? 'NEEDS_REVIEW' : 'PARSED',
+        parseError: null,
+        parseErrorType: null,
+        retryAfter: null,
+        skippedImages,
+        skippedImageReason,
         rawText: JSON.stringify(geminiOutput),
         structured: { draftItems: matchedItems },
         geminiOutput,
@@ -504,16 +575,26 @@ RULES:
 
     return job;
   } catch (err) {
+    const failureDetails = parseFailureDetails ?? classifyParseError(err);
+    parseFailureDetails = failureDetails;
     capture.status = 'failed';
-    capture.parseError = err?.message || 'Unknown error';
+    capture.parseError = failureDetails.parseError;
     await capture.save();
+    const retryAfter = failureDetails.parseErrorType === 'TRANSIENT'
+      ? getRetryAfter(capture.parseAttempts || 1)
+      : null;
 
     await ReceiptParseJob.findOneAndUpdate(
       { captureId: capture._id.toString() },
       {
         captureId: capture._id.toString(),
         status: 'FAILED',
-        rawText: err?.message || 'Unknown error'
+        parseError: failureDetails.parseError,
+        parseErrorType: failureDetails.parseErrorType,
+        retryAfter,
+        skippedImages,
+        skippedImageReason,
+        rawText: failureDetails.parseError
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );

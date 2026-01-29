@@ -332,6 +332,37 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     }
   }, [activeReceiptCaptureId, addToast]);
 
+  const handleRetryParse = useCallback(
+    async (captureId: string) => {
+      try {
+        const data: any = await apiFetch('/api/driver/receipt-parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ captureId })
+        });
+        if (data?.error) throw new Error(data.error || 'Failed to retry parse');
+        addToast('Receipt parsing retried.', 'success');
+      } catch (err: any) {
+        addToast(err?.message || 'Failed to retry parse', 'error');
+      }
+    },
+    [addToast]
+  );
+
+  const formatRetryAfter = useCallback((retryAfter?: string) => {
+    if (!retryAfter) return null;
+    const retryDate = new Date(retryAfter);
+    if (Number.isNaN(retryDate.getTime())) return null;
+    return retryDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }, []);
+
+  const isRetryBlocked = useCallback((retryAfter?: string) => {
+    if (!retryAfter) return false;
+    const retryDate = new Date(retryAfter);
+    if (Number.isNaN(retryDate.getTime())) return false;
+    return Date.now() < retryDate.getTime();
+  }, []);
+
   const handleConfirmAll = useCallback(() => {
     // Mark all items as confirmed (example logic)
     setSelectedItemsForCommit(new Map(classifiedItems.map(item => [getReceiptItemKey(item), true])));
@@ -979,6 +1010,43 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                     <ChevronDown className={`w-4 h-4 text-slate-400 transition ${selectedJob?._id === job._id ? 'rotate-180' : ''}`} />
                   </div>
 
+                  {(job.items?.length || 0) === 0 && (
+                    <div className="mt-3 rounded-xl border border-yellow-400/40 bg-yellow-200/10 px-3 py-2 text-[11px] text-yellow-100">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4" />
+                          <span className="font-semibold">No items parsed.</span>
+                          {job.parseError && (
+                            <span className="text-yellow-200/80">Reason: {job.parseError}</span>
+                          )}
+                          {!job.parseError && job.skippedImageReason?.length ? (
+                            <span className="text-yellow-200/80">
+                              Skipped images: {job.skippedImageReason.join(', ')}
+                            </span>
+                          ) : null}
+                          {job.parseErrorType === 'TRANSIENT' && formatRetryAfter(job.retryAfter) ? (
+                            <span className="text-yellow-200/80">
+                              Retry after {formatRetryAfter(job.retryAfter)}
+                            </span>
+                          ) : null}
+                        </div>
+                        {job.parseErrorType === 'TRANSIENT' && (
+                          <button
+                            type="button"
+                            onClick={event => {
+                              event.stopPropagation();
+                              handleRetryParse(job.captureId);
+                            }}
+                            disabled={isRetryBlocked(job.retryAfter)}
+                            className="px-3 py-1 rounded-full bg-yellow-200 text-yellow-950 text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-100 transition"
+                          >
+                            {isRetryBlocked(job.retryAfter) ? 'Retry pending' : 'Retry parse'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {selectedJob?._id === job._id && (
                     <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
                       <div className="space-y-2">
@@ -1050,11 +1118,14 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     isProcessing,
     handleReceiptCaptured,
     handleParse,
+    handleRetryParse,
     handleConfirmAll,
     handleResetReview,
     handleLock,
     handleUnlock,
     handleCommit,
+    formatRetryAfter,
+    isRetryBlocked,
     handleScanItem,
     handleSearchProduct,
     handleCreateProduct,

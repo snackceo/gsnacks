@@ -161,7 +161,14 @@ export type ReceiptApprovalAction =
   | 'CREATE_PRODUCT'
   | 'IGNORE';
 
-export type ReceiptParseStatus = 'QUEUED' | 'PARSED' | 'NEEDS_REVIEW' | 'APPROVED' | 'REJECTED';
+export type ReceiptParseStatus =
+  | 'QUEUED'
+  | 'PARSING'
+  | 'PARSED'
+  | 'NEEDS_REVIEW'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'FAILED';
 
 export interface ReceiptStoreCandidate {
   name?: string;
@@ -202,6 +209,10 @@ export interface ReceiptParseJob {
   storeCandidate?: ReceiptStoreCandidate;
   items?: ReceiptItemMatch[];
   warnings?: string[];
+  parseError?: string;
+  parseErrorType?: 'TRANSIENT' | 'PERMANENT';
+  retryAfter?: string;
+  skippedImageReason?: string[];
 }
 
 export interface ReceiptApprovalCreateProductPayload {

@@ -54,6 +54,20 @@ const ReceiptParseJobSchema = new mongoose.Schema(
       enum: ['QUEUED', 'PARSING', 'PARSED', 'NEEDS_REVIEW', 'APPROVED', 'REJECTED', 'FAILED'],
       default: 'QUEUED'
     },
+    parseError: String,
+    parseErrorType: {
+      type: String,
+      enum: ['TRANSIENT', 'PERMANENT', null],
+      default: null
+    },
+    retryAfter: Date,
+    skippedImages: [
+      {
+        url: String,
+        reason: String
+      }
+    ],
+    skippedImageReason: [String],
     rawText: String,
     structured: mongoose.Schema.Types.Mixed,
     geminiOutput: mongoose.Schema.Types.Mixed,
