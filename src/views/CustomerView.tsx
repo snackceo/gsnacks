@@ -246,10 +246,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
               >
                 <div className="aspect-square rounded-[2.5rem] overflow-hidden mb-6 bg-ninpo-black relative">
                   <img
-                    src={p.image || '/placeholder.png'}
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = '/placeholder.png';
-                    }}
+                    src={p.image}
                     className={`w-full h-full object-cover grayscale transition-all duration-700 ${
                       p.stock > 0
                         ? 'group-hover:grayscale-0 group-hover:scale-110'

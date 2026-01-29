@@ -377,7 +377,7 @@ const ManagementReturns: React.FC<ManagementReturnsProps> = ({
                 <span>Image URL</span>
                 <input
                   className="bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white w-full"
-                  placeholder="https://"
+                  placeholder="Cloudinary image URL"
                   value={newProduct.image}
                   onChange={e => setNewProduct({ ...newProduct, image: e.target.value })}
                 />

@@ -6,6 +6,36 @@ import { authRequired, ownerRequired } from '../utils/helpers.js';
 
 const router = express.Router();
 
+const PRODUCT_IMAGE_FALLBACK_URL =
+  process.env.PRODUCT_IMAGE_FALLBACK_URL ||
+  'https://res.cloudinary.com/demo/image/upload/w_600,h_600,c_fill,l_text:arial_36:Image%20Unavailable/sample.jpg';
+
+const isCloudinaryUrl = value => {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.hostname.endsWith('cloudinary.com') || url.hostname.endsWith('res.cloudinary.com');
+  } catch {
+    return false;
+  }
+};
+
+const normalizeProductImageInput = value => {
+  if (value === undefined || value === null || value === '') return '';
+  const url = String(value).trim();
+  if (!isCloudinaryUrl(url)) {
+    throw new Error('image must be a Cloudinary URL');
+  }
+  return url;
+};
+
+const resolveProductImage = value => {
+  if (value && String(value).trim()) {
+    return String(value).trim();
+  }
+  return PRODUCT_IMAGE_FALLBACK_URL;
+};
+
 const mapProduct = d => ({
   id: d.sku || d.frontendId,
   sku: d.sku || undefined,
@@ -19,7 +49,7 @@ const mapProduct = d => ({
   sizeOz: d.sizeOz ?? 0,
   isTaxable: d.isTaxable !== undefined ? !!d.isTaxable : true,
   category: d.category ?? 'DRINK',
-  image: d.image ?? '',
+  image: resolveProductImage(d.image),
   brand: d.brand || '',
   productType: d.productType || '',
   storageZone: d.storageZone || '',
@@ -86,10 +116,16 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       upc
     } = req.body || {};
     const normalizedUpc = upc ? String(upc).trim() : '';
+    let normalizedImage = '';
 
     if (!name) return res.status(400).json({ error: 'name is required' });
     if (price === undefined || price === null || Number.isNaN(Number(price))) {
       return res.status(400).json({ error: 'price is required' });
+    }
+    try {
+      normalizedImage = normalizeProductImageInput(req.body?.image);
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
     }
     // Validate storage fields
     const validateString = (val, field, max = 64) => {
@@ -120,7 +156,7 @@ router.post('/', authRequired, ownerRequired, async (req, res) => {
       sizeOz: Number(sizeOz || 0),
       isTaxable: isTaxable !== undefined ? !!isTaxable : true,
       category: category || 'DRINK',
-      image: image || '',
+      image: normalizedImage,
       isGlass: !!isGlass,
       brand: safeBrand,
       productType: safeProductType,
@@ -195,6 +231,13 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
     if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
     if (updates.isHeavy !== undefined) updates.isHeavy = !!updates.isHeavy;
     if (updates.isTaxable !== undefined) updates.isTaxable = !!updates.isTaxable;
+    if (updates.image !== undefined) {
+      try {
+        updates.image = normalizeProductImageInput(updates.image);
+      } catch (e) {
+        return res.status(400).json({ error: e.message });
+      }
+    }
     if (updates.upc !== undefined) {
       const normalizedUpc = String(updates.upc).trim();
       if (normalizedUpc) {
