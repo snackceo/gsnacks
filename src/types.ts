@@ -153,6 +153,90 @@ export interface StoreRecord {
   isPrimarySupplier?: boolean;
 }
 
+export type FinalStoreMode = 'MATCHED' | 'EXISTING' | 'CREATE_DRAFT';
+
+export type ReceiptApprovalAction =
+  | 'LINK_UPC_TO_PRODUCT'
+  | 'CREATE_UPC'
+  | 'CREATE_PRODUCT'
+  | 'IGNORE';
+
+export type ReceiptParseStatus = 'QUEUED' | 'PARSED' | 'NEEDS_REVIEW' | 'APPROVED' | 'REJECTED';
+
+export interface ReceiptStoreCandidate {
+  name?: string;
+  address?: AddressObject;
+  phone?: string;
+  storeType?: string;
+  confidence?: number;
+  storeId?: string;
+}
+
+export interface ReceiptItemMatch {
+  rawLine?: string;
+  nameCandidate?: string;
+  brandCandidate?: string;
+  sizeCandidate?: string;
+  quantity?: number;
+  unitPrice?: number;
+  lineTotal?: number;
+  upcCandidate?: string;
+  requiresUpc?: boolean;
+  lineIndex?: number;
+  match?: {
+    productId?: string;
+    registryUpcId?: string;
+    confidence?: number;
+    reason?: string;
+  };
+  actionSuggestion?: ReceiptApprovalAction;
+  warnings?: string[];
+}
+
+export interface ReceiptParseJob {
+  _id: string;
+  captureId: string;
+  status: ReceiptParseStatus;
+  createdAt: string;
+  storeCandidate?: ReceiptStoreCandidate;
+  items?: ReceiptItemMatch[];
+  warnings?: string[];
+}
+
+export interface ReceiptApprovalCreateProductPayload {
+  name: string;
+  price: number;
+  deposit?: number;
+  sizeOz?: number;
+  sizeUnit?: SizeUnit;
+  category?: string;
+  brand?: string;
+  productType?: string;
+  storageZone?: string;
+  storageBin?: string;
+  isGlass?: boolean;
+  isTaxable?: boolean;
+}
+
+export interface ReceiptApprovalDraftItem {
+  lineIndex: number;
+  action: ReceiptApprovalAction;
+  productId?: string;
+  sku?: string;
+  upc?: string;
+  createProduct?: ReceiptApprovalCreateProductPayload;
+}
+
+export interface ReceiptApprovalDraft {
+  jobId: string;
+  captureId: string;
+  finalStoreMode: FinalStoreMode;
+  finalStoreId?: string;
+  storeCandidate?: ReceiptStoreCandidate;
+  confirmStoreCreate?: boolean;
+  items: ReceiptApprovalDraftItem[];
+}
+
 export interface UnmappedUpcData {
   upc: string;
   name?: string;

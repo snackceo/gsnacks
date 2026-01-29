@@ -58,6 +58,7 @@ All new roles, permissions, scanner modes, feature flags, or special phrases mus
 ## Changelog / Revision History
 
 - 2026-01-16 (YH): Linked glossary to all major docs; established as single source of truth. (why: prevent drift)
+- 2026-02-01 (AI): Added receipt approval draft terms (FinalStoreMode, ReceiptApprovalAction, ReceiptApprovalDraft). (why: align receipt review payloads)
 - 2025-02-14 (AI): Added receipt capture audit/source fields for queue attribution. (why: track capture origin and actor)
 - [Add future changes here.]
 
@@ -469,6 +470,12 @@ requiresUpc (boolean flag): Receipt parse item flag indicating that a line item 
 Commit All Safe (action): Receipt review action that commits only bucket A items (auto-update OK) that already have a suggested product match. Used to batch-apply the safest price updates without manually selecting each line.
 
 Commit & Lock Prices (action): Receipt review option that commits receipt price updates while also applying a temporary price lock so automated updates are blocked until the lock expires. The lock duration is set by AppSettings.priceLockDays (default 7).
+
+FinalStoreMode (enum): Receipt approval state indicating how the final store was chosen. Values: MATCHED (auto-matched to the store candidate), EXISTING (operator selected an existing store), CREATE_DRAFT (operator approved creating a draft store; maps to confirmStoreCreate in the approval payload).
+
+ReceiptApprovalAction (enum): Per-item receipt approval decision aligned to ReceiptParseJob.actionSuggestion values. Allowed values: LINK_UPC_TO_PRODUCT, CREATE_UPC, CREATE_PRODUCT, IGNORE. Used to translate review choices into boundUpc/boundProductId or new product creation during approval.
+
+ReceiptApprovalDraft (payload): Frontend receipt review draft that captures store selection and line-level decisions before approval. Fields include jobId, captureId, finalStoreMode, finalStoreId, storeCandidate, confirmStoreCreate, and items with lineIndex, action, optional UPC, and create-product payload. Aligns with receipt approval endpoints that expect finalStoreId/storeCandidate/confirmStoreCreate and per-item bindings.
 
 priceLockUntil (datetime field): StoreInventory field indicating when a temporary receipt price freeze expires. If set in the future, receipt-based price updates should skip this item until the timestamp passes.
 
