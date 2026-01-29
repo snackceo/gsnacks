@@ -12,7 +12,7 @@ import ScannerPanel, { ScannerPanelProps } from './ScannerPanel';
 import { Loader2, CheckCircle2 } from 'lucide-react';
 import { useNinpoCore } from '../hooks/useNinpoCore';
 import { ScannerMode, StoreRecord } from '../types';
-import { BACKEND_URL } from '../constants';
+import { apiFetch } from '../utils/apiFetch';
 
 /**
  * This file is intentionally LARGE. 
@@ -97,6 +97,8 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [parseRetryCaptureId, setParseRetryCaptureId] = useState<string | null>(null);
+  const [isParseRetrying, setIsParseRetrying] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const mountedRef = useRef(true);
@@ -171,29 +173,65 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   // ─────────────────────────────────────────────────────────────
   // 🔥 CORE FIX: RECEIPT CAPTURE + PARSE (FULLY WIRED)
   // ─────────────────────────────────────────────────────────────
+  const triggerParse = useCallback(
+    async (captureId: string, options?: { isRetry?: boolean }) => {
+      const { isRetry = false } = options || {};
+      if (isRetry) {
+        setIsParseRetrying(true);
+      }
+
+      try {
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+        const parseData = await apiFetch('/api/driver/receipt-parse', {
+          method: 'POST',
+          body: JSON.stringify({ captureId }),
+          signal: controller.signal
+        });
+
+        clearTimeout(t);
+
+        setParseRetryCaptureId(null);
+        if (isRetry) {
+          addToast('Receipt parse retry started.', { type: 'success' });
+        }
+
+        return { ok: true, data: parseData };
+      } catch (err: any) {
+        const message =
+          err?.name === 'AbortError'
+            ? 'Parse request timed out (will retry in Pending).'
+            : err?.message || 'Parse request failed.';
+
+        console.error('Receipt parse trigger failed:', { captureId, error: err });
+        setError(message);
+        setParseRetryCaptureId(captureId);
+        addToast(message, { type: 'error' });
+
+        return { ok: false };
+      } finally {
+        if (isRetry) {
+          setIsParseRetrying(false);
+        }
+      }
+    },
+    [addToast]
+  );
+
   const handleReceiptCaptured = useCallback(
     async (photoDataUrl: string, mime: string) => {
       setIsSubmitting(true);
       setError(null);
+      setParseRetryCaptureId(null);
       addToast('Uploading receipt…', { type: 'info' });
       try {
         setShowSuccess(false);
         // 1️⃣ Upload image to backend to get imageUrl and thumbnailUrl
-        const uploadRes = await fetch(
-          `${BACKEND_URL}/api/driver/upload-receipt-image`,
-          {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: photoDataUrl, mime })
-          }
-        );
-
-        if (!uploadRes.ok) {
-          throw new Error(await uploadRes.text());
-        }
-
-        const { url, thumbnailUrl } = await uploadRes.json();
+        const { url, thumbnailUrl } = await apiFetch('/api/driver/upload-receipt-image', {
+          method: 'POST',
+          body: JSON.stringify({ image: photoDataUrl, mime })
+        });
         if (!url) throw new Error('Image upload failed: no URL returned');
 
         // 2️⃣ CREATE RECEIPT CAPTURE with image URLs and captureRequestId
@@ -203,49 +241,14 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
           captureRequestId
         };
         console.log('DEBUG: captureRequestId', captureRequestId, 'captureBody', captureBody);
-        const captureRes = await fetch(
-          `${BACKEND_URL}/api/driver/receipt-capture`,
-          {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(captureBody)
-          }
-        );
-
-        if (!captureRes.ok) {
-          throw new Error(await captureRes.text());
-        }
-
-        const { captureId } = await captureRes.json();
+        const { captureId } = await apiFetch('/api/driver/receipt-capture', {
+          method: 'POST',
+          body: JSON.stringify(captureBody)
+        });
 
         // 3️⃣ IMMEDIATE PARSE (do not block UI forever)
 
-        let parseOk = false;
-        let parseData: any = undefined;
-        try {
-          const controller = new AbortController();
-          const t = setTimeout(() => controller.abort(), 15000); // 15s timeout
-
-          const parseRes = await fetch(`${BACKEND_URL}/api/driver/receipt-parse`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ captureId }),
-            signal: controller.signal
-          });
-
-          clearTimeout(t);
-
-          parseData = await parseRes.json().catch(() => ({}));
-          if (!parseRes.ok) {
-            setError(parseData?.error || 'Failed to start receipt parsing');
-          } else {
-            parseOk = true;
-          }
-        } catch (e) {
-          setError(e?.name === 'AbortError' ? 'Parse request timed out (will retry in Pending).' : 'Parse request failed.');
-        }
+        const { ok: parseOk, data: parseData } = await triggerParse(captureId);
 
         if (!mountedRef.current) return;
 
@@ -281,7 +284,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
         }
       }
     },
-    [onReceiptCreated]
+    [addToast, onCancel, onImageUploaded, onParsedItems, onReceiptCreated, triggerParse]
   );
 
   // ─────────────────────────────────────────────────────────────
@@ -343,8 +346,18 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
 
       {/* ERROR TOAST */}
       {error && (
-        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-red-900/90 text-white px-4 py-2 rounded-lg shadow-lg z-50">
-          {error}
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-red-900/90 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex flex-col gap-2 items-center">
+          <span>{error}</span>
+          {parseRetryCaptureId && (
+            <button
+              type="button"
+              className="px-3 py-1 rounded-md bg-white text-red-900 font-semibold text-sm hover:bg-red-100 transition-colors disabled:opacity-60"
+              onClick={() => triggerParse(parseRetryCaptureId, { isRetry: true })}
+              disabled={isParseRetrying}
+            >
+              {isParseRetrying ? 'Retrying parse…' : 'Parse failed — retry now'}
+            </button>
+          )}
         </div>
       )}
     </div>,
