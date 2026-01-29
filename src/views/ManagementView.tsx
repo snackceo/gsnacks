@@ -698,17 +698,17 @@ const ManagementView: React.FC<ManagementViewProps> = ({
       setStores(fetched);
 
       const storedActive = localStorage.getItem(ACTIVE_STORE_STORAGE_KEY) || '';
-      if (storedActive && fetched.some(s => s.id === storedActive)) {
-        setActiveStoreId(storedActive);
-      } else if (!activeStoreId && fetched.length > 0) {
-        setActiveStoreId(fetched[0].id);
-      }
+      setActiveStoreId(prev => {
+        if (storedActive && fetched.some(s => s.id === storedActive)) return storedActive;
+        if (!prev && fetched.length > 0) return fetched[0].id;
+        return prev;
+      });
     } catch (err: any) {
       setStoreError(err?.message || 'Failed to load stores');
     } finally {
       setIsLoadingStores(false);
     }
-  }, [ACTIVE_STORE_STORAGE_KEY, activeStoreId]);
+  }, [ACTIVE_STORE_STORAGE_KEY]);
 
   useEffect(() => {
     void loadStores();

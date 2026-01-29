@@ -1,3 +1,16 @@
+  // Prevent overlapping dashboard refreshes
+  const refreshInFlightRef = useRef(false);
+
+  const refreshDashboardDataSafe = useCallback(async () => {
+    if (refreshInFlightRef.current) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
+    refreshInFlightRef.current = true;
+    try {
+      await refreshDashboardData();
+    } finally {
+      refreshInFlightRef.current = false;
+    }
+  }, [refreshDashboardData]);
 import { useState, useEffect, useCallback } from 'react';
 import {
   User,
@@ -550,10 +563,12 @@ export const useNinpoCore = () => {
   // Auto-refresh dashboard data every 30 seconds when logged in
   useEffect(() => {
     if (!currentUser) return;
-    
-    const refreshInterval = setInterval(refreshDashboardData, 30000);
+    refreshDashboardDataSafe();
+    const refreshInterval = setInterval(() => {
+      refreshDashboardDataSafe();
+    }, 30000);
     return () => clearInterval(refreshInterval);
-  }, [currentUser, refreshDashboardData]);
+  }, [currentUser, refreshDashboardDataSafe]);
 
   useEffect(() => {
     persistCart(cart);

@@ -319,15 +319,12 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleParse = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
-      const resp = await apiFetch('/api/driver/receipt-parse', {
+      const data: any = await apiFetch('/api/driver/receipt-parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ captureId: activeReceiptCaptureId })
       });
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to parse receipt');
-      }
+      if (data?.error) throw new Error(data.error || 'Failed to parse receipt');
       addToast('Receipt parsing started.', 'success');
       // Optionally reload jobs or state here
     } catch (err: any) {
@@ -344,12 +341,12 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleResetReview = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
-      const resp = await apiFetch('/api/driver/receipt-reset-review', {
+      const data: any = await apiFetch('/api/driver/receipt-reset-review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ captureId: activeReceiptCaptureId })
       });
-      if (!resp.ok) throw new Error('Failed to reset review');
+      if (data?.error) throw new Error(data.error || 'Failed to reset review');
       setSelectedItemsForCommit(new Map());
       setApprovalMode('safe');
       addToast('Review reset.', 'success');
@@ -361,7 +358,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleLock = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
-      const resp = await apiFetch('/api/driver/receipt-lock', {
+      const data: any = await apiFetch('/api/driver/receipt-lock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -369,7 +366,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           lockDurationDays
         })
       });
-      if (!resp.ok) throw new Error('Failed to lock receipt');
+      if (data?.error) throw new Error(data.error || 'Failed to lock receipt');
       addToast(`Receipt locked for ${lockDurationDays} days.`, 'success');
     } catch (err: any) {
       addToast(err?.message || 'Failed to lock receipt', 'error');
@@ -379,12 +376,12 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleUnlock = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
-      const resp = await apiFetch('/api/driver/receipt-unlock', {
+      const data: any = await apiFetch('/api/driver/receipt-unlock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ captureId: activeReceiptCaptureId })
       });
-      if (!resp.ok) throw new Error('Failed to unlock receipt');
+      if (data?.error) throw new Error(data.error || 'Failed to unlock receipt');
       addToast('Receipt unlocked.', 'success');
     } catch (err: any) {
       addToast(err?.message || 'Failed to unlock receipt', 'error');
@@ -451,7 +448,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         items: draftItems
       };
 
-      const resp = await apiFetch(`/api/receipts/${selectedJob._id}/approve`, {
+      const data = await apiFetch(`/api/receipts/${selectedJob._id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -467,7 +464,6 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           approvalNotes: receiptApprovalNotes || undefined
         })
       });
-      if (!resp.ok) throw new Error('Failed to commit items');
       addToast('Items committed.', 'success');
       setShowReceiptReview(false);
       setSelectedJob(null);
@@ -586,9 +582,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   const loadCaptureItems = useCallback(async (captureId: string) => {
     try {
-      const res = await apiFetch(`/api/driver/receipt-capture/${captureId}/items`);
-      if (!res.ok) throw new Error('Failed to load receipt items');
-      const data = await res.json();
+      const data: any = await apiFetch(`/api/driver/receipt-capture/${captureId}/items`);
+      if (data?.error) throw new Error(data.error || 'Failed to load receipt items');
       const items = Array.isArray(data?.items) ? data.items : [];
       const { items: classified } = classifyItems(items);
       setClassifiedItems(classified);
@@ -610,9 +605,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     setIsLoadingJobs(true);
     setJobsError(null);
     try {
-      const res = await apiFetch('/api/receipts/?status=QUEUED,PARSING,NEEDS_REVIEW,PARSED');
-      if (!res.ok) throw new Error('Failed to load parse jobs');
-      const data = await res.json();
+      const data: any = await apiFetch('/api/receipts/?status=QUEUED,PARSING,NEEDS_REVIEW,PARSED');
+      if (data?.error) throw new Error(data.error || 'Failed to load parse jobs');
       setParseJobs(Array.isArray(data?.jobs) ? data.jobs : []);
     } catch (err: any) {
       setJobsError(err?.message || 'Failed to load parse jobs');
@@ -691,12 +685,12 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         };
 
         // POST to canonical approval endpoint
-        const res = await apiFetch(`/api/receipts/${job._id}/approve`, {
+        const data: any = await apiFetch(`/api/receipts/${job._id}/approve`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        if (!res.ok) throw new Error('Failed to approve parse job');
+        if (data?.error) throw new Error(data.error || 'Failed to approve parse job');
 
         addToast('Parse job approved', 'success');
 
@@ -726,10 +720,9 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleRejectParseJob = useCallback(async (jobId: string) => {
     setIsProcessing(true);
     try {
-      const res = await apiFetch(`/api/receipts/${jobId}/reject`, {
+      const data = await apiFetch(`/api/receipts/${jobId}/reject`, {
         method: 'POST',
       });
-      if (!res.ok) throw new Error('Failed to reject parse job');
       addToast('Parse job rejected', 'success');
       setParseJobs(prev => prev.filter(j => j._id !== jobId));
       setSelectedJob(null);
