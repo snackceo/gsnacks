@@ -281,12 +281,8 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   // ─────────────────────────────────────────────────────────────
   if (!isOpen) return null;
 
-  // Stricter guard: if overlay is open but neither camera nor preview is visible, auto-close
-  if (!isCameraOpen && !previewImage) {
-    addToast('Camera closed or unavailable. Exiting receipt flow.', { type: 'warning' });
-    if (typeof onCancel === 'function') onCancel();
-    return null;
-  }
+  // NOTE: Do not auto-close the flow when camera isn't available.
+  // We want to render the fallback UI with "Reopen Camera" instead.
 
   return createPortal(
     <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
@@ -303,7 +299,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
                 showClose={true}
                 onClose={() => {
                   setIsCameraOpen(false);
-                  if (typeof onCancel === 'function') onCancel();
+                  // No longer auto-cancelling the flow here; fallback UI will render.
                 }}
                 disabled={isSubmitting}
               />
