@@ -5,13 +5,25 @@ import ScannerModal from '../../../components/ScannerModal';
 import { ReceiptStoreCandidate, ScannerMode, StoreRecord } from '../../../types';
 import { getReceiptItemKey } from '../../../utils/receiptHelpers';
 
+interface ReceiptApprovalIssue {
+  label: string;
+  messages: string[];
+  severity: 'blocking' | 'advisory';
+}
+
 interface ReceiptReviewPanelProps {
   activeReceiptCaptureId: string;
   classifiedItems: any[];
   approvalMode: 'safe' | 'selected' | 'locked' | 'all';
   isCommitting: boolean;
+  hasBlockingIssues: boolean;
   lockDurationDays: number;
   selectedItemsForCommit: Map<string, boolean>;
+  approvalIssues: ReceiptApprovalIssue[];
+  storeBlockingIssues: string[];
+  storeAdvisoryIssues: string[];
+  approvalNotes: string;
+  onApprovalNotesChange: (value: string) => void;
   show: boolean;
   onClose: () => void;
   onParse: () => void;
@@ -49,8 +61,14 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   classifiedItems,
   approvalMode,
   isCommitting,
+  hasBlockingIssues,
   lockDurationDays,
   selectedItemsForCommit,
+  approvalIssues,
+  storeBlockingIssues,
+  storeAdvisoryIssues,
+  approvalNotes,
+  onApprovalNotesChange,
   show,
   onClose,
   onParse,
@@ -87,6 +105,8 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   const activeStoreLabel = stores.find(store => store.id === finalStoreId)?.name;
   const storeCandidateLabel = storeCandidate?.name || 'Unknown store';
   const shouldConfirmStoreCreate = !storeCandidate?.storeId && !finalStoreId;
+  const blockingIssues = approvalIssues.filter(issue => issue.severity === 'blocking');
+  const advisoryIssues = approvalIssues.filter(issue => issue.severity === 'advisory');
   return (
     <div className="fixed inset-0 z-50 bg-ninpo-black/90 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-ninpo-card rounded-[2rem] border border-white/10 max-w-6xl w-full h-[85vh] overflow-y-auto">
@@ -168,6 +188,30 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                 <div className="mt-2 text-[10px] text-slate-400">
                   Store: {activeStoreLabel || storeCandidateLabel}
                 </div>
+                {(storeBlockingIssues.length > 0 || storeAdvisoryIssues.length > 0) && (
+                  <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3 text-[10px] text-slate-200 space-y-2">
+                    {storeBlockingIssues.length > 0 && (
+                      <div>
+                        <p className="font-semibold text-ninpo-red uppercase tracking-widest text-[9px]">Store blocking</p>
+                        <ul className="mt-1 space-y-1">
+                          {storeBlockingIssues.map(issue => (
+                            <li key={issue} className="text-ninpo-red/90">{issue}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {storeAdvisoryIssues.length > 0 && (
+                      <div>
+                        <p className="font-semibold text-yellow-200 uppercase tracking-widest text-[9px]">Store advisory</p>
+                        <ul className="mt-1 space-y-1">
+                          {storeAdvisoryIssues.map(issue => (
+                            <li key={issue} className="text-yellow-100/80">{issue}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     onClick={() => onApprovalMode('safe')}
@@ -281,9 +325,56 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                   </select>
                 </label>
 
+                {(blockingIssues.length > 0 || advisoryIssues.length > 0) && (
+                  <div className="mt-4 rounded-xl border border-white/10 bg-black/40 p-3 text-[10px] text-slate-200 space-y-3">
+                    <p className="text-[9px] uppercase tracking-widest text-slate-400">Approval issues</p>
+                    {blockingIssues.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-[9px] uppercase tracking-widest text-ninpo-red">Blocking</p>
+                        {blockingIssues.map(issue => (
+                          <div key={`blocking-${issue.label}`} className="rounded-lg border border-ninpo-red/30 bg-ninpo-red/10 p-2">
+                            <p className="text-[10px] font-semibold text-ninpo-red/90">{issue.label}</p>
+                            <ul className="mt-1 space-y-1">
+                              {issue.messages.map(message => (
+                                <li key={message} className="text-ninpo-red/80">{message}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {advisoryIssues.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-[9px] uppercase tracking-widest text-yellow-200">Advisory</p>
+                        {advisoryIssues.map(issue => (
+                          <div key={`advisory-${issue.label}`} className="rounded-lg border border-yellow-200/30 bg-yellow-200/10 p-2">
+                            <p className="text-[10px] font-semibold text-yellow-100">{issue.label}</p>
+                            <ul className="mt-1 space-y-1">
+                              {issue.messages.map(message => (
+                                <li key={message} className="text-yellow-100/80">{message}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <label className="mt-4 block text-[10px] text-slate-400 uppercase tracking-widest">
+                  Approval notes
+                  <textarea
+                    value={approvalNotes}
+                    onChange={event => onApprovalNotesChange(event.target.value)}
+                    rows={3}
+                    className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white"
+                    placeholder="Add any notes for this approval..."
+                  />
+                </label>
+
                 <button
                   onClick={onCommit}
-                  disabled={!approvalMode || isCommitting}
+                  disabled={!approvalMode || isCommitting || hasBlockingIssues}
                   className="mt-4 w-full px-4 py-3 rounded-2xl text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isCommitting ? 'Committing…' : 'Approve Receipt'}
