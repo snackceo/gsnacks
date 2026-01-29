@@ -366,11 +366,31 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
 
     // Parse each image
     for (const image of capture.images) {
-      let geminiImageContent;
 
-      // Prepare image for Gemini
+      // Prepare image for Gemini Vision (fileData/inlineData)
+      let geminiImageContent;
       if (image.url.startsWith('https://') && image.url.includes('cloudinary')) {
-        geminiImageContent = { url: image.url };
+        // Fetch the image as a buffer and encode as base64
+        try {
+          const res = await fetch(image.url);
+          if (!res.ok) throw new Error('Failed to fetch image from Cloudinary');
+          const arrayBuffer = await res.arrayBuffer();
+          const base64 = Buffer.from(arrayBuffer).toString('base64');
+          // Try to infer mime type from url or fallback
+          let mimeType = 'image/jpeg';
+          if (image.url.match(/\.(png)$/i)) mimeType = 'image/png';
+          else if (image.url.match(/\.(webp)$/i)) mimeType = 'image/webp';
+          else if (image.url.match(/\.(gif)$/i)) mimeType = 'image/gif';
+          geminiImageContent = {
+            fileData: {
+              mimeType,
+              data: base64
+            }
+          };
+        } catch (err) {
+          geminiOutput.skippedImages.push({ url: image.url, reason: 'cloudinary_fetch_failed', error: err.message });
+          continue;
+        }
       } else if (image.url.startsWith('data:')) {
         const match = image.url.match(/^data:([^;]+);base64,(.+)$/);
         if (!match) {
@@ -378,9 +398,9 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
           continue;
         }
         geminiImageContent = {
-          inline_data: {
-            data: match[2],
-            mime_type: match[1]
+          inlineData: {
+            mimeType: match[1],
+            data: match[2]
           }
         };
       } else {
