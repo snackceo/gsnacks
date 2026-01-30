@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import ReceiptItemBucket from '../../../components/ReceiptItemBucket';
 import ScannerModal from '../../../components/ScannerModal';
 import {
@@ -137,6 +137,13 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   const storeCandidateLabel = storeCandidate?.name || 'Unknown store';
   const shouldConfirmStoreCreate = !storeCandidate?.storeId && !finalStoreId;
   const isStoreCandidateMissing = !storeCandidate;
+  const storeSummaryBadge = finalStoreMode === 'MATCHED'
+    ? storeCandidate?.storeId
+      ? { label: 'Using matched store', className: 'bg-ninpo-lime/10 text-ninpo-lime border-ninpo-lime/40' }
+      : { label: 'Matched store missing', className: 'bg-yellow-200/10 text-yellow-100 border-yellow-200/40' }
+    : finalStoreMode === 'EXISTING'
+      ? { label: 'Using selected store', className: 'bg-white/10 text-white border-white/20' }
+      : { label: 'Using candidate draft', className: 'bg-white/5 text-slate-300 border-white/10' };
   const storeMatchReasonLabel = storeCandidate?.matchReason
     ? ({
       capture_store: 'Capture store',
@@ -187,20 +194,34 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
     { value: 'CREATE_PRODUCT', label: 'Create Product' },
     { value: 'IGNORE', label: 'Ignore' }
   ];
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 bg-ninpo-black/90 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-ninpo-card rounded-[2rem] border border-white/10 max-w-6xl w-full h-[85vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-ninpo-black/90 backdrop-blur-sm flex items-center justify-center p-0 lg:p-4">
+      <div
+        className="fixed inset-0 bg-ninpo-card border border-white/10 w-full h-[100dvh] overflow-y-auto lg:relative lg:inset-auto lg:max-w-6xl lg:h-[85vh] rounded-none lg:rounded-[2rem]"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <button
+          onClick={onClose}
+          className="absolute right-4 top-4 text-slate-400 hover:text-white transition"
+          aria-label="Close receipt review"
+        >
+          ✕
+        </button>
         <div className="p-6 border-b border-white/10 flex items-center justify-between">
           <div>
             <h3 className="text-white font-black uppercase text-lg tracking-widest">Receipt Review</h3>
             <p className="text-[10px] text-slate-400 uppercase tracking-widest">Capture ID: {activeReceiptCaptureId}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white transition"
-          >
-            ✕
-          </button>
         </div>
 
         <div className="p-6 space-y-6">
@@ -591,6 +612,16 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                 <div className="mt-2 text-[10px] text-slate-400">
                   Store: {activeStoreLabel || storeCandidateLabel}
                 </div>
+                <div className="mt-2">
+                  <span className={`text-[9px] uppercase tracking-widest rounded-full border px-2 py-1 ${storeSummaryBadge.className}`}>
+                    {storeSummaryBadge.label}
+                  </span>
+                </div>
+                {finalStoreMode === 'MATCHED' && !storeCandidate?.storeId && (
+                  <p className="mt-2 text-[10px] text-yellow-100/80">
+                    No matched store found yet — confirm the candidate or switch to a draft store before approving.
+                  </p>
+                )}
                 {(storeBlockingIssues.length > 0 || storeAdvisoryIssues.length > 0) && (
                   <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3 text-[10px] text-slate-200 space-y-2">
                     {storeBlockingIssues.length > 0 && (
@@ -758,13 +789,23 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                 <button
                   onClick={onCommit}
                   disabled={!approvalMode || isCommitting || receiptApprovalStatus.hasBlocking}
-                  className="mt-4 w-full px-4 py-3 rounded-2xl text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="mt-4 hidden lg:block w-full px-4 py-3 rounded-2xl text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isCommitting ? 'Approving…' : 'Approve & Apply'}
                 </button>
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="lg:hidden sticky bottom-0 border-t border-white/10 bg-ninpo-card/95 backdrop-blur px-6 py-4">
+          <button
+            onClick={onCommit}
+            disabled={!approvalMode || isCommitting || receiptApprovalStatus.hasBlocking}
+            className="w-full px-4 py-3 rounded-2xl text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isCommitting ? 'Approving…' : 'Approve & Apply'}
+          </button>
         </div>
 
         {scanModalOpen && (
