@@ -97,20 +97,24 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = (props) => {
 
   if (!isOpen) return null;
 
+  React.useEffect(() => {
+    document.body.classList.add('modal-open');
+    return () => document.body.classList.remove('modal-open');
+  }, []);
+
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-ninpo-black/80 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md bg-ninpo-black border border-white/10 rounded-[2rem] shadow-2xl flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center">
+      <div className="w-full sm:max-w-md h-[100dvh] sm:h-auto sm:max-h-[90dvh] bg-ninpo-black border border-white/10 rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-ninpo-black border-b border-white/10 px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <MapPin className="w-5 h-5 text-ninpo-lime" />
             <h2 className="text-lg font-black text-white uppercase tracking-widest">Select Store</h2>
           </div>
           {isLoading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
         </div>
-
         {/* Search input */}
-        <div className="px-6 py-3 border-b border-white/10">
+        <div className="px-4 py-3 border-b border-white/10 bg-ninpo-black sticky top-[56px] z-9">
           <input
             type="text"
             value={filterText}
@@ -120,16 +124,14 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = (props) => {
             className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-ninpo-lime/50"
           />
         </div>
-
-        {/* Store list */}
-        <div className="overflow-y-auto flex-1 px-6 py-4 space-y-2">
+        {/* Body */}
+        <div className="modal-body overflow-y-auto flex-1 px-4 py-4" style={{ maxHeight: 'calc(100dvh - 140px)' }}>
           {filteredStores.length > 0 ? (
             filteredStores.map(store => {
               const locationLine = formatStoreLocation(store);
               const coordinates = formatStoreCoordinates(store);
               const brandLabel = formatStoreType(store.storeType);
               const fullAddress = formatStoreAddress(store.address, '');
-
               return (
                 <button
                   key={store.id}
@@ -180,10 +182,9 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = (props) => {
             </div>
           )}
         </div>
-
         {/* Primary supplier toggle */}
         {activeStore && onPrimarySupplierToggle && (
-          <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between">
+          <div className="px-4 py-4 border-t border-white/10 flex items-center justify-between">
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-widest text-slate-400">Primary supplier</p>
               <p className="text-sm text-white font-semibold truncate">{activeStore.name}</p>
@@ -205,11 +206,10 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = (props) => {
             </button>
           </div>
         )}
-
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-white/10 space-y-3">
+        <div className="sticky bottom-0 z-10 bg-ninpo-black border-t border-white/10 px-4 py-3 pb-[calc(env(safe-area-inset-bottom)+12px)]">
           {onConfirmWithoutStore && (
-            <div className="p-3 bg-amber-900/20 border border-amber-500/30 rounded-lg">
+            <div className="p-3 bg-amber-900/20 border border-amber-500/30 rounded-lg mb-2">
               <p className="text-xs text-amber-200 mb-2">
                 ⚠️ Proceeding without a store will reduce AI matching accuracy for receipt items.
               </p>

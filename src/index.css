@@ -8,6 +8,7 @@
     --ninpo-black: #050505;
   }
 
+
   html, body {
     @apply bg-ninpo-black text-white selection:bg-ninpo-lime selection:text-ninpo-black;
     margin: 0;
@@ -15,6 +16,21 @@
     font-family: 'Inter', sans-serif;
     -webkit-font-smoothing: antialiased;
     background-color: #050505 !important;
+    height: 100%;
+  }
+
+  body.modal-open {
+    overflow: hidden !important;
+    touch-action: none;
+  }
+  /* Modal body scroll fix for iOS */
+  .modal-body {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Minimum touch target for mobile */
+  button, select, input {
+    min-height: 44px;
   }
 
   #root {
