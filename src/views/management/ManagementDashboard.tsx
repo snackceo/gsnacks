@@ -93,14 +93,15 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = (props) => {
     // Fetch summary from backend (same as fetchReceiptCaptureStats in PricingIntelligence)
     async function fetchReceiptCaptureStats() {
       try {
-        const resp = await fetch('/api/receipts-captures-summary', { credentials: 'include' });
+        const resp = await fetch('/api/driver/receipt-captures-summary', { credentials: 'include' });
         if (!resp.ok) return;
         const data = await resp.json();
+        const s = data?.summary || {};
         setReceiptSummary({
-          parsedReceiptCount: data.parsedReceiptCount ?? 0,
-          pendingReceiptCount: data.pendingReceiptCount ?? 0,
-          parseReviewNeededCount: data.parseReviewNeededCount ?? 0,
-          parseCompletedCount: data.parseCompletedCount ?? 0
+          parsedReceiptCount: s.parsed ?? 0,
+          pendingReceiptCount: s.pendingParse ?? 0,
+          parseReviewNeededCount: s.failed ?? 0, // or 0 if you don’t want failed here
+          parseCompletedCount: s.committed ?? 0 // or s.reviewComplete if you prefer
         });
       } catch {
         // fail silently for dashboard
