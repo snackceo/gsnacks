@@ -260,10 +260,10 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
         // Optionally notify parent of parsed items (if implemented in future)
         if (typeof onParsedItems === 'function' && parseData?.items) {
           onParsedItems?.(parseData.items);
-          // Auto-refresh dashboard after parse
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('ninpo:dashboard-refresh'));
-          }
+        }
+        // Auto-refresh dashboard after parse/upload
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('ninpo:dashboard-refresh'));
         }
 
         // Optionally notify parent of image upload
