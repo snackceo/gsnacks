@@ -234,7 +234,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     }
 
     if (capture.status === 'committed') {
-      return res.json({ ok: true, captureId, status: capture.status, idempotent: true });
+      return res.json({ ok: true, captureId: capture._id.toString(), status: capture.status, idempotent: true });
     }
 
     const normalizedMode = mode || 'safe';
@@ -349,10 +349,22 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     }
     const priceObservations = [];
 
-    const itemsToApprove = capture.draftItems.filter(item => {
-      if (normalizedMode === 'selected') {
-        return selectedSet?.has(item.lineIndex);
-      }
+    // Fix 1: Build itemsToApprove from parseJob, fallback to capture
+    const draftItems =
+      (Array.isArray(capture.draftItems) && capture.draftItems.length > 0)
+        ? capture.draftItems
+        : (Array.isArray(parseJob?.structured?.draftItems) ? parseJob.structured.draftItems : []);
+
+    if (!draftItems.length) {
+      // This is the exact failure mode you’re experiencing.
+      return res.status(400).json({
+        error: 'No draft items available to apply',
+        message: 'Parse produced items but they were not persisted to capture.draftItems. Fix: use parseJob.structured.draftItems or persist into capture.'
+      });
+    }
+
+    const itemsToApprove = draftItems.filter(item => {
+      if (normalizedMode === 'selected') return selectedSet?.has(item.lineIndex);
       if (normalizedMode === 'safe') {
         const jobItem = (parseJob.items || []).find(i => Number(i.lineIndex) === Number(item.lineIndex));
         const confidence = Number(jobItem?.match?.confidence || item.matchConfidence || 0);
@@ -360,7 +372,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         const hasProduct = Boolean(jobItem?.match?.productId || item.boundProductId || item.suggestedProduct?.id);
         return !hasWarnings && hasProduct && confidence >= SAFE_CONFIDENCE;
       }
-      return true; // 'all' and 'locked' default to everything
+      return true;
     });
 
     for (const item of itemsToApprove) {
@@ -381,15 +393,12 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         if (approvalItem.productId && mongoose.Types.ObjectId.isValid(approvalItem.productId)) {
           product = await Product.findById(approvalItem.productId).session(session);
         }
-
         if (!product && item.boundProductId && mongoose.Types.ObjectId.isValid(item.boundProductId)) {
           product = await Product.findById(item.boundProductId).session(session);
         }
-
         if (!product && item.suggestedProduct?.id && mongoose.Types.ObjectId.isValid(item.suggestedProduct.id)) {
           product = await Product.findById(item.suggestedProduct.id).session(session);
         }
-
         if (!product && normalizedUpc) {
           const upcEntry = await UpcItem.findOne({ upc: normalizedUpc }).session(session);
           if (upcEntry?.productId) {
@@ -398,6 +407,45 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         }
 
         let productCreated = false;
+        let unmapped = null;
+        let inventory = null;
+        let inventoryForUnmapped = false;
+        let inventoryProductId = null;
+
+        if (!product && (action === 'IGNORE' || action === 'CREATE_UNMAPPED' || !action)) {
+          // Always create or update UnmappedProduct for raw/unknown items
+          const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
+          const rawName = item.receiptName || normalizedName || 'Receipt Item';
+          const now = new Date();
+          unmapped = await UnmappedProduct.findOneAndUpdate(
+            { storeId: store._id, normalizedName },
+            {
+              $setOnInsert: {
+                storeId: store._id,
+                rawName,
+                normalizedName,
+                firstSeenAt: now,
+                status: 'NEW'
+              },
+              $set: {
+                rawName,
+                lastSeenAt: now
+              }
+            },
+            { new: true, upsert: true, session }
+          );
+          priceObservations.push({
+            unmappedProductId: unmapped._id,
+            storeId: store._id,
+            price: unitPrice,
+            observedAt: now,
+            receiptCaptureId: capture._id
+          });
+          // Always create or update StoreInventory for unmapped product
+          inventoryProductId = `unmapped:${unmapped._id}`;
+          inventoryForUnmapped = true;
+        }
+
         if (!product && action === 'CREATE_PRODUCT') {
           const sku = await generateSku();
           const name = approvalItem.createProduct?.name || item.receiptName || item.normalizedName || 'Receipt Item';
@@ -447,159 +495,72 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           });
         }
 
-        if (action === 'IGNORE') {
-          if (!product) {
-            const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
-            const rawName = item.receiptName || normalizedName || 'Receipt Item';
-            const now = new Date();
-            const unmapped = await UnmappedProduct.findOneAndUpdate(
-              { storeId: store._id, normalizedName },
-              {
-                $setOnInsert: {
+        // Always create or update StoreInventory for this store and product/unmapped
+        let storeInventoryQuery;
+        if (product) {
+          storeInventoryQuery = { storeId: store._id, productId: product._id };
+          inventoryProductId = product._id;
+        } else if (inventoryForUnmapped && unmapped) {
+          // Use a synthetic productId for unmapped
+          storeInventoryQuery = { storeId: store._id, unmappedProductId: unmapped._id };
+        }
+        if (storeInventoryQuery) {
+          inventory = await StoreInventory.findOneAndUpdate(
+            storeInventoryQuery,
+            {
+              $set: {
+                sku: product?.sku || undefined,
+                observedPrice: unitPrice,
+                observedAt: new Date(),
+                lastVerified: new Date(),
+                available: true,
+                stockLevel: 'in-stock'
+              },
+              $setOnInsert: {
+                cost: unitPrice,
+                markup: 1.2
+              },
+              $push: {
+                priceHistory: {
+                  price: unitPrice,
+                  observedAt: new Date(),
                   storeId: store._id,
-                  rawName,
-                  normalizedName,
-                  firstSeenAt: now,
-                  status: 'NEW'
-                },
-                $set: {
-                  rawName,
-                  lastSeenAt: now
+                  captureId: capture._id.toString(),
+                  orderId: capture.orderId,
+                  quantity: Number(item.quantity || 1),
+                  receiptImageUrl: capture.images?.[0]?.url,
+                  receiptThumbnailUrl: capture.images?.[0]?.thumbnailUrl,
+                  matchMethod: item.matchMethod || 'manual_confirm',
+                  matchConfidence: item.matchConfidence,
+                  confirmedBy: username,
+                  priceType: item.priceType || 'unknown',
+                  promoDetected: item.promoDetected || false,
+                  workflowType: productCreated ? 'new_product' : 'update_price'
                 }
               },
-              { new: true, upsert: true, session }
-            );
-            priceObservations.push({
-              unmappedProductId: unmapped._id,
-              storeId: store._id,
-              price: unitPrice,
-              observedAt: now,
-              receiptCaptureId: capture._id
-            });
-          }
-          continue;
-        }
-
-        if (!product) {
-          const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
-          const rawName = item.receiptName || normalizedName || 'Receipt Item';
-          const now = new Date();
-          const unmapped = await UnmappedProduct.findOneAndUpdate(
-            { storeId: store._id, normalizedName },
-            {
-              $setOnInsert: {
-                storeId: store._id,
-                rawName,
-                normalizedName,
-                firstSeenAt: now
-              },
-              $set: {
-                rawName,
-                lastSeenAt: now
+              $addToSet: {
+                appliedCaptures: {
+                  captureId: capture._id.toString(),
+                  lineIndex: item.lineIndex,
+                  appliedAt: new Date()
+                }
               }
             },
             { new: true, upsert: true, session }
           );
-          priceObservations.push({
-            unmappedProductId: unmapped._id,
-            storeId: store._id,
-            price: unitPrice,
-            observedAt: now,
-            receiptCaptureId: capture._id
-          });
-          continue;
         }
 
-        item.boundProductId = product._id;
-        if (normalizedUpc) {
-          item.boundUpc = normalizedUpc;
-        }
-        item.confirmedAt = item.confirmedAt || new Date();
-        item.confirmedBy = item.confirmedBy || username;
-        item.needsReview = false;
-
-        // Concurrency guard: insert apply ledger; skip if duplicate
-        const { default: ReceiptApplyLedger } = await import('../models/ReceiptApplyLedger.js');
-        try {
-          await ReceiptApplyLedger.create([
-            {
-              captureId: capture._id.toString(),
-              lineIndex: Number(item.lineIndex),
-              productId: product._id,
-              storeId: store._id,
-              idempotencyKey: String(idempotencyKey)
-            }
-          ], { session });
-        } catch (dupeErr) {
-          if (dupeErr?.code === 11000) {
-            // Already applied for this line; skip
-            matchedProducts.push({ id: product._id, sku: product.sku, name: product.name, lineIndex: item.lineIndex });
-            continue;
-          }
-          throw dupeErr;
-        }
-
-        // Check if price is locked
-        const existingInventory = await StoreInventory.findOne({
-          storeId: store._id,
-          productId: product._id
-        }).session(session);
-
-        const isLocked = existingInventory?.priceLockUntil && new Date(existingInventory.priceLockUntil) > new Date();
-        if (isLocked) {
+        // If price is locked, skip further updates
+        if (inventory && inventory.priceLockUntil && new Date(inventory.priceLockUntil) > new Date()) {
           errors.push({
             lineIndex: item.lineIndex,
             error: 'Price locked',
-            lockedUntil: existingInventory.priceLockUntil
+            lockedUntil: inventory.priceLockUntil
           });
           continue;
         }
 
-        const inventory = await StoreInventory.findOneAndUpdate(
-          { storeId: store._id, productId: product._id },
-          {
-            $set: {
-              sku: product.sku,
-              observedPrice: unitPrice,
-              observedAt: new Date(),
-              lastVerified: new Date(),
-              available: true,
-              stockLevel: 'in-stock'
-            },
-            $setOnInsert: {
-              cost: unitPrice,
-              markup: 1.2
-            },
-            $push: {
-              priceHistory: {
-                price: unitPrice,
-                observedAt: new Date(),
-                storeId: store._id,
-                captureId: capture._id.toString(),
-                orderId: capture.orderId,
-                quantity: Number(item.quantity || 1),
-                receiptImageUrl: capture.images?.[0]?.url,
-                receiptThumbnailUrl: capture.images?.[0]?.thumbnailUrl,
-                matchMethod: item.matchMethod || 'manual_confirm',
-                matchConfidence: item.matchConfidence,
-                confirmedBy: username,
-                priceType: item.priceType || 'unknown',
-                promoDetected: item.promoDetected || false,
-                workflowType: productCreated ? 'new_product' : 'update_price'
-              }
-            },
-            $addToSet: {
-              appliedCaptures: {
-                captureId: capture._id.toString(),
-                lineIndex: item.lineIndex,
-                appliedAt: new Date()
-              }
-            }
-          },
-          { new: true, upsert: true, session }
-        );
-
-        if (normalizedMode === 'locked') {
+        if (normalizedMode === 'locked' && inventory) {
           const lockDays = Number(lockDurationDays) || 7;
           const lockUntil = new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000);
           await StoreInventory.findByIdAndUpdate(
@@ -611,22 +572,24 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
 
         inventoryUpdates.push({
           storeId: store._id,
-          productId: product._id,
+          productId: inventoryProductId,
           price: unitPrice,
-          inventoryId: inventory._id,
+          inventoryId: inventory?._id,
           lineIndex: item.lineIndex
         });
 
-        priceObservations.push({
-          productId: product._id,
-          storeId: store._id,
-          price: unitPrice,
-          observedAt: new Date(),
-          receiptCaptureId: capture._id
-        });
+        if (product) {
+          priceObservations.push({
+            productId: product._id,
+            storeId: store._id,
+            price: unitPrice,
+            observedAt: new Date(),
+            receiptCaptureId: capture._id
+          });
+        }
 
         // UPC linking to productId, with conflict handling
-        if (normalizedUpc) {
+        if (product && normalizedUpc) {
           const existingUpc = await UpcItem.findOne({ upc: normalizedUpc }).session(session);
           if (existingUpc && existingUpc.productId && String(existingUpc.productId) !== String(product._id)) {
             if (!forceUpcOverride) {
@@ -663,11 +626,12 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
 
     const previousCommitted = Number(capture.itemsCommitted || 0);
     capture.itemsCommitted = Math.min(capture.totalItems, previousCommitted + itemsToApprove.length);
-    capture.itemsConfirmed = capture.draftItems.filter(entry => entry.boundProductId).length;
-    capture.itemsNeedingReview = capture.draftItems.filter(entry => entry.needsReview).length;
+    capture.itemsConfirmed = draftItems.filter(entry => entry.boundProductId).length;
+    capture.itemsNeedingReview = draftItems.filter(entry => entry.needsReview).length;
     capture.committedBy = username;
     capture.committedAt = new Date();
-    if (normalizedMode === 'safe') {
+    // Fix 2: Mark committed if any items applied, regardless of mode
+    if (itemsToApprove.length > 0) {
       capture.status = 'committed';
       capture.reviewExpiresAt = undefined;
     }
