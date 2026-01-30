@@ -1156,7 +1156,28 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
         });
       } else {
         // Non-data URLs must be valid image URLs (HTTPS, allowed hosts, content-type check)
+        if (!/^https?:\/\//i.test(img.url)) {
+          console.warn('Receipt capture rejected image URL with unsupported scheme', {
+            url: img.url,
+            captureRequestId
+          });
+          await recordAuditLog({
+            type: 'receipt_capture_reject',
+            actorId: username || 'unknown',
+            details: `reason=unsupported_scheme url=${img.url} captureRequestId=${captureRequestId || 'none'}`
+          });
+          return res.status(400).json({ error: 'Image URLs must use HTTP(S)' });
+        }
         if (!img.url.startsWith('https://')) {
+          console.warn('Receipt capture rejected non-HTTPS image URL', {
+            url: img.url,
+            captureRequestId
+          });
+          await recordAuditLog({
+            type: 'receipt_capture_reject',
+            actorId: username || 'unknown',
+            details: `reason=non_https url=${img.url} captureRequestId=${captureRequestId || 'none'}`
+          });
           return res.status(400).json({ error: 'Image URLs must use HTTPS' });
         }
 
