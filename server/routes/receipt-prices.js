@@ -1759,6 +1759,7 @@ router.post('/receipt-parse-jobs/:captureId/approve', authRequired, async (req, 
       }
     }
 
+
     capture.storeId = store._id;
     capture.storeName = store.name;
     await capture.save();
@@ -1768,6 +1769,58 @@ router.post('/receipt-parse-jobs/:captureId/approve', authRequired, async (req, 
       { 'storeCandidate.storeId': store._id, 'storeCandidate.confidence': 1 },
       { new: true }
     );
+
+    // --- UnmappedProduct & PriceObservation logic ---
+    // Only run if capture has draftItems
+    try {
+      const UnmappedProduct = (await import('../models/UnmappedProduct.js')).default;
+      const PriceObservation = (await import('../models/PriceObservation.js')).default;
+      const draftItems = capture.draftItems || [];
+      const now = new Date();
+      for (const item of draftItems) {
+        // If item is not matched to a product (no productId, no upc, no suggestedProduct)
+        const hasProduct = item.suggestedProduct && item.suggestedProduct.id;
+        if (!hasProduct && item.receiptName && item.totalPrice > 0) {
+          const normalizedName = (item.normalizedName || item.receiptName).trim().toUpperCase();
+          // Find or create UnmappedProduct
+          let unmapped = await UnmappedProduct.findOne({ storeId: store._id, normalizedName });
+          if (!unmapped) {
+            unmapped = await UnmappedProduct.create({
+              storeId: store._id,
+              rawName: item.receiptName,
+              normalizedName,
+              firstSeenAt: now,
+              lastSeenAt: now,
+              status: 'NEW'
+            });
+          } else {
+            unmapped.lastSeenAt = now;
+            await unmapped.save();
+          }
+          // Write PriceObservation
+          await PriceObservation.create({
+            unmappedProductId: unmapped._id,
+            storeId: store._id,
+            price: item.totalPrice,
+            observedAt: now,
+            receiptCaptureId: capture._id
+          });
+        } else if (hasProduct && item.suggestedProduct.id && item.totalPrice > 0) {
+          // Write PriceObservation for mapped product
+          const PriceObservation = (await import('../models/PriceObservation.js')).default;
+          await PriceObservation.create({
+            productId: item.suggestedProduct.id,
+            storeId: store._id,
+            price: item.totalPrice,
+            observedAt: now,
+            receiptCaptureId: capture._id
+          });
+        }
+      }
+    } catch (err) {
+      console.error('UnmappedProduct/PriceObservation error:', err);
+    }
+    // --- End UnmappedProduct logic ---
 
     await recordAuditLog({
       type: 'receipt_store_confirm',
