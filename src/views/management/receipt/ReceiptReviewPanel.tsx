@@ -135,7 +135,8 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
     if (show) document.body.classList.add('modal-open');
     return () => document.body.classList.remove('modal-open');
   }, [show]);
-  if (!show) return null;
+
+  // Always call hooks, even if not rendering
   const selectedForCommitCount = selectedItemsForCommit.size;
   const activeStoreLabel = stores.find(store => store.id === finalStoreId)?.name;
   const storeCandidateLabel = storeCandidate?.name || 'Unknown store';
@@ -179,6 +180,8 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
     : receiptApprovalStatus.store.advisory.length
       ? { label: 'Advisory', className: 'bg-yellow-200/10 text-yellow-100 border-yellow-200/40' }
       : { label: 'Ready', className: 'bg-ninpo-lime/10 text-ninpo-lime border-ninpo-lime/40' };
+
+  if (!show) return null;
   const buildReceiptDefaults = (source?: any): Partial<ReceiptApprovalCreateProductPayload> => {
     if (!source) return {};
     const defaultPrice = typeof source.unitPrice === 'number'
