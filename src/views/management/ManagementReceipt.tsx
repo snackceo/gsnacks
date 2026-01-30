@@ -805,6 +805,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         addToast('Parse job approved', 'success');
 
         // Reset review state/drafts
+
         setShowReceiptReview(false);
         setSelectedJob(null);
         setParseJobs(prev => prev.filter(j => j._id !== job._id));
@@ -812,6 +813,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         setReceiptApprovalNotes('');
         setReceiptApprovalIdempotencyKey(createIdempotencyKey());
         setFinalStoreDraft({});
+        setFinalStoreMode('MATCHED');
+        setActiveStoreId('');
 
         // Refresh stores and products
         await refreshStores();
