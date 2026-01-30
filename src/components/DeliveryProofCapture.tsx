@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Camera, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { updateVideoReadyState } from '../utils/videoReady';
 
 interface DeliveryProofCaptureProps {
   orderId: string;
@@ -13,6 +14,9 @@ const DeliveryProofCapture: React.FC<DeliveryProofCaptureProps> = ({
   onClose
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const videoReadyHandlerRef = useRef<(() => void) | null>(null);
+  const videoDataHandlerRef = useRef<(() => void) | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -32,9 +36,17 @@ const DeliveryProofCapture: React.FC<DeliveryProofCaptureProps> = ({
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
       });
+      streamRef.current = stream;
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setStreamActive(true);
+        const videoEl = videoRef.current;
+        videoEl.srcObject = stream;
+        setStreamActive(false);
+        updateVideoReadyState({
+          videoEl,
+          onReady: () => setStreamActive(true),
+          metadataHandlerRef: videoReadyHandlerRef,
+          dataHandlerRef: videoDataHandlerRef
+        });
       }
     } catch (err) {
       setError('Camera access denied. Please enable camera permissions.');
@@ -42,11 +54,23 @@ const DeliveryProofCapture: React.FC<DeliveryProofCaptureProps> = ({
   };
 
   const stopCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
+    const stream = streamRef.current;
+    if (stream) {
       stream.getTracks().forEach(track => track.stop());
-      setStreamActive(false);
+      streamRef.current = null;
     }
+    if (videoRef.current) {
+      if (videoReadyHandlerRef.current) {
+        videoRef.current.removeEventListener('loadedmetadata', videoReadyHandlerRef.current);
+        videoReadyHandlerRef.current = null;
+      }
+      if (videoDataHandlerRef.current) {
+        videoRef.current.removeEventListener('loadeddata', videoDataHandlerRef.current);
+        videoDataHandlerRef.current = null;
+      }
+      videoRef.current.srcObject = null;
+    }
+    setStreamActive(false);
   };
 
   const capturePhoto = () => {

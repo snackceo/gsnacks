@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 // See GLOSSARY.md for authoritative definitions of all scanner modes.
 import { ScannerMode } from '../types';
+import { updateVideoReadyState } from '../utils/videoReady';
 
 export interface ParsedReceiptItem {
   receiptName: string;
@@ -180,6 +181,8 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   const lastDetectAtRef = useRef<number>(0);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoReadyHandlerRef = useRef<(() => void) | null>(null);
+  const videoDataHandlerRef = useRef<(() => void) | null>(null);
 
   const [isScanning, setIsScanning] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
@@ -310,6 +313,14 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     setTorchSupported(false);
 
     if (videoRef.current) {
+      if (videoReadyHandlerRef.current) {
+        videoRef.current.removeEventListener('loadedmetadata', videoReadyHandlerRef.current);
+        videoReadyHandlerRef.current = null;
+      }
+      if (videoDataHandlerRef.current) {
+        videoRef.current.removeEventListener('loadeddata', videoDataHandlerRef.current);
+        videoDataHandlerRef.current = null;
+      }
       try {
         (videoRef.current as any).srcObject = null;
       } catch {
@@ -411,7 +422,13 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
-          setIsScanning(true);
+          setIsScanning(false);
+          updateVideoReadyState({
+            videoEl: videoRef.current,
+            onReady: () => setIsScanning(true),
+            metadataHandlerRef: videoReadyHandlerRef,
+            dataHandlerRef: videoDataHandlerRef
+          });
         }
       } catch (err) {
         setScannerError('Camera blocked. Enable permissions and retry.');
@@ -457,7 +474,13 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
         videoRef.current.srcObject = stream;
         try {
           await videoRef.current.play();
-          setIsScanning(true);
+          setIsScanning(false);
+          updateVideoReadyState({
+            videoEl: videoRef.current,
+            onReady: () => setIsScanning(true),
+            metadataHandlerRef: videoReadyHandlerRef,
+            dataHandlerRef: videoDataHandlerRef
+          });
         } catch {
           setScannerError('Camera failed to start. Tap Retry.');
           setScannerHint('On mobile Chrome, tap once to grant permission or retry after allowing camera access.');
