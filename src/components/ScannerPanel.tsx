@@ -197,6 +197,14 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 
   const isReceiptMode = mode === ScannerMode.RECEIPT_PARSE_LIVE;
 
+  // Native camera only on mobile for receipt mode
+  const isMobile =
+    typeof window !== 'undefined' &&
+    (window.matchMedia?.('(pointer:coarse)').matches ||
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
+
+  const useNativeCameraOnly = isReceiptMode && isMobile;
+
   useEffect(() => {
     torchOnRef.current = torchOn;
   }, [torchOn]);
@@ -239,6 +247,44 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     }
   }, []);
 
+
+
+
+  const stopScanner = useCallback(async () => {
+    cancelledRef.current = true;
+    setIsScanning(false);
+
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+
+    // Reset stability state
+    lastSeenCodeRef.current = null;
+    stableFramesRef.current = 0;
+    inFlightRef.current = false;
+
+    // Turn off torch if it was on
+    try {
+      if (videoTrackRef.current && torchOnRef.current) {
+        await videoTrackRef.current.applyConstraints({ advanced: [{ torch: false } as any] });
+      }
+    } catch {
+      // ignore torch failures
+    }
+    setTorchOn(false); // Always reset torch state
+
+    videoTrackRef.current = null;
+    setTorchSupported(false);
+    stopCamera();
+  }, [stopCamera]);
+
+  const handleClose = useCallback(() => {
+    startedRef.current = false;
+    void stopScanner();
+    onCloseRef.current?.();
+  }, [stopScanner]);
+
   const acceptScan = useCallback(
     (upc: string) => {
       const now = Date.now();
@@ -271,35 +317,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     },
     [handleClose, playBeep]
   );
-
-  const stopScanner = useCallback(async () => {
-    cancelledRef.current = true;
-    setIsScanning(false);
-
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-
-    // Reset stability state
-    lastSeenCodeRef.current = null;
-    stableFramesRef.current = 0;
-    inFlightRef.current = false;
-
-    // Turn off torch if it was on
-    try {
-      if (videoTrackRef.current && torchOnRef.current) {
-        await videoTrackRef.current.applyConstraints({ advanced: [{ torch: false } as any] });
-      }
-    } catch {
-      // ignore torch failures
-    }
-    setTorchOn(false); // Always reset torch state
-
-    videoTrackRef.current = null;
-    setTorchSupported(false);
-    stopCamera();
-  }, [stopCamera]);
 
   const toggleTorch = useCallback(async () => {
     if (!torchSupported) {
@@ -357,6 +374,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   }, []);
 
   const startScanner = useCallback(async () => {
+
     await stopScanner();
     setTorchOn(false); // Always reset torch state on start
     cancelledRef.current = false;
@@ -366,6 +384,14 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 
     if (typeof window === 'undefined') {
       setScannerError('Scanner unavailable.');
+      return;
+    }
+
+    // Prevent camera startup in receipt mode on mobile
+    if (useNativeCameraOnly) {
+      setIsScanning(false);
+      setScannerError(null);
+      setScannerHint(null);
       return;
     }
 
@@ -666,11 +692,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     setIsSheetOpen(prev => !prev);
   }, []);
 
-  const handleClose = useCallback(() => {
-    startedRef.current = false;
-    void stopScanner();
-    onCloseRef.current?.();
-  }, [stopScanner]);
 
   useEffect(() => {
     return () => {
@@ -708,34 +729,37 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   }, [scannerError, addToast]);
 
   return (
-    <div className={`fixed inset-0 z-50 flex flex-col bg-black ${className || ''}`}>
-      {/* Full-screen video */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
-        <canvas ref={canvasRef} className="hidden" />
 
-        {!isScanning && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-            <div className="text-center px-8 flex flex-col items-center gap-3">
-              <Camera className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-              <p className="text-sm font-black uppercase tracking-widest text-slate-400">
-                {scannerError ?? (manualStart ? 'Press Start to begin scanning' : 'Initializing camera...')}
-              </p>
-              <button
-                onClick={() => void startScanner()}
-                className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-xs font-black uppercase tracking-widest flex items-center gap-2 mt-4"
-              >
-                <RefreshCw className="w-4 h-4" /> {manualStart ? 'Start' : 'Retry'}
-              </button>
-              {scannerError && (
-                <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mt-2">
-                  Enable camera permissions, then retry.
+    <div className={`fixed inset-0 z-50 flex flex-col bg-black ${className || ''}`}>
+      {/* Full-screen video (hide on mobile receipt mode) */}
+      {!useNativeCameraOnly && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+          <canvas ref={canvasRef} className="hidden" />
+
+          {!isScanning && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+              <div className="text-center px-8 flex flex-col items-center gap-3">
+                <Camera className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                <p className="text-sm font-black uppercase tracking-widest text-slate-400">
+                  {scannerError ?? (manualStart ? 'Press Start to begin scanning' : 'Initializing camera...')}
                 </p>
-              )}
+                <button
+                  onClick={() => void startScanner()}
+                  className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-xs font-black uppercase tracking-widest flex items-center gap-2 mt-4"
+                >
+                  <RefreshCw className="w-4 h-4" /> {manualStart ? 'Start' : 'Retry'}
+                </button>
+                {scannerError && (
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mt-2">
+                    Enable camera permissions, then retry.
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       {/* Top bar with back, torch, and store display */}
       <div className="relative z-10 flex flex-col gap-2 p-4">
@@ -857,21 +881,25 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       {isReceiptMode && canCapturePhoto && !previewImage && (
         <div className="absolute bottom-0 left-0 right-0 z-30 flex flex-col items-center justify-end pb-8 pointer-events-none">
           <div className="flex flex-col items-center gap-3 pointer-events-auto">
-            <button
-              onClick={captureReceiptAndParse}
-              className="w-20 h-20 rounded-full bg-ninpo-lime text-ninpo-black flex items-center justify-center shadow-neon text-3xl font-black focus:outline-none focus:ring-4 focus:ring-ninpo-lime/40 transition hover:bg-ninpo-lime/90"
-              aria-label="Capture photo"
-              type="button"
-              disabled={receiptUploadBlocked}
-            >
-              <Camera className="w-10 h-10" />
-            </button>
+            {/* Hide camera shutter button on mobile receipt mode */}
+            {!useNativeCameraOnly && (
+              <button
+                onClick={captureReceiptAndParse}
+                className="w-20 h-20 rounded-full bg-ninpo-lime text-ninpo-black flex items-center justify-center shadow-neon text-3xl font-black focus:outline-none focus:ring-4 focus:ring-ninpo-lime/40 transition hover:bg-ninpo-lime/90"
+                aria-label="Capture photo"
+                type="button"
+                disabled={receiptUploadBlocked}
+              >
+                <Camera className="w-10 h-10" />
+              </button>
+            )}
             <label className="flex flex-col items-center gap-2 cursor-pointer text-xs text-white/80 font-bold uppercase tracking-widest mt-2">
               <Upload className="w-5 h-5 mb-1" />
               Upload
               <input
                 type="file"
-                accept="image/*,application/pdf"
+                accept="image/*"
+                capture="environment"
                 className="hidden"
                 onChange={handleReceiptFileInput}
                 disabled={receiptUploadBlocked}
@@ -884,7 +912,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
               className={`mt-2 w-48 h-16 flex items-center justify-center border-2 border-dashed rounded-xl transition-colors ${isDragActive ? 'border-ninpo-lime bg-ninpo-lime/10' : 'border-white/20 bg-black/30'}`}
               style={{ pointerEvents: 'auto' }}
             >
-              <span className="text-xs text-white/60">Drag & drop image or PDF</span>
+              <span className="text-xs text-white/60">Drag & drop image</span>
             </div>
             {receiptSaveDisabledReason && (
               <div className="mt-2 text-xs text-ninpo-red font-bold">{receiptSaveDisabledReason}</div>
