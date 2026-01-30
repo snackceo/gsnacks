@@ -37,6 +37,8 @@ const StoreCandidateSchema = new mongoose.Schema(
       country: String
     },
     phone: String,
+    phoneNormalized: String,
+    storeNumber: String,
     storeType: String,
     confidence: Number,
     matchReason: String,

@@ -63,6 +63,29 @@ Body options:
 
 **Recommendation:** schedule `npm run cleanup-receipt-queue` via cron (daily or weekly) and alert on non-zero `staleReceiptJobs.stale` to catch drift early.
 
+### Store normalization backfill (storeNumber + phoneNormalized)
+
+Normalize existing Store records so receipt matching uses consistent store numbers and normalized phones.
+
+**Dry run (recommended first):**
+
+```
+cd server
+npm run backfill-store-normalization -- --dry-run
+```
+
+**Apply updates:**
+
+```
+npm run backfill-store-normalization
+```
+
+**Optional (only fill missing fields):**
+
+```
+npm run backfill-store-normalization -- --only-missing
+```
+
 ## Tech Stack
 
 - MongoDB (database)

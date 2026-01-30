@@ -12,7 +12,7 @@ import UpcItem from '../models/UpcItem.js';
 import { isDbReady } from '../db/connect.js';
 import { authRequired, isOwnerUsername } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
-import { matchStoreCandidate } from '../utils/storeMatcher.js';
+import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { generateSku } from '../utils/sku.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 
@@ -47,7 +47,9 @@ const buildStoreCandidate = (capture, parseJob, body) => {
     storeId,
     address: body?.storeAddress,
     phone: body?.storePhone,
-    storeType: body?.storeType
+    phoneNormalized: normalizePhone(body?.storePhone),
+    storeNumber: normalizeStoreNumber(body?.storeNumber || parseJob?.storeCandidate?.storeNumber),
+    storeType: body?.storeType || parseJob?.storeCandidate?.storeType
   };
 };
 
@@ -268,8 +270,8 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         await session.abortTransaction();
         return res.status(400).json({ error: 'Store name is required to approve receipt' });
       }
-      // Never create a store silently; require explicit operator action if ambiguous
-      if (!req.body.confirmStoreCreate) {
+      const allowAutoCreate = shouldAutoCreateStore(storeCandidate);
+      if (!allowAutoCreate && !req.body.confirmStoreCreate) {
         await session.abortTransaction();
         return res.status(400).json({ error: 'Store creation requires explicit confirmation (confirmStoreCreate)' });
       }
@@ -278,6 +280,8 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           {
             name: candidateName,
             phone: storeCandidate?.phone || '',
+            phoneNormalized: normalizePhone(storeCandidate?.phoneNormalized || storeCandidate?.phone),
+            storeNumber: normalizeStoreNumber(storeCandidate?.storeNumber),
             address: storeCandidate?.address || {},
             storeType: storeCandidate?.storeType || 'other',
             isActive: false,

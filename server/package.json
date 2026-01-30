@@ -12,6 +12,7 @@
     "create-owner": "node scripts/create-owner.js",
     "cleanup-abandoned-orders": "node scripts/cleanupAbandonedOrders.js",
     "cleanup-receipt-queue": "node scripts/cleanupReceiptQueue.js",
+    "backfill-store-normalization": "node scripts/backfillStoreNormalization.js",
     "find-abandoned-authorizations": "node scripts/findAbandonedAuthorizations.js",
     "test": "node --test",
     "worker:receipts": "node workers/receiptWorker.js"

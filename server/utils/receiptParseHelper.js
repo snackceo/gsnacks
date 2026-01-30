@@ -8,7 +8,10 @@ import ReceiptNameAlias from '../models/ReceiptNameAlias.js';
 import ReceiptNoiseRule from '../models/ReceiptNoiseRule.js';
 import Store from '../models/Store.js';
 import StoreInventory from '../models/StoreInventory.js';
+import UpcItem from '../models/UpcItem.js';
+import Product from '../models/Product.js';
 import { recordAuditLog } from './audit.js';
+import { inferStoreType, matchStoreCandidate, normalizePhone, normalizeStoreNumber, normalizeZip } from './storeMatcher.js';
 
 const getGeminiApiKey = () =>
   process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
@@ -29,11 +32,11 @@ const PRICE_DELTA_POLICY = {
   stalenessDays: 30
 };
 
-const normalizePhone = (phone = '') => phone.replace(/\D+/g, '');
-const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const parseReceiptAddress = (rawAddress = '') => {
   if (!rawAddress) return {};
   const cleaned = rawAddress.trim();
+  const zipMatch = cleaned.match(/\b\d{5}\b/);
+  const zip = zipMatch?.[0];
   const parts = cleaned.split(',').map(part => part.trim()).filter(Boolean);
   if (parts.length >= 3) {
     const street = parts[0];
@@ -41,16 +44,45 @@ const parseReceiptAddress = (rawAddress = '') => {
     const stateZip = parts.slice(2).join(' ');
     const stateZipMatch = stateZip.match(/([A-Z]{2})\s*(\d{5})?/i);
     const state = stateZipMatch?.[1]?.toUpperCase();
-    const zip = stateZipMatch?.[2];
+    const parsedZip = stateZipMatch?.[2] || zip;
     return {
       street,
       city,
       state,
+      zip: parsedZip
+    };
+  }
+  const lines = cleaned.split(/\n+/).map(line => line.trim()).filter(Boolean);
+  if (lines.length >= 2) {
+    const street = lines[0];
+    const locality = lines.slice(1).join(' ');
+    const localityMatch = locality.match(/^(.*?)(?:\s+([A-Z]{2})\s*(\d{5})?)$/i);
+    if (localityMatch) {
+      return {
+        street,
+        city: localityMatch[1].trim(),
+        state: localityMatch[2].toUpperCase(),
+        zip: localityMatch[3] || zip
+      };
+    }
+    return {
+      street,
+      city: locality.replace(/\b\d{5}\b/, '').trim(),
       zip
     };
   }
+  const fallbackZip = zip || normalizeZip(cleaned);
+  const fallbackStateMatch = cleaned.match(/([A-Z]{2})\s*\d{5}?/i);
+  const fallbackState = fallbackStateMatch?.[1]?.toUpperCase();
   console.warn('Receipt address parse incomplete; storing street only.', { rawAddress });
-  return { street: cleaned };
+  return { street: cleaned, state: fallbackState, zip: fallbackZip };
+};
+
+const normalizeUpc = value => {
+  const digits = String(value || '').replace(/\D+/g, '');
+  if (!digits) return '';
+  if (digits.length < 8 || digits.length > 14) return '';
+  return digits;
 };
 
 async function fetchAsInlineData(url) {
@@ -128,11 +160,67 @@ async function matchReceiptItems(items, storeId) {
     .populate('productId')
     .lean();
   const inventoryMap = new Map(storeInventory.map(inv => [String(inv.productId?._id), inv]));
+  const upcValues = Array.from(
+    new Set(
+      items
+        .map(item => normalizeUpc(item.upc))
+        .filter(Boolean)
+    )
+  );
+  const upcLookupMap = new Map();
+  if (upcValues.length) {
+    const upcItems = await UpcItem.find({ upc: { $in: upcValues } }).lean();
+    const productIds = upcItems.map(entry => entry.productId).filter(Boolean);
+    const products = productIds.length
+      ? await Product.find({ _id: { $in: productIds } }).lean()
+      : [];
+    const productMap = new Map(products.map(product => [String(product._id), product]));
+    for (const entry of upcItems) {
+      const product = entry.productId ? productMap.get(String(entry.productId)) : null;
+      upcLookupMap.set(entry.upc, { entry, product });
+    }
+  }
 
   const matchedItems = [];
 
   for (const item of items) {
     const normalized = normalizeReceiptName(item.receiptName);
+    const itemUpc = normalizeUpc(item.upc);
+    if (itemUpc && upcLookupMap.has(itemUpc)) {
+      const { entry, product } = upcLookupMap.get(itemUpc);
+      const inventory = product ? inventoryMap.get(String(product._id)) : null;
+      const confidence = product ? 1 : 0.7;
+      let priceDelta = null;
+      if (inventory?.observedPrice) {
+        priceDelta = evaluatePriceDelta({
+          lastPrice: inventory.observedPrice,
+          newPrice: item.totalPrice / item.quantity,
+          lastObservedAt: inventory.observedAt
+        });
+      }
+      matchedItems.push({
+        ...item,
+        upc: itemUpc,
+        normalizedName: normalized,
+        suggestedProduct: product ? {
+          id: product._id,
+          name: product.name,
+          upc: entry.upc,
+          sku: product.sku
+        } : null,
+        matchMethod: product ? 'upc' : 'upc_unmapped',
+        matchConfidence: confidence,
+        tokens: extractTokens(item.receiptName),
+        priceDelta: priceDelta?.exceedsThreshold ? {
+          flag: 'large_price_change',
+          pctDelta: priceDelta.pctDelta,
+          absDelta: priceDelta.absDelta
+        } : null,
+        needsReview: !product || priceDelta?.exceedsThreshold || false,
+        reviewReason: !product ? 'no_match' : priceDelta?.exceedsThreshold ? 'large_price_change' : null
+      });
+      continue;
+    }
     
     // Check noise rules first
     if (noiseSet.has(normalized)) {
@@ -401,30 +489,33 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
       // Gemini prompt for receipt parsing
       const prompt = `You are a receipt OCR specialist. Parse this receipt image THOROUGHLY.
 
-FIRST, extract the STORE NAME, PHONE, and ADDRESS if visible at the top or bottom of receipt. Return them as:
+FIRST, extract the STORE NAME, STORE NUMBER, PHONE, and ADDRESS if visible at the top or bottom of receipt. Return them as:
 "storeName": "Store Name" (or null if not visible)
+"storeNumber": "1234" (or null if not visible)
 "phone": "555-123-4567" (or null if not visible)
 "address": "123 Main St, City, ST 12345"  (or null if not visible)
 
 THEN, extract ALL line items with prices. Return ONLY valid JSON format:
 {
   "storeName": "STORE NAME",
+  "storeNumber": "1234",
   "phone": "555-123-4567",
   "address": "123 MAIN ST, DEARBORN, MI 48126",
   "items": [
-    {"receiptName": "COCA COLA 12PK", "quantity": 2, "totalPrice": 15.98},
-    {"receiptName": "LAYS CHIPS ORIG", "quantity": 1, "totalPrice": 3.99}
+    {"receiptName": "COCA COLA 12PK", "upc": "012000001234", "quantity": 2, "totalPrice": 15.98},
+    {"receiptName": "LAYS CHIPS ORIG", "upc": "028400123456", "quantity": 1, "totalPrice": 3.99}
   ]
 }
 
 RULES:
-1. Extract store name, phone, and address if visible (street, city, state, zip)
+1. Extract store name, store number (e.g., ST#, Store #, SC#), phone, and address if visible (street, city, state, zip)
 2. Extract ONLY product line items (skip store name, date, tax, subtotal, total, payment, instructions)
 3. Use exact product names from receipt
-4. For multi-buy items, calculate quantity * unit price = totalPrice
-5. Skip discounts, coupons, tax lines
-6. Return empty array [] for items if none found
-7. Return ONLY valid JSON, no markdown, no explanation`;
+4. Extract UPC if visible on the line (8-14 digits, usually near the item name)
+5. For multi-buy items, calculate quantity * unit price = totalPrice
+6. Skip discounts, coupons, tax lines
+7. Return empty array [] for items if none found
+8. Return ONLY valid JSON, no markdown, no explanation`;
 
       // Call Gemini Vision API
       const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
@@ -465,6 +556,9 @@ RULES:
       if (parsed.storeName && !storeCandidateData.name) {
         storeCandidateData.name = parsed.storeName;
       }
+      if (parsed.storeNumber && !storeCandidateData.storeNumber) {
+        storeCandidateData.storeNumber = normalizeStoreNumber(parsed.storeNumber);
+      }
       if (parsed.phone && !storeCandidateData.phone) {
         storeCandidateData.phone = parsed.phone;
       }
@@ -483,11 +577,13 @@ RULES:
             let totalPrice = hasTotal ? item.totalPrice : (hasUnit && hasQty ? item.unitPrice * item.quantity : undefined);
             let unitPrice = hasUnit ? item.unitPrice : (hasTotal && hasQty ? (item.quantity !== 0 ? item.totalPrice / item.quantity : undefined) : undefined);
             if (typeof totalPrice === 'undefined' && typeof unitPrice === 'undefined') continue;
+            const upc = normalizeUpc(item.upc || item.upcCandidate || item.barcode);
             draftItems.push({
               receiptName: item.receiptName,
               quantity: hasQty ? item.quantity : 1,
               totalPrice: typeof totalPrice === 'number' ? totalPrice : 0,
-              unitPrice: typeof unitPrice === 'number' ? unitPrice : 0
+              unitPrice: typeof unitPrice === 'number' ? unitPrice : 0,
+              upc
             });
           }
         }
@@ -509,6 +605,10 @@ RULES:
       throw new Error(capture.parseError);
     }
 
+    if (!storeCandidateData.storeType && storeCandidateData.name) {
+      storeCandidateData.storeType = inferStoreType(storeCandidateData.name);
+    }
+
     // Match items to products
     const matchedItems = await matchReceiptItems(draftItems, capture.storeId);
 
@@ -520,6 +620,8 @@ RULES:
     const candidateName = capture.storeName || storeCandidateData.name;
     const candidatePhone = storeCandidateData.phone;
     const candidateAddress = storeCandidateData.address;
+    const candidateStoreNumber = storeCandidateData.storeNumber;
+    const candidateStoreType = storeCandidateData.storeType || inferStoreType(candidateName);
     const normalizedPhone = normalizePhone(candidatePhone);
 
     let storeCandidate = null;
@@ -531,30 +633,27 @@ RULES:
       storeMatchReason = 'capture_store';
       storeMatchConfidence = 1;
     } else {
-      let matchedStore = null;
-      let matchConfidence = 0;
-      let matchReason = null;
-      if (normalizedPhone) {
-        matchedStore = await Store.findOne({ phone: { $regex: normalizedPhone, $options: 'i' } }).lean();
-        matchConfidence = matchedStore ? 0.9 : 0;
-        matchReason = matchedStore ? 'phone_match' : null;
-      }
-      if (!matchedStore && candidateName) {
-        matchedStore = await Store.findOne({
-          name: { $regex: `^${escapeRegex(candidateName)}$`, $options: 'i' }
-        }).lean();
-        matchConfidence = matchedStore ? 0.75 : 0;
-        matchReason = matchedStore ? 'name_match' : null;
-      }
-      if (matchedStore) {
-        storeCandidate = { ...matchedStore, confidence: matchConfidence };
-        storeMatchReason = matchReason;
-        storeMatchConfidence = matchConfidence;
-      } else if (candidateName || candidatePhone || candidateAddress) {
+      const matchPayload = {
+        name: candidateName,
+        phone: candidatePhone,
+        phoneNormalized: normalizedPhone,
+        storeNumber: candidateStoreNumber,
+        address: candidateAddress,
+        storeType: candidateStoreType
+      };
+      const matchResult = await matchStoreCandidate(matchPayload);
+      if (matchResult?.match) {
+        storeCandidate = { ...matchResult.match, confidence: matchResult.confidence };
+        storeMatchReason = matchResult.reason;
+        storeMatchConfidence = matchResult.confidence;
+      } else if (candidateName || candidatePhone || candidateAddress || candidateStoreNumber) {
         storeCandidate = {
           name: candidateName || 'Unknown Store',
           phone: candidatePhone,
+          phoneNormalized: normalizedPhone,
+          storeNumber: candidateStoreNumber,
           address: candidateAddress || {},
+          storeType: candidateStoreType,
           confidence: 0.2
         };
         storeMatchReason = 'parsed_store_data';
@@ -569,7 +668,7 @@ RULES:
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       lineTotal: item.totalPrice,
-      upcCandidate: item.suggestedProduct?.upc,
+      upcCandidate: item.suggestedProduct?.upc || item.upc,
       requiresUpc: !item.suggestedProduct?.upc,
       match: {
         productId: item.suggestedProduct?.id,
@@ -598,6 +697,8 @@ RULES:
           name: storeCandidate.name,
           address: { ...(storeCandidate.address || {}), ...(candidateAddress || {}) },
           phone: storeCandidate.phone || candidatePhone,
+          phoneNormalized: normalizePhone(storeCandidate.phoneNormalized || storeCandidate.phone || candidatePhone),
+          storeNumber: storeCandidate.storeNumber || candidateStoreNumber,
           storeType: storeCandidate.storeType,
           storeId: storeCandidate._id,
           confidence: storeMatchConfidence ?? storeCandidate.confidence ?? 1,
@@ -606,6 +707,9 @@ RULES:
           name: candidateName || 'Unknown Store',
           address: candidateAddress || {},
           phone: candidatePhone,
+          phoneNormalized: normalizedPhone,
+          storeNumber: candidateStoreNumber,
+          storeType: candidateStoreType,
           confidence: storeMatchConfidence ?? 0.2,
           matchReason: storeMatchReason || 'parsed_store_data'
         } : null,

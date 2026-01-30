@@ -2,11 +2,23 @@ import Store from '../models/Store.js';
 import levenshtein from 'fast-levenshtein';
 
 const normalizePhone = (phone = '') => phone.replace(/\D+/g, '');
+const normalizeStoreNumber = (value = '') => String(value).replace(/\D+/g, '');
 const normalizeZip = (zip = '') => {
   const match = String(zip).match(/\d{5}/);
   return match ? match[0] : '';
 };
 const normalizeStr = (str = '') => str.trim().toLowerCase();
+
+const inferStoreType = name => {
+  const normalized = normalizeStr(name);
+  if (!normalized) return null;
+  if (normalized.includes('walmart')) return 'walmart';
+  if (normalized.includes('kroger')) return 'kroger';
+  if (normalized.includes('aldi')) return 'aldi';
+  if (normalized.includes('target')) return 'target';
+  if (normalized.includes('meijer')) return 'meijer';
+  return null;
+};
 
 const addressKey = (addr = {}) => {
   const street = normalizeStr(addr.street || addr.address || '');
@@ -28,8 +40,11 @@ const fuzzyMatch = (a, b) => {
 export async function matchStoreCandidate(candidate, { nameThreshold = 0.25 } = {}) {
   if (!candidate) return { match: null, confidence: 0, reason: 'no candidate' };
 
-  const phoneNorm = normalizePhone(candidate.phone);
+  const phoneNorm = normalizePhone(candidate.phoneNormalized || candidate.phone);
+  const storeNumberNorm = normalizeStoreNumber(candidate.storeNumber);
   const addrKey = addressKey(candidate.address || {});
+  const zip = normalizeZip(candidate.address?.zip || '');
+  const storeType = candidate.storeType || inferStoreType(candidate.name);
 
   // 1) Exact storeId
   if (candidate.storeId) {
@@ -37,24 +52,35 @@ export async function matchStoreCandidate(candidate, { nameThreshold = 0.25 } = 
     if (store) return { match: store, confidence: 1, reason: 'explicit storeId' };
   }
 
-  // 2) Phone match
+  // 2) Store number match
+  if (storeNumberNorm) {
+    const store = await Store.findOne({ storeNumber: storeNumberNorm }).lean();
+    if (store) return { match: store, confidence: 0.98, reason: 'store number match' };
+  }
+
+  // 3) Phone match (normalized equality)
   if (phoneNorm) {
-    const store = await Store.findOne({ phone: { $regex: phoneNorm, $options: 'i' } }).lean();
+    const store = await Store.findOne({ phoneNormalized: phoneNorm }).lean();
     if (store) return { match: store, confidence: 0.95, reason: 'phone match' };
   }
 
-  // 3) Address match
+  // 4) Chain + zip match
+  if (storeType && zip) {
+    const store = await Store.findOne({ storeType, 'address.zip': zip }).lean();
+    if (store) return { match: store, confidence: 0.9, reason: 'chain + zip match' };
+  }
+
+  // 5) Address match
   if (addrKey) {
     const stores = await Store.find({}).lean();
     const byAddr = stores.find(s => addressKey(s.address) && addressKey(s.address) === addrKey);
     if (byAddr) return { match: byAddr, confidence: 0.9, reason: 'address match' };
   }
 
-  // 4) Fuzzy name + same city/zip
+  // 6) Fuzzy name + same city/zip
   if (candidate.name) {
     const stores = await Store.find({}).lean();
     const city = normalizeStr(candidate.address?.city || '');
-    const zip = normalizeZip(candidate.address?.zip || '');
 
     let best = null;
     let bestScore = 1;
@@ -75,6 +101,17 @@ export async function matchStoreCandidate(candidate, { nameThreshold = 0.25 } = 
   return { match: null, confidence: candidate.confidence || 0, reason: 'no match' };
 }
 
-export function shouldAutoCreateStore(confidence, threshold = 0.85) {
-  return confidence >= threshold;
+export function shouldAutoCreateStore(candidate, { threshold = 0.85 } = {}) {
+  if (!candidate) return false;
+  const phoneNorm = normalizePhone(candidate.phoneNormalized || candidate.phone);
+  const storeNumberNorm = normalizeStoreNumber(candidate.storeNumber);
+  const zip = normalizeZip(candidate.address?.zip || '');
+  const hasStreet = Boolean(normalizeStr(candidate.address?.street || candidate.address?.address || ''));
+  if (storeNumberNorm || phoneNorm || (hasStreet && zip)) {
+    return true;
+  }
+  const confidence = typeof candidate === 'number' ? candidate : candidate.confidence;
+  return typeof confidence === 'number' ? confidence >= threshold : false;
 }
+
+export { inferStoreType, normalizePhone, normalizeStoreNumber, normalizeZip };
