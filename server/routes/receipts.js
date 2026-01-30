@@ -61,7 +61,34 @@ const buildStoreCandidate = (capture, parseJob, body) => {
   };
 };
 
-// GET /api/receipts?status=NEEDS_REVIEW
+// Helper to normalize draft items from parseJob/capture into a consistent shape
+const normalizeDraftItem = (raw) => {
+  const lineIndex = typeof raw?.lineIndex === 'number'
+    ? raw.lineIndex
+    : (typeof raw?.index === 'number' ? raw.index : 0);
+
+  const receiptName =
+    raw?.receiptName ||
+    raw?.nameCandidate ||
+    raw?.rawLine ||
+    raw?.rawLineText ||
+    'Receipt Item';
+
+  return {
+    lineIndex,
+    receiptName,
+    normalizedName: raw?.normalizedName || normalizeReceiptName(receiptName),
+    quantity: raw?.quantity ?? 1,
+    unitPrice: raw?.unitPrice ?? null,
+    totalPrice: raw?.totalPrice ?? raw?.lineTotal ?? null,
+    boundUpc: raw?.upc || raw?.upcCandidate || '',
+    boundProductId: raw?.boundProductId || raw?.productId || raw?.match?.productId || null,
+    suggestedProduct: raw?.suggestedProduct || null,
+    matchConfidence: raw?.matchConfidence ?? raw?.match?.confidence ?? null,
+    matchMethod: raw?.matchMethod || 'parse',
+    needsReview: true,
+  };
+};
 // Role-neutral endpoint for fetching receipt parse jobs
 router.get('/', authRequired, async (req, res) => {
   if (!isDbReady()) {
@@ -349,18 +376,29 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     }
     const priceObservations = [];
 
-    // Fix 1: Build itemsToApprove from parseJob, fallback to capture
-    const draftItems =
+
+    // Normalize draft items from either capture or parseJob
+    const rawDraftItems =
       (Array.isArray(capture.draftItems) && capture.draftItems.length > 0)
         ? capture.draftItems
         : (Array.isArray(parseJob?.structured?.draftItems) ? parseJob.structured.draftItems : []);
 
+    const draftItems = rawDraftItems.map(normalizeDraftItem);
+
     if (!draftItems.length) {
-      // This is the exact failure mode you’re experiencing.
       return res.status(400).json({
         error: 'No draft items available to apply',
-        message: 'Parse produced items but they were not persisted to capture.draftItems. Fix: use parseJob.structured.draftItems or persist into capture.'
+        details: {
+          captureDraftItems: Array.isArray(capture?.draftItems) ? capture.draftItems.length : 0,
+          parseJobStructuredDraftItems: Array.isArray(parseJob?.structured?.draftItems) ? parseJob.structured.draftItems.length : 0,
+        }
       });
+    }
+
+    // Persist normalized items so you don’t keep drifting between schemas
+    if (!Array.isArray(capture.draftItems) || capture.draftItems.length === 0) {
+      capture.draftItems = draftItems;
+      capture.totalItems = draftItems.length;
     }
 
     const itemsToApprove = draftItems.filter(item => {
@@ -442,60 +480,9 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
             observedAt: now,
             receiptCaptureId: capture._id
           });
-          // Always create or update StoreInventory for unmapped product
+          // Only set flags for shared inventory upsert
           inventoryProductId = `unmapped:${unmapped._id}`;
           inventoryForUnmapped = true;
-
-          // Fix: upsert StoreInventory for unmapped
-          const unmappedInventory = await StoreInventory.findOneAndUpdate(
-            { storeId: store._id, unmappedProductId: unmapped._id },
-            {
-              $set: {
-                observedPrice: unitPrice,
-                observedAt: now,
-                lastVerified: now,
-                available: true,
-                stockLevel: 'in-stock'
-              },
-              $setOnInsert: {
-                cost: unitPrice,
-                markup: 1.2
-              },
-              $push: {
-                priceHistory: {
-                  price: unitPrice,
-                  observedAt: now,
-                  storeId: store._id,
-                  captureId: capture._id.toString(),
-                  orderId: capture.orderId,
-                  quantity: Number(item.quantity || 1),
-                  receiptImageUrl: capture.images?.[0]?.url,
-                  receiptThumbnailUrl: capture.images?.[0]?.thumbnailUrl,
-                  matchMethod: item.matchMethod || 'manual_confirm',
-                  matchConfidence: item.matchConfidence,
-                  confirmedBy: username,
-                  priceType: item.priceType || 'unknown',
-                  promoDetected: item.promoDetected || false,
-                  workflowType: 'unmapped'
-                }
-              },
-              $addToSet: {
-                appliedCaptures: {
-                  captureId: capture._id.toString(),
-                  lineIndex: item.lineIndex,
-                  appliedAt: now
-                }
-              }
-            },
-            { new: true, upsert: true, session }
-          );
-          inventoryUpdates.push({
-            storeId: store._id,
-            productId: inventoryProductId,
-            price: unitPrice,
-            inventoryId: unmappedInventory?._id,
-            lineIndex: item.lineIndex
-          });
         }
 
         if (!product && action === 'CREATE_PRODUCT') {

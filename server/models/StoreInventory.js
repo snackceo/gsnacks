@@ -12,7 +12,14 @@ const storeInventorySchema = new mongoose.Schema(
     productId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Product',
-      required: true,
+      required: false,
+      index: true
+    },
+    // For unmapped inventory lines
+    unmappedProductId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'UnmappedProduct',
+      required: false,
       index: true
     },
     sku: { type: String, index: true }, // Denormalized for fast lookups
@@ -75,8 +82,10 @@ const storeInventorySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+
 // Compound index for fast store+product lookups
-storeInventorySchema.index({ storeId: 1, productId: 1 }, { unique: true });
+storeInventorySchema.index({ storeId: 1, productId: 1 }, { unique: true, sparse: true });
+storeInventorySchema.index({ storeId: 1, unmappedProductId: 1 }, { unique: true, sparse: true });
 storeInventorySchema.index({ storeId: 1, sku: 1 });
 storeInventorySchema.index({ storeId: 1, updatedAt: -1 }); // Performance monitoring
 
