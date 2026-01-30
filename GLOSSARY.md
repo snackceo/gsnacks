@@ -59,6 +59,7 @@ All new roles, permissions, scanner modes, feature flags, or special phrases mus
 
 - 2026-01-16 (YH): Linked glossary to all major docs; established as single source of truth. (why: prevent drift)
 - 2026-02-01 (AI): Added receipt approval draft terms (FinalStoreMode, ReceiptApprovalAction, ReceiptApprovalDraft). (why: align receipt review payloads)
+- 2026-03-01 (AI): Added UnmappedProduct and PriceObservation workflow terms. (why: track receipt-driven price intelligence)
 - 2025-02-14 (AI): Added receipt capture audit/source fields for queue attribution. (why: track capture origin and actor)
 - [Add future changes here.]
 
@@ -551,6 +552,12 @@ UNCREDITED (not an explicit term): (Note: conceptually, if an order is authorize
 UnmappedUpcData (interface): Holds info for a scanned UPC that isn’t recognized. Fields: upc and optional name, price, deposit, size, category. This is used when a UPC is scanned that doesn’t exist in the system – the UnmappedUpcModal allows the operator to create a new product or link the UPC to an existing one using this data.
 
 UnmappedUpcModal (component): Modal dialog for handling an unmapped UPC scan. Appears with options to create a new product or attach to existing product. Props include the UPC payload (data), list of products, a flag isAnalyzing (if AI analysis is running), and handlers onClose, onAnalyze, onCreateProduct, onAttachToExisting.
+
+UnmappedProduct (data model): Captures a receipt line item that could not be matched to an existing Product. Fields include storeId, rawName, normalizedName, firstSeenAt, lastSeenAt, status, and optional mappedProductId once resolved. Uniqueness is enforced on (storeId, normalizedName) to prevent duplicates.
+
+UnmappedProductStatus (enum): Review state for UnmappedProduct. Values: NEW (needs review), IGNORED (explicitly dismissed), MAPPED (linked to a Product).
+
+PriceObservation (data model): Time-series price history entries captured from receipts. Stores storeId, price, observedAt, and either productId (matched item) or unmappedProductId (unmatched item). Used for pricing intelligence and review.
 
 upc (barcode): A universal product code string. The system uses UPCs to identify container types for returns and to map products. In code, many operations revolve around UPCs: scanning returns, maintaining an internal UPC registry (whitelist), etc. Each UpcItem in the database represents a UPC and its associated metadata (name, containerType, etc.).
 

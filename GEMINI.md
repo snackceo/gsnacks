@@ -15,6 +15,12 @@ This file defines the system philosophy, contract, and non-negotiable rules for 
 
 ---
 
+## Receipt Price Intelligence (Unmapped Products + Price Observations)
+
+- Receipt commits must create price observations for matched products and for unmatched items.
+- Unmatched receipt lines are tracked as UnmappedProduct entries (unique per store + normalized name) so operators can review, map, or ignore them later.
+- Mapping an UnmappedProduct to a Product should not silently discard its price history; migration must be explicit.
+
 ## 0. Ground Rules (Non‑Negotiable)
 
 ---

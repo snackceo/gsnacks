@@ -215,6 +215,31 @@ export interface ReceiptParseJob {
   skippedImageReason?: string[];
 }
 
+export type UnmappedProductStatus = 'NEW' | 'IGNORED' | 'MAPPED';
+
+export interface UnmappedProduct {
+  _id: string;
+  storeId: string;
+  rawName: string;
+  normalizedName: string;
+  firstSeenAt?: string;
+  lastSeenAt?: string;
+  status: UnmappedProductStatus;
+  mappedProductId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PriceObservation {
+  _id: string;
+  productId?: string;
+  unmappedProductId?: string;
+  storeId: string;
+  price: number;
+  observedAt?: string;
+  receiptCaptureId?: string;
+}
+
 export interface ReceiptApprovalCreateProductPayload {
   name: string;
   price: number;
