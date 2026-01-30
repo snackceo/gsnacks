@@ -47,7 +47,7 @@ const getReceiptJobItemId = (item: { _id?: string; captureId?: string; lineIndex
 type ReceiptApprovalMode = 'safe' | 'selected' | 'locked' | 'all';
 
 interface ReceiptApprovalStoreDraft {
-  finalStoreId?: string;
+  finalStoreId?: string | null;
   storeCandidate?: ReceiptStoreCandidate;
   confirmStoreCreate?: boolean;
 }
@@ -896,8 +896,12 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         setReceiptApprovalNotes(existingDraft.receiptApprovalNotes);
         setReceiptApprovalIdempotencyKey(existingDraft.receiptApprovalIdempotencyKey);
       } else {
+        const nextFinalStoreMode: FinalStoreMode = selectedJob.storeCandidate?.storeId
+          ? 'MATCHED'
+          : 'CREATE_DRAFT';
+        setFinalStoreMode(nextFinalStoreMode);
         setFinalStoreDraft({
-          finalStoreId: selectedJob.storeCandidate?.storeId || activeStoreId || '',
+          finalStoreId: null,
           storeCandidate: selectedJob.storeCandidate,
           confirmStoreCreate: false
         });
