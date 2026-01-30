@@ -85,14 +85,58 @@ const normalizeUpc = value => {
   return digits;
 };
 
+const RECEIPT_IMAGE_FETCH_ATTEMPTS = 3;
+const RECEIPT_IMAGE_FETCH_RETRY_DELAY_MS = 300;
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 async function fetchAsInlineData(url) {
-  const resp = await fetch(url);
-  if (!resp.ok) {
-    throw new Error(`Failed to fetch receipt image: ${resp.status}`);
+  let lastError;
+  for (let attempt = 1; attempt <= RECEIPT_IMAGE_FETCH_ATTEMPTS; attempt += 1) {
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        throw new Error(`Failed to fetch receipt image: ${resp.status}`);
+      }
+      const contentType = (resp.headers.get('content-type') || 'image/jpeg').split(';')[0];
+      const buf = Buffer.from(await resp.arrayBuffer());
+      return { inlineData: { mimeType: contentType, data: buf.toString('base64') } };
+    } catch (error) {
+      lastError = error;
+      if (attempt < RECEIPT_IMAGE_FETCH_ATTEMPTS) {
+        await sleep(RECEIPT_IMAGE_FETCH_RETRY_DELAY_MS * attempt);
+      }
+    }
   }
-  const contentType = (resp.headers.get('content-type') || 'image/jpeg').split(';')[0];
-  const buf = Buffer.from(await resp.arrayBuffer());
-  return { inlineData: { mimeType: contentType, data: buf.toString('base64') } };
+  console.warn('Receipt image fetch failed after retries.', {
+    url,
+    attempts: RECEIPT_IMAGE_FETCH_ATTEMPTS,
+    error: lastError?.message
+  });
+  try {
+    await recordAuditLog({
+      type: 'receipt_parse_image_fetch_failed',
+      actorId: 'worker',
+      details: `url=${url} attempts=${RECEIPT_IMAGE_FETCH_ATTEMPTS} error=${lastError?.message || 'unknown'}`
+    });
+  } catch (auditError) {
+    console.warn('Failed to record receipt image fetch audit log.', {
+      url,
+      error: auditError?.message
+    });
+  }
+  throw lastError;
+}
+
+function buildInlineDataFromDataUrl(dataUrl) {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  return {
+    inlineData: {
+      mimeType: match[1],
+      data: match[2]
+    }
+  };
 }
 
 // Normalize receipt name for matching
@@ -465,22 +509,17 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     // Parse each image
     for (const image of capture.images) {
 
-      // Prepare image for Gemini Vision (fileData/inlineData)
+      // Prepare image for Gemini Vision (always inlineData, even for HTTPS URLs)
       let geminiImageContent;
-      if (image.url.startsWith('https://')) {
+      if (/^https?:\/\//i.test(image.url)) {
         geminiImageContent = await fetchAsInlineData(image.url);
       } else if (image.url.startsWith('data:')) {
-        const match = image.url.match(/^data:([^;]+);base64,(.+)$/);
-        if (!match) {
+        const inlineData = buildInlineDataFromDataUrl(image.url);
+        if (!inlineData) {
           geminiOutput.skippedImages.push({ url: image.url, reason: 'invalid_data_url' });
           continue;
         }
-        geminiImageContent = {
-          inlineData: {
-            mimeType: match[1],
-            data: match[2]
-          }
-        };
+        geminiImageContent = inlineData;
       } else {
         geminiOutput.skippedImages.push({ url: image.url, reason: 'unsupported_image_url' });
         continue;
@@ -579,6 +618,7 @@ RULES:
             if (typeof totalPrice === 'undefined' && typeof unitPrice === 'undefined') continue;
             const upc = normalizeUpc(item.upc || item.upcCandidate || item.barcode);
             draftItems.push({
+              lineIndex: draftItems.length,
               receiptName: item.receiptName,
               quantity: hasQty ? item.quantity : 1,
               totalPrice: typeof totalPrice === 'number' ? totalPrice : 0,
