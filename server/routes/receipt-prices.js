@@ -1419,13 +1419,13 @@ Rules: Extract product lines only (skip store, date, tax, total). Return empty [
     try {
       const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
       response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash-exp',
+        model: process.env.GEMINI_DEFAULT_MODEL || 'gemini-2.5-flash',
         contents: [
           {
             role: 'user',
             parts: [
               { text: prompt },
-              { inline_data: { data: imageBase64, mime_type: mimeType } }
+              { inlineData: { data: imageBase64, mimeType } }
             ]
           }
         ],
