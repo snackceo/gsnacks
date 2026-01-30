@@ -53,6 +53,16 @@ const parseReceiptAddress = (rawAddress = '') => {
   return { street: cleaned };
 };
 
+async function fetchAsInlineData(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch receipt image: ${resp.status}`);
+  }
+  const contentType = (resp.headers.get('content-type') || 'image/jpeg').split(';')[0];
+  const buf = Buffer.from(await resp.arrayBuffer());
+  return { inlineData: { mimeType: contentType, data: buf.toString('base64') } };
+}
+
 // Normalize receipt name for matching
 function normalizeReceiptName(name) {
   if (!name || typeof name !== 'string') return '';
@@ -370,17 +380,7 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
       // Prepare image for Gemini Vision (fileData/inlineData)
       let geminiImageContent;
       if (image.url.startsWith('https://')) {
-        let mimeType = 'image/jpeg';
-        if (image.url.match(/\.(png)$/i)) mimeType = 'image/png';
-        else if (image.url.match(/\.(webp)$/i)) mimeType = 'image/webp';
-        else if (image.url.match(/\.(gif)$/i)) mimeType = 'image/gif';
-
-        geminiImageContent = {
-          fileData: {
-            fileUri: image.url,
-            mimeType
-          }
-        };
+        geminiImageContent = await fetchAsInlineData(image.url);
       } else if (image.url.startsWith('data:')) {
         const match = image.url.match(/^data:([^;]+);base64,(.+)$/);
         if (!match) {

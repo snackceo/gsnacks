@@ -11,6 +11,7 @@ const levelColor = {
 export const ErrorMonitorPanel: React.FC = () => {
   const [errors, setErrors] = useState<ErrorEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     fetchRecentErrors().then(events => {
@@ -18,6 +19,9 @@ export const ErrorMonitorPanel: React.FC = () => {
       setLoading(false);
     });
   }, []);
+
+  const visibleErrors = showAll ? errors : errors.slice(0, 5);
+  const canToggle = errors.length > 5;
 
   return (
     <div className="bg-ninpo-card border border-white/10 rounded-2xl p-6 mt-8">
@@ -30,20 +34,31 @@ export const ErrorMonitorPanel: React.FC = () => {
       ) : errors.length === 0 ? (
         <div className="text-green-600 font-bold">No recent errors detected.</div>
       ) : (
-        <ul className="space-y-3">
-          {errors.map(evt => (
-            <li key={evt.id} className="flex items-start gap-3">
-              <span className={levelColor[evt.level] + ' mt-1'}>
-                {evt.level === 'error' ? <AlertTriangle className="w-4 h-4" /> : evt.level === 'warning' ? <Info className="w-4 h-4" /> : <Info className="w-4 h-4" />}
-              </span>
-              <div>
-                <div className="font-bold text-white text-sm">{evt.message}</div>
-                <div className="text-xs text-slate-400">{new Date(evt.timestamp).toLocaleString()}</div>
-                {evt.url && <a href={evt.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 underline">View Details</a>}
-              </div>
-            </li>
-          ))}
-        </ul>
+        <div className="space-y-3">
+          <ul className="space-y-3">
+            {visibleErrors.map(evt => (
+              <li key={evt.id} className="flex items-start gap-3">
+                <span className={levelColor[evt.level] + ' mt-1'}>
+                  {evt.level === 'error' ? <AlertTriangle className="w-4 h-4" /> : evt.level === 'warning' ? <Info className="w-4 h-4" /> : <Info className="w-4 h-4" />}
+                </span>
+                <div>
+                  <div className="font-bold text-white text-sm">{evt.message}</div>
+                  <div className="text-xs text-slate-400">{new Date(evt.timestamp).toLocaleString()}</div>
+                  {evt.url && <a href={evt.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 underline">View Details</a>}
+                </div>
+              </li>
+            ))}
+          </ul>
+          {canToggle && (
+            <button
+              type="button"
+              onClick={() => setShowAll(prev => !prev)}
+              className="text-xs font-bold uppercase tracking-widest text-ninpo-lime hover:text-white transition"
+            >
+              {showAll ? 'Show Less' : 'Show More'}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

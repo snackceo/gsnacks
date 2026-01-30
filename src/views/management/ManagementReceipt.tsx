@@ -202,6 +202,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<ReceiptParseJob | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [visibleJobCount, setVisibleJobCount] = useState(20);
 
   // Receipt review state (moved from Pricing Intelligence)
   const [activeReceiptCaptureId, setActiveReceiptCaptureId] = useState<string | null>(null);
@@ -229,6 +230,14 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   const finalStoreId = finalStoreDraft.finalStoreId ?? '';
   const confirmStoreCreate = Boolean(finalStoreDraft.confirmStoreCreate);
+
+  useEffect(() => {
+    if (parseJobs.length <= 20) {
+      setVisibleJobCount(20);
+      return;
+    }
+    setVisibleJobCount(prev => Math.min(prev, parseJobs.length));
+  }, [parseJobs.length]);
 
   const updateStoreDraft = useCallback((updates: Partial<ReceiptApprovalStoreDraft>) => {
     setFinalStoreDraft(prev => ({ ...prev, ...updates }));
@@ -936,6 +945,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   // Tab content
   // Only ADMIN and OWNER can manage products
   const canManageProducts = currentUser?.role === 'ADMIN' || currentUser?.role === 'OWNER';
+  const visibleJobs = parseJobs.slice(0, visibleJobCount);
+  const canLoadMoreJobs = parseJobs.length > visibleJobCount;
 
   const tabContent = useMemo(() => {
     if (receiptFlow === 'capture') {
@@ -1080,7 +1091,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              {parseJobs.map(job => {
+              {visibleJobs.map(job => {
                 const isBroken = (job.items?.length || 0) === 0;
                 return (
                   <div
@@ -1185,6 +1196,15 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                   </div>
                 );
               })}
+              {canLoadMoreJobs && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleJobCount(prev => Math.min(prev + 20, parseJobs.length))}
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-white/70 hover:text-white hover:border-white/30 transition"
+                >
+                  Load more
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1234,7 +1254,10 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     handleScannerClose,
     loadParseJobs,
     handleApproveReceipt,
-    handleRejectParseJob
+    handleRejectParseJob,
+    visibleJobCount,
+    visibleJobs,
+    canLoadMoreJobs
   ]);
 
   return (
