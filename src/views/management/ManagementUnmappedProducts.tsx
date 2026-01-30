@@ -1,4 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, EyeOff, Search, XCircle } from 'lucide-react';
+import { apiFetch } from '../../utils/apiFetch';
+import {
+  PriceObservation,
+  Product,
+  StoreRecord,
+  UnmappedProduct,
+  UnmappedProductStatus
+} from '../../types';
+
 interface MappingHistoryEntry {
   _id: string;
   action: 'MAPPED' | 'IGNORED';
@@ -7,38 +17,6 @@ interface MappingHistoryEntry {
   user?: string;
   at: string;
 }
-
-// Toast state (fallback if no global toast)
-const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
-const showToast = (message: string, type: 'error' | 'success' = 'success') => {
-  setToast({ message, type });
-  setTimeout(() => setToast(null), 3500);
-};
-
-// Move selectedId state above any usage
-const [selectedId, setSelectedId] = useState<string | null>(null);
-
-const [mappingHistory, setMappingHistory] = useState<MappingHistoryEntry[]>([]);
-const [isHistoryLoading, setIsHistoryLoading] = useState(false);
-const [historyError, setHistoryError] = useState<string | null>(null);
-// Load mapping/audit history for selected unmapped product
-const loadMappingHistory = useCallback(async () => {
-  if (!selectedId) return;
-  setIsHistoryLoading(true);
-  setHistoryError(null);
-  try {
-    const data = await apiFetch<{ items: MappingHistoryEntry[]; error?: string }>(`/api/unmapped-products/${selectedId}/history`);
-    if (data && data.error) throw new Error(data.error);
-    setMappingHistory(Array.isArray(data?.items) ? data.items : []);
-  } catch (err: any) {
-    setHistoryError(err?.message || 'Failed to load mapping history');
-  } finally {
-    setIsHistoryLoading(false);
-  }
-}, [selectedId]);
-import { CheckCircle2, EyeOff, Search, XCircle } from 'lucide-react';
-import { apiFetch } from '../../utils/apiFetch';
-import { PriceObservation, Product, StoreRecord, UnmappedProduct, UnmappedProductStatus } from '../../types';
 
 interface ManagementUnmappedProductsProps {
   stores: StoreRecord[];
@@ -62,18 +40,52 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
   products,
   fmtTime
 }) => {
+  // ✅ These MUST be inside the component (hooks can’t be at module scope)
   const [statusFilter, setStatusFilter] = useState<UnmappedProductStatus | 'ALL'>('NEW');
   const [search, setSearch] = useState('');
+
+  // Toast state (fallback if no global toast)
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+  const showToast = (message: string, type: 'error' | 'success' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const [mappingHistory, setMappingHistory] = useState<MappingHistoryEntry[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  // Load mapping/audit history for selected unmapped product
+  const loadMappingHistory = useCallback(async () => {
+    if (!selectedId) return;
+    setIsHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const data = await apiFetch<{ items: MappingHistoryEntry[]; error?: string }>(
+        `/api/unmapped-products/${selectedId}/history`
+      );
+      if (data && data.error) throw new Error(data.error);
+      setMappingHistory(Array.isArray(data?.items) ? data.items : []);
+    } catch (err: any) {
+      setHistoryError(err?.message || 'Failed to load mapping history');
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  }, [selectedId]);
+
+  const [unmappedProducts, setUnmappedProducts] = useState<UnmappedProduct[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [unmappedProducts, setUnmappedProducts] = useState<UnmappedProduct[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+
   const [priceHistory, setPriceHistory] = useState<PriceObservation[]>([]);
   const [priceSort, setPriceSort] = useState<'desc' | 'asc'>('desc');
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
   const [priceHistoryError, setPriceHistoryError] = useState<string | null>(null);
   const [isPriceLoading, setIsPriceLoading] = useState(false);
+
   const [productSearch, setProductSearch] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
   const [migrateObservations, setMigrateObservations] = useState(false);
@@ -105,10 +117,15 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
       if (activeStoreId) params.append('storeId', activeStoreId);
       if (statusFilter !== 'ALL') params.append('status', statusFilter);
       if (search.trim()) params.append('q', search.trim());
-      const data = await apiFetch<{ items: UnmappedProduct[]; error?: string }>(`/api/unmapped-products?${params.toString()}`);
+
+      const data = await apiFetch<{ items: UnmappedProduct[]; error?: string }>(
+        `/api/unmapped-products?${params.toString()}`
+      );
       if (data && data.error) throw new Error(data.error);
+
       const items = Array.isArray(data?.items) ? data.items : [];
       setUnmappedProducts(items);
+
       if (items.length && !items.find(item => item._id === selectedId)) {
         setSelectedId(items[0]._id);
       }
@@ -131,8 +148,12 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
       const params = new URLSearchParams();
       params.append('unmappedProductId', selectedId);
       if (activeStoreId) params.append('storeId', activeStoreId);
-      const data = await apiFetch<{ items: PriceObservation[]; error?: string }>(`/api/price-observations?${params.toString()}`);
+
+      const data = await apiFetch<{ items: PriceObservation[]; error?: string }>(
+        `/api/price-observations?${params.toString()}`
+      );
       if (data && data.error) throw new Error(data.error);
+
       setPriceHistory(Array.isArray(data?.items) ? data.items : []);
     } catch (err: any) {
       setPriceHistoryError(err?.message || 'Failed to load price history');
@@ -154,6 +175,7 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
         })
       });
       if (data && data.error) throw new Error(data.error);
+
       await loadUnmappedProducts();
       setSelectedProductId('');
       setProductSearch('');
@@ -172,11 +194,15 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
     if (!selectedId) return;
     setIsUpdating(true);
     try {
-      const data = await apiFetch<{ error?: string }>(`/api/unmapped-products/${selectedId}/ignore`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
+      const data = await apiFetch<{ error?: string }>(
+        `/api/unmapped-products/${selectedId}/ignore`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
       if (data && data.error) throw new Error(data.error);
+
       await loadUnmappedProducts();
       showToast('Unmapped product ignored', 'success');
     } catch (err: any) {
@@ -201,7 +227,11 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
     let arr = [...priceHistory];
     if (minPrice) arr = arr.filter(e => e.price >= parseFloat(minPrice));
     if (maxPrice) arr = arr.filter(e => e.price <= parseFloat(maxPrice));
-    arr.sort((a, b) => priceSort === 'desc' ? b.observedAt.localeCompare(a.observedAt) : a.observedAt.localeCompare(b.observedAt));
+    arr.sort((a, b) =>
+      priceSort === 'desc'
+        ? b.observedAt.localeCompare(a.observedAt)
+        : a.observedAt.localeCompare(b.observedAt)
+    );
     return arr;
   }, [priceHistory, priceSort, minPrice, maxPrice]);
 
@@ -216,6 +246,7 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
               Review unmatched receipt lines, inspect price history, and map them to catalog products.
             </p>
           </div>
+
           <div className="flex flex-wrap gap-3">
             <select
               value={activeStoreId}
@@ -224,18 +255,24 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
             >
               <option value="">All stores</option>
               {stores.map(store => (
-                <option key={store.id} value={store.id}>{store.name}</option>
+                <option key={store.id} value={store.id}>
+                  {store.name}
+                </option>
               ))}
             </select>
+
             <select
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value as UnmappedProductStatus | 'ALL')}
               className="bg-black/40 border border-white/10 rounded-2xl px-4 py-2 text-sm text-white"
             >
               {statusOptions.map(option => (
-                <option key={option.value} value={option.value}>{option.label}</option>
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
               ))}
             </select>
+
             <div className="relative">
               <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -260,13 +297,14 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
               <span>Unmapped items</span>
               <span>{unmappedProducts.length} total</span>
             </div>
+
             <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
-              {isLoading && (
-                <div className="text-sm text-slate-400">Loading unmapped products...</div>
-              )}
+              {isLoading && <div className="text-sm text-slate-400">Loading unmapped products...</div>}
+
               {!isLoading && unmappedProducts.length === 0 && (
                 <div className="text-sm text-slate-500">No unmapped products for this filter.</div>
               )}
+
               {unmappedProducts.map(item => (
                 <button
                   key={item._id}
@@ -299,45 +337,50 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
           <div className="space-y-4">
             <div className="bg-black/30 border border-white/10 rounded-2xl p-4 space-y-3">
               <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Mapping history</p>
-              {historyError && (
-                <div className="text-xs text-red-300">{historyError}</div>
-              )}
+
+              {historyError && <div className="text-xs text-red-300">{historyError}</div>}
               {isHistoryLoading && (
                 <div className="text-xs text-slate-400">Loading mapping history...</div>
               )}
               {!isHistoryLoading && mappingHistory.length === 0 && (
                 <div className="text-xs text-slate-500">No mapping or ignore actions yet.</div>
               )}
+
               <div className="space-y-2 max-h-[120px] overflow-y-auto">
                 {mappingHistory.map(entry => (
-                  <div key={entry._id} className="flex items-center justify-between text-xs text-slate-200">
+                  <div
+                    key={entry._id}
+                    className="flex items-center justify-between text-xs text-slate-200"
+                  >
                     <span>
                       {entry.action === 'MAPPED' ? (
                         <>
                           <span className="text-ninpo-lime font-bold">Mapped</span>
                           {entry.productSku && (
-                            <> to <span className="font-semibold">{entry.productSku}</span></>
+                            <>
+                              {' '}
+                              to <span className="font-semibold">{entry.productSku}</span>
+                            </>
                           )}
-                          {entry.productName && (
-                            <> – {entry.productName}</>
-                          )}
+                          {entry.productName && <> – {entry.productName}</>}
                         </>
                       ) : (
                         <span className="text-slate-400 font-bold">Ignored</span>
                       )}
-                      {entry.user && (
-                        <span className="ml-2 text-slate-500">by {entry.user}</span>
-                      )}
+                      {entry.user && <span className="ml-2 text-slate-500">by {entry.user}</span>}
                     </span>
                     <span className="text-slate-400">{fmtTime(entry.at)}</span>
                   </div>
                 ))}
               </div>
             </div>
+
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Selected</p>
-                <h3 className="text-lg font-black text-white">{selectedItem?.rawName || 'No selection'}</h3>
+                <h3 className="text-lg font-black text-white">
+                  {selectedItem?.rawName || 'No selection'}
+                </h3>
                 <p className="text-xs text-slate-500">{selectedItem?.normalizedName}</p>
               </div>
               {selectedItem?.status === 'IGNORED' && (
@@ -349,12 +392,14 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
 
             <div className="bg-black/30 border border-white/10 rounded-2xl p-4 space-y-3">
               <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Map to product</p>
+
               <input
                 value={productSearch}
                 onChange={e => setProductSearch(e.target.value)}
                 placeholder="Search products by name or SKU"
                 className="bg-black/40 border border-white/10 rounded-2xl px-4 py-2 text-sm text-white w-full"
               />
+
               <select
                 value={selectedProductId}
                 onChange={e => setSelectedProductId(e.target.value)}
@@ -365,11 +410,13 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
                   const productValue = product.id || (product as any)._id;
                   return (
                     <option key={productValue} value={productValue}>
-                      {product.sku ? `${product.sku} · ` : ''}{product.name}
+                      {product.sku ? `${product.sku} · ` : ''}
+                      {product.name}
                     </option>
                   );
                 })}
               </select>
+
               <label className="flex items-center gap-2 text-xs text-slate-400">
                 <input
                   type="checkbox"
@@ -378,6 +425,7 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
                 />
                 Migrate price history to mapped product
               </label>
+
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -387,12 +435,22 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
                 >
                   <CheckCircle2 className="w-4 h-4" /> Map
                 </button>
+
                 {showConfirmMap && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
                     <div className="bg-ninpo-card border border-white/10 rounded-2xl p-8 max-w-sm w-full space-y-4">
                       <h4 className="text-lg font-bold text-white">Confirm Mapping</h4>
                       <p className="text-slate-300 text-sm">
-                        Are you sure you want to map <span className="font-semibold">{selectedItem?.rawName}</span> to <span className="font-semibold">{filteredProducts.find(p => (p.id || (p as any)._id) === selectedProductId)?.name}</span>?
+                        Are you sure you want to map{' '}
+                        <span className="font-semibold">{selectedItem?.rawName}</span> to{' '}
+                        <span className="font-semibold">
+                          {
+                            filteredProducts.find(
+                              p => (p.id || (p as any)._id) === selectedProductId
+                            )?.name
+                          }
+                        </span>
+                        ?
                       </p>
                       <div className="flex gap-3 mt-4">
                         <button
@@ -414,12 +472,20 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
                     </div>
                   </div>
                 )}
-                      {/* Toast notification */}
-                      {toast && (
-                        <div className={`fixed bottom-6 left-1/2 z-50 -translate-x-1/2 px-6 py-3 rounded-2xl shadow-lg text-sm font-bold ${toast.type === 'success' ? 'bg-ninpo-lime text-ninpo-black' : 'bg-red-600 text-white'}`}>
-                          {toast.message}
-                        </div>
-                      )}
+
+                {/* Toast notification */}
+                {toast && (
+                  <div
+                    className={`fixed bottom-6 left-1/2 z-50 -translate-x-1/2 px-6 py-3 rounded-2xl shadow-lg text-sm font-bold ${
+                      toast.type === 'success'
+                        ? 'bg-ninpo-lime text-ninpo-black'
+                        : 'bg-red-600 text-white'
+                    }`}
+                  >
+                    {toast.message}
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={handleIgnore}
@@ -436,6 +502,7 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Price history</p>
                 <span className="text-xs text-slate-500">{filteredPriceHistory.length} obs.</span>
               </div>
+
               <div className="flex flex-wrap gap-2 mb-2">
                 <select
                   value={priceSort}
@@ -445,6 +512,7 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
                   <option value="desc">Newest first</option>
                   <option value="asc">Oldest first</option>
                 </select>
+
                 <input
                   type="number"
                   min="0"
@@ -454,6 +522,7 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
                   placeholder="Min $"
                   className="bg-black/40 border border-white/10 rounded-2xl px-2 py-1 text-xs text-white w-20"
                 />
+
                 <input
                   type="number"
                   min="0"
@@ -464,18 +533,21 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
                   className="bg-black/40 border border-white/10 rounded-2xl px-2 py-1 text-xs text-white w-20"
                 />
               </div>
-              {priceHistoryError && (
-                <div className="text-xs text-red-300">{priceHistoryError}</div>
-              )}
+
+              {priceHistoryError && <div className="text-xs text-red-300">{priceHistoryError}</div>}
               {isPriceLoading && (
                 <div className="text-xs text-slate-400">Loading price observations...</div>
               )}
               {!isPriceLoading && filteredPriceHistory.length === 0 && (
                 <div className="text-xs text-slate-500">No price observations yet.</div>
               )}
+
               <div className="space-y-2 max-h-[260px] overflow-y-auto">
                 {filteredPriceHistory.map(entry => (
-                  <div key={entry._id} className="flex items-center justify-between text-sm text-slate-200">
+                  <div
+                    key={entry._id}
+                    className="flex items-center justify-between text-sm text-slate-200"
+                  >
                     <span>${entry.price.toFixed(2)}</span>
                     <span className="text-xs text-slate-400">{fmtTime(entry.observedAt)}</span>
                   </div>
