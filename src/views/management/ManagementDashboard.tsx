@@ -89,24 +89,24 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = (props) => {
     parseCompletedCount: 0
   });
 
-  useEffect(() => {
-    // Fetch summary from backend (same as fetchReceiptCaptureStats in PricingIntelligence)
-    async function fetchReceiptCaptureStats() {
-      try {
-        const resp = await fetch('/api/driver/receipt-captures-summary', { credentials: 'include' });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        const s = data?.summary || {};
-        setReceiptSummary({
-          parsedReceiptCount: s.parsed ?? 0,
-          pendingReceiptCount: s.pendingParse ?? 0,
-          parseReviewNeededCount: s.failed ?? 0, // or 0 if you don’t want failed here
-          parseCompletedCount: s.committed ?? 0 // or s.reviewComplete if you prefer
-        });
-      } catch {
-        // fail silently for dashboard
-      }
+  // Fetch summary from backend (same as fetchReceiptCaptureStats in PricingIntelligence)
+  const fetchReceiptCaptureStats = async () => {
+    try {
+      const resp = await fetch('/api/driver/receipt-captures-summary', { credentials: 'include' });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const s = data?.summary || {};
+      setReceiptSummary({
+        parsedReceiptCount: s.parsed ?? 0,
+        pendingReceiptCount: s.pendingParse ?? 0,
+        parseReviewNeededCount: s.failed ?? 0, // or 0 if you don’t want failed here
+        parseCompletedCount: s.committed ?? 0 // or s.reviewComplete if you prefer
+      });
+    } catch {
+      // fail silently for dashboard
     }
+  };
+  useEffect(() => {
     fetchReceiptCaptureStats();
   }, []);
   // Analytics state
@@ -223,6 +223,15 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = (props) => {
       </div>
 
       {/* Price Intelligence Summary (live data) */}
+      <div className="flex items-center mb-2">
+        <span className="text-lg font-bold text-white mr-4">Receipt Stats</span>
+        <button
+          onClick={fetchReceiptCaptureStats}
+          className="flex items-center gap-2 px-3 py-1 rounded-lg bg-ninpo-lime text-ninpo-black font-bold text-xs uppercase tracking-widest hover:bg-ninpo-lime/90 transition"
+        >
+          <RefreshCw className="w-4 h-4" /> Refresh
+        </button>
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <div className="bg-white/5 rounded-xl p-4 border border-white/10">
           <span className="text-[10px] text-slate-400 uppercase tracking-widest">Parsed Receipts</span>
