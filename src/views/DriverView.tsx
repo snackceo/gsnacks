@@ -25,6 +25,7 @@ import DriverVerificationDelivery from './DriverVerificationDelivery';
 import DriverOrderFlow from '../components/DriverOrderFlow';
 import DriverOrderDetail from '../components/DriverOrderDetail';
 import { useNinpoCore } from '../hooks/useNinpoCore';
+import useCameraStream from '../hooks/useCameraStream';
 
 
 interface DriverViewProps {
@@ -138,7 +139,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const [conditionFlags, setConditionFlags] = useState<string[]>([]);
   const [fulfillmentScans, setFulfillmentScans] = useState<FulfillmentScanEntry[]>([]);
 
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const { videoRef, error: cameraError, startCamera, stopCamera } = useCameraStream({ autoStart: false });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const eligibilityCacheRef = useRef<Record<string, { isEligible: boolean; checkedAt: string }>>({});
@@ -341,17 +342,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
     setPaymentCaptured(order.status === OrderStatus.PAID || isReturnOnlyOrder(order));
 
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' }
-      });
-      if (videoRef.current) videoRef.current.srcObject = s;
-    } catch {
-      setDriverNotice({
-        tone: 'error',
-        message: 'Camera access is required for delivery and return photos.'
-      });
-    }
+    await startCamera({ facingMode: 'environment' });
   };
 
   const captureFromVideo = () => {
@@ -1098,6 +1089,23 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrder]);
+
+  useEffect(() => {
+    if (!activeOrder) {
+      stopCamera();
+    }
+  }, [activeOrder, stopCamera]);
+
+  useEffect(() => {
+    if (cameraError && activeOrder) {
+      setDriverNotice({
+        tone: 'error',
+        message: 'Camera access is required for delivery and return photos.'
+      });
+    }
+  }, [activeOrder, cameraError]);
+
+  useEffect(() => () => stopCamera(), [stopCamera]);
 
   useEffect(() => {
     setFulfillmentScans([]);

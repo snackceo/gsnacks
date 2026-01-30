@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 // See GLOSSARY.md for authoritative definitions of all scanner modes.
 import { ScannerMode } from '../types';
-import { updateVideoReadyState } from '../utils/videoReady';
+import useCameraStream from '../hooks/useCameraStream';
 
 export interface ParsedReceiptItem {
   receiptName: string;
@@ -153,8 +153,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     // Toast context
     const toastCtx = useContext(ToastContext);
     const addToast = toastCtx?.addToast || (() => {});
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const { videoRef, streamRef, streamActive, error: cameraError, startCamera, stopCamera } = useCameraStream({ autoStart: false });
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
   const lastAutoOpenUpcRef = useRef<string | null>(null);
   const startedRef = useRef(false);
@@ -181,9 +180,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   const lastDetectAtRef = useRef<number>(0);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const videoReadyHandlerRef = useRef<(() => void) | null>(null);
-  const videoDataHandlerRef = useRef<(() => void) | null>(null);
-
   const [isScanning, setIsScanning] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannerHint, setScannerHint] = useState<string | null>(null);
@@ -300,34 +296,10 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     }
     setTorchOn(false); // Always reset torch state
 
-    if (streamRef.current) {
-      try {
-        streamRef.current.getTracks().forEach(t => t.stop());
-      } catch {
-        // ignore
-      }
-      streamRef.current = null;
-    }
-
     videoTrackRef.current = null;
     setTorchSupported(false);
-
-    if (videoRef.current) {
-      if (videoReadyHandlerRef.current) {
-        videoRef.current.removeEventListener('loadedmetadata', videoReadyHandlerRef.current);
-        videoReadyHandlerRef.current = null;
-      }
-      if (videoDataHandlerRef.current) {
-        videoRef.current.removeEventListener('loadeddata', videoDataHandlerRef.current);
-        videoDataHandlerRef.current = null;
-      }
-      try {
-        (videoRef.current as any).srcObject = null;
-      } catch {
-        // ignore
-      }
-    }
-  }, []);
+    stopCamera();
+  }, [stopCamera]);
 
   const toggleTorch = useCallback(async () => {
     if (!torchSupported) {
@@ -399,42 +371,25 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 
     // In receipt mode, we just need the camera stream. No barcode detection.
     if (isReceiptMode) {
-      try {
-        const constraints: MediaStreamConstraints = {
-          video: {
-            facingMode: 'environment',
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
-          },
-          audio: false
-        };
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        if (cancelledRef.current) {
-          stream.getTracks().forEach(t => t.stop());
-          return;
-        }
-        streamRef.current = stream;
-        const track = stream.getVideoTracks()[0];
-        videoTrackRef.current = track;
-        const caps = track.getCapabilities?.();
-        setTorchSupported(Boolean((caps as any)?.torch));
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-          setIsScanning(false);
-          updateVideoReadyState({
-            videoEl: videoRef.current,
-            onReady: () => setIsScanning(true),
-            metadataHandlerRef: videoReadyHandlerRef,
-            dataHandlerRef: videoDataHandlerRef
-          });
-        }
-      } catch (err) {
+      await startCamera({
+        facingMode: 'environment',
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      });
+      if (cancelledRef.current) {
+        stopCamera();
+        return;
+      }
+      if (!streamRef.current) {
         setScannerError('Camera blocked. Enable permissions and retry.');
         setIsScanning(false);
         setBlocked(true);
+        return;
       }
+      const track = streamRef.current.getVideoTracks()[0];
+      videoTrackRef.current = track;
+      const caps = track?.getCapabilities?.();
+      setTorchSupported(Boolean((caps as any)?.torch));
       return;
     }
 
@@ -446,59 +401,29 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     }
 
     try {
-      const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30 }
-        },
-        audio: false
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      await startCamera({
+        facingMode: 'environment',
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 30 }
+      });
       if (cancelledRef.current) {
-        stream.getTracks().forEach(t => t.stop());
+        stopCamera();
         return;
       }
-
-      streamRef.current = stream;
-
-      const track = stream.getVideoTracks()[0];
-      videoTrackRef.current = track;
-
-      const caps = track.getCapabilities?.();
-      setTorchSupported(Boolean((caps as any)?.torch));
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        try {
-          await videoRef.current.play();
-          setIsScanning(false);
-          updateVideoReadyState({
-            videoEl: videoRef.current,
-            onReady: () => setIsScanning(true),
-            metadataHandlerRef: videoReadyHandlerRef,
-            dataHandlerRef: videoDataHandlerRef
-          });
-        } catch {
-          setScannerError('Camera failed to start. Tap Retry.');
-          setScannerHint('On mobile Chrome, tap once to grant permission or retry after allowing camera access.');
-          setIsScanning(false);
-          stream.getTracks().forEach(t => t.stop());
-          streamRef.current = null;
-          videoTrackRef.current = null;
-          return;
-        }
-      } else {
+      if (!streamRef.current || !videoRef.current) {
         setScannerError('Camera failed to start. Tap Retry.');
         setScannerHint('On mobile Chrome, tap once to grant permission or retry after allowing camera access.');
         setIsScanning(false);
-        stream.getTracks().forEach(t => t.stop());
-        streamRef.current = null;
         videoTrackRef.current = null;
         return;
       }
+
+      const track = streamRef.current.getVideoTracks()[0];
+      videoTrackRef.current = track;
+
+      const caps = track?.getCapabilities?.();
+      setTorchSupported(Boolean((caps as any)?.torch));
 
       // Barcode detection mode
       const detector = new (window as any).BarcodeDetector({
@@ -580,7 +505,18 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       setIsScanning(false);
       setBlocked(true);
     }
-  }, [acceptScan, stopScanner, validateUpc, isReceiptMode]);
+  }, [acceptScan, stopScanner, validateUpc, isReceiptMode, startCamera, stopCamera]);
+
+  useEffect(() => {
+    setIsScanning(streamActive);
+  }, [streamActive]);
+
+  useEffect(() => {
+    if (cameraError && !scannerError) {
+      setScannerError('Camera blocked. Enable permissions.');
+      setBlocked(true);
+    }
+  }, [cameraError, scannerError]);
 
 
   const captureReceiptAndParse = useCallback(async () => {
