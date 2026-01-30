@@ -14,7 +14,7 @@ import AppSettings from '../models/AppSettings.js';
 import { authRequired, isDriverUsername, isOwnerUsername, driverCanAccessStore } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { isDbReady } from '../db/connect.js';
-import { matchStoreCandidate, shouldAutoCreateStore } from '../utils/storeMatcher.js';
+import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { isPricingLearningEnabled, receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap } from '../utils/featureFlags.js';
 import { enqueueReceiptJob, isReceiptQueueEnabled } from '../queues/receiptQueue.js';
 import { executeReceiptParse } from '../utils/receiptParseHelper.js';
@@ -665,7 +665,7 @@ router.post('/receipt-store-candidates', authRequired, async (req, res) => {
   }
 
   try {
-    const { storeName, address, phone, storeType } = req.body;
+    const { storeName, address, phone, storeType, storeNumber } = req.body;
     const username = req.user?.username || 'unknown';
 
     if (!storeName) {
@@ -677,7 +677,14 @@ router.post('/receipt-store-candidates', authRequired, async (req, res) => {
       return res.json({ ok: true, existing: stored });
     }
 
-    const allowCreate = shouldAutoCreateStore();
+    const allowCreate = shouldAutoCreateStore({
+      name: storeName,
+      address,
+      phone,
+      phoneNormalized: normalizePhone(phone),
+      storeNumber: normalizeStoreNumber(storeNumber),
+      storeType
+    });
     if (!allowCreate) {
       return res.status(403).json({ error: 'Auto store creation disabled' });
     }
@@ -686,6 +693,8 @@ router.post('/receipt-store-candidates', authRequired, async (req, res) => {
       name: storeName,
       address,
       phone,
+      phoneNormalized: normalizePhone(phone),
+      storeNumber: normalizeStoreNumber(storeNumber),
       storeType
     });
 
@@ -1238,6 +1247,8 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
             name: store?.name || normalizedStoreName || 'Unknown Store',
             address: store?.address || {},
             phone: store?.phone,
+            phoneNormalized: normalizePhone(store?.phoneNormalized || store?.phone),
+            storeNumber: store?.storeNumber,
             storeType: store?.storeType,
             confidence: matchResult?.confidence || 0,
             storeId: matchResult?.match?._id || undefined
@@ -1695,7 +1706,7 @@ router.post('/receipt-parse-jobs/:captureId/approve', authRequired, async (req, 
 
   try {
     const { captureId } = req.params;
-    const { storeId, storeName, address, phone, storeType } = req.body;
+    const { storeId, storeName, address, phone, storeType, storeNumber } = req.body;
     const username = req.user?.username || 'unknown';
 
     const capture = await ReceiptCapture.findById(captureId);
@@ -1720,6 +1731,8 @@ router.post('/receipt-parse-jobs/:captureId/approve', authRequired, async (req, 
           name: storeName,
           address: address || {},
           phone,
+          phoneNormalized: normalizePhone(phone),
+          storeNumber: normalizeStoreNumber(storeNumber),
           storeType
         });
       }

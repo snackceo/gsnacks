@@ -33,7 +33,9 @@ const storeHoursSchema = new mongoose.Schema(
 const storeSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, unique: true },
+    storeNumber: { type: String, default: '' },
     phone: { type: String, default: '' },
+    phoneNormalized: { type: String, default: '' },
     address: {
       street: { type: String, default: '' },
       city: { type: String, default: '' },
@@ -66,5 +68,9 @@ const storeSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+storeSchema.index({ storeNumber: 1 });
+storeSchema.index({ phoneNormalized: 1 });
+storeSchema.index({ storeType: 1, 'address.zip': 1 });
 
 export default mongoose.model('Store', storeSchema);

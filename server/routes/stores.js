@@ -7,6 +7,7 @@ import StoreInventory from '../models/StoreInventory.js';
 import Product from '../models/Product.js';
 import UpcItem from '../models/UpcItem.js';
 import { authRequired, managerOrOwnerRequired, ownerRequired } from '../utils/helpers.js';
+import { normalizePhone, normalizeStoreNumber } from '../utils/storeMatcher.js';
 import { recordAuditLog } from '../utils/audit.js';
 
 const router = express.Router();
@@ -34,7 +35,9 @@ const coerceNumber = value => {
 const toStoreResponse = store => ({
   id: store._id.toString(),
   name: store.name,
+  storeNumber: store.storeNumber,
   phone: store.phone,
+  phoneNormalized: store.phoneNormalized,
   address: store.address,
   storeType: store.storeType,
   createdFrom: store.createdFrom,
@@ -162,6 +165,7 @@ router.post('/', authRequired, managerOrOwnerRequired, async (req, res) => {
   try {
     const {
       name,
+      storeNumber,
       phone = '',
       address = {},
       storeType = 'other',
@@ -176,7 +180,9 @@ router.post('/', authRequired, managerOrOwnerRequired, async (req, res) => {
 
     const payload = {
       name: trimmedName,
+      storeNumber: normalizeStoreNumber(storeNumber),
       phone: String(phone || ''),
+      phoneNormalized: normalizePhone(phone),
       address: {
         street: String(address.street || '').trim(),
         city: String(address.city || '').trim(),
