@@ -156,6 +156,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   const streamRef = useRef<MediaStream | null>(null);
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
   const lastAutoOpenUpcRef = useRef<string | null>(null);
+  const startedRef = useRef(false);
 
   const rafRef = useRef<number | null>(null);
   const cancelledRef = useRef<boolean>(false);
@@ -266,10 +267,10 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       onScanRef.current(upc);
 
       if (closeOnScanRef.current && onCloseRef.current) {
-        onCloseRef.current();
+        handleClose();
       }
     },
-    [playBeep]
+    [handleClose, playBeep]
   );
 
   const stopScanner = useCallback(async () => {
@@ -706,8 +707,15 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     setIsSheetOpen(prev => !prev);
   }, []);
 
+  const handleClose = useCallback(() => {
+    startedRef.current = false;
+    void stopScanner();
+    onCloseRef.current?.();
+  }, [stopScanner]);
+
   useEffect(() => {
     return () => {
+      startedRef.current = false;
       void stopScanner();
     };
   }, [stopScanner]);
@@ -720,18 +728,18 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   }, [lastDetectedUpc]);
 
   useEffect(() => {
-    if (manualStart || blocked) {
-      void stopScanner();
-      if (manualStart) {
-        setScannerError(null);
-        setScannerHint(null);
-      }
+    if (startedRef.current) return;
+    startedRef.current = true;
+
+    if (manualStart) {
+      setScannerError(null);
+      setScannerHint(null);
       setIsScanning(false);
       return;
     }
 
     void startScanner();
-  }, [blocked, manualStart, startScanner, stopScanner]);
+  }, [manualStart, startScanner]);
 
   // Add toast for all scanner/camera errors
   useEffect(() => {
@@ -775,7 +783,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
         <div className="flex items-center justify-between">
           {showClose && onClose ? (
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="p-3 rounded-full bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition"
             >
               <X className="w-5 h-5" />
