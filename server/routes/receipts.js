@@ -434,6 +434,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
             },
             { new: true, upsert: true, session }
           );
+
           priceObservations.push({
             unmappedProductId: unmapped._id,
             storeId: store._id,
@@ -444,6 +445,57 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           // Always create or update StoreInventory for unmapped product
           inventoryProductId = `unmapped:${unmapped._id}`;
           inventoryForUnmapped = true;
+
+          // Fix: upsert StoreInventory for unmapped
+          const unmappedInventory = await StoreInventory.findOneAndUpdate(
+            { storeId: store._id, unmappedProductId: unmapped._id },
+            {
+              $set: {
+                observedPrice: unitPrice,
+                observedAt: now,
+                lastVerified: now,
+                available: true,
+                stockLevel: 'in-stock'
+              },
+              $setOnInsert: {
+                cost: unitPrice,
+                markup: 1.2
+              },
+              $push: {
+                priceHistory: {
+                  price: unitPrice,
+                  observedAt: now,
+                  storeId: store._id,
+                  captureId: capture._id.toString(),
+                  orderId: capture.orderId,
+                  quantity: Number(item.quantity || 1),
+                  receiptImageUrl: capture.images?.[0]?.url,
+                  receiptThumbnailUrl: capture.images?.[0]?.thumbnailUrl,
+                  matchMethod: item.matchMethod || 'manual_confirm',
+                  matchConfidence: item.matchConfidence,
+                  confirmedBy: username,
+                  priceType: item.priceType || 'unknown',
+                  promoDetected: item.promoDetected || false,
+                  workflowType: 'unmapped'
+                }
+              },
+              $addToSet: {
+                appliedCaptures: {
+                  captureId: capture._id.toString(),
+                  lineIndex: item.lineIndex,
+                  appliedAt: now
+                }
+              }
+            },
+            { new: true, upsert: true, session }
+          );
+          inventoryUpdates.push({
+            storeId: store._id,
+            productId: inventoryProductId,
+            price: unitPrice,
+            inventoryId: unmappedInventory?._id,
+            lineIndex: item.lineIndex
+          });
         }
 
         if (!product && action === 'CREATE_PRODUCT') {
