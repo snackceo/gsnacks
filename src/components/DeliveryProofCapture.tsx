@@ -1,6 +1,6 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import { Camera, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
-import { updateVideoReadyState } from '../utils/videoReady';
+import useCameraStream from '../hooks/useCameraStream';
 
 interface DeliveryProofCaptureProps {
   orderId: string;
@@ -13,65 +13,14 @@ const DeliveryProofCapture: React.FC<DeliveryProofCaptureProps> = ({
   onCapture,
   onClose
 }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const videoReadyHandlerRef = useRef<(() => void) | null>(null);
-  const videoDataHandlerRef = useRef<(() => void) | null>(null);
+  const { videoRef, streamActive, error } = useCameraStream();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [mode, setMode] = useState<'camera' | 'capture' | 'preview'>('camera');
   const [photo, setPhoto] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [streamActive, setStreamActive] = useState(false);
-
-  useEffect(() => {
-    startCamera();
-    return () => stopCamera();
-  }, []);
-
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        const videoEl = videoRef.current;
-        videoEl.srcObject = stream;
-        setStreamActive(false);
-        updateVideoReadyState({
-          videoEl,
-          onReady: () => setStreamActive(true),
-          metadataHandlerRef: videoReadyHandlerRef,
-          dataHandlerRef: videoDataHandlerRef
-        });
-      }
-    } catch (err) {
-      setError('Camera access denied. Please enable camera permissions.');
-    }
-  };
-
-  const stopCamera = () => {
-    const stream = streamRef.current;
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      if (videoReadyHandlerRef.current) {
-        videoRef.current.removeEventListener('loadedmetadata', videoReadyHandlerRef.current);
-        videoReadyHandlerRef.current = null;
-      }
-      if (videoDataHandlerRef.current) {
-        videoRef.current.removeEventListener('loadeddata', videoDataHandlerRef.current);
-        videoDataHandlerRef.current = null;
-      }
-      videoRef.current.srcObject = null;
-    }
-    setStreamActive(false);
-  };
 
   const capturePhoto = () => {
     if (videoRef.current && canvasRef.current) {
@@ -105,10 +54,11 @@ const DeliveryProofCapture: React.FC<DeliveryProofCaptureProps> = ({
   const confirmCapture = async () => {
     if (photo) {
       setUploading(true);
+      setUploadError(null);
       try {
         onCapture(photo);
       } catch (err) {
-        setError('Failed to upload photo');
+        setUploadError('Failed to upload photo');
       } finally {
         setUploading(false);
       }
@@ -139,10 +89,10 @@ const DeliveryProofCapture: React.FC<DeliveryProofCaptureProps> = ({
         </button>
       </div>
 
-      {error && (
+      {(uploadError || error) && (
         <div className="mx-4 mt-4 p-4 bg-red-900/20 border border-red-600 rounded-xl text-red-300 flex items-center gap-2">
           <AlertCircle className="w-5 h-5" />
-          {error}
+          {uploadError || error}
         </div>
       )}
 
