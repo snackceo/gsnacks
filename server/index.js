@@ -41,6 +41,8 @@ import itemsNotFoundRouter from './routes/items-not-found.js';
 import receiptPricesRouter from './routes/receipt-prices.js';
 import receiptAliasesRouter from './routes/receipt-aliases.js';
 import storesRouter from './routes/stores.js';
+import unmappedProductsRouter from './routes/unmapped-products.js';
+import priceObservationsRouter from './routes/price-observations.js';
 import { maintenanceModeGuardCached } from './utils/maintenanceMode.js';
 
 dotenv.config();
@@ -162,6 +164,8 @@ app.use('/api/driver', receiptAliasesRouter); // Receipt alias bindings
 
 app.use('/api/stores', storesRouter); // Store management
 app.use('/api/store-inventory', storeInventoryRouter); // Store inventory fetch
+app.use('/api/unmapped-products', unmappedProductsRouter);
+app.use('/api/price-observations', priceObservationsRouter);
 
 // Role-neutral receipt workflow (unified receipt endpoint)
 app.use('/api/receipts', receiptsRouter); // Approvals, uploads, reviews

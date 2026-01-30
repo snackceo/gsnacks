@@ -9,6 +9,8 @@ import Store from '../models/Store.js';
 import Product from '../models/Product.js';
 import StoreInventory from '../models/StoreInventory.js';
 import UpcItem from '../models/UpcItem.js';
+import UnmappedProduct from '../models/UnmappedProduct.js';
+import PriceObservation from '../models/PriceObservation.js';
 import { isDbReady } from '../db/connect.js';
 import { authRequired, isOwnerUsername } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
@@ -24,6 +26,12 @@ const canApproveReceipts = user => {
 };
 
 const normalizeBarcode = value => String(value || '').replace(/\D/g, '');
+const normalizeReceiptName = value =>
+  String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\s]/gi, '');
 
 const resolveUnitPrice = item => {
   const parsedUnit = Number(item?.unitPrice);
@@ -173,7 +181,15 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
   let transactionStarted = false;
   try {
     const { jobId } = req.params;
-    const { mode, selectedIndices, lockDurationDays, idempotencyKey, forceUpcOverride, finalStoreId } = req.body || {};
+    const {
+      mode,
+      selectedIndices,
+      lockDurationDays,
+      idempotencyKey,
+      forceUpcOverride,
+      finalStoreId,
+      approvalDraft
+    } = req.body || {};
     const username = req.user?.username || 'unknown';
 
     if (!jobId || !mongoose.Types.ObjectId.isValid(jobId)) {
@@ -323,6 +339,15 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     const matchedProducts = [];
     const inventoryUpdates = [];
     const errors = [];
+    const approvalItems = new Map();
+    if (approvalDraft?.items && Array.isArray(approvalDraft.items)) {
+      for (const entry of approvalDraft.items) {
+        if (typeof entry?.lineIndex === 'number') {
+          approvalItems.set(entry.lineIndex, entry);
+        }
+      }
+    }
+    const priceObservations = [];
 
     const itemsToApprove = capture.draftItems.filter(item => {
       if (normalizedMode === 'selected') {
@@ -346,10 +371,18 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           continue;
         }
 
-        const normalizedUpc = normalizeBarcode(item.boundUpc || item.suggestedProduct?.upc);
+        const approvalItem = approvalItems.get(item.lineIndex) || {};
+        const action = approvalItem.action || null;
+        const normalizedUpc = normalizeBarcode(
+          approvalItem.upc || item.boundUpc || item.suggestedProduct?.upc
+        );
 
         let product = null;
-        if (item.boundProductId && mongoose.Types.ObjectId.isValid(item.boundProductId)) {
+        if (approvalItem.productId && mongoose.Types.ObjectId.isValid(approvalItem.productId)) {
+          product = await Product.findById(approvalItem.productId).session(session);
+        }
+
+        if (!product && item.boundProductId && mongoose.Types.ObjectId.isValid(item.boundProductId)) {
           product = await Product.findById(item.boundProductId).session(session);
         }
 
@@ -365,15 +398,16 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         }
 
         let productCreated = false;
-        if (!product) {
+        if (!product && action === 'CREATE_PRODUCT') {
           const sku = await generateSku();
-          const name = item.receiptName || item.normalizedName || 'Receipt Item';
+          const name = approvalItem.createProduct?.name || item.receiptName || item.normalizedName || 'Receipt Item';
+          const price = Number(approvalItem.createProduct?.price) || unitPrice;
           const created = await Product.create([
             {
               frontendId: sku,
               sku,
               name,
-              price: unitPrice,
+              price,
               deposit: 0,
               stock: 0,
               sizeOz: 0,
@@ -411,6 +445,69 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
             name: product.name,
             lineIndex: item.lineIndex
           });
+        }
+
+        if (action === 'IGNORE') {
+          if (!product) {
+            const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
+            const rawName = item.receiptName || normalizedName || 'Receipt Item';
+            const now = new Date();
+            const unmapped = await UnmappedProduct.findOneAndUpdate(
+              { storeId: store._id, normalizedName },
+              {
+                $setOnInsert: {
+                  storeId: store._id,
+                  rawName,
+                  normalizedName,
+                  firstSeenAt: now,
+                  status: 'NEW'
+                },
+                $set: {
+                  rawName,
+                  lastSeenAt: now
+                }
+              },
+              { new: true, upsert: true, session }
+            );
+            priceObservations.push({
+              unmappedProductId: unmapped._id,
+              storeId: store._id,
+              price: unitPrice,
+              observedAt: now,
+              receiptCaptureId: capture._id
+            });
+          }
+          continue;
+        }
+
+        if (!product) {
+          const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
+          const rawName = item.receiptName || normalizedName || 'Receipt Item';
+          const now = new Date();
+          const unmapped = await UnmappedProduct.findOneAndUpdate(
+            { storeId: store._id, normalizedName },
+            {
+              $setOnInsert: {
+                storeId: store._id,
+                rawName,
+                normalizedName,
+                firstSeenAt: now
+              },
+              $set: {
+                rawName,
+                lastSeenAt: now
+              }
+            },
+            { new: true, upsert: true, session }
+          );
+          priceObservations.push({
+            unmappedProductId: unmapped._id,
+            storeId: store._id,
+            price: unitPrice,
+            observedAt: now,
+            receiptCaptureId: capture._id
+          });
+          continue;
         }
 
         item.boundProductId = product._id;
@@ -520,6 +617,14 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           lineIndex: item.lineIndex
         });
 
+        priceObservations.push({
+          productId: product._id,
+          storeId: store._id,
+          price: unitPrice,
+          observedAt: new Date(),
+          receiptCaptureId: capture._id
+        });
+
         // UPC linking to productId, with conflict handling
         if (normalizedUpc) {
           const existingUpc = await UpcItem.findOne({ upc: normalizedUpc }).session(session);
@@ -582,6 +687,10 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         approvalPayload: req.body || null
       };
       await parseJob.save({ session });
+    }
+
+    if (priceObservations.length > 0) {
+      await PriceObservation.insertMany(priceObservations, { session });
     }
 
     if (transactionStarted) {

@@ -20,6 +20,7 @@ import { ScannerMode, OrderStatus } from '../types';
 import ManagementDashboard from './management/ManagementDashboard';
 import ManagementOrders from './management/ManagementOrders';
 import ManagementReceipt from './management/ManagementReceipt';
+import ManagementUnmappedProducts from './management/ManagementUnmappedProducts';
 
 import ManagementAuthAudit from './management/ManagementAuthAudit';
 import ManagementUsers from './management/ManagementUsers';
@@ -37,7 +38,8 @@ import {
   FileText,
   ShieldCheck,
   Building2,
-  Barcode
+  Barcode,
+  ClipboardList
 } from 'lucide-react';
 import ScannerModal from '../components/ScannerModal';
 import UnmappedUpcModal from '../components/UnmappedUpcModal';
@@ -1201,6 +1203,20 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           isLoadingStores={isLoadingStores}
           storeError={storeError}
           setStoreError={setStoreError}
+          fmtTime={fmtTime}
+        />
+      )
+    },
+    'unmapped-products': {
+      id: 'unmapped-products',
+      label: 'Unmapped Products',
+      icon: ClipboardList,
+      render: () => (
+        <ManagementUnmappedProducts
+          stores={stores}
+          activeStoreId={activeStoreId}
+          setActiveStoreId={setActiveStoreId}
+          products={products}
           fmtTime={fmtTime}
         />
       )
