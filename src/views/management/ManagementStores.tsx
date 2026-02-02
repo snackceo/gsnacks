@@ -492,7 +492,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       <div className="bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-white font-black uppercase text-xs tracking-widest">
-            <Tags className="w-4 h-4" /> Store Inventory
+            <Tags className="w-4 h-4" /> Price Intelligence
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -507,15 +507,15 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
               disabled={!activeStoreId || isInventoryLoading}
               className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 disabled:opacity-60"
             >
-              {isInventoryLoading ? 'Loading…' : 'Refresh Catalog'}
+              {isInventoryLoading ? 'Loading…' : 'Refresh Observed Items'}
             </button>
           </div>
         </div>
 
         <div className="text-[10px] text-slate-400 uppercase tracking-widest">
           {activeStore
-            ? `Catalog for ${activeStore.name} · ${formatLocation(activeStore)}`
-            : 'Select a store to review its catalog pricing and availability.'}
+            ? `Observed items for ${activeStore.name} · ${formatLocation(activeStore)}`
+            : 'Select a store to review its observed pricing and availability.'}
         </div>
         {activeStoreId && storeInventory.length > 0 && (
           <div className="text-[10px] text-slate-500 uppercase tracking-widest">
