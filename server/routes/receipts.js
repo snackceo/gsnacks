@@ -384,18 +384,35 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         : (Array.isArray(parseJob?.structured?.draftItems) ? parseJob.structured.draftItems : []);
 
     if (draftItems.length === 0) {
+      await recordAuditLog({
+        type: 'receipt_approval_failed',
+        actorId: username,
+        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_draft_items`
+      });
       return res.status(400).json({ error: 'No draft items available to apply' });
     }
 
     const normalizedDraftItems = draftItems.map(normalizeDraftItem);
+    const validDraftItems = normalizedDraftItems.filter(
+      item => typeof item.lineIndex === 'number' && item.receiptName
+    );
+
+    if (validDraftItems.length === 0) {
+      await recordAuditLog({
+        type: 'receipt_approval_failed',
+        actorId: username,
+        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=invalid_draft_items`
+      });
+      return res.status(400).json({ error: 'No draft items available to apply' });
+    }
 
     // Persist normalized items so you don’t keep drifting between schemas
     if (!Array.isArray(capture.draftItems) || capture.draftItems.length === 0) {
-      capture.draftItems = normalizedDraftItems;
-      capture.totalItems = normalizedDraftItems.length;
+      capture.draftItems = validDraftItems;
+      capture.totalItems = validDraftItems.length;
     }
 
-    const itemsToApprove = normalizedDraftItems.filter(item => {
+    const itemsToApprove = validDraftItems.filter(item => {
       if (normalizedMode === 'selected') return selectedSet?.has(item.lineIndex);
       if (normalizedMode === 'safe') {
         const jobItem = (parseJob.items || []).find(i => Number(i.lineIndex) === Number(item.lineIndex));
@@ -640,8 +657,8 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
 
     const previousCommitted = Number(capture.itemsCommitted || 0);
     capture.itemsCommitted = Math.min(capture.totalItems, previousCommitted + itemsToApprove.length);
-    capture.itemsConfirmed = normalizedDraftItems.filter(entry => entry.boundProductId).length;
-    capture.itemsNeedingReview = normalizedDraftItems.filter(entry => entry.needsReview).length;
+    capture.itemsConfirmed = validDraftItems.filter(entry => entry.boundProductId).length;
+    capture.itemsNeedingReview = validDraftItems.filter(entry => entry.needsReview).length;
     capture.committedBy = username;
     capture.committedAt = new Date();
     // Fix 2: Mark committed if any items applied, regardless of mode
