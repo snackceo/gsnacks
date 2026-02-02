@@ -1025,6 +1025,10 @@ helpers.test.js (test): Backend test file for helpers.js functions.
 ReceiptParseJob (data model/process):
 Represents a single backend attempt to parse a captured receipt image. Created automatically when a new ReceiptCapture is ingested (via camera, upload, or email). Tracks parse status (QUEUED, PARSING, PARSED, NEEDS_REVIEW, APPROVED, REJECTED, FAILED), attempt count, error details, and timestamps. Enforces strict state transitions: every ReceiptCapture must have an active or scheduled ReceiptParseJob. The backend retries parsing up to 5 times on transient errors, with exponential backoff. After max attempts, status is set to FAILED and parseError is persisted. See GEMINI.md and RECEIPT_REVIEW_ARCHITECTURE.md for full workflow and anti-stuck policy.
 
+priceHistory.matchMethod (enum field): Describes how a receipt line was matched to a product for price observation. Supports values used by receipt parsing and inventory workflows, including `upc`, `sku`, `alias_confirmed`, `fuzzy_confirmed`, `fuzzy_suggested`, `manual_confirm`, and `unmapped` (for receipt lines recorded without a product match). The value is stored per StoreInventory priceHistory entry to power audit and review flows.
+
+priceHistory.workflowType (enum field): Describes the workflow context for a price observation. Supported values include `new_product`, `update_price`, and `unmapped` for receipt lines stored as UnmappedProduct entries. This is used to distinguish unmapped receipt ingestion from standard product creation or price updates.
+
 ReceiptStoreDraft (data model/process):
 Temporary, uncommitted representation of parsed receipt line items and store metadata. Created after successful or partial parse of a ReceiptCapture. Used to stage edits, corrections, and product mappings before final approval. Operators review and adjust ReceiptStoreDrafts in the management UI. Only after explicit approval/commit does the draft become a permanent catalog update. Drafts are always linked to their originating ReceiptCapture and ReceiptParseJob. See GEMINI.md and RECEIPT_REVIEW_ARCHITECTURE.md for review/commit semantics.
 
