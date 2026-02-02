@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Wand2, MapPin, Loader2, CheckCircle2, Trash2, Tags } from 'lucide-react';
 import { BACKEND_URL } from '../../constants';
 import { StoreRecord } from '../../types';
@@ -33,6 +33,11 @@ interface StoreInventoryEntry {
     sku?: string;
     upc?: string;
     price?: number;
+  };
+  unmappedProductId?: {
+    _id?: string;
+    rawName?: string;
+    normalizedName?: string;
   };
 }
 
@@ -99,6 +104,8 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   setError
 }) => {
   const { addToast } = useNinpoCore();
+  const inventoryPageSize = 200;
+  const skipSearchFetchRef = useRef(false);
   const [rawInput, setRawInput] = useState('');
   const [isEnriching, setIsEnriching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -107,6 +114,9 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
   const [storeInventory, setStoreInventory] = useState<StoreInventoryEntry[]>([]);
   const [isInventoryLoading, setIsInventoryLoading] = useState(false);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
+  const [inventoryPage, setInventoryPage] = useState(0);
+  const [hasMoreInventory, setHasMoreInventory] = useState(true);
+  const [inventorySearch, setInventorySearch] = useState('');
   const [draft, setDraft] = useState<StoreRecord>({
     id: '',
     name: '',
@@ -120,16 +130,6 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
     () => stores.find(store => store.id === activeStoreId) || null,
     [activeStoreId, stores]
   );
-
-  const sortedInventory = useMemo(() => {
-    return [...storeInventory].sort((a, b) => {
-      const nameA = (a.product?.name || '').toLowerCase();
-      const nameB = (b.product?.name || '').toLowerCase();
-      if (nameA < nameB) return -1;
-      if (nameA > nameB) return 1;
-      return 0;
-    });
-  }, [storeInventory]);
 
   const handleEnrich = useCallback(async () => {
     setError(null);
@@ -252,12 +252,19 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
     }
   }, [activeStoreId, addToast, refreshStores, setActiveStoreId, setError]);
 
-  const fetchStoreInventory = useCallback(async () => {
+  const fetchStoreInventory = useCallback(async (page = 0, searchTerm = inventorySearch) => {
     if (!activeStoreId) return;
     setIsInventoryLoading(true);
     setInventoryError(null);
     try {
-      const resp = await fetch(`${BACKEND_URL}/api/store-inventory/${activeStoreId}`, {
+      const params = new URLSearchParams({
+        skip: String(page * inventoryPageSize),
+        limit: String(inventoryPageSize)
+      });
+      if (searchTerm.trim()) {
+        params.set('search', searchTerm.trim());
+      }
+      const resp = await fetch(`${BACKEND_URL}/api/store-inventory/${activeStoreId}?${params.toString()}`, {
         credentials: 'include'
       });
       if (!resp.ok) {
@@ -266,21 +273,46 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       }
       const data = await resp.json().catch(() => ({}));
       // The backend returns { ok: true, inventory: [...] }
-      setStoreInventory(Array.isArray(data.inventory) ? data.inventory : []);
+      const nextInventory = Array.isArray(data.inventory) ? data.inventory : [];
+      setStoreInventory(prev => (page === 0 ? nextInventory : [...prev, ...nextInventory]));
+      setInventoryPage(page);
+      setHasMoreInventory(nextInventory.length === inventoryPageSize);
     } catch (err: any) {
       setInventoryError(err?.message || 'Failed to load store inventory');
     } finally {
       setIsInventoryLoading(false);
     }
-  }, [activeStoreId]);
+  }, [activeStoreId, inventoryPageSize, inventorySearch]);
 
   useEffect(() => {
     if (activeStoreId) {
-      void fetchStoreInventory();
+      setInventoryPage(0);
+      setHasMoreInventory(true);
+      skipSearchFetchRef.current = true;
+      setInventorySearch('');
+      void fetchStoreInventory(0);
     } else {
       setStoreInventory([]);
+      setHasMoreInventory(true);
+      setInventoryPage(0);
+      skipSearchFetchRef.current = false;
+      setInventorySearch('');
     }
   }, [activeStoreId, fetchStoreInventory]);
+
+  useEffect(() => {
+    if (!activeStoreId) return;
+    if (skipSearchFetchRef.current) {
+      skipSearchFetchRef.current = false;
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setInventoryPage(0);
+      setHasMoreInventory(true);
+      void fetchStoreInventory(0, inventorySearch);
+    }, 250);
+    return () => clearTimeout(timeout);
+  }, [activeStoreId, fetchStoreInventory, inventorySearch]);
 
   return (
     <div className="space-y-6">
@@ -524,13 +556,22 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
           <div className="flex items-center gap-2 text-white font-black uppercase text-xs tracking-widest">
             <Tags className="w-4 h-4" /> Store Inventory
           </div>
-          <button
-            onClick={() => void fetchStoreInventory()}
-            disabled={!activeStoreId || isInventoryLoading}
-            className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 disabled:opacity-60"
-          >
-            {isInventoryLoading ? 'Loading…' : 'Refresh Catalog'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={inventorySearch}
+              onChange={event => setInventorySearch(event.target.value)}
+              placeholder="Search SKU, UPC, name"
+              className="bg-black/40 border border-white/10 rounded-full px-3 py-2 text-[10px] text-slate-200 uppercase tracking-widest placeholder:text-slate-500"
+              disabled={!activeStoreId}
+            />
+            <button
+              onClick={() => void fetchStoreInventory(0)}
+              disabled={!activeStoreId || isInventoryLoading}
+              className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 disabled:opacity-60"
+            >
+              {isInventoryLoading ? 'Loading…' : 'Refresh Catalog'}
+            </button>
+          </div>
         </div>
 
         <div className="text-[10px] text-slate-400 uppercase tracking-widest">
@@ -538,6 +579,11 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
             ? `Catalog for ${activeStore.name} · ${formatLocation(activeStore)}`
             : 'Select a store to review its catalog pricing and availability.'}
         </div>
+        {activeStoreId && storeInventory.length > 0 && (
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest">
+            Showing {storeInventory.length} items{inventorySearch.trim() ? ' for this search' : ''}.
+          </div>
+        )}
 
         {inventoryError && (
           <p className="text-xs text-ninpo-red font-semibold uppercase tracking-widest">{inventoryError}</p>
@@ -560,20 +606,27 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {sortedInventory.length === 0 ? (
+                {storeInventory.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-4 text-slate-400">
-                      No catalog items yet. Receipt parsing and manual updates will populate this list.
+                      {inventorySearch.trim()
+                        ? 'No catalog items match your search.'
+                        : 'No catalog items yet. Receipt parsing and manual updates will populate this list.'}
                     </td>
                   </tr>
                 ) : (
-                  sortedInventory.map(entry => {
+                  storeInventory.map(entry => {
                     const { price, source } = resolveStorePrice(entry);
+                    const productName =
+                      entry.product?.name ||
+                      entry.unmappedProductId?.rawName ||
+                      entry.unmappedProductId?.normalizedName ||
+                      'Unnamed product';
                     return (
                       <tr key={entry._id} className="border-b border-white/5">
                         <td className="py-3 pr-4">
                           <div className="font-semibold text-white">{entry.product?.sku || entry.sku || '—'}</div>
-                          <div className="text-[10px] text-slate-500">{entry.product?.name || 'Unnamed product'}</div>
+                          <div className="text-[10px] text-slate-500">{productName}</div>
                         </td>
                         <td className="py-3 pr-4 text-slate-300">{entry.product?.upc || '—'}</td>
                         <td className="py-3 pr-4">
@@ -594,6 +647,17 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
                 )}
               </tbody>
             </table>
+            {hasMoreInventory && (
+              <div className="flex justify-center pt-4">
+                <button
+                  onClick={() => void fetchStoreInventory(inventoryPage + 1)}
+                  disabled={isInventoryLoading}
+                  className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 disabled:opacity-60"
+                >
+                  {isInventoryLoading ? 'Loading…' : 'Load More'}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
