@@ -557,13 +557,26 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
                 ) : (
                   storeInventory.map(entry => {
                     const { name, sku, upc, price, source } = getInventoryDisplay(entry);
+                    const isUnmapped = !entry.productId;
                     return (
                       <tr key={entry._id} className="border-b border-white/5">
                         <td className="py-3 pr-4">
-                          <div className="font-semibold text-white">{sku}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="font-semibold text-white">{sku}</div>
+                            {isUnmapped && (
+                              <span
+                                className="text-[9px] uppercase tracking-widest bg-white/5 text-slate-300 px-2 py-0.5 rounded-full border border-white/10"
+                                title="No SKU/UPC mapping yet."
+                              >
+                                Unmapped
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[10px] text-slate-500">{name}</div>
                         </td>
-                        <td className="py-3 pr-4 text-slate-300">{upc}</td>
+                        <td className="py-3 pr-4 text-slate-300" title={isUnmapped ? 'No UPC mapping yet.' : undefined}>
+                          {upc}
+                        </td>
                         <td className="py-3 pr-4">
                           <div className="font-semibold text-white">{formatMoney(price)}</div>
                           <div className="text-[10px] text-slate-500">{source}</div>

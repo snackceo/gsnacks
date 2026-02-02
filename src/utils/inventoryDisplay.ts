@@ -6,8 +6,9 @@ export const getInventoryDisplay = (entry: StoreInventoryEntry) => {
     entry.unmappedProductId?.rawName ||
     entry.unmappedProductId?.normalizedName ||
     'Unknown item';
-  const sku = entry.productId?.sku ?? '—';
-  const upc = entry.productId?.upc ?? '—';
+  const isUnmapped = !entry.productId;
+  const sku = isUnmapped ? '—' : entry.productId?.sku ?? '—';
+  const upc = isUnmapped ? '—' : entry.productId?.upc ?? '—';
   const price = entry.observedPrice ?? entry.cost ?? null;
   const source = Number.isFinite(entry.observedPrice)
     ? 'Observed'
