@@ -86,9 +86,9 @@ npm run backfill-store-normalization
 npm run backfill-store-normalization -- --only-missing
 ```
 
-### Store inventory index rebuild (productId + unmappedProductId)
+### Store inventory index rebuild (productId + unmappedProductId + observedAt)
 
-When updating StoreInventory index definitions (such as partial unique indexes for productId or unmappedProductId), rebuild indexes during a low-traffic window to align MongoDB with the current schema.
+When updating StoreInventory index definitions (such as partial unique indexes for productId or unmappedProductId, or the observedAt sort index), rebuild indexes during a low-traffic window to align MongoDB with the current schema.
 
 **Rebuild indexes (script):**
 
