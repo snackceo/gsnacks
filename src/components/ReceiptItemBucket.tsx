@@ -14,7 +14,6 @@ interface ReceiptItemBucketProps {
   onItemReclassify?: (item: ClassifiedReceiptItem, classification: ReceiptItemClassification) => void;
   onItemScanUpc?: (item: ClassifiedReceiptItem) => void;
   onItemSearchProduct?: (item: ClassifiedReceiptItem) => void;
-  onItemCreateProduct?: (item: ClassifiedReceiptItem) => void;
   onItemAttachExisting?: (item: ClassifiedReceiptItem) => void;
   onItemNeverMatch?: (item: ClassifiedReceiptItem) => void;
 
@@ -80,7 +79,6 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
   onItemReclassify,
   onItemScanUpc,
   onItemSearchProduct,
-  onItemCreateProduct,
   onItemAttachExisting,
   onItemNeverMatch,
   getItemKey,
@@ -108,7 +106,6 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
     Boolean(
       onItemScanUpc ||
         onItemSearchProduct ||
-        onItemCreateProduct ||
         onItemAttachExisting ||
         onItemNeverMatch
     );
@@ -143,13 +140,13 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                   const history = item.matchHistory?.slice(0, 3) ?? [];
                   const priceDelta = typeof item.priceDelta === 'number' ? item.priceDelta : undefined;
                   const displayUpc = item.scannedUpc || item.suggestedProduct?.upc;
-                  const canCreateProduct = !item.suggestedProduct && !item.isNoiseRule;
                   const canAttachExisting = Boolean(item.scannedUpc) && !item.isNoiseRule;
                   const matchScore =
                     typeof item.matchConfidence === 'number'
                       ? `${(item.matchConfidence * 100).toFixed(0)}%`
                       : null;
                   const matchMethod = item.matchMethod ? item.matchMethod.replace(/_/g, ' ') : null;
+                  const workflowType = item.workflowType || item.matchHistory?.[0]?.workflowType;
 
                   return (
                     <div
@@ -206,6 +203,7 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                             <p className="text-xs text-slate-500 mt-1">
                               Match: {matchMethod || 'unknown'}
                               {matchScore ? ` • ${matchScore}` : ''}
+                              {workflowType ? ` • Workflow: ${workflowType.replace(/_/g, ' ')}` : ''}
                             </p>
                           )}
 
@@ -301,19 +299,6 @@ const ReceiptItemBucket: React.FC<ReceiptItemBucketProps> = ({
                                   }`}
                                 >
                                   Attach to existing
-                                </button>
-                              )}
-
-                              {onItemCreateProduct && canCreateProduct && (
-                                <button
-                                  type="button"
-                                  onClick={event => {
-                                    event.stopPropagation();
-                                    onItemCreateProduct(item);
-                                  }}
-                                  className="px-2 py-1 rounded-full text-[10px] font-semibold border border-ninpo-lime/40 text-ninpo-lime bg-ninpo-lime/10 hover:bg-ninpo-lime/20"
-                                >
-                                  Create Product
                                 </button>
                               )}
 

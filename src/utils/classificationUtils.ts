@@ -16,6 +16,7 @@ interface RawReceiptItem {
   suggestedProduct?: ClassifiedReceiptItem['suggestedProduct'];
   matchConfidence?: ClassifiedReceiptItem['matchConfidence'];
   matchMethod?: ClassifiedReceiptItem['matchMethod'];
+  workflowType?: ClassifiedReceiptItem['workflowType'];
   isNoiseRule?: ClassifiedReceiptItem['isNoiseRule'];
   lineIndex?: ClassifiedReceiptItem['lineIndex'];
   captureId?: ClassifiedReceiptItem['captureId'];
@@ -115,6 +116,7 @@ export function classifyItem(
     suggestedProduct: item.suggestedProduct,
     matchConfidence: resolvedMatchConfidence,
     matchMethod: item.matchMethod,
+    workflowType: item.workflowType,
     isNoiseRule: item.isNoiseRule,
     lineIndex: item.lineIndex,
     captureId: item.captureId

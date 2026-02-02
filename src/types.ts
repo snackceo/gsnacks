@@ -544,6 +544,7 @@ export interface ClassifiedReceiptItem {
   };
   matchConfidence?: number;
   matchMethod?: string;
+  workflowType?: string;
   isNoiseRule?: boolean;
   scannedUpc?: string;
   lineIndex?: number;
