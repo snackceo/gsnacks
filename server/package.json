@@ -14,6 +14,7 @@
     "cleanup-receipt-queue": "node scripts/cleanupReceiptQueue.js",
     "backfill-store-normalization": "node scripts/backfillStoreNormalization.js",
     "find-abandoned-authorizations": "node scripts/findAbandonedAuthorizations.js",
+    "rebuild-store-inventory-indexes": "node scripts/rebuildStoreInventoryIndexes.js",
     "test": "node --test",
     "worker:receipts": "node workers/receiptWorker.js"
   },
