@@ -210,8 +210,8 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       const data = await apiFetch<StoreInventoryResponse>(
         `/api/store-inventory/${activeStoreId}?${params.toString()}`
       );
-      // The backend returns { ok: true, inventory: [...] }
-      const nextInventory = Array.isArray(data.inventory) ? data.inventory : [];
+      // The backend returns { ok: true, items: [...] }
+      const nextInventory = Array.isArray(data.items) ? data.items : [];
       setStoreInventory(prev => (page === 0 ? nextInventory : [...prev, ...nextInventory]));
       setInventoryPage(page);
       setHasMoreInventory(nextInventory.length === inventoryPageSize);

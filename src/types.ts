@@ -181,7 +181,7 @@ export interface StoreInventoryEntry {
 
 export interface StoreInventoryResponse {
   ok: boolean;
-  inventory: StoreInventoryEntry[];
+  items: StoreInventoryEntry[];
   error?: string;
 }
 
