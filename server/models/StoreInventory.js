@@ -84,8 +84,24 @@ const storeInventorySchema = new mongoose.Schema(
 
 
 // Compound index for fast store+product lookups
-storeInventorySchema.index({ storeId: 1, productId: 1 }, { unique: true, sparse: true });
-storeInventorySchema.index({ storeId: 1, unmappedProductId: 1 }, { unique: true, sparse: true });
+storeInventorySchema.index(
+  { storeId: 1, productId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      productId: { $exists: true, $ne: null }
+    }
+  }
+);
+storeInventorySchema.index(
+  { storeId: 1, unmappedProductId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      unmappedProductId: { $exists: true, $ne: null }
+    }
+  }
+);
 storeInventorySchema.index({ storeId: 1, sku: 1 });
 storeInventorySchema.index({ storeId: 1, updatedAt: -1 }); // Performance monitoring
 
