@@ -206,7 +206,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   // Receipt review state (moved from Pricing Intelligence)
   const [activeReceiptCaptureId, setActiveReceiptCaptureId] = useState<string | null>(null);
   const [classifiedItems, setClassifiedItems] = useState<ClassifiedReceiptItem[]>([]);
-  const [approvalMode, setApprovalMode] = useState<ReceiptApprovalMode>('safe');
+  const [approvalMode, setApprovalMode] = useState<ReceiptApprovalMode>('all');
   const [forceUpcOverride, setForceUpcOverride] = useState(false);
   const [finalStoreMode, setFinalStoreMode] = useState<FinalStoreMode>('MATCHED');
   const [finalStoreDraft, setFinalStoreDraft] = useState<ReceiptApprovalStoreDraft>({});
@@ -1124,17 +1124,29 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                           ))}
                         </div>
 
-                        <div className="flex gap-2">
-                          <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              handleApproveReceipt(job, 'safe');
-                            }}
-                            disabled={isProcessing}
-                            className="flex-1 py-2 bg-ninpo-lime text-ninpo-black rounded-lg font-bold text-[10px] hover:bg-white transition disabled:opacity-50"
-                          >
-                            Approve (Safe)
-                          </button>
+                        <div className="space-y-2">
+                          <div className="flex gap-2">
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleApproveReceipt(job, approvalMode);
+                              }}
+                              disabled={isProcessing}
+                              className="flex-1 py-2 bg-ninpo-lime text-ninpo-black rounded-lg font-bold text-[10px] hover:bg-white transition disabled:opacity-50"
+                            >
+                              Approve ({approvalMode})
+                            </button>
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleApproveReceipt(job, 'safe');
+                              }}
+                              disabled={isProcessing}
+                              className="flex-1 py-2 bg-ninpo-lime/20 text-ninpo-lime rounded-lg font-bold text-[10px] hover:bg-ninpo-lime/30 transition disabled:opacity-50"
+                            >
+                              Approve (Safe)
+                            </button>
+                          </div>
                           {/* Dismiss/Reject also visible here for consistency */}
                           <button
                             onClick={e => {
@@ -1142,7 +1154,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                               handleRejectParseJob(job._id);
                             }}
                             disabled={isProcessing}
-                            className="flex-1 py-2 bg-ninpo-red/20 text-ninpo-red rounded-lg font-bold text-[10px] hover:bg-ninpo-red/30 transition disabled:opacity-50"
+                            className="w-full py-2 bg-ninpo-red/20 text-ninpo-red rounded-lg font-bold text-[10px] hover:bg-ninpo-red/30 transition disabled:opacity-50"
                           >
                             Dismiss
                           </button>
