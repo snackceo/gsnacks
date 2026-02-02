@@ -52,4 +52,5 @@ Thumbs.db
 # =========================
 coverage
 .cache
+.tmp-test
 uploads

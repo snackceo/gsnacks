@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.{ts,tsx,js,jsx}\"",
     "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test scripts/tests/inventoryDisplay.test.js && rm -rf .tmp-test",
     "glossary:audit": "node scripts/glossary-audit.cjs"
   },
   "dependencies": {

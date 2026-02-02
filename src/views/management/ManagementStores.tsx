@@ -3,6 +3,7 @@ import { Wand2, MapPin, Loader2, CheckCircle2, Trash2, Tags } from 'lucide-react
 import { StoreInventoryEntry, StoreInventoryResponse, StoreRecord } from '../../types';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
 import { formatStoreAddress } from '../../utils/address';
+import { getInventoryDisplay } from '../../utils/inventoryDisplay';
 import { apiFetch } from '../../utils/apiFetch';
 
 interface ManagementStoresProps {
@@ -56,6 +57,7 @@ const formatAvailability = (entry: StoreInventoryEntry) => {
   if (entry.stockLevel === 'in-stock') return 'In stock';
   return 'Available';
 };
+
 
 const ManagementStores: React.FC<ManagementStoresProps> = ({
   stores,
@@ -554,19 +556,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
                   </tr>
                 ) : (
                   storeInventory.map(entry => {
-                    const name =
-                      entry.productId?.name ||
-                      entry.unmappedProductId?.rawName ||
-                      entry.unmappedProductId?.normalizedName ||
-                      'Unknown';
-                    const sku = entry.productId?.sku ?? '—';
-                    const upc = entry.productId?.upc ?? '—';
-                    const price = entry.observedPrice ?? entry.cost ?? null;
-                    const source = Number.isFinite(entry.observedPrice)
-                      ? 'Observed'
-                      : Number.isFinite(entry.cost)
-                        ? 'Cost'
-                        : '—';
+                    const { name, sku, upc, price, source } = getInventoryDisplay(entry);
                     return (
                       <tr key={entry._id} className="border-b border-white/5">
                         <td className="py-3 pr-4">
