@@ -44,7 +44,7 @@ const storeInventorySchema = new mongoose.Schema(
       receiptThumbnailUrl: { type: String }, // Small preview
       matchMethod: { 
         type: String, 
-        enum: ['upc', 'sku', 'alias_confirmed', 'fuzzy_confirmed', 'fuzzy_suggested', 'manual_confirm'] 
+        enum: ['upc', 'sku', 'alias_confirmed', 'fuzzy_confirmed', 'fuzzy_suggested', 'manual_confirm', 'unmapped'] 
       },
       matchConfidence: { type: Number, min: 0, max: 1 },
       confirmedBy: { type: String }, // User ID
@@ -56,7 +56,7 @@ const storeInventorySchema = new mongoose.Schema(
       promoDetected: { type: Boolean, default: false },
       workflowType: {
         type: String,
-        enum: ['new_product', 'update_price']
+        enum: ['new_product', 'update_price', 'unmapped']
       }
     }],
     

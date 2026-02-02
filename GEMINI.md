@@ -20,6 +20,7 @@ This file defines the system philosophy, contract, and non-negotiable rules for 
 - Receipt commits must create price observations for matched products and for unmatched items.
 - Unmatched receipt lines are tracked as UnmappedProduct entries (unique per store + normalized name) so operators can review, map, or ignore them later.
 - Mapping an UnmappedProduct to a Product should not silently discard its price history; migration must be explicit.
+- Price observations for unmatched items must be stored with explicit metadata to distinguish unmapped workflows (e.g., `matchMethod: "unmapped"` and `workflowType: "unmapped"`), so receipt approval does not fail on validation and downstream review can filter them reliably.
 
 ## 0. Ground Rules (Non‑Negotiable)
 
