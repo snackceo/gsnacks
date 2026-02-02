@@ -378,10 +378,9 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
 
 
     // Normalize draft items from either capture or parseJob
-    const draftItems =
-      (Array.isArray(capture.draftItems) && capture.draftItems.length > 0)
-        ? capture.draftItems
-        : (Array.isArray(parseJob?.structured?.draftItems) ? parseJob.structured.draftItems : []);
+    const draftItems = Array.isArray(capture.draftItems)
+      ? capture.draftItems
+      : (Array.isArray(parseJob?.structured?.draftItems) ? parseJob.structured.draftItems : []);
 
     if (draftItems.length === 0) {
       await recordAuditLog({
