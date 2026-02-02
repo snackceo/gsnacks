@@ -15,7 +15,6 @@ import {
   ClassifiedReceiptItem,
   FinalStoreMode,
   ReceiptApprovalAction,
-  ReceiptApprovalCreateProductPayload,
   ReceiptApprovalDraft,
   ReceiptApprovalDraftItem,
   ReceiptParseJob,
@@ -260,44 +259,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   const updateReceiptApprovalItemAction = useCallback(
     (itemId: string, action: ReceiptApprovalAction) => {
-      updateReceiptApprovalItem(itemId, item => {
-        if (action !== 'CREATE_PRODUCT') {
-          return { ...item, action };
-        }
-        const lineIndex = item.lineIndex;
-        const source = classifiedItems.find(candidate => candidate.lineIndex === lineIndex);
-        const defaultName = source?.receiptName || source?.nameCandidate;
-        const defaultPrice = typeof source?.unitPrice === 'number'
-          ? source.unitPrice
-          : typeof source?.lineTotal === 'number' && typeof source?.quantity === 'number' && source.quantity > 0
-            ? source.lineTotal / source.quantity
-            : undefined;
-        const defaultSize = source?.sizeOz;
-        const nextCreateProduct: ReceiptApprovalCreateProductPayload = {
-          name: item.createProduct?.name || defaultName || '',
-          price: item.createProduct?.price ?? defaultPrice ?? 0,
-          sizeOz: item.createProduct?.sizeOz ?? defaultSize,
-          brand: item.createProduct?.brand || source?.brandCandidate
-        };
-        return {
-          ...item,
-          action,
-          createProduct: nextCreateProduct
-        };
-      });
-    },
-    [classifiedItems, updateReceiptApprovalItem]
-  );
-
-  const updateReceiptApprovalItemCreateProduct = useCallback(
-    (itemId: string, details: Partial<ReceiptApprovalCreateProductPayload>) => {
-      updateReceiptApprovalItem(itemId, item => ({
-        ...item,
-        createProduct: {
-          ...item.createProduct,
-          ...details
-        }
-      }));
+      updateReceiptApprovalItem(itemId, item => ({ ...item, action }));
     },
     [updateReceiptApprovalItem]
   );
@@ -623,8 +585,11 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       return items.map(item => {
         const lineIndex = item.lineIndex ?? -1;
         const jobItem = jobItems.get(lineIndex);
+        const suggestedAction = jobItem?.actionSuggestion;
         const action: ReceiptApprovalAction =
-          jobItem?.actionSuggestion || (item.suggestedProduct?.id ? 'LINK_UPC_TO_PRODUCT' : 'IGNORE');
+          suggestedAction === 'CREATE_PRODUCT'
+            ? 'IGNORE'
+            : suggestedAction || (item.suggestedProduct?.id ? 'LINK_UPC_TO_PRODUCT' : 'IGNORE');
         return {
           id: getReceiptJobItemId({ _id: (jobItem as { _id?: string })?._id, captureId: job.captureId, lineIndex }),
           lineIndex,
@@ -656,20 +621,6 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     });
     updateReceiptApprovalItemAction(targetId, 'LINK_UPC_TO_PRODUCT');
   }, [activeReceiptCaptureId, selectedJob?.captureId, addToast, updateReceiptApprovalItemAction]);
-
-  const handleCreateProduct = useCallback((item: ClassifiedReceiptItem) => {
-    addToast('Product creation not yet implemented.', 'info');
-    // Implement create product logic if needed
-    const targetId = getReceiptJobItemId({
-      captureId: activeReceiptCaptureId || selectedJob?.captureId,
-      lineIndex: item.lineIndex
-    });
-    updateReceiptApprovalItemAction(targetId, 'CREATE_PRODUCT');
-    updateReceiptApprovalItemCreateProduct(targetId, {
-      name: item.receiptName,
-      price: item.unitPrice || item.totalPrice
-    });
-  }, [activeReceiptCaptureId, selectedJob?.captureId, addToast, updateReceiptApprovalItemAction, updateReceiptApprovalItemCreateProduct]);
 
   const handleAddNoiseRule = useCallback((normalizedName: string) => {
     addToast(`Noise rule added for: ${normalizedName}`, 'info');
@@ -1027,7 +978,6 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             onCommit={handleCommit}
             onScanItem={handleScanItem}
             onSearchProduct={handleSearchProduct}
-            onCreateProduct={handleCreateProduct}
             onSelectForCommit={(item, checked) => {
               const key = getReceiptItemKey(item);
               setSelectedItemsForCommit(prev => {
@@ -1043,7 +993,6 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             }}
             onItemUpcChange={updateReceiptApprovalItemUpc}
             onItemActionChange={updateReceiptApprovalItemAction}
-            onItemCreateProductChange={updateReceiptApprovalItemCreateProduct}
             onAddNoiseRule={handleAddNoiseRule}
             scanModalOpen={scanModalOpen}
             handleScannerScan={handleScannerScan}
@@ -1255,7 +1204,6 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     isRetryBlocked,
     handleScanItem,
     handleSearchProduct,
-    handleCreateProduct,
     handleAddNoiseRule,
     handleScannerScan,
     handleScannerClose,

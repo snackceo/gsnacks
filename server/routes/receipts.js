@@ -15,7 +15,6 @@ import { isDbReady } from '../db/connect.js';
 import { authRequired, isOwnerUsername } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCreateStore } from '../utils/storeMatcher.js';
-import { generateSku } from '../utils/sku.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import { buildInventoryUpdate, buildStoreInventoryQuery } from '../utils/receiptInventory.js';
 
@@ -379,30 +378,24 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
 
 
     // Normalize draft items from either capture or parseJob
-    const rawDraftItems =
+    const draftItems =
       (Array.isArray(capture.draftItems) && capture.draftItems.length > 0)
         ? capture.draftItems
         : (Array.isArray(parseJob?.structured?.draftItems) ? parseJob.structured.draftItems : []);
 
-    const draftItems = rawDraftItems.map(normalizeDraftItem);
-
-    if (!draftItems.length) {
-      return res.status(400).json({
-        error: 'No draft items available to apply',
-        details: {
-          captureDraftItems: Array.isArray(capture?.draftItems) ? capture.draftItems.length : 0,
-          parseJobStructuredDraftItems: Array.isArray(parseJob?.structured?.draftItems) ? parseJob.structured.draftItems.length : 0,
-        }
-      });
+    if (draftItems.length === 0) {
+      return res.status(400).json({ error: 'No draft items available to apply' });
     }
+
+    const normalizedDraftItems = draftItems.map(normalizeDraftItem);
 
     // Persist normalized items so you don’t keep drifting between schemas
     if (!Array.isArray(capture.draftItems) || capture.draftItems.length === 0) {
-      capture.draftItems = draftItems;
-      capture.totalItems = draftItems.length;
+      capture.draftItems = normalizedDraftItems;
+      capture.totalItems = normalizedDraftItems.length;
     }
 
-    const itemsToApprove = draftItems.filter(item => {
+    const itemsToApprove = normalizedDraftItems.filter(item => {
       if (normalizedMode === 'selected') return selectedSet?.has(item.lineIndex);
       if (normalizedMode === 'safe') {
         const jobItem = (parseJob.items || []).find(i => Number(i.lineIndex) === Number(item.lineIndex));
@@ -428,6 +421,11 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           approvalItem.upc || item.boundUpc || item.suggestedProduct?.upc
         );
 
+        if (action === 'CREATE_PRODUCT') {
+          errors.push({ lineIndex: item.lineIndex, error: 'Receipt-driven product creation is not allowed' });
+          continue;
+        }
+
         let product = null;
         if (approvalItem.productId && mongoose.Types.ObjectId.isValid(approvalItem.productId)) {
           product = await Product.findById(approvalItem.productId).session(session);
@@ -452,7 +450,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         let inventoryProductId = null;
         let inventoryUnmappedProductId = null;
 
-        if (!product && (action === 'IGNORE' || action === 'CREATE_UNMAPPED' || !action)) {
+        if (!product) {
           // Always create or update UnmappedProduct for raw/unknown items
           const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
           const rawName = item.receiptName || normalizedName || 'Receipt Item';
@@ -480,51 +478,13 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
             storeId: store._id,
             price: unitPrice,
             observedAt: now,
-            receiptCaptureId: capture._id
+            receiptCaptureId: capture._id,
+            matchMethod: item.matchMethod || 'unmapped',
+            workflowType: item.workflowType || 'unmapped'
           });
           // Only set flags for shared inventory upsert
           inventoryUnmappedProductId = unmapped._id;
           inventoryForUnmapped = true;
-        }
-
-        if (!product && action === 'CREATE_PRODUCT') {
-          const sku = await generateSku();
-          const name = approvalItem.createProduct?.name || item.receiptName || item.normalizedName || 'Receipt Item';
-          const price = Number(approvalItem.createProduct?.price) || unitPrice;
-          const created = await Product.create([
-            {
-              frontendId: sku,
-              sku,
-              name,
-              price,
-              deposit: 0,
-              stock: 0,
-              sizeOz: 0,
-              isTaxable: true,
-              category: 'DRINK',
-              brand: item.tokens?.brand || '',
-              productType: '',
-              storageZone: '',
-              storageBin: '',
-              isGlass: false,
-              isHeavy: false,
-              store: store._id
-            }
-          ], { session });
-          product = created[0];
-          productCreated = true;
-          createdProducts.push({
-            id: product._id,
-            sku: product.sku,
-            name: product.name,
-            lineIndex: item.lineIndex
-          });
-
-          await recordAuditLog({
-            type: 'product_created_from_receipt',
-            actorId: username,
-            details: `captureId=${capture._id.toString()} productId=${product._id.toString()} sku=${product.sku} name=${product.name}`
-          });
         }
 
         if (product && !productCreated) {
@@ -535,6 +495,9 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
             lineIndex: item.lineIndex
           });
         }
+
+        const inventoryMatchMethod = item.matchMethod || (product ? 'manual_confirm' : 'unmapped');
+        const inventoryWorkflowType = item.workflowType || (product ? 'update_price' : 'unmapped');
 
         // Always create or update StoreInventory for this store and product/unmapped
         let storeInventoryQuery;
@@ -574,12 +537,12 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
                   quantity: Number(item.quantity || 1),
                   receiptImageUrl: capture.images?.[0]?.url,
                   receiptThumbnailUrl: capture.images?.[0]?.thumbnailUrl,
-                  matchMethod: item.matchMethod || 'manual_confirm',
+                  matchMethod: inventoryMatchMethod,
                   matchConfidence: item.matchConfidence,
                   confirmedBy: username,
                   priceType: item.priceType || 'unknown',
                   promoDetected: item.promoDetected || false,
-                  workflowType: productCreated ? 'new_product' : 'update_price'
+                  workflowType: productCreated ? 'new_product' : inventoryWorkflowType
                 }
               },
               $addToSet: {
@@ -633,7 +596,9 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
             storeId: store._id,
             price: unitPrice,
             observedAt: new Date(),
-            receiptCaptureId: capture._id
+            receiptCaptureId: capture._id,
+            matchMethod: item.matchMethod || 'manual_confirm',
+            workflowType: item.workflowType || 'update_price'
           });
         }
 
@@ -675,8 +640,8 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
 
     const previousCommitted = Number(capture.itemsCommitted || 0);
     capture.itemsCommitted = Math.min(capture.totalItems, previousCommitted + itemsToApprove.length);
-    capture.itemsConfirmed = draftItems.filter(entry => entry.boundProductId).length;
-    capture.itemsNeedingReview = draftItems.filter(entry => entry.needsReview).length;
+    capture.itemsConfirmed = normalizedDraftItems.filter(entry => entry.boundProductId).length;
+    capture.itemsNeedingReview = normalizedDraftItems.filter(entry => entry.needsReview).length;
     capture.committedBy = username;
     capture.committedAt = new Date();
     // Fix 2: Mark committed if any items applied, regardless of mode

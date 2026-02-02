@@ -29,6 +29,12 @@ const priceObservationSchema = new mongoose.Schema({
   receiptCaptureId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'ReceiptCapture'
+  },
+  matchMethod: {
+    type: String
+  },
+  workflowType: {
+    type: String
   }
 }, {
   timestamps: true

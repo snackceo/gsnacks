@@ -5,7 +5,6 @@ import ScannerModal from '../../../components/ScannerModal';
 import {
   FinalStoreMode,
   ReceiptApprovalAction,
-  ReceiptApprovalCreateProductPayload,
   ReceiptApprovalDraftItem,
   ReceiptStoreCandidate,
   ScannerMode,
@@ -55,11 +54,9 @@ interface ReceiptReviewPanelProps {
   onCommit: () => void;
   onScanItem: (item: any) => void;
   onSearchProduct: (item: any) => void;
-  onCreateProduct: (item: any) => void;
   onSelectForCommit: (item: any, checked?: boolean) => void;
   onItemUpcChange: (itemId: string, upc: string) => void;
   onItemActionChange: (itemId: string, action: ReceiptApprovalAction) => void;
-  onItemCreateProductChange: (itemId: string, details: Partial<ReceiptApprovalCreateProductPayload>) => void;
   onAddNoiseRule: (normalizedName: string) => void;
   scanModalOpen: boolean;
   handleScannerScan: (upc: string) => void;
@@ -108,11 +105,9 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   onCommit,
   onScanItem,
   onSearchProduct,
-  onCreateProduct,
   onSelectForCommit,
   onItemUpcChange,
   onItemActionChange,
-  onItemCreateProductChange,
   onAddNoiseRule,
   scanModalOpen,
   handleScannerScan,
@@ -184,26 +179,9 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
       ? { label: 'Advisory', className: 'bg-yellow-200/10 text-yellow-100 border-yellow-200/40' }
       : { label: 'Ready', className: 'bg-ninpo-lime/10 text-ninpo-lime border-ninpo-lime/40' };
 
-  const buildReceiptDefaults = (source?: any): Partial<ReceiptApprovalCreateProductPayload> => {
-    if (!source) return {};
-    const defaultPrice =
-      typeof source.unitPrice === 'number'
-        ? source.unitPrice
-        : typeof source.lineTotal === 'number' && typeof source.quantity === 'number' && source.quantity > 0
-          ? source.lineTotal / source.quantity
-          : undefined;
-
-    return {
-      name: source.receiptName || source.nameCandidate || '',
-      price: defaultPrice ?? undefined,
-      sizeOz: source.sizeOz ?? undefined,
-      brand: source.brandCandidate || undefined
-    };
-  };
-
-  const actionOptions: Array<{ value: ReceiptApprovalAction; label: string }> = [
+  const actionOptions: Array<{ value: ReceiptApprovalAction; label: string; disabled?: boolean }> = [
     { value: 'LINK_UPC_TO_PRODUCT', label: 'Link Existing Product' },
-    { value: 'CREATE_PRODUCT', label: 'Create Product' },
+    { value: 'CREATE_PRODUCT', label: 'Create Product (disabled)', disabled: true },
     { value: 'IGNORE', label: 'Ignore' }
   ];
 
@@ -440,7 +418,6 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                   onItemToggle={(item, _classification, checked) => onSelectForCommit(item, checked)}
                   onItemScanUpc={onScanItem}
                   onItemSearchProduct={onSearchProduct}
-                  onItemCreateProduct={onCreateProduct}
                   onItemNeverMatch={item => onAddNoiseRule(item.normalizedName || '')}
                 />
               )}
@@ -452,6 +429,8 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                     const status = receiptApprovalStatus.items[item.id];
                     const blockingCount = status?.blocking.length ?? 0;
                     const advisoryCount = status?.advisory.length ?? 0;
+                    const itemMatchMethod = item.source?.matchMethod || item.source?.matchHistory?.[0]?.matchMethod;
+                    const itemWorkflowType = item.source?.workflowType || item.source?.matchHistory?.[0]?.workflowType;
 
                     return (
                       <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 p-3 space-y-3">
@@ -462,6 +441,12 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                               {item.source?.quantity ? `${item.source.quantity} × ` : ''}
                               {typeof item.source?.unitPrice === 'number' ? `$${item.source.unitPrice.toFixed(2)}` : 'No unit price'}
                             </p>
+                            {(itemMatchMethod || itemWorkflowType) && (
+                              <p className="text-[10px] text-slate-500 mt-1">
+                                {itemMatchMethod ? `Match: ${itemMatchMethod}` : 'Match: unknown'}
+                                {itemWorkflowType ? ` • Workflow: ${itemWorkflowType}` : ''}
+                              </p>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-2">
@@ -510,7 +495,7 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                               title={!canManageProducts ? 'Only managers can change item actions' : undefined}
                             >
                               {actionOptions.map(option => (
-                                <option key={option.value} value={option.value}>
+                                <option key={option.value} value={option.value} disabled={option.disabled}>
                                   {option.label}
                                 </option>
                               ))}
@@ -534,82 +519,22 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                         )}
 
                         {item.action === 'CREATE_PRODUCT' && (
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div className="md:col-span-3 flex justify-end">
-                              <button
-                                type="button"
-                                onClick={() => onItemCreateProductChange(item.id, buildReceiptDefaults(item.source))}
-                                className="px-3 py-1 rounded-full text-[9px] font-semibold border border-white/10 text-slate-300 hover:bg-white/10 disabled:opacity-50"
-                                disabled={!canManageProducts}
-                                title={!canManageProducts ? 'Only managers can create products' : undefined}
-                              >
-                                Apply receipt details
-                              </button>
-                            </div>
-
-                            <label className="text-[10px] text-slate-400 uppercase tracking-widest md:col-span-2">
-                              Product name
-                              <input
-                                value={item.createProduct?.name || ''}
-                                onChange={event => onItemCreateProductChange(item.id, { name: event.target.value })}
-                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white disabled:bg-black/20 disabled:text-slate-500"
-                                placeholder="Name"
-                                disabled={!canManageProducts}
-                                title={!canManageProducts ? 'Only managers can create products' : undefined}
-                              />
-                            </label>
-
-                            <label className="text-[10px] text-slate-400 uppercase tracking-widest">
-                              Price
-                              <input
-                                type="number"
-                                min={0}
-                                step="0.01"
-                                value={item.createProduct?.price ?? ''}
-                                onChange={event =>
-                                  onItemCreateProductChange(item.id, {
-                                    price: event.target.value === '' ? undefined : Number(event.target.value)
-                                  })
-                                }
-                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white disabled:bg-black/20 disabled:text-slate-500"
-                                placeholder="0.00"
-                                disabled={!canManageProducts}
-                                title={!canManageProducts ? 'Only managers can create products' : undefined}
-                              />
-                            </label>
-
-                            <label className="text-[10px] text-slate-400 uppercase tracking-widest">
-                              Size (oz)
-                              <input
-                                type="number"
-                                min={0}
-                                step="0.01"
-                                value={item.createProduct?.sizeOz ?? ''}
-                                onChange={event =>
-                                  onItemCreateProductChange(item.id, {
-                                    sizeOz: event.target.value === '' ? undefined : Number(event.target.value)
-                                  })
-                                }
-                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white disabled:bg-black/20 disabled:text-slate-500"
-                                placeholder="12"
-                                disabled={!canManageProducts}
-                                title={!canManageProducts ? 'Only managers can create products' : undefined}
-                              />
-                            </label>
-
-                            <label className="text-[10px] text-slate-400 uppercase tracking-widest">
-                              Brand
-                              <input
-                                value={item.createProduct?.brand || ''}
-                                onChange={event => onItemCreateProductChange(item.id, { brand: event.target.value })}
-                                className="mt-2 w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-xs text-white disabled:bg-black/20 disabled:text-slate-500"
-                                placeholder="Brand"
-                                disabled={!canManageProducts}
-                                title={!canManageProducts ? 'Only managers can create products' : undefined}
-                              />
-                            </label>
-
-                            {!canManageProducts && <span className="text-xs text-slate-400 ml-2 md:col-span-3">Only managers can create products</span>}
+                          <div className="rounded-lg border border-ninpo-red/40 bg-ninpo-red/10 p-3 text-[10px] text-ninpo-red space-y-2">
+                            <p className="font-semibold uppercase tracking-widest text-[9px]">Create product disabled</p>
+                            <p>Receipt approvals cannot create products. Choose another action before committing.</p>
+                            <a
+                              href="#/management/inventory"
+                              className="text-[10px] font-semibold text-ninpo-lime hover:underline"
+                            >
+                              Go to Inventory to create products →
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => onItemActionChange(item.id, 'IGNORE')}
+                              className="px-3 py-1 rounded-full text-[9px] font-semibold border border-white/10 text-slate-200 bg-white/5 hover:bg-white/10"
+                            >
+                              Switch to Ignore
+                            </button>
                           </div>
                         )}
 
