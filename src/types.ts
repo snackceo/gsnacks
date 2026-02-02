@@ -153,6 +153,38 @@ export interface StoreRecord {
   isPrimarySupplier?: boolean;
 }
 
+export interface StoreInventoryEntry {
+  _id: string;
+  storeId: string;
+  sku?: string;
+  cost?: number;
+  markup?: number;
+  observedPrice?: number;
+  observedAt?: string;
+  available?: boolean;
+  stockLevel?: 'in-stock' | 'low-stock' | 'out-of-stock';
+  priceDrift?: string | null;
+  productId?: {
+    _id?: string;
+    id?: string;
+    name?: string;
+    sku?: string;
+    upc?: string;
+    price?: number;
+  };
+  unmappedProductId?: {
+    _id?: string;
+    rawName?: string;
+    normalizedName?: string;
+  };
+}
+
+export interface StoreInventoryResponse {
+  ok: boolean;
+  inventory: StoreInventoryEntry[];
+  error?: string;
+}
+
 export type FinalStoreMode = 'MATCHED' | 'EXISTING' | 'CREATE_DRAFT';
 
 export type ReceiptApprovalAction =
