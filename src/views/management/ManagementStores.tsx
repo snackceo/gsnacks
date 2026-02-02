@@ -49,17 +49,6 @@ const formatObservedAt = (value?: string) => {
   return date.toLocaleDateString();
 };
 
-const resolveStorePrice = (entry: StoreInventoryEntry) => {
-  if (Number.isFinite(entry.observedPrice)) {
-    return { price: entry.observedPrice as number, source: 'Observed' };
-  }
-  if (Number.isFinite(entry.cost)) {
-    const markup = Number.isFinite(entry.markup) ? (entry.markup as number) : 1;
-    return { price: (entry.cost as number) * markup, source: 'Cost + markup' };
-  }
-  return { price: null, source: '—' };
-};
-
 const formatAvailability = (entry: StoreInventoryEntry) => {
   if (entry.available === false) return 'Unavailable';
   if (entry.stockLevel === 'low-stock') return 'Low stock';
@@ -565,14 +554,19 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
                   </tr>
                 ) : (
                   storeInventory.map(entry => {
-                    const { price, source } = resolveStorePrice(entry);
                     const name =
                       entry.productId?.name ||
                       entry.unmappedProductId?.rawName ||
                       entry.unmappedProductId?.normalizedName ||
-                      'Unknown item';
-                    const sku = entry.productId?.sku || '—';
-                    const upc = entry.productId?.upc || '—';
+                      'Unknown';
+                    const sku = entry.productId?.sku ?? '—';
+                    const upc = entry.productId?.upc ?? '—';
+                    const price = entry.observedPrice ?? entry.cost ?? null;
+                    const source = Number.isFinite(entry.observedPrice)
+                      ? 'Observed'
+                      : Number.isFinite(entry.cost)
+                        ? 'Cost'
+                        : '—';
                     return (
                       <tr key={entry._id} className="border-b border-white/5">
                         <td className="py-3 pr-4">
