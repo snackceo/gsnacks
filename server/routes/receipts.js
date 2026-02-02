@@ -17,6 +17,7 @@ import { recordAuditLog } from '../utils/audit.js';
 import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { generateSku } from '../utils/sku.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
+import { buildInventoryUpdate, buildStoreInventoryQuery } from '../utils/receiptInventory.js';
 
 const router = express.Router();
 
@@ -449,6 +450,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         let inventory = null;
         let inventoryForUnmapped = false;
         let inventoryProductId = null;
+        let inventoryUnmappedProductId = null;
 
         if (!product && (action === 'IGNORE' || action === 'CREATE_UNMAPPED' || !action)) {
           // Always create or update UnmappedProduct for raw/unknown items
@@ -481,7 +483,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
             receiptCaptureId: capture._id
           });
           // Only set flags for shared inventory upsert
-          inventoryProductId = `unmapped:${unmapped._id}`;
+          inventoryUnmappedProductId = unmapped._id;
           inventoryForUnmapped = true;
         }
 
@@ -537,12 +539,15 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         // Always create or update StoreInventory for this store and product/unmapped
         let storeInventoryQuery;
         if (product) {
-          storeInventoryQuery = { storeId: store._id, productId: product._id };
           inventoryProductId = product._id;
         } else if (inventoryForUnmapped && unmapped) {
-          // Use a synthetic productId for unmapped
-          storeInventoryQuery = { storeId: store._id, unmappedProductId: unmapped._id };
+          inventoryUnmappedProductId = unmapped._id;
         }
+        storeInventoryQuery = buildStoreInventoryQuery({
+          storeId: store._id,
+          productId: inventoryProductId,
+          unmappedProductId: inventoryUnmappedProductId
+        });
         if (storeInventoryQuery) {
           inventory = await StoreInventory.findOneAndUpdate(
             storeInventoryQuery,
@@ -609,13 +614,18 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           );
         }
 
-        inventoryUpdates.push({
-          storeId: store._id,
-          productId: inventoryProductId,
-          price: unitPrice,
-          inventoryId: inventory?._id,
-          lineIndex: item.lineIndex
-        });
+        if (inventoryProductId || inventoryUnmappedProductId) {
+          inventoryUpdates.push(
+            buildInventoryUpdate({
+              storeId: store._id,
+              productId: inventoryProductId,
+              unmappedProductId: inventoryUnmappedProductId,
+              price: unitPrice,
+              inventoryId: inventory?._id,
+              lineIndex: item.lineIndex
+            })
+          );
+        }
 
         if (product) {
           priceObservations.push({
