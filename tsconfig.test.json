@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "types": [],
+    "outDir": ".tmp-test",
+    "noEmit": false
+  },
+  "include": [
+    "src/utils/inventoryDisplay.ts"
+  ]
+}
