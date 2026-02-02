@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Wand2, MapPin, Loader2, CheckCircle2, Trash2, Tags } from 'lucide-react';
-import { BACKEND_URL } from '../../constants';
-import { StoreRecord } from '../../types';
+import { StoreInventoryEntry, StoreInventoryResponse, StoreRecord } from '../../types';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
 import { formatStoreAddress } from '../../utils/address';
+import { apiFetch } from '../../utils/apiFetch';
 
 interface ManagementStoresProps {
   stores: StoreRecord[];
@@ -13,32 +13,6 @@ interface ManagementStoresProps {
   isLoading: boolean;
   error: string | null;
   setError: (err: string | null) => void;
-}
-
-interface StoreInventoryEntry {
-  _id: string;
-  storeId: string;
-  sku?: string;
-  cost?: number;
-  markup?: number;
-  observedPrice?: number;
-  observedAt?: string;
-  available?: boolean;
-  stockLevel?: 'in-stock' | 'low-stock' | 'out-of-stock';
-  priceDrift?: string | null;
-  product?: {
-    _id?: string;
-    id?: string;
-    name?: string;
-    sku?: string;
-    upc?: string;
-    price?: number;
-  };
-  unmappedProductId?: {
-    _id?: string;
-    rawName?: string;
-    normalizedName?: string;
-  };
 }
 
 const emptyAddress = { street: '', city: '', state: '', zip: '', country: '' };
@@ -135,14 +109,10 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
     setError(null);
     setIsEnriching(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/stores/enrich`, {
+      const data = await apiFetch<{ store?: StoreRecord; error?: string }>('/api/stores/enrich', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ text: rawInput, name: draft.name, address: draft.address || emptyAddress })
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Enrich failed');
       const enrichedAddress = normalizeAddressObject(data.store?.address);
       setDraft(prev => ({
         ...prev,
@@ -168,10 +138,8 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
     }
     setIsSaving(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/stores`, {
+      const data = await apiFetch<{ store?: StoreRecord; error?: string }>('/api/stores', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           name,
           phone: draft.phone || '',
@@ -180,9 +148,6 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
           location: draft.location
         })
       });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 403) throw new Error('manager or owner required');
-      if (!res.ok) throw new Error(data?.error || 'Save failed');
       await refreshStores();
       if (data.store?.id) {
         setActiveStoreId(data.store.id);
@@ -199,15 +164,10 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
     setPrimarySupplierUpdatingId(store.id);
     setError(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/stores/${store.id}`, {
+      await apiFetch(`/api/stores/${store.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ isPrimarySupplier: !store.isPrimarySupplier })
       });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 403) throw new Error('manager or owner required');
-      if (!res.ok) throw new Error(data?.error || 'Failed to update primary supplier');
 
       await refreshStores();
       addToast(
@@ -229,13 +189,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
     setError(null);
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/stores/${store.id}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 403) throw new Error('manager or owner required');
-      if (!res.ok) throw new Error(data?.error || 'Delete failed');
+      await apiFetch(`/api/stores/${store.id}`, { method: 'DELETE' });
 
       if (activeStoreId === store.id) {
         setActiveStoreId('');
@@ -264,14 +218,9 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
       if (searchTerm.trim()) {
         params.set('search', searchTerm.trim());
       }
-      const resp = await fetch(`${BACKEND_URL}/api/store-inventory/${activeStoreId}?${params.toString()}`, {
-        credentials: 'include'
-      });
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to load store inventory');
-      }
-      const data = await resp.json().catch(() => ({}));
+      const data = await apiFetch<StoreInventoryResponse>(
+        `/api/store-inventory/${activeStoreId}?${params.toString()}`
+      );
       // The backend returns { ok: true, inventory: [...] }
       const nextInventory = Array.isArray(data.inventory) ? data.inventory : [];
       setStoreInventory(prev => (page === 0 ? nextInventory : [...prev, ...nextInventory]));
@@ -617,18 +566,20 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
                 ) : (
                   storeInventory.map(entry => {
                     const { price, source } = resolveStorePrice(entry);
-                    const productName =
-                      entry.product?.name ||
+                    const name =
+                      entry.productId?.name ||
                       entry.unmappedProductId?.rawName ||
                       entry.unmappedProductId?.normalizedName ||
-                      'Unnamed product';
+                      'Unknown item';
+                    const sku = entry.productId?.sku || '—';
+                    const upc = entry.productId?.upc || '—';
                     return (
                       <tr key={entry._id} className="border-b border-white/5">
                         <td className="py-3 pr-4">
-                          <div className="font-semibold text-white">{entry.product?.sku || entry.sku || '—'}</div>
-                          <div className="text-[10px] text-slate-500">{productName}</div>
+                          <div className="font-semibold text-white">{sku}</div>
+                          <div className="text-[10px] text-slate-500">{name}</div>
                         </td>
-                        <td className="py-3 pr-4 text-slate-300">{entry.product?.upc || '—'}</td>
+                        <td className="py-3 pr-4 text-slate-300">{upc}</td>
                         <td className="py-3 pr-4">
                           <div className="font-semibold text-white">{formatMoney(price)}</div>
                           <div className="text-[10px] text-slate-500">{source}</div>

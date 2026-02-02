@@ -15,7 +15,7 @@ import {
   XCircle,
   ScanLine
 } from 'lucide-react';
-import { BACKEND_URL } from '../../constants';
+import { apiFetch } from '../../utils/apiFetch';
 
 interface NotFoundItem {
   sku: string;
@@ -40,11 +40,9 @@ const OrderDetailPanel: React.FC<{ order: Order }> = ({ order }) => {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(`${BACKEND_URL}/api/driver/order/${order.id}/items-not-found`, {
-          credentials: 'include'
-        });
-        if (!res.ok) throw new Error('Failed to fetch items not found');
-        const data = await res.json();
+        const data = await apiFetch<{ itemsNotFound?: NotFoundItem[] }>(
+          `/api/driver/order/${order.id}/items-not-found`
+        );
         if (!cancelled) setNotFoundItems(Array.isArray(data.itemsNotFound) ? data.itemsNotFound : []);
       } catch (e: any) {
         if (!cancelled) setError(e?.message || 'Failed to load');

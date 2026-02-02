@@ -3,7 +3,7 @@ import { Plus, Loader2, ScanLine, X } from 'lucide-react';
 import { Product, SizeUnit, UpcItem } from '../../types';
 import { ScannerMode } from '../../types';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
-import { BACKEND_URL } from '../../constants';
+import { apiFetch } from '../../utils/apiFetch';
 
 type BatchQueueItem = {
   id: string;
@@ -249,10 +249,8 @@ export const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
               }
               setIsAddingUpc(true);
               try {
-                const res = await fetch(`${BACKEND_URL}/api/upc`, {
+                const data = await apiFetch<{ ok?: boolean; error?: string }>('/api/upc', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  credentials: 'include',
                   body: JSON.stringify({
                     upc: scannedUpcForCreation,
                     name: upcDraft.name || newProduct.name,
@@ -266,22 +264,19 @@ export const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
                     containerType: upcDraft.containerType
                   })
                 });
-                let data: any = {};
-                try {
-                  data = await res.json();
-                } catch {}
-                if (res.status === 409) {
-                  addToast('UPC already in registry', 'error');
-                } else if (!res.ok) {
-                  addToast((typeof data === 'object' && data !== null && 'error' in data ? data.error : undefined) || 'Failed to add to registry', 'error');
-                } else if (typeof data === 'object' && data !== null && 'ok' in data && data.ok) {
+                if (data?.ok) {
                   addToast('Successfully added to registry', 'success');
                   handleManualUpcChange('');
                 } else {
                   addToast('Unexpected response from server', 'error');
                 }
               } catch (err: any) {
-                addToast(err?.message || 'Failed to add to registry', 'error');
+                const message = err?.message || 'Failed to add to registry';
+                if (message.includes('409')) {
+                  addToast('UPC already in registry', 'error');
+                } else {
+                  addToast(message, 'error');
+                }
               } finally {
                 setIsAddingUpc(false);
               }
