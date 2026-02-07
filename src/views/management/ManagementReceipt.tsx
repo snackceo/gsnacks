@@ -45,6 +45,9 @@ const getReceiptJobItemId = (item: { _id?: string; captureId?: string; lineIndex
 
 type ReceiptApprovalMode = 'safe' | 'selected' | 'locked' | 'all';
 
+// Must stay aligned with backend/operator policy for the primary Approve action.
+const DEFAULT_RECEIPT_APPROVAL_MODE: ReceiptApprovalMode = 'all';
+
 interface ReceiptApprovalStoreDraft {
   finalStoreId?: string | null;
   storeCandidate?: ReceiptStoreCandidate;
@@ -206,7 +209,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   // Receipt review state (moved from Pricing Intelligence)
   const [activeReceiptCaptureId, setActiveReceiptCaptureId] = useState<string | null>(null);
   const [classifiedItems, setClassifiedItems] = useState<ClassifiedReceiptItem[]>([]);
-  const [approvalMode, setApprovalMode] = useState<ReceiptApprovalMode>('all');
+  const [approvalMode, setApprovalMode] = useState<ReceiptApprovalMode>(DEFAULT_RECEIPT_APPROVAL_MODE);
   const [forceUpcOverride, setForceUpcOverride] = useState(false);
   const [finalStoreMode, setFinalStoreMode] = useState<FinalStoreMode>('MATCHED');
   const [finalStoreDraft, setFinalStoreDraft] = useState<ReceiptApprovalStoreDraft>({});
@@ -426,7 +429,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       });
       if (data?.error) throw new Error(data.error || 'Failed to reset review');
       setSelectedItemsForCommit(new Map());
-      setApprovalMode('all');
+      setApprovalMode(DEFAULT_RECEIPT_APPROVAL_MODE);
       lastLoadedCaptureIdRef.current = null;
       loadCaptureItems(activeReceiptCaptureId);
       addToast('Review reset.', 'success');
@@ -700,7 +703,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   // Enhanced handleApproveReceipt: builds full payload, posts, resets state, refreshes stores/products
   const handleApproveReceipt = useCallback(
-    async (job: ReceiptParseJob, mode: ReceiptApprovalMode = 'all') => {
+    async (job: ReceiptParseJob, mode: ReceiptApprovalMode = DEFAULT_RECEIPT_APPROVAL_MODE) => {
       setIsProcessing(true);
       try {
         // Build store override if needed
@@ -835,7 +838,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     setShowReceiptReview(true);
     updateStoreCandidateDraft(selectedJob.storeCandidate);
     setForceUpcOverride(false);
-    setApprovalMode('all');
+    setApprovalMode(DEFAULT_RECEIPT_APPROVAL_MODE);
     if (lastLoadedCaptureIdRef.current === selectedJob.captureId) {
       return;
     }
