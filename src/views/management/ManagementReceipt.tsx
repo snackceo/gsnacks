@@ -478,19 +478,18 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     }
     setIsCommitting(true);
     try {
-      const selectedIndices = classifiedItems
-        .filter(item => selectedItemsForCommit.get(getReceiptItemKey(item)))
-        .map(item => item.lineIndex)
-        .filter((lineIndex): lineIndex is number => typeof lineIndex === 'number');
+      const selectedIndices =
+        approvalMode === 'selected'
+          ? classifiedItems
+              .filter(item => selectedItemsForCommit.get(getReceiptItemKey(item)))
+              .map(item => item.lineIndex)
+              .filter((lineIndex): lineIndex is number => typeof lineIndex === 'number')
+          : classifiedItems
+              .map(item => item.lineIndex)
+              .filter((lineIndex): lineIndex is number => typeof lineIndex === 'number');
 
       if (approvalMode === 'selected' && selectedIndices.length === 0) {
         addToast('Select at least one item for selected mode.', 'error');
-        setIsCommitting(false);
-        return;
-      }
-
-      if (selectedIndices.length === 0) {
-        addToast('Selected items must include a line index before committing.', 'error');
         setIsCommitting(false);
         return;
       }
