@@ -392,11 +392,9 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       }
       setClassifiedItems(classified);
       const updated = new Map<string, boolean>();
-      classified
-        .filter(item => item.classification === 'A')
-        .forEach(item => {
-          updated.set(getReceiptItemKey(item), true);
-        });
+      classified.forEach(item => {
+        updated.set(getReceiptItemKey(item), true);
+      });
       setSelectedItemsForCommit(updated);
     } catch (err: any) {
       if (err?.name === 'AbortError') {
