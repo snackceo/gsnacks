@@ -423,6 +423,18 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       return true;
     });
 
+    if (itemsToApprove.length === 0) {
+      await recordAuditLog({
+        type: 'receipt_approval_failed',
+        actorId: username,
+        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_items_to_approve mode=${normalizedMode}`
+      });
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
+      return res.status(400).json({ error: 'No items eligible to approve in this mode. Use mode=all or fix matches/warnings.' });
+    }
+
     for (const item of itemsToApprove) {
       try {
         const unitPrice = resolveUnitPrice(item);
