@@ -426,7 +426,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       });
       if (data?.error) throw new Error(data.error || 'Failed to reset review');
       setSelectedItemsForCommit(new Map());
-      setApprovalMode('safe');
+      setApprovalMode('all');
       lastLoadedCaptureIdRef.current = null;
       loadCaptureItems(activeReceiptCaptureId);
       addToast('Review reset.', 'success');
@@ -659,14 +659,14 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     setIsLoadingJobs(true);
     setJobsError(null);
     try {
-      const data: any = await apiFetch('/api/receipts/?status=QUEUED,PARSING,NEEDS_REVIEW,PARSED,FAILED');
+      const data: any = await apiFetch('/api/receipts/?status=QUEUED,PARSING,NEEDS_REVIEW,PARSED,FAILED,APPROVED');
       if (data?.error) throw new Error(data.error || 'Failed to load parse jobs');
-      // Only include jobs with QUEUED, NEEDS_REVIEW, PARSED, FAILED (exclude PARSING)
-      const validStatuses = ['QUEUED', 'NEEDS_REVIEW', 'PARSED', 'FAILED'];
+      // Only include jobs with QUEUED, NEEDS_REVIEW, PARSED, APPROVED, FAILED (exclude PARSING)
+      const validStatuses = ['QUEUED', 'NEEDS_REVIEW', 'PARSED', 'FAILED', 'APPROVED'];
       let jobs = Array.isArray(data?.jobs) ? data.jobs : [];
       jobs = jobs.filter(j => validStatuses.includes(j.status));
-      // Sort by required order: QUEUED, NEEDS_REVIEW, PARSED, FAILED
-      const statusOrder = { QUEUED: 0, NEEDS_REVIEW: 1, PARSED: 2, FAILED: 3 };
+      // Sort by required order: QUEUED, NEEDS_REVIEW, PARSED, APPROVED, FAILED
+      const statusOrder = { QUEUED: 0, NEEDS_REVIEW: 1, PARSED: 2, APPROVED: 3, FAILED: 4 };
       jobs.sort((a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99));
       setParseJobs(jobs);
     } catch (err: any) {
