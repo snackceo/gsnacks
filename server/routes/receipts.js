@@ -366,6 +366,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     const matchedProducts = [];
     const inventoryUpdates = [];
     const errors = [];
+    let appliedCount = 0;
     const approvalItems = new Map();
     if (approvalDraft?.items && Array.isArray(approvalDraft.items)) {
       for (const entry of approvalDraft.items) {
@@ -439,7 +440,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       try {
         const unitPrice = resolveUnitPrice(item);
         if (!unitPrice) {
-          errors.push({ lineIndex: item.lineIndex, error: 'Invalid unit price' });
+          errors.push({ lineIndex: item.lineIndex, error: 'Invalid unit price', code: 'INVALID_UNIT_PRICE' });
           continue;
         }
 
@@ -450,7 +451,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         );
 
         if (action === 'CREATE_PRODUCT') {
-          errors.push({ lineIndex: item.lineIndex, error: 'Receipt-driven product creation is not allowed' });
+          errors.push({ lineIndex: item.lineIndex, error: 'Receipt-driven product creation is not allowed', code: 'CREATE_PRODUCT_NOT_ALLOWED' });
           continue;
         }
 
@@ -590,6 +591,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           errors.push({
             lineIndex: item.lineIndex,
             error: 'Price locked',
+            code: 'PRICE_LOCKED',
             lockedUntil: inventory.priceLockUntil
           });
           continue;
@@ -616,6 +618,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
               lineIndex: item.lineIndex
             })
           );
+          appliedCount += 1;
         }
 
         if (product) {
@@ -635,7 +638,12 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           const existingUpc = await UpcItem.findOne({ upc: normalizedUpc }).session(session);
           if (existingUpc && existingUpc.productId && String(existingUpc.productId) !== String(product._id)) {
             if (!forceUpcOverride) {
-              errors.push({ lineIndex: item.lineIndex, error: 'UPC already linked to different product', upc: normalizedUpc });
+              errors.push({
+                lineIndex: item.lineIndex,
+                error: 'UPC already linked to different product',
+                code: 'UPC_CONFLICT',
+                upc: normalizedUpc
+              });
             } else {
               await UpcItem.updateOne(
                 { upc: normalizedUpc },
@@ -662,18 +670,40 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           }
         }
       } catch (itemError) {
-        errors.push({ lineIndex: item.lineIndex, error: itemError.message });
+        errors.push({ lineIndex: item.lineIndex, error: itemError.message, code: 'APPLY_FAILED' });
       }
     }
 
+    const skippedCount = Math.max(itemsToApprove.length - appliedCount, 0);
+
+    if (appliedCount < 1) {
+      const reason = errors.length > 0
+        ? 'No receipt lines were applied. All selected lines were skipped due to validation or mapping errors.'
+        : 'No receipt lines were applied. Verify product mappings and unit prices, then retry.';
+      await recordAuditLog({
+        type: 'receipt_approval_failed',
+        actorId: username,
+        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_lines_applied mode=${normalizedMode} selected=${itemsToApprove.length}`
+      });
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
+      return res.status(400).json({
+        error: reason,
+        appliedCount,
+        skippedCount,
+        errors
+      });
+    }
+
     const previousCommitted = Number(capture.itemsCommitted || 0);
-    capture.itemsCommitted = Math.min(capture.totalItems, previousCommitted + itemsToApprove.length);
+    capture.itemsCommitted = Math.min(capture.totalItems, previousCommitted + appliedCount);
     capture.itemsConfirmed = validDraftItems.filter(entry => entry.boundProductId).length;
     capture.itemsNeedingReview = validDraftItems.filter(entry => entry.needsReview).length;
     capture.committedBy = username;
     capture.committedAt = new Date();
-    // Fix 2: Mark committed if any items applied, regardless of mode
-    if (itemsToApprove.length > 0) {
+    // Mark committed only when at least one line actually applied.
+    if (appliedCount > 0) {
       capture.status = 'committed';
       capture.reviewExpiresAt = undefined;
     }
@@ -689,6 +719,8 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         storeId: store._id,
         createdProducts,
         matchedProducts,
+        appliedCount,
+        skippedCount,
         inventoryUpdates,
         approvalPayload: req.body || null
       };
@@ -714,10 +746,12 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       jobId,
       captureId: capture._id.toString(),
       storeId: store._id,
+      appliedCount,
+      skippedCount,
       createdProducts,
       matchedProducts,
       inventoryUpdates,
-      errors: errors.length ? errors : undefined
+      errors
     });
   } catch (error) {
     if (transactionStarted) {

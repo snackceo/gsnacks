@@ -45,6 +45,14 @@ const getReceiptJobItemId = (item: { _id?: string; captureId?: string; lineIndex
 
 type ReceiptApprovalMode = 'safe' | 'selected' | 'locked' | 'all';
 
+interface ReceiptApproveResponse {
+  ok?: boolean;
+  error?: string;
+  appliedCount?: number;
+  skippedCount?: number;
+  errors?: Array<{ lineIndex?: number; error?: string; code?: string }>;
+}
+
 // Must stay aligned with backend/operator policy for the primary Approve action.
 const DEFAULT_RECEIPT_APPROVAL_MODE: ReceiptApprovalMode = 'all';
 
@@ -746,14 +754,33 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         };
 
         // POST to canonical approval endpoint
-        const data: any = await apiFetch(`/api/receipts/${job._id}/approve`, {
+        const data: ReceiptApproveResponse = await apiFetch(`/api/receipts/${job._id}/approve`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
         if (data?.error) throw new Error(data.error || 'Failed to approve parse job');
 
-        addToast('Parse job approved', 'success');
+        const appliedCount = Number(data?.appliedCount || 0);
+        const skippedCount = Number(data?.skippedCount || 0);
+        const backendErrors = Array.isArray(data?.errors) ? data.errors : [];
+        const summarizedErrors = backendErrors
+          .slice(0, 3)
+          .map(entry => {
+            const line = typeof entry?.lineIndex === 'number' ? `line ${entry.lineIndex}` : 'line unknown';
+            return `${line}: ${entry?.error || entry?.code || 'Unknown error'}`;
+          })
+          .join(' | ');
+
+        if (appliedCount > 0) {
+          const summary = `Approved with ${appliedCount} applied, ${skippedCount} skipped.`;
+          addToast(summarizedErrors ? `${summary} ${summarizedErrors}` : summary, backendErrors.length ? 'info' : 'success');
+        } else {
+          addToast(
+            summarizedErrors || 'No receipt lines were applied. Verify mappings and prices, then retry.',
+            'error'
+          );
+        }
 
         // Reset review state/drafts
 
