@@ -1268,7 +1268,7 @@ const ManagementView: React.FC<ManagementViewProps> = ({
           setUnmappedUpcModalOpen={setUnmappedUpcModalOpen}
           unmappedUpcPayload={unmappedUpcPayload}
           setUnmappedUpcPayload={setUnmappedUpcPayload}
-          ScannerModal={<></>}
+          onOpenUpcScanner={() => openUnifiedScannerModal(ScannerMode.UPC_LOOKUP)}
           containerLabels={UPC_CONTAINER_LABELS}
         />
       )

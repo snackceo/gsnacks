@@ -27,7 +27,7 @@ interface ManagementUpcRegistryProps {
   setUnmappedUpcModalOpen: (open: boolean) => void;
   unmappedUpcPayload: any;
   setUnmappedUpcPayload: (payload: any) => void;
-  ScannerModal: React.ReactNode;
+  onOpenUpcScanner: () => void;
   containerLabels: Record<UpcContainerType, string>;
 }
 
@@ -63,7 +63,8 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
     apiDeleteUpcDirect,
     filteredUpcItems,
     loadUpcDraft,
-    containerLabels
+    containerLabels,
+    onOpenUpcScanner
   } = props;
   return (
     <div className="space-y-6">
@@ -109,6 +110,12 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
               Actions
             </label>
             <div className="flex gap-2">
+              <button
+                onClick={onOpenUpcScanner}
+                className="px-4 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
+              >
+                Scan UPC
+              </button>
               <button
                 onClick={handleUpcLookup}
                 disabled={!upcInput.trim()}
