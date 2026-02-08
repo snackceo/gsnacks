@@ -53,6 +53,13 @@ interface ReceiptApproveResponse {
   errors?: Array<{ lineIndex?: number; error?: string; code?: string }>;
 }
 
+type ReceiptApprovalOutcome = {
+  appliedCount: number;
+  skippedCount: number;
+  errors: Array<{ lineIndex?: number; error?: string; code?: string }>;
+  lastUpdatedAt: string;
+};
+
 // Must stay aligned with backend/operator policy for the primary Approve action.
 const DEFAULT_RECEIPT_APPROVAL_MODE: ReceiptApprovalMode = 'all';
 
@@ -234,6 +241,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [selectedItemsForCommit, setSelectedItemsForCommit] = useState<Map<string, boolean>>(new Map());
   const [isCommitting, setIsCommitting] = useState(false);
   const [showReceiptReview, setShowReceiptReview] = useState(false);
+  const [approvalOutcomeByJobId, setApprovalOutcomeByJobId] = useState<Record<string, ReceiptApprovalOutcome>>({});
   const [scanModalOpen, setScanModalOpen] = useState(false);
   const [lockDurationDays, setLockDurationDays] = useState(7); // Or get from settings if available
   const [settings] = useState<any>({}); // Placeholder for settings if needed
@@ -772,6 +780,14 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           })
           .join(' | ');
 
+        const nextOutcome: ReceiptApprovalOutcome = {
+          appliedCount,
+          skippedCount,
+          errors: backendErrors,
+          lastUpdatedAt: new Date().toISOString()
+        };
+        setApprovalOutcomeByJobId(prev => ({ ...prev, [job._id]: nextOutcome }));
+
         if (appliedCount > 0) {
           const summary = `Approved with ${appliedCount} applied, ${skippedCount} skipped.`;
           addToast(summarizedErrors ? `${summary} ${summarizedErrors}` : summary, backendErrors.length ? 'info' : 'success');
@@ -1141,6 +1157,29 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
                     {selectedJob?._id === job._id && !isBroken && (
                       <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
+                        {approvalOutcomeByJobId[job._id] && (
+                          <div className="rounded-xl border border-ninpo-lime/30 bg-ninpo-lime/10 p-3 text-[11px] text-slate-100">
+                            <p className="font-bold uppercase tracking-widest text-[10px] text-ninpo-lime">Last approval outcome</p>
+                            <p className="mt-1">
+                              Applied: <span className="font-semibold">{approvalOutcomeByJobId[job._id].appliedCount}</span>
+                              {' · '}
+                              Skipped: <span className="font-semibold">{approvalOutcomeByJobId[job._id].skippedCount}</span>
+                            </p>
+                            <p className="mt-1 text-[10px] text-slate-300">
+                              Updated: {fmtTime(approvalOutcomeByJobId[job._id].lastUpdatedAt)}
+                            </p>
+                            {approvalOutcomeByJobId[job._id].errors.length > 0 && (
+                              <ul className="mt-2 list-disc space-y-1 pl-4 text-[10px] text-slate-200">
+                                {approvalOutcomeByJobId[job._id].errors.slice(0, 6).map((entry, idx) => (
+                                  <li key={`${job._id}-approval-error-${idx}`}>
+                                    {typeof entry.lineIndex === 'number' ? `Line ${entry.lineIndex}: ` : ''}
+                                    {entry.error || entry.code || 'Unknown error'}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
                         <div className="space-y-2">
                           <p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">Items to Review:</p>
                           {job.items?.map((item, idx) => (

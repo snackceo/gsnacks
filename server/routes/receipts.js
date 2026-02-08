@@ -26,6 +26,13 @@ const canApproveReceipts = user => {
 };
 
 const normalizeBarcode = value => String(value || '').replace(/\D/g, '');
+const APPROVAL_ERROR_CODES = {
+  INVALID_UNIT_PRICE: 'INVALID_UNIT_PRICE',
+  CREATE_PRODUCT_NOT_ALLOWED: 'CREATE_PRODUCT_NOT_ALLOWED',
+  PRICE_LOCKED: 'PRICE_LOCKED',
+  UPC_CONFLICT: 'UPC_CONFLICT',
+  APPLY_FAILED: 'APPLY_FAILED'
+};
 const normalizeReceiptName = value =>
   String(value || '')
     .trim()
@@ -440,7 +447,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       try {
         const unitPrice = resolveUnitPrice(item);
         if (!unitPrice) {
-          errors.push({ lineIndex: item.lineIndex, error: 'Invalid unit price', code: 'INVALID_UNIT_PRICE' });
+          errors.push({ lineIndex: item.lineIndex, error: 'Invalid unit price', code: APPROVAL_ERROR_CODES.INVALID_UNIT_PRICE });
           continue;
         }
 
@@ -451,7 +458,11 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         );
 
         if (action === 'CREATE_PRODUCT') {
-          errors.push({ lineIndex: item.lineIndex, error: 'Receipt-driven product creation is not allowed', code: 'CREATE_PRODUCT_NOT_ALLOWED' });
+          errors.push({
+            lineIndex: item.lineIndex,
+            error: 'Receipt-driven product creation is not allowed',
+            code: APPROVAL_ERROR_CODES.CREATE_PRODUCT_NOT_ALLOWED
+          });
           continue;
         }
 
@@ -591,7 +602,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           errors.push({
             lineIndex: item.lineIndex,
             error: 'Price locked',
-            code: 'PRICE_LOCKED',
+            code: APPROVAL_ERROR_CODES.PRICE_LOCKED,
             lockedUntil: inventory.priceLockUntil
           });
           continue;
@@ -641,7 +652,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
               errors.push({
                 lineIndex: item.lineIndex,
                 error: 'UPC already linked to different product',
-                code: 'UPC_CONFLICT',
+                code: APPROVAL_ERROR_CODES.UPC_CONFLICT,
                 upc: normalizedUpc
               });
             } else {
@@ -670,7 +681,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           }
         }
       } catch (itemError) {
-        errors.push({ lineIndex: item.lineIndex, error: itemError.message, code: 'APPLY_FAILED' });
+        errors.push({ lineIndex: item.lineIndex, error: itemError.message, code: APPROVAL_ERROR_CODES.APPLY_FAILED });
       }
     }
 
