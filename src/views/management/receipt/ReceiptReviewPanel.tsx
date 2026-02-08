@@ -173,6 +173,17 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
     }));
   }, [receiptApprovalItems, itemsByLineIndex]);
 
+  const selectedClassifiedItems = useMemo(
+    () =>
+      (Array.isArray(classifiedItems) ? classifiedItems : []).filter(item =>
+        selectedItemsForCommit.has(getReceiptItemKey(item))
+      ),
+    [classifiedItems, selectedItemsForCommit]
+  );
+
+  const selectedLineCount = selectedClassifiedItems.length;
+  const selectedLine = selectedLineCount === 1 ? selectedClassifiedItems[0] : null;
+
   const storeStatusBadge = receiptApprovalStatus.store.blocking.length
     ? { label: 'Blocking', className: 'bg-ninpo-red/20 text-ninpo-red border-ninpo-red/40' }
     : receiptApprovalStatus.store.advisory.length
@@ -411,15 +422,49 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
               {Array.isArray(classifiedItems) && classifiedItems.length === 0 ? (
                 <div className="text-xs text-slate-400">No items to review.</div>
               ) : (
-                <ReceiptItemBucket
-                  items={Array.isArray(classifiedItems) ? classifiedItems : []}
-                  selectedItems={selectedItemsForCommit}
-                  getItemKey={getReceiptItemKey}
-                  onItemToggle={(item, _classification, checked) => onSelectForCommit(item, checked)}
-                  onItemScanUpc={onScanItem}
-                  onItemSearchProduct={onSearchProduct}
-                  onItemNeverMatch={item => onAddNoiseRule(item.normalizedName || '')}
-                />
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-[10px] text-slate-300 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="uppercase tracking-widest text-slate-400">UPC scan helper</p>
+                        <p className="mt-1 text-slate-200">
+                          UPC scanning is available per line via <span className="font-semibold text-white">Scan UPC</span>.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => selectedLine && onScanItem(selectedLine)}
+                        disabled={!selectedLine}
+                        className="px-3 py-1.5 rounded-full text-[10px] font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={
+                          selectedLine
+                            ? 'Scan UPC for the selected line'
+                            : 'Select exactly one line to scan a UPC from this shortcut'
+                        }
+                      >
+                        Scan UPC for selected line
+                      </button>
+                    </div>
+
+                    {!selectedLine && (
+                      <p className="text-yellow-100/80">
+                        {selectedLineCount === 0
+                          ? 'No line selected. Select one receipt line to enable the scanner shortcut.'
+                          : 'Multiple lines selected. Keep exactly one selected to use the scanner shortcut.'}
+                      </p>
+                    )}
+                  </div>
+
+                  <ReceiptItemBucket
+                    items={Array.isArray(classifiedItems) ? classifiedItems : []}
+                    selectedItems={selectedItemsForCommit}
+                    getItemKey={getReceiptItemKey}
+                    onItemToggle={(item, _classification, checked) => onSelectForCommit(item, checked)}
+                    onItemScanUpc={onScanItem}
+                    onItemSearchProduct={onSearchProduct}
+                    onItemNeverMatch={item => onAddNoiseRule(item.normalizedName || '')}
+                  />
+                </div>
               )}
 
               <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
