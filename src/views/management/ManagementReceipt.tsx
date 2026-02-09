@@ -789,7 +789,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         setApprovalOutcomeByJobId(prev => ({ ...prev, [job._id]: nextOutcome }));
 
         if (appliedCount > 0) {
-          const summary = `Approved with ${appliedCount} applied, ${skippedCount} skipped.`;
+          const summary = `Approve & Apply completed: ${appliedCount} StoreInventory updates applied, ${skippedCount} skipped.`;
           addToast(summarizedErrors ? `${summary} ${summarizedErrors}` : summary, backendErrors.length ? 'info' : 'success');
         } else {
           addToast(
@@ -959,6 +959,10 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           >
             Capture or Upload Receipt
           </button>
+          <p className="text-[11px] text-slate-300">
+            Capturing a receipt creates a <span className="font-semibold text-white">ReceiptParseJob</span> that stages data for
+            review before catalog changes.
+          </p>
           <ReceiptCaptureFlow
             stores={stores}
             isOpen={isReceiptFlowOpen}
@@ -1060,9 +1064,14 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       return (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-white font-black uppercase tracking-widest flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-ninpo-lime" /> Pending Parse Jobs ({parseJobs.length})
-            </h3>
+            <div>
+              <h3 className="text-white font-black uppercase tracking-widest flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-ninpo-lime" /> Pending Parse Jobs ({parseJobs.length})
+              </h3>
+              <p className="mt-1 text-[10px] text-slate-400 uppercase tracking-widest">
+                Each ReceiptParseJob stages data. Approve &amp; Apply commits StoreInventory updates.
+              </p>
+            </div>
             <button
               onClick={loadParseJobs}
               disabled={isLoadingJobs}

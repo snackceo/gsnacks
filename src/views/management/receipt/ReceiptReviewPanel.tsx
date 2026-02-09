@@ -229,6 +229,11 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
           <div>
             <h3 className="text-white font-black uppercase text-lg tracking-widest">Receipt Review</h3>
             <p className="text-[10px] text-slate-400 uppercase tracking-widest">Capture ID: {activeReceiptCaptureId}</p>
+            <p className="mt-2 text-[11px] text-slate-300">
+              This <span className="font-semibold text-white">ReceiptParseJob</span> stages parsed data for review.
+              <span className="font-semibold text-white"> Approve &amp; Apply</span> commits
+              <span className="font-semibold text-white"> StoreInventory</span> updates.
+            </p>
           </div>
         </div>
 
