@@ -715,7 +715,7 @@ RULES:
         confidence: item.matchConfidence,
         reason: item.matchMethod
       },
-      actionSuggestion: item.suggestedProduct ? 'LINK_UPC_TO_PRODUCT' : 'CREATE_PRODUCT',
+      actionSuggestion: item.suggestedProduct ? 'LINK_UPC_TO_PRODUCT' : 'CAPTURE_UNMAPPED',
       warnings: item.needsReview && item.reviewReason ? [item.reviewReason] : []
     }));
 

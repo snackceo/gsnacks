@@ -179,7 +179,7 @@ async function upsertReceiptParseJobFromDraft({
     const hasSuggestion = suggested && suggested.id;
     const actionSuggestion = hasSuggestion
       ? 'LINK_UPC_TO_PRODUCT'
-      : 'CREATE_PRODUCT';
+      : 'CAPTURE_UNMAPPED';
     const warnings = [];
     if (item.needsReview && item.reviewReason) warnings.push(item.reviewReason);
     if (item.priceDelta && item.priceDelta.flag) warnings.push(`price:${item.priceDelta.flag}`);

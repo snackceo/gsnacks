@@ -19,7 +19,7 @@ const ItemMatchSchema = new mongoose.Schema(
     },
     actionSuggestion: {
       type: String,
-      enum: ['LINK_UPC_TO_PRODUCT', 'CREATE_UPC', 'CREATE_PRODUCT', 'IGNORE']
+      enum: ['LINK_UPC_TO_PRODUCT', 'CREATE_UPC', 'CAPTURE_UNMAPPED', 'CREATE_PRODUCT', 'IGNORE']
     },
     warnings: [String]
   },

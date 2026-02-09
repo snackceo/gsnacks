@@ -29,6 +29,7 @@ See `src/constants.tsx` for the canonical `BACKEND_URL` export and usage example
 **allowPlatinumTier**: Enables Platinum loyalty tier (future/experimental).
 
 **platinumFreeDelivery**: If true, Platinum tier users get free delivery (future/experimental).
+**allowReceiptApprovalCreateProduct**: If true, receipt review approvals are allowed to execute CREATE_PRODUCT actions; default false so unmatched lines should use unmapped price-intelligence flow.
 LifetimeProductSpend (numeric, derived): The cumulative dollar amount a user has spent on products only, across all completed orders, excluding Route Fee, Distance Fee, Taxes, Tips, Refunds, and chargebacks. LifetimeProductSpend is used as a primary eligibility metric for tier advancement and retention. It represents a customer’s net economic value, not activity volume. Calculated from completed (PAID / DELIVERED) orders, reduced by refunded product amounts, and does not include credits used, only the underlying product value. Authoritative source is the backend; frontend may display an approximation.
 
 TierDemotion (policy / system behavior): The process by which a user’s membership tier is reduced due to inactivity, spend regression, trust loss, or risk. Demotion occurs one tier at a time and is automatic when policy thresholds are met. The owner may manually demote or freeze a tier at any time. Common demotion triggers include: prolonged inactivity, LifetimeProductSpend falling below a tier’s retention threshold, loss of required verification (phone or photo ID), abuse, fraud, or excessive refunds. Tiers are not permanent entitlements and reflect ongoing trust and economic viability.
@@ -60,6 +61,7 @@ All new roles, permissions, scanner modes, feature flags, or special phrases mus
 - 2026-01-16 (YH): Linked glossary to all major docs; established as single source of truth. (why: prevent drift)
 - 2026-02-01 (AI): Added receipt approval draft terms (FinalStoreMode, ReceiptApprovalAction, ReceiptApprovalDraft). (why: align receipt review payloads)
 - 2026-03-01 (AI): Added UnmappedProduct and PriceObservation workflow terms. (why: track receipt-driven price intelligence)
+- 2026-03-10 (AI): Added receipt product-creation policy flag and CAPTURE_UNMAPPED approval action language. (why: default unknown lines to unmapped intelligence while policy-gating product creation)
 - 2025-02-14 (AI): Added receipt capture audit/source fields for queue attribution. (why: track capture origin and actor)
 - [Add future changes here.]
 
@@ -476,7 +478,7 @@ Commit & Lock Prices (action): Receipt review option that commits receipt price 
 
 FinalStoreMode (enum): Receipt approval state indicating how the final store was chosen. Values: MATCHED (auto-matched to the store candidate), EXISTING (operator selected an existing store), CREATE_DRAFT (operator approved creating a draft store; maps to confirmStoreCreate in the approval payload).
 
-ReceiptApprovalAction (enum): Per-item receipt approval decision aligned to ReceiptParseJob.actionSuggestion values. Allowed values: LINK_UPC_TO_PRODUCT, CREATE_UPC, CREATE_PRODUCT, IGNORE. Used to translate review choices into boundUpc/boundProductId or new product creation during approval.
+ReceiptApprovalAction (enum): Per-item receipt approval decision aligned to ReceiptParseJob.actionSuggestion values. Allowed values: LINK_UPC_TO_PRODUCT, CREATE_UPC, CAPTURE_UNMAPPED, CREATE_PRODUCT, IGNORE. Used to translate review choices into boundUpc/boundProductId or new product creation during approval.
 
 ReceiptApprovalDraft (payload): Frontend receipt review draft that captures store selection and line-level decisions before approval. Fields include jobId, captureId, finalStoreMode, finalStoreId, storeCandidate, confirmStoreCreate, and items with lineIndex, action, optional UPC, and create-product payload. Aligns with receipt approval endpoints that expect finalStoreId/storeCandidate/confirmStoreCreate and per-item bindings.
 

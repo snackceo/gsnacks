@@ -11,6 +11,7 @@ import StoreInventory from '../models/StoreInventory.js';
 import UpcItem from '../models/UpcItem.js';
 import UnmappedProduct from '../models/UnmappedProduct.js';
 import PriceObservation from '../models/PriceObservation.js';
+import AppSettings from '../models/AppSettings.js';
 import { isDbReady } from '../db/connect.js';
 import { authRequired, isOwnerUsername } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
@@ -439,6 +440,9 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       });
     }
 
+    const settingsDoc = await AppSettings.findOne({ key: 'default' }).lean();
+    const allowCreateProductApproval = Boolean(settingsDoc?.allowReceiptApprovalCreateProduct);
+
     const createdProducts = [];
     const matchedProducts = [];
     const inventoryUpdates = [];
@@ -537,14 +541,19 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
 
         const approvalItem = approvalItems.get(item.lineIndex) || {};
         const action = approvalItem.action || null;
+        const effectiveAction = action || (item.boundProductId || item.suggestedProduct?.id ? 'LINK_UPC_TO_PRODUCT' : 'CAPTURE_UNMAPPED');
         const normalizedUpc = normalizeBarcode(
           approvalItem.upc || item.boundUpc || item.suggestedProduct?.upc
         );
 
-        if (action === 'CREATE_PRODUCT') {
+        if (effectiveAction === 'IGNORE') {
+          continue;
+        }
+
+        if (effectiveAction === 'CREATE_PRODUCT' && !allowCreateProductApproval) {
           const lineError = {
             lineIndex: item.lineIndex,
-            error: 'Receipt-driven product creation is not allowed',
+            error: 'Receipt-driven product creation is not allowed by policy',
             code: APPROVAL_ERROR_CODES.CREATE_PRODUCT_NOT_ALLOWED
           };
           errors.push(lineError);
@@ -575,6 +584,10 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         let inventoryForUnmapped = false;
         let inventoryProductId = null;
         let inventoryUnmappedProductId = null;
+
+        if (effectiveAction === 'CAPTURE_UNMAPPED') {
+          product = null;
+        }
 
         if (!product) {
           // Always create or update UnmappedProduct for raw/unknown items

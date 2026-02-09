@@ -190,6 +190,7 @@ export type FinalStoreMode = 'MATCHED' | 'EXISTING' | 'CREATE_DRAFT';
 export type ReceiptApprovalAction =
   | 'LINK_UPC_TO_PRODUCT'
   | 'CREATE_UPC'
+  | 'CAPTURE_UNMAPPED'
   | 'CREATE_PRODUCT'
   | 'IGNORE';
 
@@ -408,6 +409,7 @@ export interface AppSettings {
 
   allowPlatinumTier: boolean;
   platinumFreeDelivery: boolean;
+  allowReceiptApprovalCreateProduct: boolean;
   priceLockDays: number;
 
   storageZones: string[];

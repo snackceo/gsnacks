@@ -135,7 +135,7 @@ const receiptApprovalStatus = (
       }
     }
 
-    if (!item.upc && item.action !== 'IGNORE') {
+    if (!item.upc && item.action !== 'IGNORE' && item.action !== 'CAPTURE_UNMAPPED') {
       advisory.push('UPC missing for item action.');
     }
 
@@ -698,8 +698,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         const suggestedAction = jobItem?.actionSuggestion;
         const action: ReceiptApprovalAction =
           suggestedAction === 'CREATE_PRODUCT'
-            ? 'IGNORE'
-            : suggestedAction || (item.suggestedProduct?.id ? 'LINK_UPC_TO_PRODUCT' : 'IGNORE');
+            ? 'CAPTURE_UNMAPPED'
+            : suggestedAction || (item.suggestedProduct?.id ? 'LINK_UPC_TO_PRODUCT' : 'CAPTURE_UNMAPPED');
         return {
           id: getReceiptJobItemId({ _id: (jobItem as { _id?: string })?._id, captureId: job.captureId, lineIndex }),
           lineIndex,

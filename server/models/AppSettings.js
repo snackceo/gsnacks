@@ -22,6 +22,7 @@ const appSettingsSchema = new mongoose.Schema(
     allowPlatinumTier: { type: Boolean, default: false },
     allowGreenTier: { type: Boolean, default: false },
     platinumFreeDelivery: { type: Boolean, default: false },
+    allowReceiptApprovalCreateProduct: { type: Boolean, default: false },
     priceLockDays: { type: Number, default: 7 },
     storageZones: { type: [String], default: [] },
     productTypes: { type: [String], default: [] },
