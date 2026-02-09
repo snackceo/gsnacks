@@ -267,11 +267,14 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       selectedIndices,
       lockDurationDays,
       idempotencyKey,
+      ignorePriceLocks,
       forceUpcOverride,
       finalStoreId,
       approvalDraft
     } = req.body || {};
     const username = req.user?.username || 'unknown';
+    const shouldIgnorePriceLocks = Boolean(ignorePriceLocks);
+    const canIgnorePriceLocks = req.user?.role === 'MANAGER' || req.user?.role === 'OWNER' || isOwnerUsername(req.user?.username);
 
     if (!jobId || !mongoose.Types.ObjectId.isValid(jobId)) {
       return res.status(400).json({ error: 'Valid jobId required' });
@@ -302,6 +305,15 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     const capture = await ReceiptCapture.findById(parseJob.captureId).session(session);
     if (!capture) {
       return res.status(404).json({ error: 'Receipt capture not found for job' });
+    }
+
+    if (shouldIgnorePriceLocks && !canIgnorePriceLocks) {
+      await recordAuditLog({
+        type: 'receipt_approval_failed',
+        actorId: username,
+        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=ignore_price_locks_not_allowed ignorePriceLocks=${shouldIgnorePriceLocks}`
+      });
+      return res.status(403).json({ error: 'Not authorized to ignore price locks' });
     }
 
     // Enforce orderId context: if parseJob or capture has orderId, require them to match if both exist
@@ -446,7 +458,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       await recordAuditLog({
         type: 'receipt_approval_failed',
         actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_draft_items`
+        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_draft_items ignorePriceLocks=${shouldIgnorePriceLocks}`
       });
       return res.status(400).json({ error: 'No draft items available to apply' });
     }
@@ -460,7 +472,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       await recordAuditLog({
         type: 'receipt_approval_failed',
         actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=invalid_draft_items`
+        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=invalid_draft_items ignorePriceLocks=${shouldIgnorePriceLocks}`
       });
       return res.status(400).json({ error: 'No draft items available to apply' });
     }
@@ -487,7 +499,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       await recordAuditLog({
         type: 'receipt_approval_failed',
         actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_items_to_approve modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode}`
+        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_items_to_approve modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} ignorePriceLocks=${shouldIgnorePriceLocks}`
       });
       if (session.inTransaction()) {
         await session.abortTransaction();
@@ -501,6 +513,8 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           lineIndex: item.lineIndex,
           inventoryPersisted: false,
           priceObservationPersisted: false,
+          priceLockOverridden: false,
+          priceLockOverrideDetail: null,
           errors: []
         });
       }
@@ -622,15 +636,20 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         if (storeInventoryQuery) {
           const existingInventory = await StoreInventory.findOne(storeInventoryQuery).session(session);
           if (existingInventory?.priceLockUntil && new Date(existingInventory.priceLockUntil) > new Date()) {
-            const lineError = {
-              lineIndex: item.lineIndex,
-              error: 'Price locked',
-              code: APPROVAL_ERROR_CODES.PRICE_LOCKED,
-              lockedUntil: existingInventory.priceLockUntil
-            };
-            errors.push(lineError);
-            lineOutcome.errors.push(lineError);
-            continue;
+            if (!shouldIgnorePriceLocks) {
+              const lineError = {
+                lineIndex: item.lineIndex,
+                error: 'Price locked',
+                code: APPROVAL_ERROR_CODES.PRICE_LOCKED,
+                lockedUntil: existingInventory.priceLockUntil
+              };
+              errors.push(lineError);
+              lineOutcome.errors.push(lineError);
+              continue;
+            }
+
+            lineOutcome.priceLockOverridden = true;
+            lineOutcome.priceLockOverrideDetail = `priceLockUntil=${new Date(existingInventory.priceLockUntil).toISOString()}`;
           }
 
           inventory = await StoreInventory.findOneAndUpdate(
@@ -785,6 +804,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       priceObservationPersisted: observationAppliedLineIndexes.has(entry.lineIndex),
       applied: inventoryAppliedLineIndexes.has(entry.lineIndex) || observationAppliedLineIndexes.has(entry.lineIndex)
     }));
+    const priceLockOverrideCount = lineOutcomes.filter(entry => entry.priceLockOverridden).length;
     const appliedCount = inventoryUpdates.length + createdPriceObservations.length;
     const skippedCount = Math.max(itemsToApprove.length - appliedCount, 0);
     const errorsByLine = lineOutcomes
@@ -801,7 +821,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       await recordAuditLog({
         type: 'receipt_approval_failed',
         actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_lines_applied modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} selected=${itemsToApprove.length}`
+        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_lines_applied modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} selected=${itemsToApprove.length} ignorePriceLocks=${shouldIgnorePriceLocks} priceLockOverrides=${priceLockOverrideCount}`
       });
       if (session.inTransaction()) {
         await session.abortTransaction();
@@ -852,6 +872,8 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         errorsByLine,
         inventoryWriteCount: inventoryUpdates.length,
         priceObservationWriteCount: createdPriceObservations.length,
+        ignorePriceLocks: shouldIgnorePriceLocks,
+        priceLockOverrideCount,
         inventoryUpdates,
         approvalPayload: req.body || null
       };
@@ -867,7 +889,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     await recordAuditLog({
       type: 'receipt_approved',
       actorId: username,
-      details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} backendBuildId=${backendBuildId}`
+      details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} ignorePriceLocks=${shouldIgnorePriceLocks} priceLockOverrides=${priceLockOverrideCount} backendBuildId=${backendBuildId}`
     });
 
     res.json({

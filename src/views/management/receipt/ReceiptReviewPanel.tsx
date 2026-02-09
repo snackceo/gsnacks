@@ -64,9 +64,12 @@ interface ReceiptReviewPanelProps {
   settings: any;
   confirmStoreCreate: boolean;
   forceUpcOverride: boolean;
+  ignorePriceLocks: boolean;
+  canOverridePriceLocks: boolean;
   finalStoreId: string;
   onConfirmStoreCreate: (value: boolean) => void;
   onForceUpcOverride: (value: boolean) => void;
+  onIgnorePriceLocks: (value: boolean) => void;
   onFinalStoreIdChange: (value: string) => void;
   finalStoreMode: FinalStoreMode;
   onFinalStoreModeChange: (mode: FinalStoreMode) => void;
@@ -115,9 +118,12 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   settings,
   confirmStoreCreate,
   forceUpcOverride,
+  ignorePriceLocks,
+  canOverridePriceLocks,
   finalStoreId,
   onConfirmStoreCreate,
   onForceUpcOverride,
+  onIgnorePriceLocks,
   onFinalStoreIdChange,
   finalStoreMode,
   onFinalStoreModeChange,
@@ -753,6 +759,16 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                     <input type="checkbox" checked={forceUpcOverride} onChange={event => onForceUpcOverride(event.target.checked)} />
                     Force UPC override when conflicts are found
                   </label>
+                  {canOverridePriceLocks && (
+                    <label className="flex items-center gap-2 text-xs text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={ignorePriceLocks}
+                        onChange={event => onIgnorePriceLocks(event.target.checked)}
+                      />
+                      Ignore price locks for this approval (audit logged)
+                    </label>
+                  )}
                 </div>
 
                 {(blockingIssues.length > 0 || advisoryIssues.length > 0) && (
