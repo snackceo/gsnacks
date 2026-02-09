@@ -16,7 +16,7 @@ import { recordAuditLog } from '../utils/audit.js';
 import { isDbReady } from '../db/connect.js';
 import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { isPricingLearningEnabled, receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap } from '../utils/featureFlags.js';
-import { enqueueReceiptJob, isReceiptQueueEnabled } from '../queues/receiptQueue.js';
+import { enqueueReceiptJob, getReceiptQueue, isReceiptQueueEnabled } from '../queues/receiptQueue.js';
 import { executeReceiptParse } from '../utils/receiptParseHelper.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 
@@ -35,6 +35,60 @@ const DEFAULT_PRICE_LOCK_DAYS = 7;
 const MAX_RECEIPT_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 const ALLOWED_IMAGE_HOSTS = ['cloudinary.com', 'res.cloudinary.com'];
+const RECEIPT_QUEUE_WORKER_STALE_MS = Math.max(
+  60_000,
+  Number(process.env.RECEIPT_QUEUE_WORKER_STALE_MS || 5 * 60_000)
+);
+
+const getReceiptQueueWorkerHealth = async () => {
+  const queueEnabled = isReceiptQueueEnabled();
+  if (!queueEnabled) {
+    return {
+      queueEnabled,
+      workerHealthy: true,
+      workerOffline: false,
+      reason: 'queue_disabled',
+      staleQueuedAgeMs: 0,
+      staleThresholdMs: RECEIPT_QUEUE_WORKER_STALE_MS
+    };
+  }
+
+  const queue = getReceiptQueue();
+  const [counts, workers, oldestQueuedJob] = await Promise.all([
+    queue
+      ?.getJobCounts('waiting', 'active', 'delayed', 'completed', 'failed')
+      .catch(() => ({})) || {},
+    queue?.getWorkers().catch(() => []) || [],
+    ReceiptParseJob.findOne({ status: 'QUEUED' })
+      .sort({ updatedAt: 1 })
+      .select('_id updatedAt captureId')
+      .lean()
+  ]);
+
+  const workerCount = Array.isArray(workers) ? workers.length : 0;
+  const waitingCount = Number(counts?.waiting || 0);
+  const activeCount = Number(counts?.active || 0);
+  const oldestQueuedUpdatedAt = oldestQueuedJob?.updatedAt ? new Date(oldestQueuedJob.updatedAt).getTime() : null;
+  const staleQueuedAgeMs = oldestQueuedUpdatedAt ? Math.max(0, Date.now() - oldestQueuedUpdatedAt) : 0;
+  const staleQueued = staleQueuedAgeMs >= RECEIPT_QUEUE_WORKER_STALE_MS;
+  const workerOffline = Boolean((workerCount === 0 && waitingCount > 0) || (staleQueued && activeCount === 0));
+
+  return {
+    queueEnabled,
+    workerHealthy: !workerOffline,
+    workerOffline,
+    workerCount,
+    waitingCount,
+    activeCount,
+    staleQueued,
+    staleQueuedAgeMs,
+    staleThresholdMs: RECEIPT_QUEUE_WORKER_STALE_MS,
+    oldestQueuedCaptureId: oldestQueuedJob?.captureId || null,
+    reason: workerOffline
+      ? `Queue enabled but worker appears offline (workers=${workerCount}, waiting=${waitingCount}, staleQueued=${staleQueued}).`
+      : 'ok'
+  };
+};
 
 const coerceNumber = value => {
   const num = Number(value);
@@ -1379,10 +1433,31 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
 
   // Use canonical queue logic
   if (isReceiptQueueEnabled()) {
+    const queueHealth = await getReceiptQueueWorkerHealth();
+    if (queueHealth.workerOffline) {
+      try {
+        const parseJob = await executeReceiptParse(captureId, req.user?._id || 'api', { bypassQueue: true });
+        return res.status(202).json({
+          ok: true,
+          queued: false,
+          fallbackSync: true,
+          warning: 'Queue enabled, worker offline. Parsed synchronously as fallback.',
+          queueHealth,
+          job: parseJob
+        });
+      } catch (syncErr) {
+        return res.status(503).json({
+          error: 'Queue enabled, worker offline. Start receipt worker or disable queue before retrying.',
+          queueHealth,
+          details: syncErr?.message || 'Synchronous fallback failed'
+        });
+      }
+    }
+
     try {
       const result = await enqueueReceiptJob('receipt-parse', { captureId, actor: req.user?._id || 'api' });
       if (result.ok) {
-        return res.json({ ok: true, queued: true, jobId: result.jobId });
+        return res.json({ ok: true, queued: true, jobId: result.jobId, queueHealth });
       } else {
         return res.status(500).json({ error: 'Failed to enqueue receipt parse job', ...result });
       }
@@ -2475,6 +2550,7 @@ router.get('/receipt-health', authRequired, async (req, res) => {
       ok: true,
       cloudinary: hasCloudinary,
       queueEnabled: isReceiptQueueEnabled(),
+      queueStatus: await getReceiptQueueWorkerHealth(),
       learningEnabled: isPricingLearningEnabled(),
       staleReceiptJobs
     });
