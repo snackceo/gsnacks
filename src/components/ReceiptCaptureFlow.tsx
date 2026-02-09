@@ -298,6 +298,11 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
 
   return createPortal(
     <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[min(92vw,48rem)] rounded-xl border border-white/20 bg-black/70 px-4 py-3 text-center text-[11px] text-slate-200">
+        Capture starts a <span className="font-semibold text-white">ReceiptParseJob</span> and stages parsed data for review.{' '}
+        <span className="font-semibold text-white">Approve &amp; Apply</span> later commits
+        <span className="font-semibold text-white"> StoreInventory</span> updates.
+      </div>
       {/* CAMERA */}
       {isCameraOpen ? (
         <>
