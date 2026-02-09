@@ -54,6 +54,7 @@ interface ReceiptApproveResponse {
   skippedCount?: number;
   inventoryWriteCount?: number;
   priceObservationWriteCount?: number;
+  backendBuildId?: string;
   errors?: Array<{ lineIndex?: number; error?: string; code?: string }>;
   errorsByLine?: Record<string, Array<{ lineIndex?: number; error?: string; code?: string }>>;
   lineOutcomes?: Array<{
@@ -76,6 +77,7 @@ type ReceiptApprovalOutcome = {
   skippedCount: number;
   inventoryWriteCount: number;
   priceObservationWriteCount: number;
+  backendBuildId?: string;
   errors: Array<{ lineIndex?: number; error?: string; code?: string }>;
   errorMessage?: string;
   applySummary: ReceiptApplySummary;
@@ -867,6 +869,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           skippedCount,
           inventoryWriteCount: Number(data?.inventoryWriteCount || 0),
           priceObservationWriteCount: Number(data?.priceObservationWriteCount || 0),
+          backendBuildId: typeof data?.backendBuildId === 'string' ? data.backendBuildId : undefined,
           errors: backendErrors,
           errorMessage: data?.error,
           applySummary,
@@ -1287,6 +1290,10 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                               Inventory writes: <span className="font-semibold">{approvalOutcomeByJobId[job._id].inventoryWriteCount}</span>
                               {' · '}
                               Price observation writes: <span className="font-semibold">{approvalOutcomeByJobId[job._id].priceObservationWriteCount}</span>
+                            </p>
+                            <p className="mt-1 text-[10px] text-slate-200">
+                              Backend build id:{' '}
+                              <span className="font-semibold">{approvalOutcomeByJobId[job._id].backendBuildId || 'unknown'}</span>
                             </p>
                             {approvalOutcomeByJobId[job._id].priceObservationWriteCount < 1 && (
                               <p className="mt-1 text-[10px] text-yellow-200">

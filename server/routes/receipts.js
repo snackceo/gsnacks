@@ -14,6 +14,7 @@ import PriceObservation from '../models/PriceObservation.js';
 import { isDbReady } from '../db/connect.js';
 import { authRequired, isOwnerUsername } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
+import { getBackendBuildIdentifier } from '../utils/buildIdentifier.js';
 import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import { buildInventoryUpdate, buildStoreInventoryQuery } from '../utils/receiptInventory.js';
@@ -816,10 +817,12 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       await session.commitTransaction();
     }
 
+    const backendBuildId = getBackendBuildIdentifier();
+
     await recordAuditLog({
       type: 'receipt_approved',
       actorId: username,
-      details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode}`
+      details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} backendBuildId=${backendBuildId}`
     });
 
     res.json({
@@ -835,6 +838,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       matchedProducts,
       inventoryWriteCount: inventoryUpdates.length,
       priceObservationWriteCount: createdPriceObservations.length,
+      backendBuildId,
       inventoryUpdates,
       errors
     });

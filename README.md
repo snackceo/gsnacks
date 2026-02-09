@@ -31,6 +31,16 @@ See also: GLOSSARY.md for definitions.
 
 ## Operations & Maintenance
 
+### Incident triage verification (receipt approvals)
+
+When investigating receipt approval anomalies, verify all three signals together:
+
+1. **UI body mode** used for approval (`safe`, `selected`, `locked`, `all`) from the Management receipt flow.
+2. **API build id** returned by `POST /api/receipts/:jobId/approve` (`backendBuildId` in response).
+3. **Audit line** for `receipt_approved`, confirming the same `backendBuildId` appears in audit details.
+
+This “UI body mode + API build id + audit line” check helps confirm operators are validating behavior against the expected backend deployment.
+
 ### Receipt queue cleanup (stale jobs)
 
 When receipt captures are deleted out-of-band, BullMQ can retain `receipt-parse` jobs that reference missing `ReceiptCapture` records. These jobs should be purged to prevent repeated retries and queue drift.
