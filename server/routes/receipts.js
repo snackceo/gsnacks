@@ -272,7 +272,12 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       return res.json({ ok: true, captureId: capture._id.toString(), status: capture.status, idempotent: true });
     }
 
-    const normalizedMode = mode || 'safe';
+    const rawRequestMode = mode;
+    if (rawRequestMode === undefined || rawRequestMode === null || String(rawRequestMode).trim().length === 0) {
+      return res.status(400).json({ error: 'mode is required: safe|selected|locked|all' });
+    }
+
+    const normalizedMode = String(rawRequestMode).trim().toLowerCase();
     if (!['safe', 'selected', 'locked', 'all'].includes(normalizedMode)) {
       return res.status(400).json({ error: 'Invalid mode' });
     }
@@ -436,7 +441,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       await recordAuditLog({
         type: 'receipt_approval_failed',
         actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_items_to_approve mode=${normalizedMode}`
+        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_items_to_approve modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode}`
       });
       if (session.inTransaction()) {
         await session.abortTransaction();
@@ -736,7 +741,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       await recordAuditLog({
         type: 'receipt_approval_failed',
         actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_lines_applied mode=${normalizedMode} selected=${itemsToApprove.length}`
+        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_lines_applied modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} selected=${itemsToApprove.length}`
       });
       if (session.inTransaction()) {
         await session.abortTransaction();
@@ -796,7 +801,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     await recordAuditLog({
       type: 'receipt_approved',
       actorId: username,
-      details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} mode=${normalizedMode}`
+      details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode}`
     });
 
     res.json({
