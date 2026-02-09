@@ -854,6 +854,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     const priceLockOverrideCount = lineOutcomes.filter(entry => entry.priceLockOverridden).length;
     const appliedCount = inventoryUpdates.length + createdPriceObservations.length;
     const skippedCount = Math.max(itemsToApprove.length - appliedCount, 0);
+    const backendBuildId = getBackendBuildIdentifier();
     const errorsByLine = lineOutcomes
       .filter(entry => entry.errors.length > 0)
       .reduce((acc, entry) => {
@@ -868,7 +869,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       await recordAuditLog({
         type: 'receipt_approval_failed',
         actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_lines_applied modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} selected=${itemsToApprove.length} ignorePriceLocks=${shouldIgnorePriceLocks} priceLockOverrides=${priceLockOverrideCount}`
+        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_lines_applied modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} selected=${itemsToApprove.length} ignorePriceLocks=${shouldIgnorePriceLocks} priceLockOverrides=${priceLockOverrideCount} backendBuildId=${backendBuildId}`
       });
       if (session.inTransaction()) {
         await session.abortTransaction();
@@ -886,7 +887,8 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         errorsByLine,
         lineOutcomes,
         inventoryWriteCount: inventoryUpdates.length,
-        priceObservationWriteCount: createdPriceObservations.length
+        priceObservationWriteCount: createdPriceObservations.length,
+        backendBuildId
       });
     }
 
@@ -930,8 +932,6 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     if (transactionStarted) {
       await session.commitTransaction();
     }
-
-    const backendBuildId = getBackendBuildIdentifier();
 
     await recordAuditLog({
       type: 'receipt_approved',
