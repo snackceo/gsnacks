@@ -79,6 +79,7 @@ type ReceiptApprovalOutcome = {
   priceObservationWriteCount: number;
   backendBuildId?: string;
   errors: Array<{ lineIndex?: number; error?: string; code?: string }>;
+  errorsByLine: Record<string, Array<{ lineIndex?: number; error?: string; code?: string }>>;
   errorMessage?: string;
   applySummary: ReceiptApplySummary;
   lastUpdatedAt: string;
@@ -204,6 +205,25 @@ const summarizeReceiptApplyOutcome = (data: ReceiptApproveResponse): ReceiptAppl
   };
 };
 
+const normalizeErrorsByLine = (
+  errorsByLine: ReceiptApproveResponse['errorsByLine'],
+  errors: Array<{ lineIndex?: number; error?: string; code?: string }>
+) => {
+  if (errorsByLine && typeof errorsByLine === 'object') {
+    return Object.entries(errorsByLine).reduce<Record<string, Array<{ lineIndex?: number; error?: string; code?: string }>>>((acc, [lineKey, lineErrors]) => {
+      acc[lineKey] = Array.isArray(lineErrors) ? lineErrors : [];
+      return acc;
+    }, {});
+  }
+
+  return errors.reduce<Record<string, Array<{ lineIndex?: number; error?: string; code?: string }>>>((acc, entry) => {
+    const lineKey = typeof entry?.lineIndex === 'number' ? String(entry.lineIndex) : 'unknown';
+    if (!acc[lineKey]) acc[lineKey] = [];
+    acc[lineKey].push(entry);
+    return acc;
+  }, {});
+};
+
 interface ManagementReceiptProps {
   fmtTime: (iso?: string) => string;
   stores: StoreRecord[];
@@ -306,6 +326,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [isCommitting, setIsCommitting] = useState(false);
   const [showReceiptReview, setShowReceiptReview] = useState(false);
   const [approvalOutcomeByJobId, setApprovalOutcomeByJobId] = useState<Record<string, ReceiptApprovalOutcome>>({});
+  const [approvalPanelExpandedByJobId, setApprovalPanelExpandedByJobId] = useState<Record<string, boolean>>({});
   const [scanModalOpen, setScanModalOpen] = useState(false);
   const [lockDurationDays, setLockDurationDays] = useState(7); // Or get from settings if available
   const [settings] = useState<any>({}); // Placeholder for settings if needed
@@ -867,11 +888,13 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           priceObservationWriteCount: Number(data?.priceObservationWriteCount || 0),
           backendBuildId: typeof data?.backendBuildId === 'string' ? data.backendBuildId : undefined,
           errors: backendErrors,
+          errorsByLine: normalizeErrorsByLine(data?.errorsByLine, backendErrors),
           errorMessage: data?.error,
           applySummary,
           lastUpdatedAt: new Date().toISOString()
         };
         setApprovalOutcomeByJobId(prev => ({ ...prev, [job._id]: nextOutcome }));
+        setApprovalPanelExpandedByJobId(prev => ({ ...prev, [job._id]: true }));
 
         if (!approvalResponse.ok && appliedCount < 1) {
           const backendReason = data?.error || 'No receipt lines were applied. Verify mappings and prices, then retry.';
@@ -1304,46 +1327,81 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                       <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
                         {approvalOutcomeByJobId[job._id] && (
                           <div className="rounded-xl border border-ninpo-lime/30 bg-ninpo-lime/10 p-3 text-[11px] text-slate-100">
-                            <p className="font-bold uppercase tracking-widest text-[10px] text-ninpo-lime">Last approval outcome</p>
-                            <p className="mt-1">
-                              Applied: <span className="font-semibold">{approvalOutcomeByJobId[job._id].appliedCount}</span>
-                              {' · '}
-                              Skipped: <span className="font-semibold">{approvalOutcomeByJobId[job._id].skippedCount}</span>
-                            </p>
-                            <p className="mt-1 text-[10px] text-slate-200">
-                              Inventory writes: <span className="font-semibold">{approvalOutcomeByJobId[job._id].inventoryWriteCount}</span>
-                              {' · '}
-                              Price observation writes: <span className="font-semibold">{approvalOutcomeByJobId[job._id].priceObservationWriteCount}</span>
-                            </p>
-                            <p className="mt-1 text-[10px] text-slate-200">
-                              Backend build id:{' '}
-                              <span className="font-semibold">{approvalOutcomeByJobId[job._id].backendBuildId || 'unknown'}</span>
-                            </p>
-                            {approvalOutcomeByJobId[job._id].priceObservationWriteCount < 1 && (
-                              <p className="mt-1 text-[10px] text-yellow-200">
-                                No Price Intelligence rows were written.
-                                {approvalOutcomeByJobId[job._id].errorMessage ? ` ${approvalOutcomeByJobId[job._id].errorMessage}` : ''}
-                              </p>
-                            )}
-                            <p className="mt-1 text-[10px] text-slate-200">
-                              Matched products updated: <span className="font-semibold">{approvalOutcomeByJobId[job._id].applySummary.matchedProductsUpdated}</span>
-                              {' · '}
-                              Unmapped lines recorded: <span className="font-semibold">{approvalOutcomeByJobId[job._id].applySummary.unmappedLinesRecorded}</span>
-                              {' · '}
-                              UPC links created: <span className="font-semibold">{approvalOutcomeByJobId[job._id].applySummary.upcLinksCreated}</span>
-                            </p>
-                            <p className="mt-1 text-[10px] text-slate-300">
-                              Updated: {fmtTime(approvalOutcomeByJobId[job._id].lastUpdatedAt)}
-                            </p>
-                            {approvalOutcomeByJobId[job._id].errors.length > 0 && (
-                              <ul className="mt-2 list-disc space-y-1 pl-4 text-[10px] text-slate-200">
-                                {approvalOutcomeByJobId[job._id].errors.slice(0, 6).map((entry, idx) => (
-                                  <li key={`${job._id}-approval-error-${idx}`}>
-                                    {typeof entry.lineIndex === 'number' ? `Line ${entry.lineIndex}: ` : ''}
-                                    {entry.error || entry.code || 'Unknown error'}
-                                  </li>
-                                ))}
-                              </ul>
+                            <button
+                              type="button"
+                              onClick={event => {
+                                event.stopPropagation();
+                                setApprovalPanelExpandedByJobId(prev => ({
+                                  ...prev,
+                                  [job._id]: !prev[job._id]
+                                }));
+                              }}
+                              className="flex w-full items-center justify-between text-left"
+                            >
+                              <p className="font-bold uppercase tracking-widest text-[10px] text-ninpo-lime">Last approval result</p>
+                              <ChevronDown
+                                className={`h-4 w-4 text-ninpo-lime transition ${approvalPanelExpandedByJobId[job._id] !== false ? 'rotate-180' : ''}`}
+                              />
+                            </button>
+                            {approvalPanelExpandedByJobId[job._id] !== false && (
+                              <>
+                                <p className="mt-1">
+                                  Applied: <span className="font-semibold">{approvalOutcomeByJobId[job._id].appliedCount}</span>
+                                  {' · '}
+                                  Skipped: <span className="font-semibold">{approvalOutcomeByJobId[job._id].skippedCount}</span>
+                                </p>
+                                <p className="mt-1 text-[10px] text-slate-200">
+                                  Inventory writes: <span className="font-semibold">{approvalOutcomeByJobId[job._id].inventoryWriteCount}</span>
+                                  {' · '}
+                                  Price observation writes: <span className="font-semibold">{approvalOutcomeByJobId[job._id].priceObservationWriteCount}</span>
+                                </p>
+                                <p className="mt-1 text-[10px] text-slate-200">
+                                  Backend build id:{' '}
+                                  <span className="font-semibold">{approvalOutcomeByJobId[job._id].backendBuildId || 'unknown'}</span>
+                                </p>
+                                {approvalOutcomeByJobId[job._id].priceObservationWriteCount < 1 && (
+                                  <p className="mt-1 text-[10px] text-yellow-200">
+                                    No Price Intelligence rows were written.
+                                    {approvalOutcomeByJobId[job._id].errorMessage ? ` ${approvalOutcomeByJobId[job._id].errorMessage}` : ''}
+                                  </p>
+                                )}
+                                <p className="mt-1 text-[10px] text-slate-300">
+                                  Updated: {fmtTime(approvalOutcomeByJobId[job._id].lastUpdatedAt)}
+                                </p>
+                                <p className="mt-1 text-[10px] text-slate-200">
+                                  Matched products updated: <span className="font-semibold">{approvalOutcomeByJobId[job._id].applySummary.matchedProductsUpdated}</span>
+                                  {' · '}
+                                  Unmapped lines recorded: <span className="font-semibold">{approvalOutcomeByJobId[job._id].applySummary.unmappedLinesRecorded}</span>
+                                  {' · '}
+                                  UPC links created: <span className="font-semibold">{approvalOutcomeByJobId[job._id].applySummary.upcLinksCreated}</span>
+                                </p>
+                                {Object.entries(approvalOutcomeByJobId[job._id].errorsByLine).length > 0 && (
+                                  <div className="mt-2 space-y-1 text-[10px] text-slate-100">
+                                    {Object.entries(approvalOutcomeByJobId[job._id].errorsByLine)
+                                      .sort(([lineA], [lineB]) => {
+                                        const a = Number(lineA);
+                                        const b = Number(lineB);
+                                        if (Number.isNaN(a) && Number.isNaN(b)) return lineA.localeCompare(lineB);
+                                        if (Number.isNaN(a)) return 1;
+                                        if (Number.isNaN(b)) return -1;
+                                        return a - b;
+                                      })
+                                      .map(([lineKey, lineErrors]) => (
+                                        <div key={`${job._id}-approval-line-${lineKey}`} className="rounded-lg border border-white/10 bg-black/20 px-2 py-1">
+                                          <p className="font-semibold text-slate-200">Line {lineKey}</p>
+                                          <ul className="mt-1 list-disc space-y-1 pl-4 text-slate-100">
+                                            {lineErrors.map((entry, idx) => (
+                                              <li key={`${job._id}-approval-line-${lineKey}-error-${idx}`}>
+                                                {entry.error || 'Unknown error'}
+                                                {entry.code ? ` (${entry.code})` : ''}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      ))}
+                                  </div>
+                                )}
+                              </>
                             )}
                           </div>
                         )}
