@@ -482,6 +482,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     const matchedProducts = [];
     const inventoryUpdates = [];
     const errors = [];
+    let fatalLineError = null;
     const lineOutcomeByIndex = new Map();
     const approvalItems = new Map();
     if (approvalDraft?.items && Array.isArray(approvalDraft.items)) {
@@ -847,6 +848,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         const lineError = { lineIndex: item.lineIndex, error: itemError.message, code: APPROVAL_ERROR_CODES.APPLY_FAILED };
         errors.push(lineError);
         lineOutcome.errors.push(lineError);
+        if (!fatalLineError) fatalLineError = lineError;
         throw itemError;
       }
     }
@@ -981,7 +983,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       await session.abortTransaction();
     }
     console.error('Error approving receipt:', error);
-    const firstLineError = errors[0] || null;
+    const firstLineError = fatalLineError || errors[0] || null;
     res.status(500).json({
       error: 'Failed to approve receipt',
       reasonCode: APPROVAL_ERROR_CODES.APPLY_FAILED,
@@ -992,7 +994,9 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
               message: firstLineError.error,
               lineIndex: firstLineError.lineIndex
             },
-            firstLineError
+            firstLineError,
+            firstFailingLineIndex: firstLineError.lineIndex,
+            firstFailingCode: firstLineError.code || APPROVAL_ERROR_CODES.APPLY_FAILED
           }
         : {})
     });
