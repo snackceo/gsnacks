@@ -62,6 +62,8 @@ interface ReceiptApproveResponse {
     applied?: boolean;
     inventoryPersisted?: boolean;
     priceObservationPersisted?: boolean;
+    priceLockOverridden?: boolean;
+    priceLockOverrideDetail?: string | null;
     errors?: Array<{ lineIndex?: number; error?: string; code?: string }>;
   }>;
 }
@@ -290,6 +292,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [classifiedItems, setClassifiedItems] = useState<ClassifiedReceiptItem[]>([]);
   const [approvalMode, setApprovalMode] = useState<ReceiptApprovalMode>(DEFAULT_RECEIPT_APPROVAL_MODE);
   const [forceUpcOverride, setForceUpcOverride] = useState(false);
+  const [ignorePriceLocks, setIgnorePriceLocks] = useState(false);
   const [finalStoreMode, setFinalStoreMode] = useState<FinalStoreMode>('MATCHED');
   const [finalStoreDraft, setFinalStoreDraft] = useState<ReceiptApprovalStoreDraft>({});
   const [receiptApprovalItems, setReceiptApprovalItems] = useState<Array<ReceiptApprovalDraftItem & { id: string }>>([]);
@@ -618,6 +621,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           lockDurationDays,
           idempotencyKey: receiptApprovalIdempotencyKey,
           forceUpcOverride,
+          ignorePriceLocks,
           finalStoreId: approvalDraft.finalStoreId,
           storeCandidate: approvalDraft.storeCandidate,
           confirmStoreCreate: approvalDraft.confirmStoreCreate,
@@ -647,6 +651,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     lockDurationDays,
     receiptApprovalIdempotencyKey,
     forceUpcOverride,
+    ignorePriceLocks,
     approvalStatus.hasBlocking,
     finalStoreId,
     confirmStoreCreate,
@@ -836,7 +841,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             items: approvalItems
           },
           idempotencyKey: receiptApprovalIdempotencyKey,
-          approvalNotes: receiptApprovalNotes || undefined
+          approvalNotes: receiptApprovalNotes || undefined,
+          ignorePriceLocks
         };
 
         // POST to canonical approval endpoint and inspect payload even on non-2xx responses.
@@ -916,7 +922,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         setIsProcessing(false);
       }
     },
-    [addToast, finalStoreMode, finalStoreDraft, receiptApprovalItems, receiptApprovalIdempotencyKey, receiptApprovalNotes, refreshStores, fetchProducts]
+    [addToast, finalStoreMode, finalStoreDraft, receiptApprovalItems, receiptApprovalIdempotencyKey, receiptApprovalNotes, ignorePriceLocks, refreshStores, fetchProducts]
   );
 
   const handleRejectParseJob = useCallback(async (jobId: string) => {
@@ -973,6 +979,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     setShowReceiptReview(true);
     updateStoreCandidateDraft(selectedJob.storeCandidate);
     setForceUpcOverride(false);
+    setIgnorePriceLocks(false);
     setApprovalMode(DEFAULT_RECEIPT_APPROVAL_MODE);
     if (lastLoadedCaptureIdRef.current === selectedJob.captureId) {
       return;
@@ -1041,6 +1048,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   // Tab content
   // Only ADMIN and OWNER can manage products
   const canManageProducts = currentUser?.role === 'ADMIN' || currentUser?.role === 'OWNER';
+  const canOverridePriceLocks = currentUser?.role === 'MANAGER';
   const pendingWorkflowJobs = useMemo(
     () => parseJobs.filter(job => PENDING_WORKFLOW_STATUSES.includes(job.status as (typeof PENDING_WORKFLOW_STATUSES)[number])),
     [parseJobs]
@@ -1159,9 +1167,12 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             settings={settings}
             confirmStoreCreate={confirmStoreCreate}
             forceUpcOverride={forceUpcOverride}
+            ignorePriceLocks={ignorePriceLocks}
+            canOverridePriceLocks={canOverridePriceLocks}
             finalStoreId={finalStoreId}
             onConfirmStoreCreate={value => updateStoreDraft({ confirmStoreCreate: value })}
             onForceUpcOverride={setForceUpcOverride}
+            onIgnorePriceLocks={setIgnorePriceLocks}
             onFinalStoreIdChange={value => updateStoreDraft({ finalStoreId: value })}
             finalStoreMode={finalStoreMode}
             onFinalStoreModeChange={setFinalStoreMode}
