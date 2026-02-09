@@ -878,7 +878,6 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     const priceLockOverrideCount = lineOutcomes.filter(entry => entry.priceLockOverridden).length;
     const appliedCount = inventoryUpdates.length + createdPriceObservations.length;
     const skippedCount = Math.max(itemsToApprove.length - appliedCount, 0);
-    const backendBuildId = getBackendBuildIdentifier();
     const errorsByLine = lineOutcomes
       .filter(entry => entry.errors.length > 0)
       .reduce((acc, entry) => {
@@ -887,6 +886,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       }, {});
 
     if (appliedCount < 1) {
+      const backendBuildId = getBackendBuildIdentifier();
       const reason = errors.length > 0
         ? 'No receipt lines were applied. All selected lines were skipped due to validation or mapping errors.'
         : 'No receipt lines were applied. Verify product mappings and unit prices, then retry.';
@@ -915,6 +915,8 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         backendBuildId
       });
     }
+
+    const backendBuildId = getBackendBuildIdentifier();
 
     const previousCommitted = Number(capture.itemsCommitted || 0);
     capture.itemsCommitted = Math.min(capture.totalItems, previousCommitted + appliedCount);
