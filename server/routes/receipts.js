@@ -42,14 +42,59 @@ const normalizeReceiptName = value =>
     .replace(/\s+/g, ' ')
     .replace(/[^\w\s]/gi, '');
 
-const resolveUnitPrice = item => {
-  const parsedUnit = Number(item?.unitPrice);
-  if (Number.isFinite(parsedUnit) && parsedUnit > 0) return parsedUnit;
-  const total = Number(item?.totalPrice);
-  const qty = Number(item?.quantity) || 1;
-  if (Number.isFinite(total) && total > 0 && Number.isFinite(qty) && qty > 0) {
+export const toNumber = value => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  let cleaned = raw
+    .replace(/\s+/g, '')
+    .replace(/[^\d,.-]/g, '');
+
+  if (!cleaned) return null;
+
+  const lastDot = cleaned.lastIndexOf('.');
+  const lastComma = cleaned.lastIndexOf(',');
+
+  if (lastDot !== -1 && lastComma !== -1) {
+    const decimalSeparator = lastDot > lastComma ? '.' : ',';
+    if (decimalSeparator === '.') {
+      cleaned = cleaned.replace(/,/g, '');
+    } else {
+      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    }
+  } else if (lastComma !== -1) {
+    const commaCount = (cleaned.match(/,/g) || []).length;
+    const parts = cleaned.split(',');
+    const decimalLike = commaCount === 1 && parts[1]?.length > 0 && parts[1].length <= 2;
+    cleaned = decimalLike ? cleaned.replace(',', '.') : cleaned.replace(/,/g, '');
+  } else if (lastDot !== -1) {
+    const dotCount = (cleaned.match(/\./g) || []).length;
+    if (dotCount > 1) {
+      const parts = cleaned.split('.');
+      const decimalPart = parts.pop();
+      cleaned = `${parts.join('')}.${decimalPart}`;
+    }
+  }
+
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+export const resolveUnitPrice = item => {
+  const parsedUnit = toNumber(item?.unitPrice);
+  if (parsedUnit) return parsedUnit;
+
+  const total = toNumber(item?.totalPrice);
+  const qty = toNumber(item?.quantity) || 1;
+  if (total && qty) {
     return total / qty;
   }
+
   return null;
 };
 
