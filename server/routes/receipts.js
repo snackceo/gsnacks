@@ -43,46 +43,6 @@ const normalizeReceiptName = value =>
     .replace(/\s+/g, ' ')
     .replace(/[^\w\s]/gi, '');
 
-export const upsertUnmappedProductForReceiptItem = async ({
-  item,
-  storeId,
-  session,
-  UnmappedProductModel = UnmappedProduct
-}) => {
-  const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
-  const rawName = item.receiptName || normalizedName || 'Receipt Item';
-  const now = new Date();
-
-  let unmapped = await UnmappedProductModel.findOne({ storeId, normalizedName }).session(session);
-  if (unmapped) {
-    await UnmappedProductModel.updateOne(
-      { _id: unmapped._id },
-      {
-        $set: {
-          lastSeenAt: now,
-          lastSeenRawName: rawName
-        }
-      },
-      { session }
-    );
-    return { unmapped, now };
-  }
-
-  const created = await UnmappedProductModel.create([
-    {
-      storeId,
-      rawName,
-      normalizedName,
-      firstSeenAt: now,
-      lastSeenAt: now,
-      lastSeenRawName: rawName,
-      status: 'NEW'
-    }
-  ], { session });
-  unmapped = created[0];
-  return { unmapped, now };
-};
-
 export const toNumber = value => {
   return sanitizeOcrCurrencyNumber(value);
 };
@@ -666,13 +626,40 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
 
         if (!product) {
           // Always create or update UnmappedProduct for raw/unknown items
-          const result = await upsertUnmappedProductForReceiptItem({
-            item,
+          const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
+          const rawName = item.receiptName || normalizedName || 'Receipt Item';
+          const now = new Date();
+
+          unmapped = await UnmappedProduct.findOne({
             storeId: store._id,
-            session
-          });
-          unmapped = result.unmapped;
-          const now = result.now;
+            normalizedName
+          }).session(session);
+
+          if (unmapped) {
+            await UnmappedProduct.updateOne(
+              { _id: unmapped._id },
+              {
+                $set: {
+                  lastSeenAt: now,
+                  lastSeenRawName: rawName
+                }
+              },
+              { session }
+            );
+          } else {
+            const created = await UnmappedProduct.create([
+              {
+                storeId: store._id,
+                rawName,
+                normalizedName,
+                firstSeenAt: now,
+                lastSeenAt: now,
+                lastSeenRawName: rawName,
+                status: 'NEW'
+              }
+            ], { session });
+            unmapped = created[0];
+          }
 
           priceObservations.push({
             unmappedProductId: unmapped._id,
