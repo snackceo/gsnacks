@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resolveUnitPrice, toNumber } from '../routes/receipts.js';
+import { resolveUnitPrice, sanitizeOcrCurrencyNumber, toNumber } from '../routes/receipts.js';
 
 test('toNumber parses currency strings and OCR-like formats', () => {
   assert.equal(toNumber('$2.94'), 2.94);
@@ -11,6 +11,22 @@ test('toNumber parses currency strings and OCR-like formats', () => {
   assert.equal(toNumber(null), null);
   assert.equal(toNumber(undefined), null);
   assert.equal(toNumber('-1.00'), null);
+});
+
+test('sanitizeOcrCurrencyNumber accepts common OCR/currency unit formats', () => {
+  assert.equal(sanitizeOcrCurrencyNumber('$8.47'), 8.47);
+  assert.equal(sanitizeOcrCurrencyNumber('USD 8.47'), 8.47);
+  assert.equal(sanitizeOcrCurrencyNumber('8.47'), 8.47);
+});
+
+test('resolveUnitPrice does not mark common approval inputs as INVALID_UNIT_PRICE', () => {
+  const values = [
+    resolveUnitPrice({ unitPrice: '$8.47' }),
+    resolveUnitPrice({ unitPrice: 'USD 8.47' }),
+    resolveUnitPrice({ unitPrice: '8.47' })
+  ];
+
+  assert.deepEqual(values, [8.47, 8.47, 8.47]);
 });
 
 test('resolveUnitPrice prefers valid unitPrice before fallback', () => {
