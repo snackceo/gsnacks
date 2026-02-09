@@ -43,18 +43,24 @@ const normalizeReceiptName = value =>
     .replace(/[^\w\s]/gi, '');
 
 export const toNumber = value => {
+  return sanitizeOcrCurrencyNumber(value);
+};
+
+const sanitizeNumericCandidate = raw => {
+  if (raw === null || raw === undefined) return '';
+  return String(raw)
+    .replace(/\(([^)]+)\)/g, '-$1')
+    .replace(/\s+/g, '')
+    .replace(/[^\d,.-]/g, '');
+};
+
+export const sanitizeOcrCurrencyNumber = value => {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number') {
     return Number.isFinite(value) && value > 0 ? value : null;
   }
 
-  const raw = String(value).trim();
-  if (!raw) return null;
-
-  let cleaned = raw
-    .replace(/\s+/g, '')
-    .replace(/[^\d,.-]/g, '');
-
+  let cleaned = sanitizeNumericCandidate(value);
   if (!cleaned) return null;
 
   const lastDot = cleaned.lastIndexOf('.');
@@ -86,11 +92,11 @@ export const toNumber = value => {
 };
 
 export const resolveUnitPrice = item => {
-  const parsedUnit = toNumber(item?.unitPrice);
+  const parsedUnit = sanitizeOcrCurrencyNumber(item?.unitPrice);
   if (parsedUnit) return parsedUnit;
 
-  const total = toNumber(item?.totalPrice);
-  const qty = toNumber(item?.quantity) || 1;
+  const total = sanitizeOcrCurrencyNumber(item?.totalPrice);
+  const qty = sanitizeOcrCurrencyNumber(item?.quantity) || 1;
   if (total && qty) {
     return total / qty;
   }
