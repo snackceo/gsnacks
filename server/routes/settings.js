@@ -29,6 +29,7 @@ const defaultSettings = {
    * - showAdvancedInventoryInsights: Enables advanced inventory analytics in admin UI.
    * - allowPlatinumTier: Enables Platinum loyalty tier (future/experimental).
    * - platinumFreeDelivery: If true, Platinum tier users get free delivery (future/experimental).
+   * - allowReceiptApprovalCreateProduct: If true, receipt approvals may create products from review actions.
    */
   maintenanceMode: false,
   requirePhotoForRefunds: false,
@@ -37,6 +38,7 @@ const defaultSettings = {
   allowPlatinumTier: false,
   allowGreenTier: false,
   platinumFreeDelivery: false,
+  allowReceiptApprovalCreateProduct: false,
   priceLockDays: 7,
   dailyReturnLimit: 250,
   // deliveryFee removed (legacy)
@@ -84,7 +86,8 @@ const booleanFields = [
   'showAdvancedInventoryInsights',
   'allowPlatinumTier',
   'allowGreenTier',
-  'platinumFreeDelivery'
+  'platinumFreeDelivery',
+  'allowReceiptApprovalCreateProduct'
 ];
 
 const optionalNumericFields = ['hubLat', 'hubLng'];
@@ -241,6 +244,7 @@ const mapSettings = (doc) => ({
   allowPlatinumTier: Boolean(doc?.allowPlatinumTier ?? defaultSettings.allowPlatinumTier),
   allowGreenTier: Boolean(doc?.allowGreenTier ?? defaultSettings.allowGreenTier),
   platinumFreeDelivery: Boolean(doc?.platinumFreeDelivery ?? defaultSettings.platinumFreeDelivery),
+  allowReceiptApprovalCreateProduct: Boolean(doc?.allowReceiptApprovalCreateProduct ?? defaultSettings.allowReceiptApprovalCreateProduct),
   priceLockDays: Number(doc?.priceLockDays ?? defaultSettings.priceLockDays),
   dailyReturnLimit: Number(doc?.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
   // deliveryFee removed (legacy)

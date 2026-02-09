@@ -84,6 +84,7 @@ const defaultSettings: AppSettings = {
   showAdvancedInventoryInsights: false,
   allowPlatinumTier,
   platinumFreeDelivery: false,
+  allowReceiptApprovalCreateProduct: false,
   priceLockDays: 7,
   storageZones: [],
   productTypes: [],
@@ -278,6 +279,9 @@ const normalizeSettings = (raw?: Partial<AppSettings> | null): AppSettings => {
     allowPlatinumTier: Boolean(data.allowPlatinumTier ?? defaultSettings.allowPlatinumTier),
     platinumFreeDelivery: Boolean(
       data.platinumFreeDelivery ?? defaultSettings.platinumFreeDelivery
+    ),
+    allowReceiptApprovalCreateProduct: Boolean(
+      data.allowReceiptApprovalCreateProduct ?? defaultSettings.allowReceiptApprovalCreateProduct
     ),
     priceLockDays: Number(data.priceLockDays ?? defaultSettings.priceLockDays),
 

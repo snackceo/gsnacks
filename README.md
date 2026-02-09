@@ -8,6 +8,7 @@ The following feature toggles and experimental/future features are available in 
 - **showAdvancedInventoryInsights**: Enables advanced inventory analytics in admin UI.
 - **allowPlatinumTier**: Enables Platinum loyalty tier (future/experimental).
 - **platinumFreeDelivery**: If true, Platinum tier users get free delivery (future/experimental).
+- **allowReceiptApprovalCreateProduct**: If true, receipt approvals may create products from review actions (disabled by default; recommended off).
 
 See also: GLOSSARY.md for definitions.
 # NinpoSnacks – Internal Spec: Payments, Bottle Return Service, and Fees

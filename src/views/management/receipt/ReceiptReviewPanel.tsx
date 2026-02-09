@@ -198,7 +198,8 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
 
   const actionOptions: Array<{ value: ReceiptApprovalAction; label: string; disabled?: boolean }> = [
     { value: 'LINK_UPC_TO_PRODUCT', label: 'Link Existing Product' },
-    { value: 'CREATE_PRODUCT', label: 'Create Product (disabled)', disabled: true },
+    { value: 'CAPTURE_UNMAPPED', label: 'Capture Unmapped (Price Intelligence)' },
+    { value: 'CREATE_PRODUCT', label: 'Create Product (policy blocked)', disabled: true },
     { value: 'IGNORE', label: 'Ignore' }
   ];
 
@@ -488,11 +489,12 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                     const itemMatchMethod = item.source?.matchMethod || item.source?.matchHistory?.[0]?.matchMethod;
                     const itemWorkflowType = item.source?.workflowType || item.source?.matchHistory?.[0]?.workflowType;
                     const isUnmappedWorkflow =
+                      item.action === 'CAPTURE_UNMAPPED' ||
                       itemWorkflowType === 'unmapped' ||
                       itemMatchMethod === 'upc_unmapped' ||
                       (!item.productId && item.action !== 'LINK_UPC_TO_PRODUCT');
                     const lineStatusText = isUnmappedWorkflow
-                      ? 'Captured as UnmappedProduct for future UPC mapping.'
+                      ? 'Records pricing intelligence now as an UnmappedProduct and allows UPC mapping later.'
                       : item.action === 'LINK_UPC_TO_PRODUCT'
                         ? 'Will update StoreInventory and write PriceObservation for the linked product.'
                         : item.action === 'CREATE_UPC'
@@ -589,7 +591,7 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                         {item.action === 'CREATE_PRODUCT' && (
                           <div className="rounded-lg border border-ninpo-red/40 bg-ninpo-red/10 p-3 text-[10px] text-ninpo-red space-y-2">
                             <p className="font-semibold uppercase tracking-widest text-[9px]">Create product disabled</p>
-                            <p>Receipt approvals cannot create products. Choose another action before committing.</p>
+                            <p>Receipt approvals cannot create products unless policy explicitly enables it. Use Capture Unmapped to record pricing intelligence now and map UPC later.</p>
                             <a
                               href="#/management/inventory"
                               className="text-[10px] font-semibold text-ninpo-lime hover:underline"
@@ -598,10 +600,10 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                             </a>
                             <button
                               type="button"
-                              onClick={() => onItemActionChange(item.id, 'IGNORE')}
+                              onClick={() => onItemActionChange(item.id, 'CAPTURE_UNMAPPED')}
                               className="px-3 py-1 rounded-full text-[9px] font-semibold border border-white/10 text-slate-200 bg-white/5 hover:bg-white/10"
                             >
-                              Switch to Ignore
+                              Switch to Capture Unmapped
                             </button>
                           </div>
                         )}

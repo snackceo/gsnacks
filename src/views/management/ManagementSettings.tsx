@@ -156,6 +156,10 @@ const ManagementSettings: React.FC<ManagementSettingsProps> = ({
           <input type="checkbox" checked={!!settingsDraft.platinumFreeDelivery} onChange={e => updateSettingsDraft({ platinumFreeDelivery: e.target.checked })} />
           Platinum Free Delivery
         </label>
+        <label className="flex items-center gap-3 text-sm font-bold text-slate-300">
+          <input type="checkbox" checked={!!settingsDraft.allowReceiptApprovalCreateProduct} onChange={e => updateSettingsDraft({ allowReceiptApprovalCreateProduct: e.target.checked })} />
+          Allow Receipt Approval Create Product
+        </label>
       </div>
       <button
         type="submit"
