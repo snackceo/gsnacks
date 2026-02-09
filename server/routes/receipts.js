@@ -825,6 +825,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         const lineError = { lineIndex: item.lineIndex, error: itemError.message, code: APPROVAL_ERROR_CODES.APPLY_FAILED };
         errors.push(lineError);
         lineOutcome.errors.push(lineError);
+        throw itemError;
       }
     }
 
@@ -960,7 +961,21 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       await session.abortTransaction();
     }
     console.error('Error approving receipt:', error);
-    res.status(500).json({ error: 'Failed to approve receipt' });
+    const firstLineError = errors[0] || null;
+    res.status(500).json({
+      error: 'Failed to approve receipt',
+      reasonCode: APPROVAL_ERROR_CODES.APPLY_FAILED,
+      ...(firstLineError
+        ? {
+            reasonDetail: {
+              code: firstLineError.code || APPROVAL_ERROR_CODES.APPLY_FAILED,
+              message: firstLineError.error,
+              lineIndex: firstLineError.lineIndex
+            },
+            firstLineError
+          }
+        : {})
+    });
   } finally {
     await session.endSession();
   }
