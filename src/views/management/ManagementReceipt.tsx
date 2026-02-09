@@ -791,7 +791,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   // Enhanced handleApproveReceipt: builds full payload, posts, resets state, refreshes stores/products
   const handleApproveReceipt = useCallback(
-    async (job: ReceiptParseJob, mode: ReceiptApprovalMode = DEFAULT_RECEIPT_APPROVAL_MODE) => {
+    async (job: ReceiptParseJob, modeFromUi: ReceiptApprovalMode) => {
       setIsProcessing(true);
       try {
         // Build store override if needed
@@ -822,7 +822,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
         // Build payload
         const payload: any = {
-          mode,
+          mode: modeFromUi,
           approvalDraft: {
             jobId: job._id,
             captureId: job.captureId,
