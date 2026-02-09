@@ -481,6 +481,17 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                     const advisoryCount = status?.advisory.length ?? 0;
                     const itemMatchMethod = item.source?.matchMethod || item.source?.matchHistory?.[0]?.matchMethod;
                     const itemWorkflowType = item.source?.workflowType || item.source?.matchHistory?.[0]?.workflowType;
+                    const isUnmappedWorkflow =
+                      itemWorkflowType === 'unmapped' ||
+                      itemMatchMethod === 'upc_unmapped' ||
+                      (!item.productId && item.action !== 'LINK_UPC_TO_PRODUCT');
+                    const lineStatusText = isUnmappedWorkflow
+                      ? 'Captured as UnmappedProduct for future UPC mapping.'
+                      : item.action === 'LINK_UPC_TO_PRODUCT'
+                        ? 'Will update StoreInventory and write PriceObservation for the linked product.'
+                        : item.action === 'CREATE_UPC'
+                          ? 'Will create or refresh the UPC link, then update StoreInventory and PriceObservation.'
+                          : 'No apply changes for this line (ignored during Approve & Apply).';
 
                     return (
                       <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 p-3 space-y-3">
@@ -497,6 +508,7 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                                 {itemWorkflowType ? ` • Workflow: ${itemWorkflowType}` : ''}
                               </p>
                             )}
+                            <p className="text-[10px] text-slate-300 mt-1">Status: {lineStatusText}</p>
                           </div>
 
                           <div className="flex items-center gap-2">
@@ -813,12 +825,20 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                 >
                   {isCommitting ? 'Approving…' : 'Approve & Apply'}
                 </button>
+                <p className="mt-2 text-[10px] text-slate-400">
+                  Parse updates the <span className="font-semibold text-white">ReceiptParseJob</span> draft only. Approve &amp; Apply writes
+                  <span className="font-semibold text-white"> StoreInventory</span> and <span className="font-semibold text-white">PriceObservation</span> records.
+                </p>
               </div>
             </div>
           </div>
         </div>
 
         <div className="lg:hidden sticky bottom-0 border-t border-white/10 bg-ninpo-card/95 backdrop-blur px-6 py-4">
+          <p className="mb-2 text-[10px] text-slate-400">
+            Parse updates the <span className="font-semibold text-white">ReceiptParseJob</span> draft only. Approve &amp; Apply writes
+            <span className="font-semibold text-white"> StoreInventory</span> and <span className="font-semibold text-white">PriceObservation</span>.
+          </p>
           <button
             onClick={onCommit}
             disabled={!approvalMode || isCommitting || receiptApprovalStatus.hasBlocking}

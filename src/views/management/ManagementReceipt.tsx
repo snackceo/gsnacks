@@ -63,10 +63,17 @@ interface ReceiptApproveResponse {
   }>;
 }
 
+type ReceiptApplySummary = {
+  matchedProductsUpdated: number;
+  unmappedLinesRecorded: number;
+  upcLinksCreated: number;
+};
+
 type ReceiptApprovalOutcome = {
   appliedCount: number;
   skippedCount: number;
   errors: Array<{ lineIndex?: number; error?: string; code?: string }>;
+  applySummary: ReceiptApplySummary;
   lastUpdatedAt: string;
 };
 
@@ -162,6 +169,27 @@ type ReceiptApprovalDraftState = {
   receiptApprovalItems: Array<ReceiptApprovalDraftItem & { id: string }>;
   receiptApprovalNotes: string;
   receiptApprovalIdempotencyKey: string;
+};
+
+
+const summarizeReceiptApplyOutcome = (data: ReceiptApproveResponse): ReceiptApplySummary => {
+  const lineOutcomes = Array.isArray(data?.lineOutcomes) ? data.lineOutcomes : [];
+  const matchedProductsUpdated = lineOutcomes.filter(entry => Boolean(entry?.inventoryPersisted)).length;
+  const unmappedLinesRecorded = lineOutcomes.filter(
+    entry => !entry?.inventoryPersisted && Boolean(entry?.priceObservationPersisted)
+  ).length;
+
+  const upcLinksCreated = lineOutcomes.filter(entry => {
+    const lineErrors = Array.isArray(entry?.errors) ? entry.errors : [];
+    const hasUpcConflict = lineErrors.some(error => error?.code === 'UPC_CONFLICT');
+    return Boolean(entry?.inventoryPersisted) && !hasUpcConflict;
+  }).length;
+
+  return {
+    matchedProductsUpdated,
+    unmappedLinesRecorded,
+    upcLinksCreated
+  };
 };
 
 interface ManagementReceiptProps {
@@ -592,7 +620,11 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           approvalNotes: receiptApprovalNotes || undefined
         })
       });
-      addToast('Items committed.', 'success');
+      const applySummary = summarizeReceiptApplyOutcome(data || {});
+      addToast(
+        `Approve & Apply completed. Matched products updated: ${applySummary.matchedProductsUpdated} · Unmapped lines recorded: ${applySummary.unmappedLinesRecorded} · UPC links created: ${applySummary.upcLinksCreated}.`,
+        'success'
+      );
       setShowReceiptReview(false);
       setSelectedJob(null);
       setParseJobs(prev => prev.filter(job => job._id !== selectedJob._id));
@@ -824,10 +856,12 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           })
           .join(' | ');
 
+        const applySummary = summarizeReceiptApplyOutcome(data);
         const nextOutcome: ReceiptApprovalOutcome = {
           appliedCount,
           skippedCount,
           errors: backendErrors,
+          applySummary,
           lastUpdatedAt: new Date().toISOString()
         };
         setApprovalOutcomeByJobId(prev => ({ ...prev, [job._id]: nextOutcome }));
@@ -840,8 +874,10 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
         if (appliedCount > 0) {
           const summary = `Approve & Apply completed: ${appliedCount} lines applied, ${skippedCount} skipped.`;
+          const compactSummary = `Matched products updated: ${applySummary.matchedProductsUpdated} · Unmapped lines recorded: ${applySummary.unmappedLinesRecorded} · UPC links created: ${applySummary.upcLinksCreated}.`;
           const toastType = skippedCount > 0 || backendErrors.length > 0 ? 'warning' : 'success';
-          addToast(summarizedErrors ? `${summary} ${summarizedErrors}` : summary, toastType);
+          const baseMessage = `${summary} ${compactSummary}`;
+          addToast(summarizedErrors ? `${baseMessage} ${summarizedErrors}` : baseMessage, toastType);
         } else {
           addToast(
             summarizedErrors || data?.error || 'No receipt lines were applied. Verify mappings and prices, then retry.',
@@ -1238,6 +1274,13 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                               Applied: <span className="font-semibold">{approvalOutcomeByJobId[job._id].appliedCount}</span>
                               {' · '}
                               Skipped: <span className="font-semibold">{approvalOutcomeByJobId[job._id].skippedCount}</span>
+                            </p>
+                            <p className="mt-1 text-[10px] text-slate-200">
+                              Matched products updated: <span className="font-semibold">{approvalOutcomeByJobId[job._id].applySummary.matchedProductsUpdated}</span>
+                              {' · '}
+                              Unmapped lines recorded: <span className="font-semibold">{approvalOutcomeByJobId[job._id].applySummary.unmappedLinesRecorded}</span>
+                              {' · '}
+                              UPC links created: <span className="font-semibold">{approvalOutcomeByJobId[job._id].applySummary.upcLinksCreated}</span>
                             </p>
                             <p className="mt-1 text-[10px] text-slate-300">
                               Updated: {fmtTime(approvalOutcomeByJobId[job._id].lastUpdatedAt)}
