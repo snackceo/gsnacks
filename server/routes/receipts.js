@@ -717,15 +717,29 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       }
     }
 
+    let createdPriceObservations = [];
     if (priceObservations.length > 0) {
-      await PriceObservation.insertMany(priceObservations, { session });
+      createdPriceObservations = await PriceObservation.insertMany(priceObservations, { session });
     }
+
+    const inventoryAppliedLineIndexes = new Set(
+      inventoryUpdates
+        .map(entry => (typeof entry?.lineIndex === 'number' ? entry.lineIndex : null))
+        .filter(lineIndex => lineIndex !== null)
+    );
+    const observationAppliedLineIndexes = new Set(
+      createdPriceObservations
+        .map(entry => (typeof entry?.lineIndex === 'number' ? entry.lineIndex : null))
+        .filter(lineIndex => lineIndex !== null)
+    );
 
     const lineOutcomes = Array.from(lineOutcomeByIndex.values()).map(entry => ({
       ...entry,
-      applied: Boolean(entry.inventoryPersisted || entry.priceObservationPersisted)
+      inventoryPersisted: inventoryAppliedLineIndexes.has(entry.lineIndex),
+      priceObservationPersisted: observationAppliedLineIndexes.has(entry.lineIndex),
+      applied: inventoryAppliedLineIndexes.has(entry.lineIndex) || observationAppliedLineIndexes.has(entry.lineIndex)
     }));
-    const appliedCount = lineOutcomes.filter(entry => entry.applied).length;
+    const appliedCount = inventoryUpdates.length + createdPriceObservations.length;
     const skippedCount = Math.max(itemsToApprove.length - appliedCount, 0);
     const errorsByLine = lineOutcomes
       .filter(entry => entry.errors.length > 0)
@@ -757,7 +771,9 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         skippedCount,
         errors,
         errorsByLine,
-        lineOutcomes
+        lineOutcomes,
+        inventoryWriteCount: inventoryUpdates.length,
+        priceObservationWriteCount: createdPriceObservations.length
       });
     }
 
@@ -788,6 +804,8 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         skippedCount,
         lineOutcomes,
         errorsByLine,
+        inventoryWriteCount: inventoryUpdates.length,
+        priceObservationWriteCount: createdPriceObservations.length,
         inventoryUpdates,
         approvalPayload: req.body || null
       };
@@ -815,6 +833,8 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       errorsByLine,
       createdProducts,
       matchedProducts,
+      inventoryWriteCount: inventoryUpdates.length,
+      priceObservationWriteCount: createdPriceObservations.length,
       inventoryUpdates,
       errors
     });

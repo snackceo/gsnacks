@@ -52,6 +52,8 @@ interface ReceiptApproveResponse {
   reasonCode?: string;
   appliedCount?: number;
   skippedCount?: number;
+  inventoryWriteCount?: number;
+  priceObservationWriteCount?: number;
   errors?: Array<{ lineIndex?: number; error?: string; code?: string }>;
   errorsByLine?: Record<string, Array<{ lineIndex?: number; error?: string; code?: string }>>;
   lineOutcomes?: Array<{
@@ -72,7 +74,10 @@ type ReceiptApplySummary = {
 type ReceiptApprovalOutcome = {
   appliedCount: number;
   skippedCount: number;
+  inventoryWriteCount: number;
+  priceObservationWriteCount: number;
   errors: Array<{ lineIndex?: number; error?: string; code?: string }>;
+  errorMessage?: string;
   applySummary: ReceiptApplySummary;
   lastUpdatedAt: string;
 };
@@ -860,7 +865,10 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         const nextOutcome: ReceiptApprovalOutcome = {
           appliedCount,
           skippedCount,
+          inventoryWriteCount: Number(data?.inventoryWriteCount || 0),
+          priceObservationWriteCount: Number(data?.priceObservationWriteCount || 0),
           errors: backendErrors,
+          errorMessage: data?.error,
           applySummary,
           lastUpdatedAt: new Date().toISOString()
         };
@@ -1275,6 +1283,17 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                               {' · '}
                               Skipped: <span className="font-semibold">{approvalOutcomeByJobId[job._id].skippedCount}</span>
                             </p>
+                            <p className="mt-1 text-[10px] text-slate-200">
+                              Inventory writes: <span className="font-semibold">{approvalOutcomeByJobId[job._id].inventoryWriteCount}</span>
+                              {' · '}
+                              Price observation writes: <span className="font-semibold">{approvalOutcomeByJobId[job._id].priceObservationWriteCount}</span>
+                            </p>
+                            {approvalOutcomeByJobId[job._id].priceObservationWriteCount < 1 && (
+                              <p className="mt-1 text-[10px] text-yellow-200">
+                                No Price Intelligence rows were written.
+                                {approvalOutcomeByJobId[job._id].errorMessage ? ` ${approvalOutcomeByJobId[job._id].errorMessage}` : ''}
+                              </p>
+                            )}
                             <p className="mt-1 text-[10px] text-slate-200">
                               Matched products updated: <span className="font-semibold">{approvalOutcomeByJobId[job._id].applySummary.matchedProductsUpdated}</span>
                               {' · '}
