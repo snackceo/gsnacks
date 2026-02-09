@@ -43,6 +43,26 @@ const normalizeReceiptName = value =>
     .replace(/\s+/g, ' ')
     .replace(/[^\w\s]/gi, '');
 
+export const buildUnmappedProductUpsert = ({ storeId, normalizedName, rawName, now, session }) => ({
+  query: { storeId, normalizedName },
+  update: {
+    $setOnInsert: {
+      // rawName = canonical first-seen name (insert-only)
+      storeId,
+      rawName,
+      normalizedName,
+      firstSeenAt: now,
+      status: 'NEW'
+    },
+    $set: {
+      // lastSeenRawName = most recent observed name (updated every sighting)
+      lastSeenAt: now,
+      lastSeenRawName: rawName
+    }
+  },
+  options: { new: true, upsert: true, session }
+});
+
 export const toNumber = value => {
   return sanitizeOcrCurrencyNumber(value);
 };
@@ -594,23 +614,17 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
           const rawName = item.receiptName || normalizedName || 'Receipt Item';
           const now = new Date();
+          const unmappedUpsert = buildUnmappedProductUpsert({
+            storeId: store._id,
+            normalizedName,
+            rawName,
+            now,
+            session
+          });
           unmapped = await UnmappedProduct.findOneAndUpdate(
-            { storeId: store._id, normalizedName },
-            {
-              $setOnInsert: {
-                storeId: store._id,
-                rawName,
-                lastSeenRawName: rawName,
-                normalizedName,
-                firstSeenAt: now,
-                status: 'NEW'
-              },
-              $set: {
-                lastSeenAt: now,
-                lastSeenRawName: rawName
-              }
-            },
-            { new: true, upsert: true, session }
+            unmappedUpsert.query,
+            unmappedUpsert.update,
+            unmappedUpsert.options
           );
 
           priceObservations.push({
