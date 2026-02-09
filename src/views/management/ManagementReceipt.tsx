@@ -75,6 +75,7 @@ type ReceiptApplySummary = {
 };
 
 type ReceiptApprovalOutcome = {
+  reasonCode?: string;
   appliedCount: number;
   skippedCount: number;
   inventoryWriteCount: number;
@@ -85,6 +86,14 @@ type ReceiptApprovalOutcome = {
   errorMessage?: string;
   applySummary: ReceiptApplySummary;
   lastUpdatedAt: string;
+};
+
+type ReceiptApprovalParsedResult = {
+  data: ReceiptApproveResponse;
+  outcome: ReceiptApprovalOutcome;
+  appliedCount: number;
+  skippedCount: number;
+  backendErrors: Array<{ lineIndex?: number; error?: string; code?: string }>;
 };
 
 // Must stay aligned with backend/operator policy for the primary Approve action.
@@ -224,6 +233,46 @@ const normalizeErrorsByLine = (
     acc[lineKey].push(entry);
     return acc;
   }, {});
+};
+
+const summarizeApprovalErrors = (errors: Array<{ lineIndex?: number; error?: string; code?: string }>) =>
+  errors
+    .slice(0, 3)
+    .map(entry => {
+      const line = typeof entry?.lineIndex === 'number' ? `line ${entry.lineIndex}` : 'line unknown';
+      return `${line}: ${entry?.error || entry?.code || 'Unknown error'}`;
+    })
+    .join(' | ');
+
+const parseReceiptApproveResponse = (data: ReceiptApproveResponse): ReceiptApprovalParsedResult => {
+  const appliedCount = Number(data?.appliedCount || 0);
+  const skippedCount = Number(data?.skippedCount || 0);
+  const backendErrors = Array.isArray(data?.errors) ? data.errors : [];
+  const applySummary = summarizeReceiptApplyOutcome(data || {});
+
+  return {
+    data,
+    outcome: {
+      reasonCode: typeof data?.reasonCode === 'string' ? data.reasonCode : undefined,
+      appliedCount,
+      skippedCount,
+      inventoryWriteCount: Number(data?.inventoryWriteCount || 0),
+      priceObservationWriteCount: Number(data?.priceObservationWriteCount || 0),
+      backendBuildId: typeof data?.backendBuildId === 'string' ? data.backendBuildId : undefined,
+      errors: backendErrors,
+      errorsByLine: normalizeErrorsByLine(data?.errorsByLine, backendErrors),
+      errorMessage: data?.error,
+      applySummary,
+      lastUpdatedAt: new Date().toISOString()
+    },
+    appliedCount,
+    skippedCount,
+    backendErrors
+  };
+};
+
+const parseApprovalResponseJson = async (response: Response): Promise<ReceiptApproveResponse> => {
+  return await response.json().catch(() => ({}));
 };
 
 interface ManagementReceiptProps {
@@ -632,9 +681,10 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         items: draftItems
       };
 
-      const data = await apiFetch(`/api/receipts/${selectedJob._id}/approve`, {
+      const approvalResponse = await fetch(`${BACKEND_URL}/api/receipts/${selectedJob._id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           mode: approvalMode,
           approvalDraft,
@@ -649,11 +699,22 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           approvalNotes: receiptApprovalNotes || undefined
         })
       });
-      const applySummary = summarizeReceiptApplyOutcome(data || {});
-      addToast(
-        `Approve & Apply completed. Matched products updated: ${applySummary.matchedProductsUpdated} · Unmapped lines recorded: ${applySummary.unmappedLinesRecorded} · UPC links created: ${applySummary.upcLinksCreated}.`,
-        'success'
-      );
+      const approvalData = await parseApprovalResponseJson(approvalResponse);
+      const { outcome, appliedCount, skippedCount, backendErrors } = parseReceiptApproveResponse(approvalData);
+      const summarizedErrors = summarizeApprovalErrors(backendErrors);
+
+      setApprovalOutcomeByJobId(prev => ({ ...prev, [selectedJob._id]: outcome }));
+      setApprovalPanelExpandedByJobId(prev => ({ ...prev, [selectedJob._id]: true }));
+
+      if (!approvalResponse.ok || approvalData?.error || appliedCount < 1) {
+        const backendReason = approvalData?.error || 'No receipt lines were applied. Verify mappings and prices, then retry.';
+        throw new Error(summarizedErrors ? `${backendReason} ${summarizedErrors}` : backendReason);
+      }
+
+      const applySummary = outcome.applySummary;
+      const summary = `Approve & Apply completed: ${appliedCount} lines applied, ${skippedCount} skipped.`;
+      const compactSummary = `Matched products updated: ${applySummary.matchedProductsUpdated} · Unmapped lines recorded: ${applySummary.unmappedLinesRecorded} · UPC links created: ${applySummary.upcLinksCreated}.`;
+      addToast(`${summary} ${compactSummary}`, 'success');
       setShowReceiptReview(false);
       setSelectedJob(null);
       setParseJobs(prev => prev.filter(job => job._id !== selectedJob._id));
@@ -873,53 +934,24 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           credentials: 'include',
           body: JSON.stringify(payload)
         });
-        const data: ReceiptApproveResponse = await approvalResponse.json().catch(() => ({}));
+        const data = await parseApprovalResponseJson(approvalResponse);
+        const { outcome, appliedCount, skippedCount, backendErrors } = parseReceiptApproveResponse(data);
+        const summarizedErrors = summarizeApprovalErrors(backendErrors);
 
-        const appliedCount = Number(data?.appliedCount || 0);
-        const skippedCount = Number(data?.skippedCount || 0);
-        const backendErrors = Array.isArray(data?.errors) ? data.errors : [];
-        const summarizedErrors = backendErrors
-          .slice(0, 3)
-          .map(entry => {
-            const line = typeof entry?.lineIndex === 'number' ? `line ${entry.lineIndex}` : 'line unknown';
-            return `${line}: ${entry?.error || entry?.code || 'Unknown error'}`;
-          })
-          .join(' | ');
-
-        const applySummary = summarizeReceiptApplyOutcome(data);
-        const nextOutcome: ReceiptApprovalOutcome = {
-          appliedCount,
-          skippedCount,
-          inventoryWriteCount: Number(data?.inventoryWriteCount || 0),
-          priceObservationWriteCount: Number(data?.priceObservationWriteCount || 0),
-          backendBuildId: typeof data?.backendBuildId === 'string' ? data.backendBuildId : undefined,
-          errors: backendErrors,
-          errorsByLine: normalizeErrorsByLine(data?.errorsByLine, backendErrors),
-          errorMessage: data?.error,
-          applySummary,
-          lastUpdatedAt: new Date().toISOString()
-        };
-        setApprovalOutcomeByJobId(prev => ({ ...prev, [job._id]: nextOutcome }));
+        setApprovalOutcomeByJobId(prev => ({ ...prev, [job._id]: outcome }));
         setApprovalPanelExpandedByJobId(prev => ({ ...prev, [job._id]: true }));
 
-        if (!approvalResponse.ok && appliedCount < 1) {
+        if (!approvalResponse.ok || data?.error || appliedCount < 1) {
           const backendReason = data?.error || 'No receipt lines were applied. Verify mappings and prices, then retry.';
-          addToast(summarizedErrors ? `${backendReason} ${summarizedErrors}` : backendReason, 'warning');
-          return;
+          throw new Error(summarizedErrors ? `${backendReason} ${summarizedErrors}` : backendReason);
         }
 
-        if (appliedCount > 0) {
-          const summary = `Approve & Apply completed: ${appliedCount} lines applied, ${skippedCount} skipped.`;
-          const compactSummary = `Matched products updated: ${applySummary.matchedProductsUpdated} · Unmapped lines recorded: ${applySummary.unmappedLinesRecorded} · UPC links created: ${applySummary.upcLinksCreated}.`;
-          const toastType = skippedCount > 0 || backendErrors.length > 0 ? 'warning' : 'success';
-          const baseMessage = `${summary} ${compactSummary}`;
-          addToast(summarizedErrors ? `${baseMessage} ${summarizedErrors}` : baseMessage, toastType);
-        } else {
-          addToast(
-            summarizedErrors || data?.error || 'No receipt lines were applied. Verify mappings and prices, then retry.',
-            'warning'
-          );
-        }
+        const applySummary = outcome.applySummary;
+        const summary = `Approve & Apply completed: ${appliedCount} lines applied, ${skippedCount} skipped.`;
+        const compactSummary = `Matched products updated: ${applySummary.matchedProductsUpdated} · Unmapped lines recorded: ${applySummary.unmappedLinesRecorded} · UPC links created: ${applySummary.upcLinksCreated}.`;
+        const toastType = skippedCount > 0 || backendErrors.length > 0 ? 'warning' : 'success';
+        const baseMessage = `${summary} ${compactSummary}`;
+        addToast(summarizedErrors ? `${baseMessage} ${summarizedErrors}` : baseMessage, toastType);
 
         // Reset review state/drafts
 
@@ -1202,7 +1234,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             onLockDurationChange={setLockDurationDays}
             stores={stores}
             storeCandidate={finalStoreDraft.storeCandidate || selectedJob.storeCandidate}
-          
+            approvalOutcome={selectedJob ? approvalOutcomeByJobId[selectedJob._id] : undefined}
+            fmtTime={fmtTime}
           />
         );
       }
@@ -1367,6 +1400,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                                   Price observation writes: <span className="font-semibold">{approvalOutcomeByJobId[job._id].priceObservationWriteCount}</span>
                                 </p>
                                 <p className="mt-1 text-[10px] text-slate-200">
+                                  Reason code: <span className="font-semibold">{approvalOutcomeByJobId[job._id].reasonCode || 'n/a'}</span>
+                                  {' · '}
                                   Backend build id:{' '}
                                   <span className="font-semibold">{approvalOutcomeByJobId[job._id].backendBuildId || 'unknown'}</span>
                                 </p>
@@ -1526,7 +1561,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     handleRejectParseJob,
     visibleJobCount,
     visibleJobs,
-    canLoadMoreJobs
+    canLoadMoreJobs,
+    approvalOutcomeByJobId
   ]);
 
   return (

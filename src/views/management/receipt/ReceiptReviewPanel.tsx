@@ -12,6 +12,19 @@ import {
 } from '../../../types';
 import { getReceiptItemKey } from '../../../utils/receiptHelpers';
 
+
+interface ReceiptApprovalOutcomeView {
+  reasonCode?: string;
+  appliedCount: number;
+  skippedCount: number;
+  inventoryWriteCount: number;
+  priceObservationWriteCount: number;
+  backendBuildId?: string;
+  errorsByLine: Record<string, Array<{ lineIndex?: number; error?: string; code?: string }>>;
+  errorMessage?: string;
+  lastUpdatedAt: string;
+}
+
 interface ReceiptApprovalIssue {
   label: string;
   messages: string[];
@@ -76,6 +89,8 @@ interface ReceiptReviewPanelProps {
   onLockDurationChange: (value: number) => void;
   stores: StoreRecord[];
   storeCandidate?: ReceiptStoreCandidate;
+  approvalOutcome?: ReceiptApprovalOutcomeView;
+  fmtTime: (iso?: string) => string;
 }
 
 const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
@@ -130,7 +145,9 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
   onLockDurationChange,
   stores,
   storeCandidate,
-  canManageProducts
+  canManageProducts,
+  approvalOutcome,
+  fmtTime
 }) => {
   // ✅ Hooks MUST run even when `show` is false, otherwise React throws error #310.
   const selectedForCommitCount = selectedItemsForCommit.size;
@@ -245,6 +262,50 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
         </div>
 
         <div className="p-6 space-y-6">
+
+          {approvalOutcome && (
+            <div className="rounded-xl border border-ninpo-lime/30 bg-ninpo-lime/10 p-3 text-[11px] text-slate-100">
+              <p className="font-bold uppercase tracking-widest text-[10px] text-ninpo-lime">Last approval result</p>
+              <p className="mt-1">
+                Applied: <span className="font-semibold">{approvalOutcome.appliedCount}</span>
+                {' · '}
+                Skipped: <span className="font-semibold">{approvalOutcome.skippedCount}</span>
+              </p>
+              <p className="mt-1 text-[10px] text-slate-200">
+                Inventory writes: <span className="font-semibold">{approvalOutcome.inventoryWriteCount}</span>
+                {' · '}
+                Price observation writes: <span className="font-semibold">{approvalOutcome.priceObservationWriteCount}</span>
+              </p>
+              <p className="mt-1 text-[10px] text-slate-200">
+                Reason code: <span className="font-semibold">{approvalOutcome.reasonCode || 'n/a'}</span>
+                {' · '}Backend build id: <span className="font-semibold">{approvalOutcome.backendBuildId || 'unknown'}</span>
+              </p>
+              {approvalOutcome.errorMessage && (
+                <p className="mt-1 text-[10px] text-yellow-200">{approvalOutcome.errorMessage}</p>
+              )}
+              <p className="mt-1 text-[10px] text-slate-300">Updated: {fmtTime(approvalOutcome.lastUpdatedAt)}</p>
+              {Object.entries(approvalOutcome.errorsByLine).length > 0 && (
+                <div className="mt-2 space-y-1 text-[10px] text-slate-100">
+                  {Object.entries(approvalOutcome.errorsByLine)
+                    .sort(([lineA], [lineB]) => Number(lineA) - Number(lineB))
+                    .map(([lineKey, lineErrors]) => (
+                      <div key={`review-approval-line-${lineKey}`} className="rounded-lg border border-white/10 bg-black/20 px-2 py-1">
+                        <p className="font-semibold text-slate-200">Line {lineKey}</p>
+                        <ul className="mt-1 list-disc space-y-1 pl-4 text-slate-100">
+                          {lineErrors.map((entry, idx) => (
+                            <li key={`review-approval-line-${lineKey}-error-${idx}`}>
+                              {entry.error || 'Unknown error'}
+                              {entry.code ? ` (${entry.code})` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-3 items-center">
             <button
               onClick={onParse}
