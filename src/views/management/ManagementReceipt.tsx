@@ -178,6 +178,11 @@ type ReceiptApprovalDraftState = {
   receiptApprovalIdempotencyKey: string;
 };
 
+type ReceiptWorkflowTab = 'capture' | 'pending' | 'completed';
+
+const PENDING_WORKFLOW_STATUSES = ['QUEUED', 'NEEDS_REVIEW', 'PARSED'] as const;
+const COMPLETED_WORKFLOW_STATUSES = ['APPROVED', 'FAILED'] as const;
+
 
 const summarizeReceiptApplyOutcome = (data: ReceiptApproveResponse): ReceiptApplySummary => {
   const lineOutcomes = Array.isArray(data?.lineOutcomes) ? data.lineOutcomes : [];
@@ -266,7 +271,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const captureItemsInFlightRef = useRef<Set<string>>(new Set());
   const captureItemsAbortRef = useRef<AbortController | null>(null);
   const lastLoadedCaptureIdRef = useRef<string | null>(null);
-  const [receiptFlow, setReceiptFlow] = useState<'capture' | 'pending'>('capture');
+  const [receiptFlow, setReceiptFlow] = useState<ReceiptWorkflowTab>('capture');
   
   // Capture state
   const [isReceiptFlowOpen, setIsReceiptFlowOpen] = useState(false);
@@ -307,14 +312,6 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   const finalStoreId = finalStoreDraft.finalStoreId ?? '';
   const confirmStoreCreate = Boolean(finalStoreDraft.confirmStoreCreate);
-
-  useEffect(() => {
-    if (parseJobs.length <= 20) {
-      setVisibleJobCount(20);
-      return;
-    }
-    setVisibleJobCount(prev => Math.min(prev, parseJobs.length));
-  }, [parseJobs.length]);
 
   const updateStoreDraft = useCallback((updates: Partial<ReceiptApprovalStoreDraft>) => {
     setFinalStoreDraft(prev => ({ ...prev, ...updates }));
@@ -751,7 +748,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     }
   }, []);
 
-  // Load pending parse jobs
+  // Load parse jobs for pending workflow and completed history
   const loadParseJobs = useCallback(async () => {
     setIsLoadingJobs(true);
     void loadReceiptHealth();
@@ -759,11 +756,10 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     try {
       const data: any = await apiFetch('/api/receipts/?status=QUEUED,PARSING,NEEDS_REVIEW,PARSED,FAILED,APPROVED');
       if (data?.error) throw new Error(data.error || 'Failed to load parse jobs');
-      // Only include jobs with QUEUED, NEEDS_REVIEW, PARSED, APPROVED, FAILED (exclude PARSING)
-      const validStatuses = ['QUEUED', 'NEEDS_REVIEW', 'PARSED', 'FAILED', 'APPROVED'];
+      const validStatuses = [...PENDING_WORKFLOW_STATUSES, ...COMPLETED_WORKFLOW_STATUSES];
       let jobs = Array.isArray(data?.jobs) ? data.jobs : [];
       jobs = jobs.filter(j => validStatuses.includes(j.status));
-      // Sort by required order: QUEUED, NEEDS_REVIEW, PARSED, APPROVED, FAILED
+      // Keep queue semantics first, then completed history
       const statusOrder = { QUEUED: 0, NEEDS_REVIEW: 1, PARSED: 2, APPROVED: 3, FAILED: 4 };
       jobs.sort((a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99));
       setParseJobs(jobs);
@@ -775,7 +771,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   }, [loadReceiptHealth]);
 
   useEffect(() => {
-    if (receiptFlow === 'pending') {
+    if (receiptFlow === 'pending' || receiptFlow === 'completed') {
       loadParseJobs();
     }
   }, [receiptFlow, loadParseJobs]);
@@ -1045,8 +1041,25 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   // Tab content
   // Only ADMIN and OWNER can manage products
   const canManageProducts = currentUser?.role === 'ADMIN' || currentUser?.role === 'OWNER';
-  const visibleJobs = parseJobs.slice(0, visibleJobCount);
-  const canLoadMoreJobs = parseJobs.length > visibleJobCount;
+  const pendingWorkflowJobs = useMemo(
+    () => parseJobs.filter(job => PENDING_WORKFLOW_STATUSES.includes(job.status as (typeof PENDING_WORKFLOW_STATUSES)[number])),
+    [parseJobs]
+  );
+  const completedWorkflowJobs = useMemo(
+    () => parseJobs.filter(job => COMPLETED_WORKFLOW_STATUSES.includes(job.status as (typeof COMPLETED_WORKFLOW_STATUSES)[number])),
+    [parseJobs]
+  );
+  const activeJobs = receiptFlow === 'completed' ? completedWorkflowJobs : pendingWorkflowJobs;
+  const visibleJobs = activeJobs.slice(0, visibleJobCount);
+  const canLoadMoreJobs = activeJobs.length > visibleJobCount;
+
+  useEffect(() => {
+    if (activeJobs.length <= 20) {
+      setVisibleJobCount(20);
+      return;
+    }
+    setVisibleJobCount(prev => Math.min(prev, activeJobs.length));
+  }, [activeJobs.length]);
 
   const tabContent = useMemo(() => {
     if (receiptFlow === 'capture') {
@@ -1072,7 +1085,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       );
     }
 
-    if (receiptFlow === 'pending') {
+    if (receiptFlow === 'pending' || receiptFlow === 'completed') {
       // If a job is selected, show the review panel (placeholder for now)
       if (selectedJob) {
         return (
@@ -1165,10 +1178,15 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-white font-black uppercase tracking-widest flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-ninpo-lime" /> Pending Parse Jobs ({parseJobs.length})
+                <AlertCircle className="w-5 h-5 text-ninpo-lime" />
+                {receiptFlow === 'completed'
+                  ? `Completed Receipt Jobs (${completedWorkflowJobs.length})`
+                  : `Pending / Needs Review (${pendingWorkflowJobs.length})`}
               </h3>
               <p className="mt-1 text-[10px] text-slate-400 uppercase tracking-widest">
-                Each ReceiptParseJob stages data. Approve &amp; Apply commits StoreInventory updates.
+                {receiptFlow === 'completed'
+                  ? 'Approved and failed parse jobs remain here for history and follow-up.'
+                  : 'Queue-focused workflow: queued, parsed, and needs-review jobs requiring operator action.'}
               </p>
             </div>
             <button
@@ -1203,11 +1221,17 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-6 h-6 animate-spin text-ninpo-lime" />
             </div>
-          ) : parseJobs.length === 0 ? (
+          ) : activeJobs.length === 0 ? (
             <div className="bg-ninpo-card border border-white/10 rounded-2xl p-8 text-center">
               <CheckCircle2 className="w-12 h-12 text-ninpo-lime mx-auto mb-3 opacity-50" />
-              <p className="text-white font-black uppercase text-sm">No pending jobs</p>
-              <p className="text-[11px] text-slate-400 mt-2">All receipts have been reviewed</p>
+              <p className="text-white font-black uppercase text-sm">
+                {receiptFlow === 'completed' ? 'No completed jobs' : 'No pending jobs'}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-2">
+                {receiptFlow === 'completed'
+                  ? 'Approved/failed history will appear here.'
+                  : 'All active receipt jobs have been reviewed.'}
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -1376,7 +1400,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
               {canLoadMoreJobs && (
                 <button
                   type="button"
-                  onClick={() => setVisibleJobCount(prev => Math.min(prev + 20, parseJobs.length))}
+                  onClick={() => setVisibleJobCount(prev => Math.min(prev + 20, activeJobs.length))}
                   className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-white/70 hover:text-white hover:border-white/30 transition"
                 >
                   Load more
@@ -1442,11 +1466,12 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       <div className="flex gap-2 border-b border-white/10">
         {[
           { id: 'capture', label: 'Capture' },
-          { id: 'pending', label: `Pending (${parseJobs.length})` }
+          { id: 'pending', label: `Pending / Needs Review (${pendingWorkflowJobs.length})` },
+          { id: 'completed', label: `Completed (${completedWorkflowJobs.length})` }
         ].map(tab => (
           <button
             key={tab.id}
-            onClick={() => setReceiptFlow(tab.id as any)}
+            onClick={() => setReceiptFlow(tab.id as ReceiptWorkflowTab)}
             className={`px-4 py-3 text-[11px] font-black uppercase tracking-widest border-b-2 transition ${
               receiptFlow === tab.id
                 ? 'border-ninpo-lime text-ninpo-lime'
