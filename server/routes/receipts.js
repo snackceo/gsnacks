@@ -43,25 +43,45 @@ const normalizeReceiptName = value =>
     .replace(/\s+/g, ' ')
     .replace(/[^\w\s]/gi, '');
 
-export const buildUnmappedProductUpsert = ({ storeId, normalizedName, rawName, now, session }) => ({
-  query: { storeId, normalizedName },
-  update: {
-    $setOnInsert: {
-      // rawName = canonical first-seen name (insert-only)
+export const upsertUnmappedProductForReceiptItem = async ({
+  item,
+  storeId,
+  session,
+  UnmappedProductModel = UnmappedProduct
+}) => {
+  const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
+  const rawName = item.receiptName || normalizedName || 'Receipt Item';
+  const now = new Date();
+
+  let unmapped = await UnmappedProductModel.findOne({ storeId, normalizedName }).session(session);
+  if (unmapped) {
+    await UnmappedProductModel.updateOne(
+      { _id: unmapped._id },
+      {
+        $set: {
+          lastSeenAt: now,
+          lastSeenRawName: rawName
+        }
+      },
+      { session }
+    );
+    return { unmapped, now };
+  }
+
+  const created = await UnmappedProductModel.create([
+    {
       storeId,
       rawName,
       normalizedName,
       firstSeenAt: now,
-      status: 'NEW'
-    },
-    $set: {
-      // lastSeenRawName = most recent observed name (updated every sighting)
       lastSeenAt: now,
-      lastSeenRawName: rawName
+      lastSeenRawName: rawName,
+      status: 'NEW'
     }
-  },
-  options: { new: true, upsert: true, session }
-});
+  ], { session });
+  unmapped = created[0];
+  return { unmapped, now };
+};
 
 export const toNumber = value => {
   return sanitizeOcrCurrencyNumber(value);
@@ -611,21 +631,13 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
 
         if (!product) {
           // Always create or update UnmappedProduct for raw/unknown items
-          const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
-          const rawName = item.receiptName || normalizedName || 'Receipt Item';
-          const now = new Date();
-          const unmappedUpsert = buildUnmappedProductUpsert({
+          const result = await upsertUnmappedProductForReceiptItem({
+            item,
             storeId: store._id,
-            normalizedName,
-            rawName,
-            now,
             session
           });
-          unmapped = await UnmappedProduct.findOneAndUpdate(
-            unmappedUpsert.query,
-            unmappedUpsert.update,
-            unmappedUpsert.options
-          );
+          unmapped = result.unmapped;
+          const now = result.now;
 
           priceObservations.push({
             unmappedProductId: unmapped._id,
