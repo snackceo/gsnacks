@@ -31,7 +31,8 @@ const APPROVAL_ERROR_CODES = {
   CREATE_PRODUCT_NOT_ALLOWED: 'CREATE_PRODUCT_NOT_ALLOWED',
   PRICE_LOCKED: 'PRICE_LOCKED',
   UPC_CONFLICT: 'UPC_CONFLICT',
-  APPLY_FAILED: 'APPLY_FAILED'
+  APPLY_FAILED: 'APPLY_FAILED',
+  NO_PERSISTED_CHANGES: 'NO_PERSISTED_CHANGES'
 };
 const normalizeReceiptName = value =>
   String(value || '')
@@ -373,7 +374,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     const matchedProducts = [];
     const inventoryUpdates = [];
     const errors = [];
-    let appliedCount = 0;
+    const lineOutcomeByIndex = new Map();
     const approvalItems = new Map();
     if (approvalDraft?.items && Array.isArray(approvalDraft.items)) {
       for (const entry of approvalDraft.items) {
@@ -444,10 +445,22 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     }
 
     for (const item of itemsToApprove) {
+      if (!lineOutcomeByIndex.has(item.lineIndex)) {
+        lineOutcomeByIndex.set(item.lineIndex, {
+          lineIndex: item.lineIndex,
+          inventoryPersisted: false,
+          priceObservationPersisted: false,
+          errors: []
+        });
+      }
+
+      const lineOutcome = lineOutcomeByIndex.get(item.lineIndex);
       try {
         const unitPrice = resolveUnitPrice(item);
         if (!unitPrice) {
-          errors.push({ lineIndex: item.lineIndex, error: 'Invalid unit price', code: APPROVAL_ERROR_CODES.INVALID_UNIT_PRICE });
+          const lineError = { lineIndex: item.lineIndex, error: 'Invalid unit price', code: APPROVAL_ERROR_CODES.INVALID_UNIT_PRICE };
+          errors.push(lineError);
+          lineOutcome.errors.push(lineError);
           continue;
         }
 
@@ -458,11 +471,13 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         );
 
         if (action === 'CREATE_PRODUCT') {
-          errors.push({
+          const lineError = {
             lineIndex: item.lineIndex,
             error: 'Receipt-driven product creation is not allowed',
             code: APPROVAL_ERROR_CODES.CREATE_PRODUCT_NOT_ALLOWED
-          });
+          };
+          errors.push(lineError);
+          lineOutcome.errors.push(lineError);
           continue;
         }
 
@@ -519,9 +534,11 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
             price: unitPrice,
             observedAt: now,
             receiptCaptureId: capture._id,
+            lineIndex: item.lineIndex,
             matchMethod: item.matchMethod || 'unmapped',
             workflowType: item.workflowType || 'unmapped'
           });
+          lineOutcome.priceObservationPersisted = true;
           // Only set flags for shared inventory upsert
           inventoryUnmappedProductId = unmapped._id;
           inventoryForUnmapped = true;
@@ -552,6 +569,19 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           unmappedProductId: inventoryUnmappedProductId
         });
         if (storeInventoryQuery) {
+          const existingInventory = await StoreInventory.findOne(storeInventoryQuery).session(session);
+          if (existingInventory?.priceLockUntil && new Date(existingInventory.priceLockUntil) > new Date()) {
+            const lineError = {
+              lineIndex: item.lineIndex,
+              error: 'Price locked',
+              code: APPROVAL_ERROR_CODES.PRICE_LOCKED,
+              lockedUntil: existingInventory.priceLockUntil
+            };
+            errors.push(lineError);
+            lineOutcome.errors.push(lineError);
+            continue;
+          }
+
           inventory = await StoreInventory.findOneAndUpdate(
             storeInventoryQuery,
             {
@@ -595,17 +625,9 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
             },
             { new: true, upsert: true, session }
           );
-        }
-
-        // If price is locked, skip further updates
-        if (inventory && inventory.priceLockUntil && new Date(inventory.priceLockUntil) > new Date()) {
-          errors.push({
-            lineIndex: item.lineIndex,
-            error: 'Price locked',
-            code: APPROVAL_ERROR_CODES.PRICE_LOCKED,
-            lockedUntil: inventory.priceLockUntil
-          });
-          continue;
+          if (inventory) {
+            lineOutcome.inventoryPersisted = true;
+          }
         }
 
         if (normalizedMode === 'locked' && inventory) {
@@ -629,7 +651,6 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
               lineIndex: item.lineIndex
             })
           );
-          appliedCount += 1;
         }
 
         if (product) {
@@ -639,9 +660,11 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
             price: unitPrice,
             observedAt: new Date(),
             receiptCaptureId: capture._id,
+            lineIndex: item.lineIndex,
             matchMethod: item.matchMethod || 'manual_confirm',
             workflowType: item.workflowType || 'update_price'
           });
+          lineOutcome.priceObservationPersisted = true;
         }
 
         // UPC linking to productId, with conflict handling
@@ -649,12 +672,14 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           const existingUpc = await UpcItem.findOne({ upc: normalizedUpc }).session(session);
           if (existingUpc && existingUpc.productId && String(existingUpc.productId) !== String(product._id)) {
             if (!forceUpcOverride) {
-              errors.push({
+              const lineError = {
                 lineIndex: item.lineIndex,
                 error: 'UPC already linked to different product',
                 code: APPROVAL_ERROR_CODES.UPC_CONFLICT,
                 upc: normalizedUpc
-              });
+              };
+              errors.push(lineError);
+              lineOutcome.errors.push(lineError);
             } else {
               await UpcItem.updateOne(
                 { upc: normalizedUpc },
@@ -681,11 +706,28 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
           }
         }
       } catch (itemError) {
-        errors.push({ lineIndex: item.lineIndex, error: itemError.message, code: APPROVAL_ERROR_CODES.APPLY_FAILED });
+        const lineError = { lineIndex: item.lineIndex, error: itemError.message, code: APPROVAL_ERROR_CODES.APPLY_FAILED };
+        errors.push(lineError);
+        lineOutcome.errors.push(lineError);
       }
     }
 
+    if (priceObservations.length > 0) {
+      await PriceObservation.insertMany(priceObservations, { session });
+    }
+
+    const lineOutcomes = Array.from(lineOutcomeByIndex.values()).map(entry => ({
+      ...entry,
+      applied: Boolean(entry.inventoryPersisted || entry.priceObservationPersisted)
+    }));
+    const appliedCount = lineOutcomes.filter(entry => entry.applied).length;
     const skippedCount = Math.max(itemsToApprove.length - appliedCount, 0);
+    const errorsByLine = lineOutcomes
+      .filter(entry => entry.errors.length > 0)
+      .reduce((acc, entry) => {
+        acc[entry.lineIndex] = entry.errors;
+        return acc;
+      }, {});
 
     if (appliedCount < 1) {
       const reason = errors.length > 0
@@ -701,9 +743,16 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       }
       return res.status(400).json({
         error: reason,
+        reasonCode: APPROVAL_ERROR_CODES.NO_PERSISTED_CHANGES,
+        reasonDetail: {
+          code: APPROVAL_ERROR_CODES.NO_PERSISTED_CHANGES,
+          message: reason
+        },
         appliedCount,
         skippedCount,
-        errors
+        errors,
+        errorsByLine,
+        lineOutcomes
       });
     }
 
@@ -732,14 +781,12 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         matchedProducts,
         appliedCount,
         skippedCount,
+        lineOutcomes,
+        errorsByLine,
         inventoryUpdates,
         approvalPayload: req.body || null
       };
       await parseJob.save({ session });
-    }
-
-    if (priceObservations.length > 0) {
-      await PriceObservation.insertMany(priceObservations, { session });
     }
 
     if (transactionStarted) {
@@ -759,6 +806,8 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       storeId: store._id,
       appliedCount,
       skippedCount,
+      lineOutcomes,
+      errorsByLine,
       createdProducts,
       matchedProducts,
       inventoryUpdates,

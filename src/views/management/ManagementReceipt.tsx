@@ -24,6 +24,7 @@ import {
 import { useNinpoCore } from '../../hooks/useNinpoCore';
 import ReceiptCaptureFlow from '../../components/ReceiptCaptureFlow';
 import { apiFetch } from '../../utils/apiFetch';
+import { BACKEND_URL } from '../../constants';
 
 const createIdempotencyKey = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -48,9 +49,18 @@ type ReceiptApprovalMode = 'safe' | 'selected' | 'locked' | 'all';
 interface ReceiptApproveResponse {
   ok?: boolean;
   error?: string;
+  reasonCode?: string;
   appliedCount?: number;
   skippedCount?: number;
   errors?: Array<{ lineIndex?: number; error?: string; code?: string }>;
+  errorsByLine?: Record<string, Array<{ lineIndex?: number; error?: string; code?: string }>>;
+  lineOutcomes?: Array<{
+    lineIndex?: number;
+    applied?: boolean;
+    inventoryPersisted?: boolean;
+    priceObservationPersisted?: boolean;
+    errors?: Array<{ lineIndex?: number; error?: string; code?: string }>;
+  }>;
 }
 
 type ReceiptApprovalOutcome = {
@@ -794,13 +804,14 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           approvalNotes: receiptApprovalNotes || undefined
         };
 
-        // POST to canonical approval endpoint
-        const data: ReceiptApproveResponse = await apiFetch(`/api/receipts/${job._id}/approve`, {
+        // POST to canonical approval endpoint and inspect payload even on non-2xx responses.
+        const approvalResponse = await fetch(`${BACKEND_URL}/api/receipts/${job._id}/approve`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify(payload)
         });
-        if (data?.error) throw new Error(data.error || 'Failed to approve parse job');
+        const data: ReceiptApproveResponse = await approvalResponse.json().catch(() => ({}));
 
         const appliedCount = Number(data?.appliedCount || 0);
         const skippedCount = Number(data?.skippedCount || 0);
@@ -821,13 +832,20 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         };
         setApprovalOutcomeByJobId(prev => ({ ...prev, [job._id]: nextOutcome }));
 
+        if (!approvalResponse.ok && appliedCount < 1) {
+          const backendReason = data?.error || 'No receipt lines were applied. Verify mappings and prices, then retry.';
+          addToast(summarizedErrors ? `${backendReason} ${summarizedErrors}` : backendReason, 'warning');
+          return;
+        }
+
         if (appliedCount > 0) {
-          const summary = `Approve & Apply completed: ${appliedCount} StoreInventory updates applied, ${skippedCount} skipped.`;
-          addToast(summarizedErrors ? `${summary} ${summarizedErrors}` : summary, backendErrors.length ? 'info' : 'success');
+          const summary = `Approve & Apply completed: ${appliedCount} lines applied, ${skippedCount} skipped.`;
+          const toastType = skippedCount > 0 || backendErrors.length > 0 ? 'warning' : 'success';
+          addToast(summarizedErrors ? `${summary} ${summarizedErrors}` : summary, toastType);
         } else {
           addToast(
-            summarizedErrors || 'No receipt lines were applied. Verify mappings and prices, then retry.',
-            'error'
+            summarizedErrors || data?.error || 'No receipt lines were applied. Verify mappings and prices, then retry.',
+            'warning'
           );
         }
 
@@ -849,7 +867,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           await fetchProducts();
         }
       } catch (err: any) {
-        addToast(err?.message || 'Failed to approve job', 'error');
+        const isNoApplied = String(err?.message || '').toLowerCase().includes('no receipt lines were applied');
+        addToast(err?.message || 'Failed to approve job', isNoApplied ? 'warning' : 'error');
       } finally {
         setIsProcessing(false);
       }
