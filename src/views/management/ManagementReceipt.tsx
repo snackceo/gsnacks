@@ -165,6 +165,19 @@ interface ManagementReceiptProps {
   setStoreError: (error: string | null) => void;
 }
 
+
+interface ReceiptQueueStatus {
+  queueEnabled?: boolean;
+  workerHealthy?: boolean;
+  workerOffline?: boolean;
+  reason?: string;
+  workerCount?: number;
+  waitingCount?: number;
+  activeCount?: number;
+  staleQueued?: boolean;
+  staleQueuedAgeMs?: number;
+  staleThresholdMs?: number;
+}
 interface ReceiptCapture {
   _id: string;
   storeId?: string;
@@ -216,6 +229,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [parseJobs, setParseJobs] = useState<ReceiptParseJob[]>([]);
   const [isLoadingJobs, setIsLoadingJobs] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
+  const [receiptQueueStatus, setReceiptQueueStatus] = useState<ReceiptQueueStatus | null>(null);
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<ReceiptParseJob | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -344,7 +358,11 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         body: JSON.stringify({ captureId: activeReceiptCaptureId })
       });
       if (data?.error) throw new Error(data.error || 'Failed to parse receipt');
-      addToast('Receipt parsing started.', 'success');
+      if (data?.warning) {
+        addToast(data.warning, 'warning');
+      } else {
+        addToast(data?.queued ? 'Receipt parsing queued.' : 'Receipt parsing started.', 'success');
+      }
       // Optionally reload jobs or state here
     } catch (err: any) {
       addToast(err?.message || 'Failed to parse receipt', 'error');
@@ -360,7 +378,11 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           body: JSON.stringify({ captureId })
         });
         if (data?.error) throw new Error(data.error || 'Failed to retry parse');
-        addToast('Receipt parsing retried.', 'success');
+        if (data?.warning) {
+          addToast(data.warning, 'warning');
+        } else {
+          addToast(data?.queued ? 'Receipt parsing queued.' : 'Receipt parsing retried.', 'success');
+        }
       } catch (err: any) {
         addToast(err?.message || 'Failed to retry parse', 'error');
       }
@@ -670,9 +692,20 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
 
 
+
+  const loadReceiptHealth = useCallback(async () => {
+    try {
+      const data: any = await apiFetch('/api/driver/receipt-health');
+      setReceiptQueueStatus(data?.queueStatus || null);
+    } catch {
+      setReceiptQueueStatus(null);
+    }
+  }, []);
+
   // Load pending parse jobs
   const loadParseJobs = useCallback(async () => {
     setIsLoadingJobs(true);
+    void loadReceiptHealth();
     setJobsError(null);
     try {
       const data: any = await apiFetch('/api/receipts/?status=QUEUED,PARSING,NEEDS_REVIEW,PARSED,FAILED,APPROVED');
@@ -690,7 +723,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     } finally {
       setIsLoadingJobs(false);
     }
-  }, []);
+  }, [loadReceiptHealth]);
 
   useEffect(() => {
     if (receiptFlow === 'pending') {
@@ -1080,6 +1113,19 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
               {isLoadingJobs ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Refresh'}
             </button>
           </div>
+
+
+          {receiptQueueStatus?.queueEnabled && receiptQueueStatus?.workerOffline && (
+            <div className="bg-amber-900/25 border border-amber-500/60 rounded-xl p-4 text-amber-100 text-[11px]">
+              <p className="font-semibold uppercase tracking-widest text-[10px]">Queue enabled, worker offline</p>
+              <p className="mt-1 text-amber-100/90">
+                Receipt parse jobs may not process automatically. Start the receipt worker (or disable queue) to restore background parsing.
+              </p>
+              <p className="mt-1 text-amber-200/80">
+                Worker count: {receiptQueueStatus.workerCount ?? 0} • Waiting: {receiptQueueStatus.waitingCount ?? 0} • Active: {receiptQueueStatus.activeCount ?? 0}
+              </p>
+            </div>
+          )}
 
           {jobsError && (
             <div className="bg-red-900/20 border border-red-600 rounded-xl p-4 text-red-300 text-[11px]">
