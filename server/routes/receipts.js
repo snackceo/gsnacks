@@ -600,13 +600,14 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
               $setOnInsert: {
                 storeId: store._id,
                 rawName,
+                lastSeenRawName: rawName,
                 normalizedName,
                 firstSeenAt: now,
                 status: 'NEW'
               },
               $set: {
-                rawName,
-                lastSeenAt: now
+                lastSeenAt: now,
+                lastSeenRawName: rawName
               }
             },
             { new: true, upsert: true, session }

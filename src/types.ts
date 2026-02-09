@@ -254,6 +254,7 @@ export interface UnmappedProduct {
   _id: string;
   storeId: string;
   rawName: string;
+  lastSeenRawName?: string;
   normalizedName: string;
   firstSeenAt?: string;
   lastSeenAt?: string;

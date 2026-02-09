@@ -12,6 +12,10 @@ const unmappedProductSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  lastSeenRawName: {
+    type: String,
+    trim: true
+  },
   normalizedName: {
     type: String,
     required: true,
