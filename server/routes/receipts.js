@@ -190,6 +190,41 @@ const normalizeDraftItem = (raw) => {
     needsReview: true,
   };
 };
+
+const buildApprovalMetadata = ({
+  existingMetadata,
+  username,
+  storeId,
+  requestBody,
+  shouldIgnorePriceLocks,
+  priceLockOverrideCount,
+  createdProducts,
+  matchedProducts,
+  appliedCount,
+  skippedCount,
+  lineOutcomes,
+  errorsByLine,
+  inventoryUpdates,
+  createdPriceObservations
+}) => ({
+  ...existingMetadata,
+  approvedBy: username,
+  approvedAt: new Date(),
+  storeId,
+  approvalPayload: requestBody || null,
+  ignorePriceLocks: shouldIgnorePriceLocks,
+  priceLockOverrideCount,
+  createdProducts,
+  matchedProducts,
+  appliedCount,
+  skippedCount,
+  lineOutcomes,
+  errorsByLine,
+  inventoryWriteCount: inventoryUpdates.length,
+  priceObservationWriteCount: createdPriceObservations.length,
+  inventoryUpdates
+});
+
 // Role-neutral endpoint for fetching receipt parse jobs
 router.get('/', authRequired, async (req, res) => {
   if (!isDbReady()) {
@@ -908,24 +943,22 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
 
     if (parseJob) {
       parseJob.status = 'APPROVED';
-      parseJob.metadata = {
-        ...parseJob.metadata,
-        approvedBy: username,
-        approvedAt: new Date(),
+      parseJob.metadata = buildApprovalMetadata({
+        existingMetadata: parseJob.metadata,
+        username,
         storeId: store._id,
+        requestBody: req.body,
+        shouldIgnorePriceLocks,
+        priceLockOverrideCount,
         createdProducts,
         matchedProducts,
         appliedCount,
         skippedCount,
         lineOutcomes,
         errorsByLine,
-        inventoryWriteCount: inventoryUpdates.length,
-        priceObservationWriteCount: createdPriceObservations.length,
-        ignorePriceLocks: shouldIgnorePriceLocks,
-        priceLockOverrideCount,
         inventoryUpdates,
-        approvalPayload: req.body || null
-      };
+        createdPriceObservations
+      });
       await parseJob.save({ session });
     }
 
