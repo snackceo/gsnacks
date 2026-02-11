@@ -51,8 +51,29 @@ const sanitizeNumericCandidate = raw => {
   if (raw === null || raw === undefined) return '';
   return String(raw)
     .replace(/\(([^)]+)\)/g, '-$1')
+    .replace(/[oO]/g, '0')
+    .replace(/[lI]/g, '1')
+    .replace(/[sS]/g, '5')
     .replace(/\s+/g, '')
     .replace(/[^\d,.-]/g, '');
+};
+
+const extractLikelyPriceToken = raw => {
+  const rawValue = String(raw || '').trim();
+  if (!rawValue) return null;
+
+  const slashParts = rawValue.split('/').map(part => part.trim()).filter(Boolean);
+  if (slashParts.length > 1) {
+    const slashCandidate = slashParts[slashParts.length - 1];
+    if (/\d/.test(slashCandidate)) return slashCandidate;
+  }
+
+  const multiBuyMatch = rawValue.match(/\d+\s*[xX]\s*([$]?[\d.,]+)/);
+  if (multiBuyMatch?.[1]) {
+    return multiBuyMatch[1];
+  }
+
+  return rawValue;
 };
 
 export const sanitizeOcrCurrencyNumber = value => {
@@ -61,7 +82,7 @@ export const sanitizeOcrCurrencyNumber = value => {
     return Number.isFinite(value) && value > 0 ? value : null;
   }
 
-  let cleaned = sanitizeNumericCandidate(value);
+  let cleaned = sanitizeNumericCandidate(extractLikelyPriceToken(value));
   if (!cleaned) return null;
 
   const lastDot = cleaned.lastIndexOf('.');
@@ -97,12 +118,33 @@ export const resolveUnitPrice = item => {
   if (parsedUnit) return parsedUnit;
 
   const total = sanitizeOcrCurrencyNumber(item?.totalPrice);
-  const qty = sanitizeOcrCurrencyNumber(item?.quantity) || 1;
-  if (total && qty) {
+  const qtyRaw = sanitizeOcrCurrencyNumber(item?.quantity);
+  const qty = qtyRaw && qtyRaw > 0 ? qtyRaw : 1;
+  if (total && qty > 0) {
     return total / qty;
   }
 
   return null;
+};
+
+const buildNormalizedPriceInput = item => {
+  const parsedUnitPrice = sanitizeOcrCurrencyNumber(item?.unitPrice);
+  const parsedTotalPrice = sanitizeOcrCurrencyNumber(item?.totalPrice);
+  const parsedQuantity = sanitizeOcrCurrencyNumber(item?.quantity);
+  const resolvedUnitPrice = resolveUnitPrice(item);
+  return {
+    raw: {
+      unitPrice: item?.unitPrice ?? null,
+      totalPrice: item?.totalPrice ?? null,
+      quantity: item?.quantity ?? null
+    },
+    normalized: {
+      unitPrice: parsedUnitPrice,
+      totalPrice: parsedTotalPrice,
+      quantity: parsedQuantity,
+      resolvedUnitPrice
+    }
+  };
 };
 
 const buildStoreCandidate = (capture, parseJob, body) => {
@@ -163,6 +205,7 @@ const buildApprovalMetadata = ({
   appliedCount,
   skippedCount,
   lineOutcomes,
+  priceNormalizationByLine,
   errorsByLine,
   inventoryUpdates,
   createdPriceObservations,
@@ -180,6 +223,7 @@ const buildApprovalMetadata = ({
   appliedCount,
   skippedCount,
   lineOutcomes,
+  priceNormalizationByLine,
   errorsByLine,
   inventoryWriteCount: inventoryUpdates.length,
   priceObservationWriteCount: createdPriceObservations.length,
@@ -585,6 +629,8 @@ export const approveReceiptJobHandler = async (req, res) => {
       const lineOutcome = lineOutcomeByIndex.get(item.lineIndex);
       try {
         const unitPrice = resolveUnitPrice(item);
+        const normalizedPriceInput = buildNormalizedPriceInput(item);
+        lineOutcome.normalizedPriceInput = normalizedPriceInput;
         if (!unitPrice) {
           const lineError = { lineIndex: item.lineIndex, error: 'Invalid unit price', code: APPROVAL_ERROR_CODES.INVALID_UNIT_PRICE };
           errors.push(lineError);
@@ -979,6 +1025,10 @@ export const approveReceiptJobHandler = async (req, res) => {
         appliedCount,
         skippedCount,
         lineOutcomes,
+        priceNormalizationByLine: lineOutcomes.reduce((acc, entry) => {
+          acc[entry.lineIndex] = entry.normalizedPriceInput || null;
+          return acc;
+        }, {}),
         errorsByLine,
         inventoryUpdates,
         createdPriceObservations,
