@@ -15,10 +15,10 @@ import { authRequired, isDriverUsername, isOwnerUsername, driverCanAccessStore }
 import { recordAuditLog } from '../utils/audit.js';
 import { isDbReady } from '../db/connect.js';
 import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCreateStore } from '../utils/storeMatcher.js';
-import { isPricingLearningEnabled, receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap } from '../utils/featureFlags.js';
+import { isPricingLearningEnabled, receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap, isReceiptAutoCommitEnabled } from '../utils/featureFlags.js';
 import { enqueueReceiptJob, getReceiptQueue, isReceiptQueueEnabled } from '../queues/receiptQueue.js';
 import { executeReceiptParse } from '../utils/receiptParseHelper.js';
-import { approveReceiptJob, buildAutoCommitApprovalBody, isReceiptAutoCommitEnabled } from '../services/receiptApprovalService.js';
+import { approveReceiptJob, buildAutoCommitApprovalBody } from '../services/receiptApprovalService.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 
 const getGeminiApiKey = () =>
