@@ -40,3 +40,7 @@ export const receiptDailyCap = () => {
   const num = Number(raw);
   return Number.isFinite(num) && num > 0 ? Math.floor(num) : null;
 };
+
+
+export const isReceiptAutoCommitEnabled = () =>
+  parseBool(process.env.RECEIPT_AUTO_COMMIT_ENABLED, false);

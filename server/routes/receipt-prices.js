@@ -18,6 +18,7 @@ import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCr
 import { isPricingLearningEnabled, receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap } from '../utils/featureFlags.js';
 import { enqueueReceiptJob, getReceiptQueue, isReceiptQueueEnabled } from '../queues/receiptQueue.js';
 import { executeReceiptParse } from '../utils/receiptParseHelper.js';
+import { approveReceiptJob, buildAutoCommitApprovalBody, isReceiptAutoCommitEnabled } from '../services/receiptApprovalService.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 
 const getGeminiApiKey = () =>
@@ -39,6 +40,48 @@ const RECEIPT_QUEUE_WORKER_STALE_MS = Math.max(
   60_000,
   Number(process.env.RECEIPT_QUEUE_WORKER_STALE_MS || 5 * 60_000)
 );
+
+
+
+const attemptAutoCommit = async ({ parseJob, captureId, user }) => {
+  if (!isReceiptAutoCommitEnabled()) {
+    return null;
+  }
+
+  const jobId = parseJob?._id?.toString?.() || parseJob?.id || null;
+  if (!jobId) {
+    await recordAuditLog({
+      type: 'receipt_auto_commit_skipped',
+      actorId: user?.username || 'system',
+      details: `captureId=${captureId} reason=missing_job_id auto_commit=true`
+    });
+    return { ok: false, skipped: true, reason: 'missing_job_id' };
+  }
+
+  const approvalBody = buildAutoCommitApprovalBody({ captureId });
+  const approvalUser = {
+    username: user?.username || 'system:auto-commit',
+    role: user?.role || 'MANAGER'
+  };
+
+  const result = await approveReceiptJob({
+    jobId,
+    user: approvalUser,
+    body: approvalBody
+  });
+
+  await recordAuditLog({
+    type: result.statusCode < 400 ? 'receipt_auto_commit_succeeded' : 'receipt_auto_commit_failed',
+    actorId: approvalUser.username,
+    details: `jobId=${jobId} captureId=${captureId} status=${result.statusCode} auto_commit=true`
+  });
+
+  return {
+    ok: result.statusCode < 400,
+    statusCode: result.statusCode,
+    response: result.body
+  };
+};
 
 const getReceiptQueueWorkerHealth = async () => {
   const queueEnabled = isReceiptQueueEnabled();
@@ -1437,13 +1480,15 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
     if (queueHealth.workerOffline) {
       try {
         const parseJob = await executeReceiptParse(captureId, req.user?._id || 'api', { bypassQueue: true });
+        const autoCommit = await attemptAutoCommit({ parseJob, captureId, user: req.user });
         return res.status(202).json({
           ok: true,
           queued: false,
           fallbackSync: true,
           warning: 'Queue enabled, worker offline. Parsed synchronously as fallback.',
           queueHealth,
-          job: parseJob
+          job: parseJob,
+          autoCommit
         });
       } catch (syncErr) {
         return res.status(503).json({
@@ -1469,7 +1514,8 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
   // Otherwise, run the parse pipeline directly (synchronous)
   try {
     const parseJob = await executeReceiptParse(captureId, req.user?._id || 'api');
-    return res.json({ ok: true, queued: false, job: parseJob });
+    const autoCommit = await attemptAutoCommit({ parseJob, captureId, user: req.user });
+    return res.json({ ok: true, queued: false, job: parseJob, autoCommit });
   } catch (err) {
     return res.status(500).json({ error: err.message || 'Receipt parse failed' });
   }

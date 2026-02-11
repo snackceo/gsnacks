@@ -165,7 +165,8 @@ const buildApprovalMetadata = ({
   lineOutcomes,
   errorsByLine,
   inventoryUpdates,
-  createdPriceObservations
+  createdPriceObservations,
+  approvalType
 }) => ({
   ...existingMetadata,
   approvedBy: username,
@@ -182,6 +183,8 @@ const buildApprovalMetadata = ({
   errorsByLine,
   inventoryWriteCount: inventoryUpdates.length,
   priceObservationWriteCount: createdPriceObservations.length,
+  approvalType,
+  autoCommit: approvalType === 'auto',
   inventoryUpdates
 });
 
@@ -291,7 +294,7 @@ router.get('/:jobId', authRequired, async (req, res) => {
 });
 
 // POST /api/receipts/:jobId/approve
-router.post('/:jobId/approve', authRequired, async (req, res) => {
+export const approveReceiptJobHandler = async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -312,10 +315,14 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
       ignorePriceLocks,
       forceUpcOverride,
       finalStoreId,
-      approvalDraft
+      approvalDraft,
+      strictValidation,
+      autoCommit
     } = req.body || {};
     const username = req.user?.username || 'unknown';
     const shouldIgnorePriceLocks = Boolean(ignorePriceLocks);
+    const isAutoCommit = Boolean(autoCommit);
+    const enforceStrictValidation = Boolean(strictValidation);
     const canIgnorePriceLocks = req.user?.role === 'MANAGER' || req.user?.role === 'OWNER' || isOwnerUsername(req.user?.username);
 
     if (!jobId || !mongoose.Types.ObjectId.isValid(jobId)) {
@@ -886,6 +893,24 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         return acc;
       }, {});
 
+    if (enforceStrictValidation && Object.keys(errorsByLine).length > 0) {
+      await recordAuditLog({
+        type: 'receipt_approval_failed',
+        actorId: username,
+        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=strict_validation_failed modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} auto_commit=${isAutoCommit}`
+      });
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
+      return res.status(400).json({
+        error: 'Strict validation failed. Resolve line-level errors before approval.',
+        reasonCode: APPROVAL_ERROR_CODES.NO_PERSISTED_CHANGES,
+        errorsByLine,
+        lineOutcomes,
+        backendBuildId
+      });
+    }
+
     if (appliedCount < 1) {
       const reason = errors.length > 0
         ? 'No receipt lines were applied. All selected lines were skipped due to validation or mapping errors.'
@@ -946,7 +971,8 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
         lineOutcomes,
         errorsByLine,
         inventoryUpdates,
-        createdPriceObservations
+        createdPriceObservations,
+        approvalType: isAutoCommit ? 'auto' : 'manual'
       });
       await parseJob.save({ session });
     }
@@ -958,7 +984,7 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
     await recordAuditLog({
       type: 'receipt_approved',
       actorId: username,
-      details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} ignorePriceLocks=${shouldIgnorePriceLocks} priceLockOverrides=${priceLockOverrideCount} backendBuildId=${backendBuildId}`
+      details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} ignorePriceLocks=${shouldIgnorePriceLocks} priceLockOverrides=${priceLockOverrideCount} backendBuildId=${backendBuildId} auto_commit=${isAutoCommit} approval_type=${isAutoCommit ? 'auto' : 'manual'}`
     });
 
     res.json({
@@ -1003,7 +1029,9 @@ router.post('/:jobId/approve', authRequired, async (req, res) => {
   } finally {
     await session.endSession();
   }
-});
+};
+
+router.post('/:jobId/approve', authRequired, approveReceiptJobHandler);
 
 // POST /api/receipts/:jobId/reject
 // Role-neutral endpoint for rejecting a receipt parse job
