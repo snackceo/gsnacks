@@ -175,6 +175,8 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
     : null;
 
   const storeConfidenceLabel = typeof storeCandidate?.confidence === 'number' ? storeCandidate.confidence.toFixed(2) : null;
+  const isAmbiguousStoreMatch = String(storeCandidate?.matchReason || '').toLowerCase().includes('ambiguous');
+  const storeResolutionCandidates = Array.isArray(storeCandidate?.candidates) ? storeCandidate.candidates : [];
 
   const blockingIssues = approvalIssues.filter(issue => issue.severity === 'blocking');
   const advisoryIssues = approvalIssues.filter(issue => issue.severity === 'advisory');
@@ -391,6 +393,33 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                   </div>
                 </div>
 
+                {isAmbiguousStoreMatch && (
+                  <div className="mt-4 rounded-xl border border-yellow-200/40 bg-yellow-200/10 p-3">
+                    <p className="text-[10px] uppercase tracking-widest text-yellow-100 font-semibold">Resolve store (required)</p>
+                    <p className="mt-1 text-[10px] text-yellow-50/90">
+                      Multiple stores matched this receipt. Select the correct final store before approval.
+                    </p>
+                    <select
+                      value={finalStoreId}
+                      onChange={event => {
+                        onFinalStoreIdChange(event.target.value);
+                        if (event.target.value) {
+                          onFinalStoreModeChange('EXISTING');
+                        }
+                      }}
+                      className="mt-2 w-full rounded-lg bg-black/40 border border-yellow-200/40 px-3 py-2 text-xs text-white"
+                      required
+                    >
+                      <option value="">Select resolved store</option>
+                      {storeResolutionCandidates.map(candidate => (
+                        <option key={`candidate-${candidate.storeId}`} value={candidate.storeId}>
+                          {candidate.name} · score {candidate.confidence.toFixed(2)} · {candidate.reasonCodes.join(', ')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div className="mt-4 space-y-3 text-xs text-slate-200">
                   <label className="flex items-center gap-2">
                     <input
@@ -398,6 +427,7 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                       name="finalStoreMode"
                       checked={finalStoreMode === 'MATCHED'}
                       onChange={() => onFinalStoreModeChange('MATCHED')}
+                      disabled={isAmbiguousStoreMatch}
                     />
                     Use matched store (if available)
                   </label>

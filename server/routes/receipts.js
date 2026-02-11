@@ -416,10 +416,18 @@ export const approveReceiptJobHandler = async (req, res) => {
 
     if (!store && storeCandidate) {
       const matchResult = await matchStoreCandidate(storeCandidate);
-      // Require explicit selection if ambiguous/low confidence
       if (matchResult?.ambiguous || (matchResult?.confidence !== undefined && matchResult.confidence < 0.7)) {
         await session.abortTransaction();
-        return res.status(400).json({ error: 'Ambiguous storeCandidate; provide finalStoreId' });
+        return res.status(409).json({
+          error: 'Store candidate requires resolution before approval',
+          reasonCode: 'STORE_AMBIGUOUS',
+          needsStoreResolution: true,
+          storeResolution: {
+            matchReason: matchResult?.matchReason || 'ambiguous_candidates',
+            confidence: matchResult?.confidence ?? 0,
+            candidates: Array.isArray(matchResult?.topCandidates) ? matchResult.topCandidates : []
+          }
+        });
       }
       if (matchResult?.match?._id) {
         store = await Store.findById(matchResult.match._id).session(session);
@@ -472,6 +480,8 @@ export const approveReceiptJobHandler = async (req, res) => {
     capture.storeName = store.name;
     if (parseJob?.storeCandidate) {
       parseJob.storeCandidate.storeId = store._id;
+      parseJob.storeCandidate.confidence = 1;
+      parseJob.storeCandidate.matchReason = 'resolved_by_operator';
     }
 
     if (storeCreated) {

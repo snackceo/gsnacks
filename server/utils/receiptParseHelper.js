@@ -667,6 +667,7 @@ RULES:
     let storeCandidate = null;
     let storeMatchReason = null;
     let storeMatchConfidence = null;
+    let storeMatchResult = null;
     const storeFromCapture = capture.storeId ? await Store.findById(capture.storeId).lean() : null;
     if (storeFromCapture) {
       storeCandidate = storeFromCapture;
@@ -682,9 +683,10 @@ RULES:
         storeType: candidateStoreType
       };
       const matchResult = await matchStoreCandidate(matchPayload);
+      storeMatchResult = matchResult;
       if (matchResult?.match) {
         storeCandidate = { ...matchResult.match, confidence: matchResult.confidence };
-        storeMatchReason = matchResult.reason;
+        storeMatchReason = matchResult.matchReason || matchResult.reason;
         storeMatchConfidence = matchResult.confidence;
       } else if (candidateName || candidatePhone || candidateAddress || candidateStoreNumber) {
         storeCandidate = {
@@ -754,7 +756,13 @@ RULES:
           matchReason: storeMatchReason || 'parsed_store_data'
         } : null,
         items,
-        warnings: matchedItems.filter(it => it.needsReview).map(it => it.reviewReason).filter(Boolean)
+        warnings: matchedItems.filter(it => it.needsReview).map(it => it.reviewReason).filter(Boolean),
+        metadata: {
+          ...(storeMatchResult?.topCandidates?.length ? {
+            storeMatchCandidates: storeMatchResult.topCandidates,
+            storeMatchAmbiguous: Boolean(storeMatchResult?.ambiguous)
+          } : {})
+        }
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
