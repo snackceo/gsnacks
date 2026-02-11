@@ -85,6 +85,51 @@ const normalizeUpc = value => {
   return digits;
 };
 
+
+const sanitizeNumericCandidate = raw => {
+  if (raw === null || raw === undefined) return '';
+  return String(raw)
+    .replace(/\(([^)]+)\)/g, '-$1')
+    .replace(/[oO]/g, '0')
+    .replace(/[lI]/g, '1')
+    .replace(/[sS]/g, '5')
+    .replace(/\s+/g, '')
+    .replace(/[^\d,.-]/g, '');
+};
+
+const sanitizeReceiptNumber = value => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+
+  let cleaned = sanitizeNumericCandidate(value);
+  if (!cleaned) return null;
+
+  const lastDot = cleaned.lastIndexOf('.');
+  const lastComma = cleaned.lastIndexOf(',');
+
+  if (lastDot !== -1 && lastComma !== -1) {
+    const decimalSeparator = lastDot > lastComma ? '.' : ',';
+    cleaned = decimalSeparator === '.'
+      ? cleaned.replace(/,/g, '')
+      : cleaned.replace(/\./g, '').replace(',', '.');
+  } else if (lastComma !== -1) {
+    const commaCount = (cleaned.match(/,/g) || []).length;
+    const parts = cleaned.split(',');
+    const decimalLike = commaCount === 1 && parts[1]?.length > 0 && parts[1].length <= 2;
+    cleaned = decimalLike ? cleaned.replace(',', '.') : cleaned.replace(/,/g, '');
+  } else if (lastDot !== -1) {
+    const dotCount = (cleaned.match(/\./g) || []).length;
+    if (dotCount > 1) {
+      const parts = cleaned.split('.');
+      const decimalPart = parts.pop();
+      cleaned = `${parts.join('')}.${decimalPart}`;
+    }
+  }
+
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const RECEIPT_IMAGE_FETCH_ATTEMPTS = 3;
 const RECEIPT_IMAGE_FETCH_RETRY_DELAY_MS = 300;
 
@@ -608,21 +653,33 @@ RULES:
       // Add items from this image
       if (Array.isArray(parsed.items)) {
         for (const item of parsed.items) {
-          // Accept if totalPrice exists (including 0), or unitPrice exists (compute total if quantity exists)
-          const hasTotal = typeof item.totalPrice === 'number';
-          const hasUnit = typeof item.unitPrice === 'number';
-          const hasQty = typeof item.quantity === 'number';
+          const parsedTotal = sanitizeReceiptNumber(item.totalPrice);
+          const parsedUnit = sanitizeReceiptNumber(item.unitPrice);
+          const parsedQty = sanitizeReceiptNumber(item.quantity);
+
+          const hasTotal = typeof parsedTotal === 'number' && Number.isFinite(parsedTotal) && parsedTotal > 0;
+          const hasUnit = typeof parsedUnit === 'number' && Number.isFinite(parsedUnit) && parsedUnit > 0;
+          const qty = typeof parsedQty === 'number' && Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1;
+
           if (item.receiptName && (hasTotal || hasUnit)) {
-            let totalPrice = hasTotal ? item.totalPrice : (hasUnit && hasQty ? item.unitPrice * item.quantity : undefined);
-            let unitPrice = hasUnit ? item.unitPrice : (hasTotal && hasQty ? (item.quantity !== 0 ? item.totalPrice / item.quantity : undefined) : undefined);
-            if (typeof totalPrice === 'undefined' && typeof unitPrice === 'undefined') continue;
+            const totalPrice = hasTotal
+              ? parsedTotal
+              : (hasUnit && qty > 0 ? parsedUnit * qty : null);
+            const unitPrice = hasUnit
+              ? parsedUnit
+              : (hasTotal && qty > 0 ? parsedTotal / qty : null);
+
+            if (!(typeof totalPrice === 'number' && totalPrice > 0) && !(typeof unitPrice === 'number' && unitPrice > 0)) {
+              continue;
+            }
+
             const upc = normalizeUpc(item.upc || item.upcCandidate || item.barcode);
             draftItems.push({
               lineIndex: draftItems.length,
               receiptName: item.receiptName,
-              quantity: hasQty ? item.quantity : 1,
-              totalPrice: typeof totalPrice === 'number' ? totalPrice : 0,
-              unitPrice: typeof unitPrice === 'number' ? unitPrice : 0,
+              quantity: qty,
+              totalPrice: typeof totalPrice === 'number' && Number.isFinite(totalPrice) ? totalPrice : 0,
+              unitPrice: typeof unitPrice === 'number' && Number.isFinite(unitPrice) ? unitPrice : 0,
               upc
             });
           }

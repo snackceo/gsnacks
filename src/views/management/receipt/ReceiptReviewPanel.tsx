@@ -31,6 +31,18 @@ interface ReceiptApprovalIssue {
   severity: 'blocking' | 'advisory';
 }
 
+
+const parsePositiveNumber = (value: unknown): number | null => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+  if (typeof value !== 'string') return null;
+  const cleaned = value.trim().replace(/[$,\s]/g, '');
+  if (!cleaned) return null;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
 interface ReceiptReviewPanelProps {
   canManageProducts: boolean;
   activeReceiptCaptureId: string;
@@ -208,6 +220,35 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
 
   const selectedLineCount = selectedClassifiedItems.length;
   const selectedLine = selectedLineCount === 1 ? selectedClassifiedItems[0] : null;
+
+  const predictedSkipByItemId = useMemo(() => {
+    const map = new Map<string, { skipped: boolean; reason: string }>();
+    receiptItemRows.forEach(item => {
+      const status = receiptApprovalStatus.items[item.id];
+      const hasBlocking = Boolean(status?.blocking?.length);
+      const unitPrice = parsePositiveNumber(item.source?.unitPrice);
+      const totalPrice = parsePositiveNumber(item.source?.totalPrice);
+      const quantity = parsePositiveNumber(item.source?.quantity) ?? 1;
+      const resolvedUnitPrice = unitPrice || (totalPrice && quantity > 0 ? totalPrice / quantity : null);
+      const noWriteAction = item.action === 'IGNORE' || item.action === 'CREATE_PRODUCT';
+      if (hasBlocking) {
+        map.set(item.id, { skipped: true, reason: 'Blocking approval errors must be fixed before apply.' });
+      } else if (noWriteAction) {
+        map.set(item.id, { skipped: true, reason: 'Current action does not write inventory or price observations.' });
+      } else if (!resolvedUnitPrice) {
+        map.set(item.id, { skipped: true, reason: 'No valid unit price resolved from OCR; correct price or quantity.' });
+      } else {
+        map.set(item.id, { skipped: false, reason: 'Will write inventory or price observation on apply.' });
+      }
+    });
+    return map;
+  }, [receiptApprovalStatus.items, receiptItemRows]);
+
+  const predictedWritableLineCount = useMemo(
+    () => receiptItemRows.filter(item => !predictedSkipByItemId.get(item.id)?.skipped).length,
+    [predictedSkipByItemId, receiptItemRows]
+  );
+  const hasPredictedZeroWriteSubmission = receiptItemRows.length > 0 && predictedWritableLineCount === 0;
 
   const storeStatusBadge = receiptApprovalStatus.store.blocking.length
     ? { label: 'Blocking', className: 'bg-ninpo-red/20 text-ninpo-red border-ninpo-red/40' }
@@ -592,8 +633,12 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                           ? 'Will create or refresh the UPC link, then update StoreInventory and PriceObservation.'
                           : 'No apply changes for this line (ignored during Approve & Apply).';
 
+                    const predictedSkip = predictedSkipByItemId.get(item.id);
                     return (
-                      <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 p-3 space-y-3">
+                      <div
+                        key={item.id}
+                        className={`rounded-xl border p-3 space-y-3 ${predictedSkip?.skipped ? 'border-ninpo-red/50 bg-ninpo-red/10' : 'border-white/10 bg-black/30'}`}
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-2">
                           <div>
                             <p className="text-xs text-white font-semibold">{item.source?.receiptName || `Line ${item.lineIndex}`}</p>
@@ -608,9 +653,17 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
                               </p>
                             )}
                             <p className="text-[10px] text-slate-300 mt-1">Status: {lineStatusText}</p>
+                            {predictedSkip?.skipped && (
+                              <p className="text-[10px] text-ninpo-red mt-1">Requires correction: {predictedSkip.reason}</p>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-2">
+                            {predictedSkip?.skipped && (
+                              <span className="text-[9px] uppercase tracking-widest rounded-full border border-ninpo-red/40 bg-ninpo-red/20 text-ninpo-red px-2 py-1">
+                                Predicted skip
+                              </span>
+                            )}
                             {blockingCount > 0 && (
                               <span className="text-[9px] uppercase tracking-widest rounded-full border border-ninpo-red/40 bg-ninpo-red/20 text-ninpo-red px-2 py-1">
                                 {blockingCount} blocking
@@ -739,6 +792,12 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
               <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
                 <p className="text-[10px] text-slate-400 uppercase tracking-widest">Commit Summary</p>
                 <p className="text-sm text-white font-semibold mt-2">{selectedForCommitCount} selected</p>
+                <p className="mt-1 text-[10px] text-slate-300">Predicted writable lines: {predictedWritableLineCount}</p>
+                {hasPredictedZeroWriteSubmission && (
+                  <p className="mt-2 text-[10px] text-ninpo-red">
+                    Zero-write submission detected. Correct at least one skipped line before approving.
+                  </p>
+                )}
                 <div className="mt-2 text-[10px] text-slate-400">Store: {activeStoreLabel || storeCandidateLabel}</div>
 
                 <div className="mt-2">
@@ -929,7 +988,7 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
 
                 <button
                   onClick={onCommit}
-                  disabled={!approvalMode || isCommitting || receiptApprovalStatus.hasBlocking}
+                  disabled={!approvalMode || isCommitting || receiptApprovalStatus.hasBlocking || hasPredictedZeroWriteSubmission}
                   className="mt-4 hidden lg:block w-full px-4 py-3 rounded-2xl text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isCommitting ? 'Approving…' : 'Approve & Apply'}
@@ -950,7 +1009,7 @@ const ReceiptReviewPanel: React.FC<ReceiptReviewPanelProps> = ({
           </p>
           <button
             onClick={onCommit}
-            disabled={!approvalMode || isCommitting || receiptApprovalStatus.hasBlocking}
+            disabled={!approvalMode || isCommitting || receiptApprovalStatus.hasBlocking || hasPredictedZeroWriteSubmission}
             className="w-full px-4 py-3 rounded-2xl text-xs font-semibold border border-white/20 text-white bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isCommitting ? 'Approving…' : 'Approve & Apply'}
