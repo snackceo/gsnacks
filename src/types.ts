@@ -194,6 +194,24 @@ export type ReceiptApprovalAction =
   | 'CREATE_PRODUCT'
   | 'IGNORE';
 
+
+export interface StoreMatchReasonDetail {
+  code: string;
+  message: string;
+  weight: number;
+}
+
+export interface StoreMatchCandidateOption {
+  storeId: string;
+  name: string;
+  confidence: number;
+  score: number;
+  reasonCodes: string[];
+  reasons: StoreMatchReasonDetail[];
+  address?: AddressObject;
+  phone?: string;
+}
+
 export type ReceiptParseStatus =
   | 'QUEUED'
   | 'PARSING'
@@ -211,6 +229,8 @@ export interface ReceiptStoreCandidate {
   confidence?: number;
   matchReason?: string;
   storeId?: string;
+  isAmbiguous?: boolean;
+  candidates?: StoreMatchCandidateOption[];
 }
 
 export interface ReceiptItemMatch {

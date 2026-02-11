@@ -31,74 +31,152 @@ const addressKey = (addr = {}) => {
 const fuzzyMatch = (a, b) => {
   const aNorm = normalizeStr(a);
   const bNorm = normalizeStr(b);
-  if (!aNorm || !bNorm) return 1; // high distance
+  if (!aNorm || !bNorm) return 1;
   const dist = levenshtein.get(aNorm, bNorm);
   const maxLen = Math.max(aNorm.length, bNorm.length) || 1;
-  return dist / maxLen; // normalized distance 0..1
+  return dist / maxLen;
 };
 
-export async function matchStoreCandidate(candidate, { nameThreshold = 0.25 } = {}) {
-  if (!candidate) return { match: null, confidence: 0, reason: 'no candidate' };
+const buildCandidateScore = (input, store) => {
+  const reasons = [];
+  let score = 0;
 
-  const phoneNorm = normalizePhone(candidate.phoneNormalized || candidate.phone);
-  const storeNumberNorm = normalizeStoreNumber(candidate.storeNumber);
-  const addrKey = addressKey(candidate.address || {});
-  const zip = normalizeZip(candidate.address?.zip || '');
-  const storeType = candidate.storeType || inferStoreType(candidate.name);
+  const inputPhone = normalizePhone(input.phoneNormalized || input.phone);
+  const inputStoreNumber = normalizeStoreNumber(input.storeNumber);
+  const inputZip = normalizeZip(input.address?.zip || '');
+  const inputName = normalizeStr(input.name || '');
+  const inputAddrKey = addressKey(input.address || {});
 
-  // 1) Exact storeId
+  const storePhone = normalizePhone(store.phoneNormalized || store.phone);
+  const storeNumber = normalizeStoreNumber(store.storeNumber);
+  const storeZip = normalizeZip(store.address?.zip || '');
+
+  if (inputPhone && storePhone && inputPhone === storePhone) {
+    score += 0.5;
+    reasons.push({ code: 'PHONE_MATCH', message: 'Phone matches exactly.', weight: 0.5 });
+  }
+
+  if (inputStoreNumber && storeNumber && inputStoreNumber === storeNumber) {
+    score += 0.3;
+    reasons.push({ code: 'STORE_NUMBER_MATCH', message: 'Store number matches exactly.', weight: 0.3 });
+  }
+
+  if (inputZip && storeZip && inputZip === storeZip) {
+    score += 0.15;
+    reasons.push({ code: 'ZIP_MATCH', message: 'ZIP code matches.', weight: 0.15 });
+  }
+
+  if (inputName) {
+    const distance = fuzzyMatch(inputName, store.name || '');
+    if (distance <= 0.2) {
+      score += 0.05;
+      reasons.push({ code: 'NAME_CLOSE', message: 'Store name is a close fuzzy match.', weight: 0.05 });
+    }
+  }
+
+  if (inputAddrKey && inputAddrKey === addressKey(store.address || {})) {
+    score += 0.05;
+    reasons.push({ code: 'ADDRESS_MATCH', message: 'Full address matches.', weight: 0.05 });
+  }
+
+  return {
+    store,
+    score,
+    confidence: Math.max(0, Math.min(1, Number(score.toFixed(4)))),
+    reasons
+  };
+};
+
+const isAmbiguousResult = (topCandidates = [], minConfidence = 0.6, ambiguityDelta = 0.1) => {
+  if (topCandidates.length < 2) return false;
+  const [first, second] = topCandidates;
+  if (!first || !second) return false;
+  if (first.confidence < minConfidence || second.confidence < minConfidence) return false;
+  return Math.abs(first.confidence - second.confidence) <= ambiguityDelta;
+};
+
+export async function matchStoreCandidate(
+  candidate,
+  { minConfidence = 0.7, maxCandidates = 5, ambiguityDelta = 0.1 } = {}
+) {
+  if (!candidate) {
+    return { match: null, confidence: 0, reason: 'no candidate', matchReason: 'no_candidate', topCandidates: [] };
+  }
+
   if (candidate.storeId) {
     const store = await Store.findById(candidate.storeId).lean();
-    if (store) return { match: store, confidence: 1, reason: 'explicit storeId' };
-  }
-
-  // 2) Store number match
-  if (storeNumberNorm) {
-    const store = await Store.findOne({ storeNumber: storeNumberNorm }).lean();
-    if (store) return { match: store, confidence: 0.98, reason: 'store number match' };
-  }
-
-  // 3) Phone match (normalized equality)
-  if (phoneNorm) {
-    const store = await Store.findOne({ phoneNormalized: phoneNorm }).lean();
-    if (store) return { match: store, confidence: 0.95, reason: 'phone match' };
-  }
-
-  // 4) Chain + zip match
-  if (storeType && zip) {
-    const store = await Store.findOne({ storeType, 'address.zip': zip }).lean();
-    if (store) return { match: store, confidence: 0.9, reason: 'chain + zip match' };
-  }
-
-  // 5) Address match
-  if (addrKey) {
-    const stores = await Store.find({}).lean();
-    const byAddr = stores.find(s => addressKey(s.address) && addressKey(s.address) === addrKey);
-    if (byAddr) return { match: byAddr, confidence: 0.9, reason: 'address match' };
-  }
-
-  // 6) Fuzzy name + same city/zip
-  if (candidate.name) {
-    const stores = await Store.find({}).lean();
-    const city = normalizeStr(candidate.address?.city || '');
-
-    let best = null;
-    let bestScore = 1;
-    for (const s of stores) {
-      if (city && normalizeStr(s.address?.city) !== city) continue;
-      if (zip && normalizeZip(s.address?.zip) !== zip) continue;
-      const score = fuzzyMatch(candidate.name, s.name);
-      if (score < bestScore) {
-        bestScore = score;
-        best = s;
-      }
-    }
-    if (best && bestScore <= nameThreshold) {
-      return { match: best, confidence: 0.8, reason: 'fuzzy name with city/zip' };
+    if (store) {
+      const explicitCandidate = {
+        storeId: store._id.toString(),
+        name: store.name,
+        confidence: 1,
+        score: 1,
+        reasonCodes: ['EXPLICIT_STORE_ID'],
+        reasons: [{ code: 'EXPLICIT_STORE_ID', message: 'Explicit storeId provided.', weight: 1 }],
+        address: store.address || {},
+        phone: store.phone || ''
+      };
+      return {
+        match: store,
+        confidence: 1,
+        reason: 'explicit storeId',
+        matchReason: 'explicit_store_id',
+        ambiguous: false,
+        topCandidates: [explicitCandidate]
+      };
     }
   }
 
-  return { match: null, confidence: candidate.confidence || 0, reason: 'no match' };
+  const stores = await Store.find({}).lean();
+  const rankedCandidates = stores
+    .map(store => buildCandidateScore(candidate, store))
+    .filter(entry => entry.confidence > 0)
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, maxCandidates)
+    .map(entry => ({
+      storeId: entry.store._id.toString(),
+      name: entry.store.name,
+      confidence: entry.confidence,
+      score: entry.score,
+      reasonCodes: entry.reasons.map(reason => reason.code),
+      reasons: entry.reasons,
+      address: entry.store.address || {},
+      phone: entry.store.phone || ''
+    }));
+
+  if (rankedCandidates.length === 0) {
+    return {
+      match: null,
+      confidence: candidate.confidence || 0,
+      reason: 'no match',
+      matchReason: 'no_match',
+      ambiguous: false,
+      topCandidates: []
+    };
+  }
+
+  const topCandidate = rankedCandidates[0];
+  const ambiguous = isAmbiguousResult(rankedCandidates, minConfidence, ambiguityDelta);
+  if (topCandidate.confidence >= minConfidence && !ambiguous) {
+    const match = stores.find(store => store._id.toString() === topCandidate.storeId) || null;
+    return {
+      match,
+      confidence: topCandidate.confidence,
+      reason: 'weighted match',
+      matchReason: 'weighted_match',
+      ambiguous: false,
+      topCandidates: rankedCandidates
+    };
+  }
+
+  return {
+    match: null,
+    confidence: topCandidate.confidence,
+    reason: ambiguous ? 'ambiguous weighted match' : 'low confidence weighted match',
+    matchReason: ambiguous ? 'ambiguous_candidates' : 'low_confidence',
+    ambiguous,
+    topCandidates: rankedCandidates
+  };
 }
 
 export function shouldAutoCreateStore(candidate, { threshold = 0.85 } = {}) {

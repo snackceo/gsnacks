@@ -19,7 +19,8 @@ import {
   ReceiptApprovalDraftItem,
   ReceiptParseJob,
   ReceiptStoreCandidate,
-  StoreRecord
+  StoreRecord,
+  StoreMatchCandidateOption
 } from '../../types';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
 import ReceiptCaptureFlow from '../../components/ReceiptCaptureFlow';
@@ -50,6 +51,12 @@ interface ReceiptApproveResponse {
   ok?: boolean;
   error?: string;
   reasonCode?: string;
+  needsStoreResolution?: boolean;
+  storeResolution?: {
+    matchReason?: string;
+    confidence?: number;
+    candidates?: StoreMatchCandidateOption[];
+  };
   appliedCount?: number;
   skippedCount?: number;
   inventoryWriteCount?: number;
@@ -164,7 +171,13 @@ const receiptApprovalStatus = (
     storeBlocking.push('Confirm store creation before approving.');
   }
 
-  if (finalStoreMode === 'MATCHED' && !storeDraft.storeCandidate?.storeId) {
+  const isAmbiguousStoreMatch = String(storeDraft.storeCandidate?.matchReason || '').toLowerCase().includes('ambiguous');
+
+  if (isAmbiguousStoreMatch && !storeDraft.finalStoreId) {
+    storeBlocking.push('Resolve store selection before approving.');
+  }
+
+  if (finalStoreMode === 'MATCHED' && !storeDraft.storeCandidate?.storeId && !isAmbiguousStoreMatch) {
     storeAdvisory.push('Store match not confirmed; review candidate details.');
   }
 
@@ -283,6 +296,23 @@ const parseReceiptApproveResponse = (data: ReceiptApproveResponse): ReceiptAppro
 const parseApprovalResponseJson = async (response: Response): Promise<ReceiptApproveResponse> => {
   return await response.json().catch(() => ({}));
 };
+
+
+const deriveResolvedStoreCandidate = (
+  previousCandidate: ReceiptStoreCandidate | undefined,
+  responseData: ReceiptApproveResponse
+): ReceiptStoreCandidate | undefined => {
+  if (!responseData?.needsStoreResolution) return previousCandidate;
+  const resolution = responseData.storeResolution || {};
+  return {
+    ...(previousCandidate || {}),
+    matchReason: resolution.matchReason || 'ambiguous_candidates',
+    confidence: typeof resolution.confidence === 'number' ? resolution.confidence : previousCandidate?.confidence,
+    isAmbiguous: true,
+    candidates: Array.isArray(resolution.candidates) ? resolution.candidates : []
+  };
+};
+
 
 interface ManagementReceiptProps {
   fmtTime: (iso?: string) => string;
@@ -716,6 +746,15 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       setApprovalPanelExpandedByJobId(prev => ({ ...prev, [selectedJob._id]: true }));
 
       if (!approvalResponse.ok || approvalData?.error || appliedCount < 1) {
+        if (approvalData?.needsStoreResolution) {
+          const resolvedCandidate = deriveResolvedStoreCandidate(finalStoreDraft.storeCandidate || selectedJob.storeCandidate, approvalData);
+          updateStoreDraft({
+            storeCandidate: resolvedCandidate,
+            finalStoreId: null
+          });
+          setFinalStoreMode('MATCHED');
+          throw new Error('Store resolution required: choose one of the suggested stores before approving.');
+        }
         const backendReason = approvalData?.error || 'No receipt lines were applied. Verify mappings and prices, then retry.';
         const buildIdSummary = formatBackendBuildIdSummary(outcome.backendBuildId);
         const failureSummary = summarizedErrors ? `${backendReason} ${summarizedErrors}` : backendReason;
@@ -954,6 +993,15 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         setApprovalPanelExpandedByJobId(prev => ({ ...prev, [job._id]: true }));
 
         if (!approvalResponse.ok || data?.error || appliedCount < 1) {
+          if (data?.needsStoreResolution) {
+            const resolvedCandidate = deriveResolvedStoreCandidate(finalStoreDraft.storeCandidate || job.storeCandidate, data);
+            updateStoreDraft({
+              storeCandidate: resolvedCandidate,
+              finalStoreId: null
+            });
+            setFinalStoreMode('MATCHED');
+            throw new Error('Store resolution required: choose one of the suggested stores before approving.');
+          }
           const backendReason = data?.error || 'No receipt lines were applied. Verify mappings and prices, then retry.';
           const buildIdSummary = formatBackendBuildIdSummary(outcome.backendBuildId);
           const failureSummary = summarizedErrors ? `${backendReason} ${summarizedErrors}` : backendReason;
