@@ -18,11 +18,15 @@ export const isStoreInventoryPricingEnabled = () =>
 
 // Receipt ingestion controls
 export const receiptIngestionMode = () => {
-  const mode = String(process.env.RECEIPT_INGESTION_MODE || 'draft')
+  const raw = String(process.env.RECEIPT_INGESTION_MODE || 'enabled')
     .trim()
     .toLowerCase();
 
-  return ['draft', 'disabled'].includes(mode) ? mode : 'draft';
+  if (raw === 'disabled') return 'disabled';
+  if (raw === 'draft') return 'enabled';
+  if (raw === 'enabled') return 'enabled';
+
+  return 'enabled';
 };
 
 export const receiptStoreAllowlist = () => {
