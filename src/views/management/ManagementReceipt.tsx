@@ -338,6 +338,23 @@ interface ReceiptQueueStatus {
   staleQueuedAgeMs?: number;
   staleThresholdMs?: number;
 }
+
+interface ReceiptIngestionGateHealth {
+  mode?: 'enabled' | 'disabled' | string;
+  storeId?: string | null;
+  allowlist?: {
+    enabled?: boolean;
+    entries?: string[];
+    hit?: boolean | null;
+  };
+  cap?: {
+    enabled?: boolean;
+    limit?: number | null;
+    usedToday?: number | null;
+    remaining?: number | null;
+    exceeded?: boolean | null;
+  };
+}
 interface ReceiptCapture {
   _id: string;
   storeId?: string;
@@ -390,6 +407,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [isLoadingJobs, setIsLoadingJobs] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [receiptQueueStatus, setReceiptQueueStatus] = useState<ReceiptQueueStatus | null>(null);
+  const [receiptIngestionGate, setReceiptIngestionGate] = useState<ReceiptIngestionGateHealth | null>(null);
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<ReceiptParseJob | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -879,12 +897,15 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   const loadReceiptHealth = useCallback(async () => {
     try {
-      const data: any = await apiFetch('/api/driver/receipt-health');
+      const healthQueryStoreId = activeStoreId ? `?storeId=${encodeURIComponent(activeStoreId)}` : '';
+      const data: any = await apiFetch(`/api/driver/receipt-health${healthQueryStoreId}`);
       setReceiptQueueStatus(data?.queueStatus || null);
+      setReceiptIngestionGate(data?.ingestionGate || null);
     } catch {
       setReceiptQueueStatus(null);
+      setReceiptIngestionGate(null);
     }
-  }, []);
+  }, [activeStoreId]);
 
   // Load parse jobs for pending workflow and completed history
   const loadParseJobs = useCallback(async () => {
@@ -1340,6 +1361,34 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
               </p>
             </div>
           )}
+
+          <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-[11px]">
+            <p className="font-semibold uppercase tracking-widest text-[10px] text-ninpo-lime">Receipt Ingestion Health</p>
+            <div className="mt-2 space-y-1 text-slate-200">
+              <p>
+                Queue: {receiptQueueStatus?.queueEnabled ? 'enabled' : 'disabled'} • Worker:{' '}
+                {receiptQueueStatus?.workerOffline ? 'offline' : 'healthy'}
+              </p>
+              <p>
+                Ingestion mode: <span className="font-semibold">{receiptIngestionGate?.mode || 'unknown'}</span>
+              </p>
+              <p>
+                Allowlist: {receiptIngestionGate?.allowlist?.enabled ? 'enabled' : 'open'}
+                {receiptIngestionGate?.storeId
+                  ? ` • store ${receiptIngestionGate.allowlist?.hit ? 'hit' : 'miss'}`
+                  : ''}
+              </p>
+              <p>
+                Daily cap: {receiptIngestionGate?.cap?.enabled ? `${receiptIngestionGate.cap.usedToday ?? 0}/${receiptIngestionGate.cap.limit ?? 0}` : 'disabled'}
+                {receiptIngestionGate?.cap?.enabled
+                  ? ` • remaining ${receiptIngestionGate.cap.remaining ?? 0}${receiptIngestionGate.cap.exceeded ? ' (exceeded)' : ''}`
+                  : ''}
+              </p>
+            </div>
+            <div className="mt-2 text-[10px] text-slate-400">
+              <p>Fix guide: mode disabled → enable ingestion; allowlist miss → add storeId; cap exceeded → raise cap or wait for reset.</p>
+            </div>
+          </div>
 
           {jobsError && (
             <div className="bg-red-900/20 border border-red-600 rounded-xl p-4 text-red-300 text-[11px]">

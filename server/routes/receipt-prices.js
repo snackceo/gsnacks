@@ -145,28 +145,74 @@ const isStoreAllowlisted = storeId => {
   return allowlist.has(String(storeId));
 };
 
-const ensureIngestionAllowed = async storeId => {
-  if (receiptIngestionMode() === 'disabled') {
-    return { ok: false, status: 503, error: 'Receipt ingestion disabled during rollout' };
-  }
-  if (!isStoreAllowlisted(storeId)) {
-    return { ok: false, status: 403, error: 'Store not allowlisted for ingestion during rollout' };
-  }
+const getReceiptIngestionGateState = async ({ storeId } = {}) => {
+  const mode = receiptIngestionMode();
+  const allowlist = receiptStoreAllowlist();
+  const allowlistEntries = Array.from(allowlist);
+  const allowlistEnabled = allowlist.size > 0;
+  const normalizedStoreId = storeId ? String(storeId) : null;
+  const allowlistHit = normalizedStoreId
+    ? (!allowlistEnabled || allowlist.has(normalizedStoreId))
+    : null;
 
-  const cap = receiptDailyCap();
-  if (cap) {
+  const capLimit = receiptDailyCap();
+  let capUsedToday = null;
+  if (capLimit && normalizedStoreId) {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
-    const countToday = await ReceiptCapture.countDocuments({
-      storeId,
+    capUsedToday = await ReceiptCapture.countDocuments({
+      storeId: normalizedStoreId,
       createdAt: { $gte: startOfDay }
     });
-    if (countToday >= cap) {
-      return { ok: false, status: 429, error: 'Receipt ingestion daily cap reached' };
-    }
   }
 
-  return { ok: true };
+  return {
+    mode,
+    storeId: normalizedStoreId,
+    allowlist: {
+      enabled: allowlistEnabled,
+      entries: allowlistEntries,
+      hit: allowlistHit
+    },
+    cap: {
+      enabled: Boolean(capLimit),
+      limit: capLimit,
+      usedToday: capUsedToday,
+      remaining: capLimit && typeof capUsedToday === 'number' ? Math.max(0, capLimit - capUsedToday) : null,
+      exceeded: capLimit && typeof capUsedToday === 'number' ? capUsedToday >= capLimit : null
+    }
+  };
+};
+
+const ensureIngestionAllowed = async storeId => {
+  const gate = await getReceiptIngestionGateState({ storeId });
+  if (gate.mode === 'disabled') {
+    return {
+      ok: false,
+      status: 503,
+      error: 'Receipt ingestion disabled during rollout',
+      gate
+    };
+  }
+  if (!isStoreAllowlisted(storeId)) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'Store not allowlisted for ingestion during rollout',
+      gate
+    };
+  }
+
+  if (gate.cap.enabled && typeof gate.cap.usedToday === 'number' && gate.cap.usedToday >= gate.cap.limit) {
+    return {
+      ok: false,
+      status: 429,
+      error: 'Receipt ingestion daily cap reached',
+      gate
+    };
+  }
+
+  return { ok: true, gate };
 };
 
 // Persist a proposal draft for management review without mutating inventory directly
@@ -1052,13 +1098,14 @@ router.post('/receipt-upload', authRequired, receiptLimiter, async (req, res) =>
     }
 
     if (receiptIngestionMode() === 'disabled') {
-      return res.status(503).json({ error: 'Receipt ingestion disabled during rollout' });
+      const gate = await getReceiptIngestionGateState({ storeId });
+      return res.status(503).json({ error: 'Receipt ingestion disabled during rollout', gate });
     }
 
     if (storeId) {
       const ingestionCheck = await ensureIngestionAllowed(storeId);
       if (!ingestionCheck.ok) {
-        return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
+        return res.status(ingestionCheck.status).json({ error: ingestionCheck.error, gate: ingestionCheck.gate });
       }
     }
 
@@ -1189,7 +1236,8 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
 
     // Validation
     if (receiptIngestionMode() === 'disabled') {
-      return res.status(503).json({ error: 'Receipt ingestion disabled during rollout' });
+      const gate = await getReceiptIngestionGateState({ storeId });
+      return res.status(503).json({ error: 'Receipt ingestion disabled during rollout', gate });
     }
     if (storeId && !mongoose.Types.ObjectId.isValid(storeId)) {
       return res.status(400).json({ error: 'Valid storeId required' });
@@ -1215,7 +1263,7 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
     if (store) {
       const ingestionCheck = await ensureIngestionAllowed(store._id.toString());
       if (!ingestionCheck.ok) {
-        return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
+        return res.status(ingestionCheck.status).json({ error: ingestionCheck.error, gate: ingestionCheck.gate });
       }
     }
 
@@ -1421,7 +1469,7 @@ router.get('/receipt-capture/:captureId', authRequired, async (req, res) => {
     if (capture.storeId) {
       const ingestionCheck = await ensureIngestionAllowed(capture.storeId);
       if (!ingestionCheck.ok) {
-        return res.status(ingestionCheck.status).json({ error: ingestionCheck.error });
+        return res.status(ingestionCheck.status).json({ error: ingestionCheck.error, gate: ingestionCheck.gate });
       }
     }
 
@@ -2583,6 +2631,11 @@ router.get('/receipt-health', authRequired, async (req, res) => {
   }
 
   try {
+    const requestedStoreId =
+      typeof req.query?.storeId === 'string' && req.query.storeId.trim().length > 0
+        ? req.query.storeId.trim()
+        : null;
+    const ingestionGate = await getReceiptIngestionGateState({ storeId: requestedStoreId });
     const staleJobCheck = await flushStaleReceiptJobs({ dryRun: true });
     const staleReceiptJobs = staleJobCheck.ok
       ? {
@@ -2598,6 +2651,7 @@ router.get('/receipt-health', authRequired, async (req, res) => {
       queueEnabled: isReceiptQueueEnabled(),
       queueStatus: await getReceiptQueueWorkerHealth(),
       learningEnabled: isPricingLearningEnabled(),
+      ingestionGate,
       staleReceiptJobs
     });
   } catch (error) {

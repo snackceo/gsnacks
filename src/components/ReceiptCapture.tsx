@@ -2,6 +2,16 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Camera, Plus, X, Package, Check, AlertCircle, Upload } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch';
 
+const GATE_ERROR_STATUSES = new Set([403, 429, 503]);
+
+const getGateErrorMessage = (err: any, fallback: string) => {
+  const status = Number(err?.status);
+  if (GATE_ERROR_STATUSES.has(status)) {
+    return err?.data?.error || err?.message || fallback;
+  }
+  return err?.message || fallback;
+};
+
 interface ReceiptItem {
   upc?: string;
   sku?: string;
@@ -215,7 +225,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
       console.error('Receipt parse trigger failed:', { captureId, error: parseErr });
       setParseRetryCaptureId(captureId);
       setError(
-        (parseErr?.message || 'Receipt auto-parse failed. Please try again or contact support.') +
+        getGateErrorMessage(parseErr, 'Receipt auto-parse failed. Please try again or contact support.') +
           ' (Auto-parse error)'
       );
       return false;
@@ -292,7 +302,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
         }, 2000);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to submit receipt');
+      setError(getGateErrorMessage(err, 'Failed to submit receipt'));
     } finally {
       setSubmitting(false);
       setUploadPhase(null);

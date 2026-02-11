@@ -2,6 +2,11 @@ import { BACKEND_URL } from '../constants';
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
+export type ApiFetchError = Error & {
+  status?: number;
+  data?: any;
+};
+
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = path.startsWith('http') ? path : `${BACKEND_URL}${path}`;
   const headers = new Headers(options.headers || {});
@@ -27,7 +32,12 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     }
 
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+    if (!res.ok) {
+      const error = new Error(data?.error || `Request failed (${res.status})`) as ApiFetchError;
+      error.status = res.status;
+      error.data = data;
+      throw error;
+    }
     return data as T;
   }
 

@@ -14,6 +14,16 @@ import { useNinpoCore } from '../hooks/useNinpoCore';
 import { ScannerMode, StoreRecord } from '../types';
 import { apiFetch } from '../utils/apiFetch';
 
+const GATE_ERROR_STATUSES = new Set([403, 429, 503]);
+
+const getGateErrorMessage = (err: any, fallback: string) => {
+  const status = Number(err?.status);
+  if (GATE_ERROR_STATUSES.has(status)) {
+    return err?.data?.error || err?.message || fallback;
+  }
+  return err?.message || fallback;
+};
+
 /**
  * This file is intentionally LARGE. 
  * It preserves ALL existing UX behavior while finally wiring the backend.
@@ -197,7 +207,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
         // ✅ Ignore AbortError (user closed camera, etc.)
         if (err?.name === 'AbortError' || err?.code === 20) return { ok: false };
 
-        const message = err?.message || 'Parse request failed.';
+        const message = getGateErrorMessage(err, 'Parse request failed.');
         console.error('Receipt parse trigger failed:', { captureId, error: err });
         setError(message);
         setParseRetryCaptureId(captureId);
@@ -277,7 +287,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
       } catch (err: any) {
         console.error('Receipt capture failed:', err);
         if (mountedRef.current) {
-          setError(err.message || 'Failed to capture receipt.');
+          setError(getGateErrorMessage(err, 'Failed to capture receipt.'));
         }
       } finally {
         if (mountedRef.current) {
