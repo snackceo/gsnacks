@@ -1,11 +1,47 @@
 // server/utils/featureFlags.js
 
-const parseBool = (value, defaultValue = false) => {
+const TRUTHY_BOOL_TOKENS = new Set(['true', '1', 'yes', 'on']);
+
+const normalizeBoolToken = value => String(value).trim().toLowerCase();
+
+export const parseBool = (value, defaultValue = false) => {
   if (value === undefined || value === null) return defaultValue;
   if (typeof value === 'boolean') return value;
 
-  const normalized = String(value).trim().toLowerCase();
-  return ['true', '1', 'yes', 'on'].includes(normalized);
+  const normalized = normalizeBoolToken(value);
+  return TRUTHY_BOOL_TOKENS.has(normalized);
+};
+
+export const parseBoolWithReason = (value, defaultValue = false) => {
+  if (value === undefined || value === null) {
+    return {
+      value: defaultValue,
+      reason: `env unset; default=${defaultValue}`,
+      raw: '(unset)',
+      normalized: null
+    };
+  }
+
+  if (typeof value === 'boolean') {
+    return {
+      value,
+      reason: 'env provided boolean literal',
+      raw: String(value),
+      normalized: String(value)
+    };
+  }
+
+  const normalized = normalizeBoolToken(value);
+  const isTruthy = TRUTHY_BOOL_TOKENS.has(normalized);
+
+  return {
+    value: isTruthy,
+    reason: isTruthy
+      ? `matched truthy token "${normalized}"`
+      : `token "${normalized}" is not truthy (${Array.from(TRUTHY_BOOL_TOKENS).join(', ')})`,
+    raw: String(value),
+    normalized
+  };
 };
 
 // Can we WRITE pricing intelligence from receipts?

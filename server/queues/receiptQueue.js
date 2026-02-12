@@ -1,5 +1,6 @@
 import { Queue, Worker, QueueEvents } from 'bullmq';
 import IORedis from 'ioredis';
+import { parseBoolWithReason } from '../utils/featureFlags.js';
 
 const redisUrl = process.env.REDIS_URL || '';
 const queueName = 'receipt-parse';
@@ -23,7 +24,9 @@ if (redisUrl) {
   console.warn('BullMQ connection not configured; receipt queue is disabled.');
 }
 
-const receiptQueue = connection && String(process.env.ENABLE_RECEIPT_QUEUE || 'false').toLowerCase() === 'true'
+const receiptQueueFlag = parseBoolWithReason(process.env.ENABLE_RECEIPT_QUEUE, false);
+
+const receiptQueue = connection && receiptQueueFlag.value
   ? new Queue(queueName, {
       connection,
       defaultJobOptions: {
@@ -35,8 +38,25 @@ const receiptQueue = connection && String(process.env.ENABLE_RECEIPT_QUEUE || 'f
     })
   : null;
 
+const normalizedReceiptQueueConfig = {
+  queueName,
+  redisConfigured: Boolean(redisUrl),
+  enableReceiptQueueRaw: receiptQueueFlag.raw,
+  enableReceiptQueueNormalized: receiptQueueFlag.normalized,
+  enableReceiptQueue: receiptQueueFlag.value,
+  decisionReason: connection
+    ? receiptQueueFlag.reason
+    : `${receiptQueueFlag.reason}; Redis unavailable`
+};
+
+console.log(
+  `BullMQ receipt queue config: ${JSON.stringify(normalizedReceiptQueueConfig)}`
+);
+
 if (receiptQueue) {
   console.log('BullMQ receipt queue enabled.');
+} else {
+  console.log('BullMQ receipt queue disabled by config or missing Redis connection.');
 }
 
 let receiptQueueAdmin = null;
