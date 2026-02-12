@@ -32,7 +32,7 @@ export const useReceiptCapture = () => {
   const fetchReceiptCaptures = useCallback(async () => {
     try {
       const resp = await fetch(
-        `${BACKEND_URL}/api/receipts?status=QUEUED&status=PARSING&status=PARSED&status=NEEDS_REVIEW&status=APPROVED&status=REJECTED&status=FAILED&limit=40`,
+        `${BACKEND_URL}/api/receipts?status=CREATED&status=QUEUED&status=PARSING&status=PARSED&status=NEEDS_REVIEW&status=APPROVED&status=REJECTED&status=FAILED&limit=40`,
         {
           credentials: 'include'
         }

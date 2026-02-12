@@ -205,7 +205,7 @@ type ReceiptApprovalDraftState = {
 
 type ReceiptWorkflowTab = 'capture' | 'pending' | 'completed';
 
-const PENDING_WORKFLOW_STATUSES = ['QUEUED', 'NEEDS_REVIEW', 'PARSED'] as const;
+const PENDING_WORKFLOW_STATUSES = ['CREATED', 'QUEUED', 'PARSING', 'NEEDS_REVIEW', 'PARSED'] as const;
 const COMPLETED_WORKFLOW_STATUSES = ['APPROVED', 'FAILED'] as const;
 
 
@@ -913,13 +913,13 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     void loadReceiptHealth();
     setJobsError(null);
     try {
-      const data: any = await apiFetch('/api/receipts/?status=QUEUED,PARSING,NEEDS_REVIEW,PARSED,FAILED,APPROVED');
+      const data: any = await apiFetch('/api/receipts/?status=CREATED,QUEUED,PARSING,NEEDS_REVIEW,PARSED,FAILED,APPROVED');
       if (data?.error) throw new Error(data.error || 'Failed to load parse jobs');
       const validStatuses = [...PENDING_WORKFLOW_STATUSES, ...COMPLETED_WORKFLOW_STATUSES];
       let jobs = Array.isArray(data?.jobs) ? data.jobs : [];
       jobs = jobs.filter(j => validStatuses.includes(j.status));
       // Keep queue semantics first, then completed history
-      const statusOrder = { QUEUED: 0, NEEDS_REVIEW: 1, PARSED: 2, APPROVED: 3, FAILED: 4 };
+      const statusOrder = { CREATED: 0, QUEUED: 1, PARSING: 2, NEEDS_REVIEW: 3, PARSED: 4, APPROVED: 5, FAILED: 6 };
       jobs.sort((a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99));
       setParseJobs(jobs);
     } catch (err: any) {

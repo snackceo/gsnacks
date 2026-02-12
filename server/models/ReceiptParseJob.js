@@ -53,8 +53,8 @@ const ReceiptParseJobSchema = new mongoose.Schema(
     createdAt: { type: Date, default: Date.now },
     status: {
       type: String,
-      enum: ['QUEUED', 'PARSING', 'PARSED', 'NEEDS_REVIEW', 'APPROVED', 'REJECTED', 'FAILED'],
-      default: 'QUEUED'
+      enum: ['CREATED', 'QUEUED', 'PARSING', 'PARSED', 'NEEDS_REVIEW', 'APPROVED', 'REJECTED', 'FAILED'],
+      default: 'CREATED'
     },
     parseError: String,
     parseErrorType: {

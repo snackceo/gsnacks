@@ -3,7 +3,6 @@
 
 import { GoogleGenAI } from '@google/genai';
 import ReceiptCapture from '../models/ReceiptCapture.js';
-import ReceiptParseJob from '../models/ReceiptParseJob.js';
 import ReceiptNameAlias from '../models/ReceiptNameAlias.js';
 import ReceiptNoiseRule from '../models/ReceiptNoiseRule.js';
 import Store from '../models/Store.js';
@@ -11,6 +10,7 @@ import StoreInventory from '../models/StoreInventory.js';
 import UpcItem from '../models/UpcItem.js';
 import Product from '../models/Product.js';
 import { recordAuditLog } from './audit.js';
+import { transitionReceiptParseJobStatus } from './receiptParseJobStatus.js';
 import { inferStoreType, matchStoreCandidate, normalizePhone, normalizeStoreNumber, normalizeZip } from './storeMatcher.js';
 
 const getGeminiApiKey = () =>
@@ -505,17 +505,16 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     const retryAfter = failureDetails.parseErrorType === 'TRANSIENT'
       ? getRetryAfter(capture.parseAttempts || 1)
       : null;
-    await ReceiptParseJob.findOneAndUpdate(
-      { captureId: capture._id.toString() },
-      {
-        captureId: capture._id.toString(),
-        status: 'FAILED',
+    await transitionReceiptParseJobStatus({
+      captureId: capture._id.toString(),
+      actor: actorId,
+      status: 'FAILED',
+      updates: {
         parseError: failureDetails.parseError,
         parseErrorType: failureDetails.parseErrorType,
         retryAfter
-      },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
+      }
+    });
     throw new Error(capture.parseError);
   }
 
@@ -529,22 +528,26 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     const retryAfter = failureDetails.parseErrorType === 'TRANSIENT'
       ? getRetryAfter(capture.parseAttempts || 1)
       : null;
-    await ReceiptParseJob.findOneAndUpdate(
-      { captureId: capture._id.toString() },
-      {
-        captureId: capture._id.toString(),
-        status: 'FAILED',
+    await transitionReceiptParseJobStatus({
+      captureId: capture._id.toString(),
+      actor: actorId,
+      status: 'FAILED',
+      updates: {
         parseError: failureDetails.parseError,
         parseErrorType: failureDetails.parseErrorType,
         retryAfter
-      },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
+      }
+    });
     throw new Error(apiReady.error);
   }
 
   capture.markParsing();
   await capture.save();
+  await transitionReceiptParseJobStatus({
+    captureId: capture._id.toString(),
+    actor: actorId,
+    status: 'PARSING'
+  });
 
   try {
     const draftItems = [];
@@ -779,11 +782,11 @@ RULES:
     }));
 
     const needsReview = items.some(it => it.warnings?.length);
-    const job = await ReceiptParseJob.findOneAndUpdate(
-      { captureId: capture._id.toString() },
-      {
-        captureId: capture._id.toString(),
-        status: needsReview ? 'NEEDS_REVIEW' : 'PARSED',
+    const job = await transitionReceiptParseJobStatus({
+      captureId: capture._id.toString(),
+      actor: actorId,
+      status: needsReview ? 'NEEDS_REVIEW' : 'PARSED',
+      updates: {
         parseError: null,
         parseErrorType: null,
         retryAfter: null,
@@ -820,9 +823,8 @@ RULES:
             storeMatchAmbiguous: Boolean(storeMatchResult?.ambiguous)
           } : {})
         }
-      },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
+      }
+    });
 
     await recordAuditLog({
       type: 'receipt_parse',
@@ -841,20 +843,19 @@ RULES:
       ? getRetryAfter(capture.parseAttempts || 1)
       : null;
 
-    await ReceiptParseJob.findOneAndUpdate(
-      { captureId: capture._id.toString() },
-      {
-        captureId: capture._id.toString(),
-        status: 'FAILED',
+    await transitionReceiptParseJobStatus({
+      captureId: capture._id.toString(),
+      actor: actorId,
+      status: 'FAILED',
+      updates: {
         parseError: failureDetails.parseError,
         parseErrorType: failureDetails.parseErrorType,
         retryAfter,
         skippedImages,
         skippedImageReason,
         rawText: failureDetails.parseError
-      },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
+      }
+    });
 
     throw err;
   }

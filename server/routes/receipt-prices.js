@@ -18,6 +18,7 @@ import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCr
 import { isPricingLearningEnabled, receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap, isReceiptAutoCommitEnabled } from '../utils/featureFlags.js';
 import { enqueueReceiptJob, getReceiptQueue, isReceiptQueueEnabled } from '../queues/receiptQueue.js';
 import { executeReceiptParse } from '../utils/receiptParseHelper.js';
+import { transitionReceiptParseJobStatus } from '../utils/receiptParseJobStatus.js';
 import { approveReceiptJob, buildAutoCommitApprovalBody } from '../services/receiptApprovalService.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 
@@ -299,8 +300,6 @@ async function upsertReceiptParseJobFromDraft({
   const status = needsReview ? 'NEEDS_REVIEW' : 'PARSED';
 
   const payload = {
-    captureId: capture._id.toString(),
-    status,
     rawText,
     structured: { draftItems },
     geminiOutput: geminiOutput || undefined,
@@ -309,11 +308,12 @@ async function upsertReceiptParseJobFromDraft({
     warnings: draftItems.filter(it => it.needsReview && it.reviewReason).map(it => it.reviewReason)
   };
 
-  const job = await ReceiptParseJob.findOneAndUpdate(
-    { captureId: payload.captureId },
-    payload,
-    { new: true, upsert: true, setDefaultsOnInsert: true }
-  );
+  const job = await transitionReceiptParseJobStatus({
+    captureId: capture._id.toString(),
+    actor: 'api',
+    status,
+    updates: payload
+  });
 
   return job;
 }
@@ -1404,11 +1404,11 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
       const matchResult = matchPayload ? await matchStoreCandidate(matchPayload) : null;
 
       // Create a draft ReceiptParseJob even before parsing with store candidate info
-      await ReceiptParseJob.findOneAndUpdate(
-        { captureId: capture._id.toString() },
-        {
-          captureId: capture._id.toString(),
-          status: 'QUEUED',
+      await transitionReceiptParseJobStatus({
+        captureId: capture._id.toString(),
+        actor: username || 'unknown',
+        status: 'CREATED',
+        updates: {
           storeCandidate: {
             name: store?.name || normalizedStoreName || 'Unknown Store',
             address: store?.address || {},
@@ -1419,9 +1419,8 @@ router.post('/receipt-capture', authRequired, async (req, res) => {
             confidence: matchResult?.confidence || 0,
             storeId: matchResult?.match?._id || undefined
           }
-        },
-        { new: true, upsert: true, setDefaultsOnInsert: true }
-      );
+        }
+      });
     } catch (matchErr) {
       console.warn('Failed to create ReceiptParseJob with store candidate:', matchErr?.message);
     }
@@ -1550,6 +1549,11 @@ router.post('/receipt-parse', authRequired, async (req, res) => {
     try {
       const result = await enqueueReceiptJob('receipt-parse', { captureId, actor: req.user?._id || 'api' });
       if (result.ok) {
+        await transitionReceiptParseJobStatus({
+          captureId: capture._id.toString(),
+          actor: req.user?._id || 'api',
+          status: 'QUEUED'
+        });
         return res.json({ ok: true, queued: true, jobId: result.jobId, queueHealth });
       } else {
         return res.status(500).json({ error: 'Failed to enqueue receipt parse job', ...result });
@@ -2018,11 +2022,11 @@ router.post('/receipt-parse-jobs/:captureId/reject', authRequired, async (req, r
     const { captureId } = req.params;
     const username = req.user?.username || 'unknown';
 
-    await ReceiptParseJob.findOneAndUpdate(
-      { captureId },
-      { status: 'REJECTED' },
-      { new: true }
-    );
+    await transitionReceiptParseJobStatus({
+      captureId,
+      actor: username,
+      status: 'REJECTED'
+    });
 
     await recordAuditLog({
       type: 'receipt_store_reject',
