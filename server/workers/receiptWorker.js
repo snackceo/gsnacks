@@ -2,7 +2,6 @@ import 'dotenv/config';
 import { isReceiptQueueEnabled, registerReceiptWorker } from '../queues/receiptQueue.js';
 import connectDB, { isDbReady } from '../db/connect.js';
 import ReceiptCapture from '../models/ReceiptCapture.js';
-import ReceiptParseJob from '../models/ReceiptParseJob.js';
 import { executeReceiptParse } from '../utils/receiptParseHelper.js';
 
 if (!isReceiptQueueEnabled()) {
@@ -26,29 +25,12 @@ if (!isReceiptQueueEnabled()) {
       throw new Error('Database not ready');
     }
 
-    // FIX 1: Always advance state to 'parsing' and increment parseAttempts
-    const updateResult = await ReceiptCapture.updateOne(
-      { _id: captureId },
-      {
-        $inc: { parseAttempts: 1 },
-        $set: { status: 'parsing' }
-      }
-    );
-
-    if (updateResult.matchedCount === 0) {
+    const captureExists = await ReceiptCapture.exists({ _id: captureId });
+    if (!captureExists) {
       console.warn(`Receipt capture missing for job ${job.id}; removing job without retry.`);
       await job.remove();
       return;
     }
-
-    await ReceiptParseJob.findOneAndUpdate(
-      { captureId: captureId.toString() },
-      {
-        captureId: captureId.toString(),
-        status: 'PARSING'
-      },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
 
     try {
       // Execute the parsing pipeline (shared with receipt-prices route)
@@ -56,20 +38,6 @@ if (!isReceiptQueueEnabled()) {
       console.log(`Receipt parsed successfully: ${captureId} → job ${parseJob._id}`);
     } catch (err) {
       console.error(`Receipt parse failed for ${captureId}:`, err?.message);
-      // FIX 2: Downgrade to needs_review, do not stall
-      try {
-        await ReceiptCapture.updateOne(
-          { _id: captureId },
-          {
-            $set: {
-              status: 'needs_review',
-              parseError: 'AI parse failed'
-            }
-          }
-        );
-      } catch (updateErr) {
-        console.error('Failed to update capture status:', updateErr?.message);
-      }
       throw err;
     }
   });

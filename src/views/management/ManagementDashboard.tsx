@@ -19,6 +19,7 @@ import { apiFetch } from '../../utils/apiFetch';
 // Parse job status badge colors
 const statusBadge = (status: string) => {
   const map: Record<string, string> = {
+    CREATED: 'bg-zinc-500/20 text-zinc-200',
     QUEUED: 'bg-slate-500/20 text-slate-200',
     PARSING: 'bg-blue-500/20 text-blue-300',
     PARSED: 'bg-green-500/20 text-green-300',

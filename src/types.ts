@@ -213,6 +213,7 @@ export interface StoreMatchCandidateOption {
 }
 
 export type ReceiptParseStatus =
+  | 'CREATED'
   | 'QUEUED'
   | 'PARSING'
   | 'PARSED'
