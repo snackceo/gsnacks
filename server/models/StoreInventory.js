@@ -104,6 +104,7 @@ storeInventorySchema.index(
 );
 storeInventorySchema.index({ storeId: 1, sku: 1 });
 storeInventorySchema.index({ storeId: 1, updatedAt: -1 }); // Performance monitoring
+storeInventorySchema.index({ storeId: 1, observedAt: -1 });
 
 // Add virtual for UPC lookup from Product
 storeInventorySchema.virtual('upc').get(function() {
