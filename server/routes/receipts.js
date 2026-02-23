@@ -563,6 +563,37 @@ export const approveReceiptJobHandler = async (req, res) => {
       }
     }
     const priceObservations = [];
+    const captureIdString = capture._id.toString();
+    const linePersistenceCache = new Map();
+
+    const getPersistedLineState = async (lineIndex) => {
+      if (linePersistenceCache.has(lineIndex)) {
+        return linePersistenceCache.get(lineIndex);
+      }
+
+      const inventoryPersisted = await StoreInventory.exists({
+        storeId: store._id,
+        appliedCaptures: {
+          $elemMatch: {
+            captureId: captureIdString,
+            lineIndex
+          }
+        }
+      }).session(session);
+
+      const priceObservationPersisted = await PriceObservation.exists({
+        receiptCaptureId: capture._id,
+        lineIndex
+      }).session(session);
+
+      const state = {
+        inventoryPersisted: Boolean(inventoryPersisted),
+        priceObservationPersisted: Boolean(priceObservationPersisted)
+      };
+
+      linePersistenceCache.set(lineIndex, state);
+      return state;
+    };
 
 
     // Normalize draft items from either capture or parseJob
@@ -661,6 +692,14 @@ export const approveReceiptJobHandler = async (req, res) => {
           continue;
         }
 
+        const persistedLineState = await getPersistedLineState(item.lineIndex);
+        if (persistedLineState.inventoryPersisted || persistedLineState.priceObservationPersisted) {
+          lineOutcome.inventoryPersisted = persistedLineState.inventoryPersisted;
+          lineOutcome.priceObservationPersisted = persistedLineState.priceObservationPersisted;
+          lineOutcome.appliedState = 'already_persisted';
+          continue;
+        }
+
         if (effectiveAction === 'CREATE_PRODUCT' && !allowCreateProductApproval) {
           const lineError = {
             lineIndex: item.lineIndex,
@@ -697,6 +736,14 @@ export const approveReceiptJobHandler = async (req, res) => {
         let inventoryUnmappedProductId = null;
 
         if (effectiveAction === 'CREATE_PRODUCT') {
+          const createProductPersistedState = await getPersistedLineState(item.lineIndex);
+          if (createProductPersistedState.inventoryPersisted || createProductPersistedState.priceObservationPersisted) {
+            lineOutcome.inventoryPersisted = createProductPersistedState.inventoryPersisted;
+            lineOutcome.priceObservationPersisted = createProductPersistedState.priceObservationPersisted;
+            lineOutcome.appliedState = 'already_persisted';
+            continue;
+          }
+
           const normalizedName = normalizeReceiptName(item.normalizedName || item.receiptName);
           const rawName = item.receiptName || normalizedName || 'Receipt Item';
 
@@ -735,6 +782,11 @@ export const approveReceiptJobHandler = async (req, res) => {
               name: product.name,
               lineIndex: item.lineIndex,
               effectiveAction: 'CREATE_PRODUCT'
+            });
+            await recordAuditLog({
+              type: 'product_created_from_receipt',
+              actorId: username,
+              details: `captureId=${captureIdString} lineIndex=${item.lineIndex} productId=${product._id.toString()} sku=${product.sku}`
             });
           }
         }
@@ -934,6 +986,11 @@ export const approveReceiptJobHandler = async (req, res) => {
             productUpdate.price = retailPrice;
           }
           await Product.findByIdAndUpdate(product._id, { $set: productUpdate }, { session });
+          await recordAuditLog({
+            type: 'product_updated_from_receipt',
+            actorId: username,
+            details: `captureId=${captureIdString} lineIndex=${item.lineIndex} productId=${product._id.toString()} auto_price_update=${autoUpdateProductPriceFromReceipt && Boolean(retailPrice)}`
+          });
         }
 
         if (product) {
@@ -1018,12 +1075,22 @@ export const approveReceiptJobHandler = async (req, res) => {
 
     const lineOutcomes = Array.from(lineOutcomeByIndex.values()).map(entry => ({
       ...entry,
-      inventoryPersisted: inventoryAppliedLineIndexes.has(entry.lineIndex),
-      priceObservationPersisted: observationAppliedLineIndexes.has(entry.lineIndex),
-      applied: inventoryAppliedLineIndexes.has(entry.lineIndex) || observationAppliedLineIndexes.has(entry.lineIndex)
+      inventoryPersisted: entry.inventoryPersisted || inventoryAppliedLineIndexes.has(entry.lineIndex),
+      priceObservationPersisted: entry.priceObservationPersisted || observationAppliedLineIndexes.has(entry.lineIndex),
+      applied: Boolean(
+        entry.inventoryPersisted
+        || entry.priceObservationPersisted
+        || inventoryAppliedLineIndexes.has(entry.lineIndex)
+        || observationAppliedLineIndexes.has(entry.lineIndex)
+      )
     }));
+    for (const lineOutcome of lineOutcomes) {
+      if (lineOutcome.appliedState === 'already_persisted') continue;
+      lineOutcome.appliedState = lineOutcome.applied ? 'newly_applied' : 'not_applied';
+    }
     const priceLockOverrideCount = lineOutcomes.filter(entry => entry.priceLockOverridden).length;
-    const appliedCount = inventoryUpdates.length + createdPriceObservations.length;
+    const newlyAppliedCount = inventoryUpdates.length + createdPriceObservations.length;
+    const appliedCount = lineOutcomes.filter(entry => entry.applied).length;
     const skippedCount = Math.max(itemsToApprove.length - appliedCount, 0);
     const backendBuildId = getBackendBuildIdentifier();
     const errorsByLine = lineOutcomes
@@ -1071,6 +1138,7 @@ export const approveReceiptJobHandler = async (req, res) => {
           message: reason
         },
         appliedCount,
+        newlyAppliedCount,
         skippedCount,
         errors,
         errorsByLine,
@@ -1082,7 +1150,7 @@ export const approveReceiptJobHandler = async (req, res) => {
     }
 
     const previousCommitted = Number(capture.itemsCommitted || 0);
-    capture.itemsCommitted = Math.min(capture.totalItems, previousCommitted + appliedCount);
+    capture.itemsCommitted = Math.min(capture.totalItems, previousCommitted + newlyAppliedCount);
     capture.itemsConfirmed = validDraftItems.filter(entry => entry.boundProductId).length;
     capture.itemsNeedingReview = validDraftItems.filter(entry => entry.needsReview).length;
     capture.committedBy = username;
@@ -1137,6 +1205,7 @@ export const approveReceiptJobHandler = async (req, res) => {
       captureId: capture._id.toString(),
       storeId: store._id,
       appliedCount,
+      newlyAppliedCount,
       skippedCount,
       lineOutcomes,
       errorsByLine,
