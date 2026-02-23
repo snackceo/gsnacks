@@ -1,7 +1,6 @@
 // receiptParseHelper.js
 // Shared parsing logic for receipt-prices route and receiptWorker
 
-import { GoogleGenAI } from '@google/genai';
 import ReceiptCapture from '../models/ReceiptCapture.js';
 import ReceiptNameAlias from '../models/ReceiptNameAlias.js';
 import ReceiptNoiseRule from '../models/ReceiptNoiseRule.js';
@@ -11,19 +10,10 @@ import UpcItem from '../models/UpcItem.js';
 import Product from '../models/Product.js';
 import { recordAuditLog } from './audit.js';
 import { transitionReceiptParseJobStatus } from './receiptParseJobStatus.js';
-import { inferStoreType, matchStoreCandidate, normalizePhone, normalizeStoreNumber, normalizeZip } from './storeMatcher.js';
+import { inferStoreType, matchStoreCandidate, normalizePhone } from './storeMatcher.js';
 import { getReceiptLineNormalizedName, normalizeReceiptLineUpc } from './receiptLineResolver.js';
-
-const getGeminiApiKey = () =>
-  process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
-
-const ensureGeminiReady = () => {
-  const apiKey = getGeminiApiKey();
-  if (!apiKey) {
-    return { ok: false, error: 'Gemini API key not configured.' };
-  }
-  return { ok: true, apiKey };
-};
+import { getReceiptOcrConfigFromEnv, runReceiptOcrWithFallback } from './receiptOcrProviders/coordinator.js';
+import { parseGeminiJsonPayload, recoverItemsFromRawText, sanitizeReceiptNumber } from './receiptOcrProviders/shared.js';
 
 // Constants for parsing policies
 const ALIAS_CONFIDENCE_HALF_LIFE_DAYS = 90;
@@ -37,265 +27,6 @@ const isReceiptParseDebugEnabled = () => {
   const rawValue = process.env.RECEIPT_PARSE_DEBUG;
   return /^(1|true|yes|on)$/i.test(String(rawValue || '').trim());
 };
-
-const parseReceiptAddress = (rawAddress = '') => {
-  if (!rawAddress) return {};
-  const cleaned = rawAddress.trim();
-  const zipMatch = cleaned.match(/\b\d{5}\b/);
-  const zip = zipMatch?.[0];
-  const parts = cleaned.split(',').map(part => part.trim()).filter(Boolean);
-  if (parts.length >= 3) {
-    const street = parts[0];
-    const city = parts[1];
-    const stateZip = parts.slice(2).join(' ');
-    const stateZipMatch = stateZip.match(/([A-Z]{2})\s*(\d{5})?/i);
-    const state = stateZipMatch?.[1]?.toUpperCase();
-    const parsedZip = stateZipMatch?.[2] || zip;
-    return {
-      street,
-      city,
-      state,
-      zip: parsedZip
-    };
-  }
-  const lines = cleaned.split(/\n+/).map(line => line.trim()).filter(Boolean);
-  if (lines.length >= 2) {
-    const street = lines[0];
-    const locality = lines.slice(1).join(' ');
-    const localityMatch = locality.match(/^(.*?)(?:\s+([A-Z]{2})\s*(\d{5})?)$/i);
-    if (localityMatch) {
-      return {
-        street,
-        city: localityMatch[1].trim(),
-        state: localityMatch[2].toUpperCase(),
-        zip: localityMatch[3] || zip
-      };
-    }
-    return {
-      street,
-      city: locality.replace(/\b\d{5}\b/, '').trim(),
-      zip
-    };
-  }
-  const fallbackZip = zip || normalizeZip(cleaned);
-  const fallbackStateMatch = cleaned.match(/([A-Z]{2})\s*\d{5}?/i);
-  const fallbackState = fallbackStateMatch?.[1]?.toUpperCase();
-  console.warn('Receipt address parse incomplete; storing street only.', { rawAddress });
-  return { street: cleaned, state: fallbackState, zip: fallbackZip };
-};
-
-
-const sanitizeNumericCandidate = raw => {
-  if (raw === null || raw === undefined) return '';
-  return normalizeSpacedDecimalTokens(String(raw))
-    .replace(/\(([^)]+)\)/g, '-$1')
-    .replace(/\b(?:USD|U5D|USO|EUR|CAD|GBP)\b/gi, '')
-    .replace(/[oO]/g, '0')
-    .replace(/[lI]/g, '1')
-    .replace(/[sS]/g, '5')
-    .replace(/\s+/g, '')
-    .replace(/[^\d,.-]/g, '');
-};
-
-const normalizeSmartQuotes = value => String(value || '')
-  .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
-  .replace(/[\u201C\u201D\u201E\u201F]/g, '"');
-
-const stripCodeFences = value => normalizeSmartQuotes(value)
-  .replace(/```json\s*/gi, '')
-  .replace(/```\s*/g, '')
-  .trim();
-
-const extractLargestJsonBlock = value => {
-  const input = String(value || '');
-  const spans = [];
-  const stack = [];
-  for (let i = 0; i < input.length; i += 1) {
-    const char = input[i];
-    if (char === '{') {
-      stack.push(i);
-    } else if (char === '}' && stack.length) {
-      const start = stack.pop();
-      spans.push({ start, end: i + 1, length: i + 1 - start });
-    }
-  }
-  if (!spans.length) return '';
-  spans.sort((a, b) => b.length - a.length);
-  const best = spans[0];
-  return input.slice(best.start, best.end);
-};
-
-const normalizeJsonCandidate = value => {
-  let normalized = stripCodeFences(value);
-  const largestJsonBlock = extractLargestJsonBlock(normalized);
-  if (largestJsonBlock) {
-    normalized = largestJsonBlock;
-  }
-  return normalized
-    .replace(/,\s*([}\]])/g, '$1')
-    .trim();
-};
-
-const parseGeminiJsonPayload = rawText => {
-  const firstPass = stripCodeFences(rawText);
-  try {
-    return JSON.parse(firstPass);
-  } catch (_err) {
-    const tolerant = normalizeJsonCandidate(rawText);
-    if (!tolerant) return null;
-    try {
-      return JSON.parse(tolerant);
-    } catch (_tolerantErr) {
-      return null;
-    }
-  }
-};
-
-const sanitizeReceiptNumber = value => {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-
-  let cleaned = sanitizeNumericCandidate(value);
-  if (!cleaned) return null;
-
-  const lastDot = cleaned.lastIndexOf('.');
-  const lastComma = cleaned.lastIndexOf(',');
-
-  if (lastDot !== -1 && lastComma !== -1) {
-    const decimalSeparator = lastDot > lastComma ? '.' : ',';
-    cleaned = decimalSeparator === '.'
-      ? cleaned.replace(/,/g, '')
-      : cleaned.replace(/\./g, '').replace(',', '.');
-  } else if (lastComma !== -1) {
-    const commaCount = (cleaned.match(/,/g) || []).length;
-    const parts = cleaned.split(',');
-    const decimalLike = commaCount === 1 && parts[1]?.length > 0 && parts[1].length <= 2;
-    cleaned = decimalLike ? cleaned.replace(',', '.') : cleaned.replace(/,/g, '');
-  } else if (lastDot !== -1) {
-    const dotCount = (cleaned.match(/\./g) || []).length;
-    if (dotCount > 1) {
-      const parts = cleaned.split('.');
-      const decimalPart = parts.pop();
-      cleaned = `${parts.join('')}.${decimalPart}`;
-    }
-  }
-
-  const parsed = Number(cleaned);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
-const RECEIPT_SKIP_ROW_PATTERN = /(subtotal|sub total|tax|payment|tender|change|balance|total\s+due|grand\s+total|cash|credit|debit|visa|mastercard|amex|discover|coupon|discount|savings|loyalty|fee|deposit|bottle\s+return|tip|auth|approval|invoice|order\s*#|thank\s+you)/i;
-
-const normalizeSpacedDecimalTokens = value => {
-  if (!value) return value;
-  return String(value)
-    .replace(/(\d)\s+(\d)/g, '$1$2')
-    .replace(/(\d)\s+([.,])/g, '$1$2')
-    .replace(/([.,])\s+(\d)/g, '$1$2');
-};
-
-const recoverItemsFromRawText = rawText => {
-  const lines = String(rawText || '').split(/\r?\n/);
-  const recovered = [];
-  let pendingName = '';
-
-  const itemLineRegex = /^(.+?)\s+(?:(\d+(?:[.,]\d+)?)\s*[xX]\s*)?([\$€£]?\s*[\d\s]+(?:[.,]\s*\d{1,2})?(?:\s*[A-Z]{3})?)\s*$/;
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) {
-      pendingName = '';
-      continue;
-    }
-    if (RECEIPT_SKIP_ROW_PATTERN.test(line)) {
-      pendingName = '';
-      continue;
-    }
-
-    const normalizedLine = normalizeSpacedDecimalTokens(line);
-    const match = normalizedLine.match(itemLineRegex);
-
-    if (!match) {
-      if (!/\d/.test(line) && line.length > 2) {
-        pendingName = pendingName ? `${pendingName} ${line}` : line;
-      }
-      continue;
-    }
-
-    const inlineName = match[1]?.trim();
-    const name = (pendingName ? `${pendingName} ${inlineName}` : inlineName).trim();
-    const qty = sanitizeReceiptNumber(match[2]) || 1;
-    const price = sanitizeReceiptNumber(match[3]);
-
-    pendingName = '';
-    if (!name || !price || price <= 0 || RECEIPT_SKIP_ROW_PATTERN.test(name)) {
-      continue;
-    }
-
-    recovered.push({
-      receiptName: name,
-      quantity: qty > 0 ? qty : 1,
-      totalPrice: price,
-      unitPrice: qty > 0 ? price / qty : price
-    });
-  }
-
-  return recovered;
-};
-
-const RECEIPT_IMAGE_FETCH_ATTEMPTS = 3;
-const RECEIPT_IMAGE_FETCH_RETRY_DELAY_MS = 300;
-
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-async function fetchAsInlineData(url) {
-  let lastError;
-  for (let attempt = 1; attempt <= RECEIPT_IMAGE_FETCH_ATTEMPTS; attempt += 1) {
-    try {
-      const resp = await fetch(url);
-      if (!resp.ok) {
-        throw new Error(`Failed to fetch receipt image: ${resp.status}`);
-      }
-      const contentType = (resp.headers.get('content-type') || 'image/jpeg').split(';')[0];
-      const buf = Buffer.from(await resp.arrayBuffer());
-      return { inlineData: { mimeType: contentType, data: buf.toString('base64') } };
-    } catch (error) {
-      lastError = error;
-      if (attempt < RECEIPT_IMAGE_FETCH_ATTEMPTS) {
-        await sleep(RECEIPT_IMAGE_FETCH_RETRY_DELAY_MS * attempt);
-      }
-    }
-  }
-  console.warn('Receipt image fetch failed after retries.', {
-    url,
-    attempts: RECEIPT_IMAGE_FETCH_ATTEMPTS,
-    error: lastError?.message
-  });
-  try {
-    await recordAuditLog({
-      type: 'receipt_parse_image_fetch_failed',
-      actorId: 'worker',
-      details: `url=${url} attempts=${RECEIPT_IMAGE_FETCH_ATTEMPTS} error=${lastError?.message || 'unknown'}`
-    });
-  } catch (auditError) {
-    console.warn('Failed to record receipt image fetch audit log.', {
-      url,
-      error: auditError?.message
-    });
-  }
-  throw lastError;
-}
-
-function buildInlineDataFromDataUrl(dataUrl) {
-  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-  if (!match) return null;
-  return {
-    inlineData: {
-      mimeType: match[1],
-      data: match[2]
-    }
-  };
-}
 
 // Canonical normalize receipt name for matching
 const normalizeReceiptName = getReceiptLineNormalizedName;
@@ -591,6 +322,11 @@ export const __test__ = {
   recoverItemsFromRawText
 };
 
+const getReceiptOcrProviderSelection = options => ({
+  primaryProvider: options.primaryProvider || process.env.RECEIPT_OCR_PRIMARY_PROVIDER || 'gemini',
+  fallbackProvider: options.fallbackProvider || process.env.RECEIPT_OCR_FALLBACK_PROVIDER || 'vision'
+});
+
 export async function executeReceiptParse(captureId, actorId = 'worker', options = {}) {
   const capture = await ReceiptCapture.findById(captureId);
   if (!capture) {
@@ -638,29 +374,6 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     throw new Error(capture.parseError);
   }
 
-  // Check Gemini API availability
-  const apiReady = ensureGeminiReady();
-  if (!apiReady.ok) {
-    capture.status = 'failed';
-    capture.parseError = apiReady.error;
-    await capture.save();
-    const failureDetails = classifyParseError(new Error(apiReady.error));
-    const retryAfter = failureDetails.parseErrorType === 'TRANSIENT'
-      ? getRetryAfter(capture.parseAttempts || 1)
-      : null;
-    await transitionReceiptParseJobStatus({
-      captureId: capture._id.toString(),
-      actor: actorId,
-      status: 'FAILED',
-      updates: {
-        parseError: failureDetails.parseError,
-        parseErrorType: failureDetails.parseErrorType,
-        retryAfter
-      }
-    });
-    throw new Error(apiReady.error);
-  }
-
   capture.markParsing();
   await capture.save();
   await transitionReceiptParseJobStatus({
@@ -671,163 +384,69 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
 
   try {
     const draftItems = [];
-    const geminiOutput = { rawTextByImage: [], parsedByImage: [], skippedImages: [] };
-    const storeCandidateData = {};
+    const providerSelection = getReceiptOcrProviderSelection(options);
+    const ocrQualityConfig = {
+      ...getReceiptOcrConfigFromEnv(),
+      ...(options.ocrQualityConfig || {})
+    };
+    const ocrRun = await runReceiptOcrWithFallback({
+      images: capture.images,
+      primary: providerSelection.primaryProvider,
+      fallback: providerSelection.fallbackProvider,
+      qualityConfig: ocrQualityConfig
+    });
+    const ocrOutput = ocrRun.result;
+    const geminiOutput = {
+      provider: ocrRun.providerUsed,
+      rawTextByImage: ocrOutput.rawTextByImage || [],
+      parsedByImage: ocrOutput.parsedByImage || [],
+      skippedImages: ocrOutput.skippedImages || [],
+      confidenceMetadata: ocrOutput.confidenceMetadata || null,
+      blockCoordinates: ocrOutput.blockCoordinates || null,
+      attempts: ocrRun.attempts || []
+    };
+    const storeCandidateData = { ...(ocrOutput.storeCandidateData || {}) };
 
-    // Parse each image
-    for (const image of capture.images) {
+    parseStageFailures.invalid_json = ocrOutput.parseStageFailures?.invalid_json || 0;
+    parseStageFailures.no_items = ocrOutput.parseStageFailures?.no_items || 0;
+    parseStageFailures.all_images_skipped = ocrOutput.parseStageFailures?.all_images_skipped || 0;
 
-      // Prepare image for Gemini Vision (always inlineData, even for HTTPS URLs)
-      let geminiImageContent;
-      if (/^https?:\/\//i.test(image.url)) {
-        geminiImageContent = await fetchAsInlineData(image.url);
-      } else if (image.url.startsWith('data:')) {
-        const inlineData = buildInlineDataFromDataUrl(image.url);
-        if (!inlineData) {
-          geminiOutput.skippedImages.push({ url: image.url, reason: 'invalid_data_url' });
+    for (const item of (ocrOutput.items || [])) {
+      totalLines += 1;
+      const parsedTotal = sanitizeReceiptNumber(item.totalPrice);
+      const parsedUnit = sanitizeReceiptNumber(item.unitPrice);
+      const parsedQty = sanitizeReceiptNumber(item.quantity);
+
+      const hasTotal = typeof parsedTotal === 'number' && Number.isFinite(parsedTotal) && parsedTotal > 0;
+      const hasUnit = typeof parsedUnit === 'number' && Number.isFinite(parsedUnit) && parsedUnit > 0;
+      const qty = typeof parsedQty === 'number' && Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1;
+
+      if (item.receiptName && (hasTotal || hasUnit)) {
+        const totalPrice = hasTotal
+          ? parsedTotal
+          : (hasUnit && qty > 0 ? parsedUnit * qty : null);
+        const unitPrice = hasUnit
+          ? parsedUnit
+          : (hasTotal && qty > 0 ? parsedTotal / qty : null);
+
+        if (!(typeof totalPrice === 'number' && totalPrice > 0) && !(typeof unitPrice === 'number' && unitPrice > 0)) {
+          invalidPriceSkippedLines += 1;
           continue;
         }
-        geminiImageContent = inlineData;
-      } else {
-        geminiOutput.skippedImages.push({ url: image.url, reason: 'unsupported_image_url' });
-        continue;
-      }
 
-      // Gemini prompt for receipt parsing
-      const prompt = `You are a receipt OCR specialist. Parse this receipt image THOROUGHLY.
-
-FIRST, extract the STORE NAME, STORE NUMBER, PHONE, and ADDRESS if visible at the top or bottom of receipt. Return them as:
-"storeName": "Store Name" (or null if not visible)
-"storeNumber": "1234" (or null if not visible)
-"phone": "555-123-4567" (or null if not visible)
-"address": "123 Main St, City, ST 12345"  (or null if not visible)
-
-THEN, extract ALL line items with prices. Return ONLY valid JSON format:
-{
-  "storeName": "STORE NAME",
-  "storeNumber": "1234",
-  "phone": "555-123-4567",
-  "address": "123 MAIN ST, DEARBORN, MI 48126",
-  "items": [
-    {"receiptName": "COCA COLA 12PK", "upc": "012000001234", "quantity": 2, "totalPrice": 15.98},
-    {"receiptName": "LAYS CHIPS ORIG", "upc": "028400123456", "quantity": 1, "totalPrice": 3.99}
-  ]
-}
-
-RULES:
-1. Extract store name, store number (e.g., ST#, Store #, SC#), phone, and address if visible (street, city, state, zip)
-2. Extract ONLY product line items (skip store name, date, tax, subtotal, total, payment, instructions)
-3. Use exact product names from receipt
-4. Extract UPC if visible on the line (8-14 digits, usually near the item name)
-5. For multi-buy items, calculate quantity * unit price = totalPrice
-6. Skip discounts, coupons, tax lines
-7. Return empty array [] for items if none found
-8. Return ONLY valid JSON, no markdown, no explanation`;
-
-      // Call Gemini Vision API
-      const ai = new GoogleGenAI({ apiKey: apiReady.apiKey });
-      const response = await ai.models.generateContent({
-        model: process.env.GEMINI_DEFAULT_MODEL || 'gemini-2.5-flash',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { text: prompt },
-              geminiImageContent
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          topP: 0.8,
-          topK: 10
-        }
-      });
-
-      const text = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      geminiOutput.rawTextByImage.push(text);
-
-      // Parse Gemini JSON response with tolerant recovery
-      let parsed = null;
-      try {
-        parsed = parseGeminiJsonPayload(text);
-      } catch (parseErr) {
-        parsed = null;
-      }
-      if (!parsed) {
-        parseStageFailures.invalid_json += 1;
-        console.warn('Failed to parse Gemini JSON:', text.substring(0, 200));
-        geminiOutput.parsedByImage.push({ error: 'Invalid JSON' });
-        continue;
-      }
-
-      geminiOutput.parsedByImage.push(parsed);
-
-      if (parsed.storeName && !storeCandidateData.name) {
-        storeCandidateData.name = parsed.storeName;
-      }
-      if (parsed.storeNumber && !storeCandidateData.storeNumber) {
-        storeCandidateData.storeNumber = normalizeStoreNumber(parsed.storeNumber);
-      }
-      if (parsed.phone && !storeCandidateData.phone) {
-        storeCandidateData.phone = parsed.phone;
-      }
-      if (parsed.address && !storeCandidateData.address) {
-        storeCandidateData.address = parseReceiptAddress(parsed.address);
-      }
-
-      let recoveredItems = [];
-      if (Array.isArray(parsed.items)) {
-        recoveredItems = parsed.items;
-      } else {
-        recoveredItems = recoverItemsFromRawText(text);
-      }
-
-      if (!Array.isArray(recoveredItems) || !recoveredItems.length) {
-        parseStageFailures.no_items += 1;
-      }
-
-      // Add items from this image
-      if (Array.isArray(recoveredItems)) {
-        for (const item of recoveredItems) {
-          totalLines += 1;
-          const parsedTotal = sanitizeReceiptNumber(item.totalPrice);
-          const parsedUnit = sanitizeReceiptNumber(item.unitPrice);
-          const parsedQty = sanitizeReceiptNumber(item.quantity);
-
-          const hasTotal = typeof parsedTotal === 'number' && Number.isFinite(parsedTotal) && parsedTotal > 0;
-          const hasUnit = typeof parsedUnit === 'number' && Number.isFinite(parsedUnit) && parsedUnit > 0;
-          const qty = typeof parsedQty === 'number' && Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1;
-
-          if (item.receiptName && (hasTotal || hasUnit)) {
-            const totalPrice = hasTotal
-              ? parsedTotal
-              : (hasUnit && qty > 0 ? parsedUnit * qty : null);
-            const unitPrice = hasUnit
-              ? parsedUnit
-              : (hasTotal && qty > 0 ? parsedTotal / qty : null);
-
-            if (!(typeof totalPrice === 'number' && totalPrice > 0) && !(typeof unitPrice === 'number' && unitPrice > 0)) {
-              invalidPriceSkippedLines += 1;
-              continue;
-            }
-
-            const upc = normalizeReceiptLineUpc(item.upc || item.upcCandidate || item.barcode);
-            draftItems.push({
-              lineIndex: draftItems.length,
-              receiptName: item.receiptName,
-              quantity: qty,
-              totalPrice: typeof totalPrice === 'number' && Number.isFinite(totalPrice) ? totalPrice : 0,
-              unitPrice: typeof unitPrice === 'number' && Number.isFinite(unitPrice) ? unitPrice : 0,
-              upc
-            });
-          } else if (item.receiptName) {
-            invalidPriceSkippedLines += 1;
-          }
-        }
+        const upc = normalizeReceiptLineUpc(item.upc || item.upcCandidate || item.barcode);
+        draftItems.push({
+          lineIndex: draftItems.length,
+          receiptName: item.receiptName,
+          quantity: qty,
+          totalPrice: typeof totalPrice === 'number' && Number.isFinite(totalPrice) ? totalPrice : 0,
+          unitPrice: typeof unitPrice === 'number' && Number.isFinite(unitPrice) ? unitPrice : 0,
+          upc
+        });
+      } else if (item.receiptName) {
+        invalidPriceSkippedLines += 1;
       }
     }
-
     skippedImages = geminiOutput.skippedImages;
     skippedImageReason = geminiOutput.skippedImages.map(skip => skip.reason).filter(Boolean);
 
@@ -988,6 +607,14 @@ RULES:
         items,
         warnings: matchedItems.filter(it => it.needsReview).map(it => it.reviewReason).filter(Boolean),
         metadata: {
+          providerUsed: ocrRun.providerUsed,
+          fallbackReason: ocrRun.fallbackReason,
+          ocrAttempts: ocrRun.attempts || [],
+          ocrConfig: {
+            primaryProvider: providerSelection.primaryProvider,
+            fallbackProvider: providerSelection.fallbackProvider,
+            qualityConfig: ocrQualityConfig
+          },
           ...(storeMatchResult?.topCandidates?.length ? {
             storeMatchCandidates: storeMatchResult.topCandidates,
             storeMatchAmbiguous: Boolean(storeMatchResult?.ambiguous)
