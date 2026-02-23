@@ -13,7 +13,13 @@ import { transitionReceiptParseJobStatus } from './receiptParseJobStatus.js';
 import { inferStoreType, matchStoreCandidate, normalizePhone } from './storeMatcher.js';
 import { getReceiptLineNormalizedName, normalizeReceiptLineUpc } from './receiptLineResolver.js';
 import { getReceiptOcrConfigFromEnv, runReceiptOcrWithFallback } from './receiptOcrProviders/coordinator.js';
-import { parseGeminiJsonPayload, recoverItemsFromRawText, sanitizeReceiptNumber } from './receiptOcrProviders/shared.js';
+import {
+  normalizeProviderReceiptItemsWithMetrics,
+  normalizeProviderReceiptItems,
+  parseGeminiJsonPayload,
+  recoverItemsFromRawText,
+  sanitizeReceiptNumber
+} from './receiptOcrProviders/shared.js';
 
 // Constants for parsing policies
 const ALIAS_CONFIDENCE_HALF_LIFE_DAYS = 90;
@@ -319,7 +325,9 @@ const classifyParseError = err => {
 export const __test__ = {
   sanitizeReceiptNumber,
   parseGeminiJsonPayload,
-  recoverItemsFromRawText
+  recoverItemsFromRawText,
+  normalizeProviderReceiptItems,
+  normalizeProviderReceiptItemsWithMetrics
 };
 
 const getReceiptOcrProviderSelection = options => ({
@@ -419,7 +427,9 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     parseStageFailures.no_items = ocrOutput.parseStageFailures?.no_items || 0;
     parseStageFailures.all_images_skipped = ocrOutput.parseStageFailures?.all_images_skipped || 0;
 
-    for (const item of (ocrOutput.items || [])) {
+    const normalizationResult = normalizeProviderReceiptItemsWithMetrics(ocrOutput.items || []);
+    const normalizedProviderItems = normalizationResult.items;
+    for (const item of normalizedProviderItems) {
       totalLines += 1;
       const parsedTotal = sanitizeReceiptNumber(item.totalPrice);
       const parsedUnit = sanitizeReceiptNumber(item.unitPrice);
@@ -442,7 +452,7 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
           continue;
         }
 
-        const upc = normalizeReceiptLineUpc(item.upc || item.upcCandidate || item.barcode);
+        const upc = normalizeReceiptLineUpc(item.upc);
         draftItems.push({
           lineIndex: draftItems.length,
           receiptName: item.receiptName,
@@ -633,6 +643,7 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
         metadata: {
           providerUsed: ocrRun.providerUsed,
           fallbackReason: ocrRun.fallbackReason,
+          normalizationMetrics: normalizationResult.metrics,
           ocrAttempts: ocrRun.attempts || [],
           ocrConfig: {
             primaryProvider: providerSelection.primaryProvider,
