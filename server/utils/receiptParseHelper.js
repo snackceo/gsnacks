@@ -344,6 +344,14 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     no_items: 0,
     all_images_skipped: 0
   };
+  const stageMetrics = {
+    ocrLinesExtracted: 0,
+    linesWithValidQtyPrice: 0,
+    upcResolvedCount: 0,
+    nameResolvedCount: 0,
+    unmatchedCount: 0,
+    observationWritesCount: 0
+  };
 
   // --- ENFORCE ALL IMAGES ARE CLOUDINARY OR DATA URL ---
   const invalidImages = (capture.images || []).filter(img => {
@@ -465,6 +473,7 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
 
     console.info('Receipt parse stage failures.', {
       captureId: capture._id?.toString?.() || String(capture._id || captureId),
+      jobId: null,
       ...parseStageFailures
     });
 
@@ -474,12 +483,25 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
 
     // Match items to products
     const matchedItems = await matchReceiptItems(draftItems, capture.storeId);
+    for (const item of matchedItems) {
+      const hasSuggestedProduct = Boolean(item?.suggestedProduct?.id);
+      const hasUpc = Boolean(normalizeReceiptLineUpc(item?.upc));
+      if (!hasSuggestedProduct) {
+        stageMetrics.unmatchedCount += 1;
+      } else if (hasUpc) {
+        stageMetrics.upcResolvedCount += 1;
+      } else {
+        stageMetrics.nameResolvedCount += 1;
+      }
+    }
     const matchedLines = matchedItems.filter(item => item?.suggestedProduct?.id).length;
     const unmatchedLines = matchedItems.length - matchedLines;
 
     if (isReceiptParseDebugEnabled()) {
       console.info('Receipt parse debug matched items.', {
         captureId: capture._id?.toString?.() || String(capture._id || captureId),
+        jobId: null,
+        stageMetrics,
         lines: matchedItems.map(item => ({
           lineIndex: item.lineIndex,
           receiptName: item.receiptName,
@@ -495,10 +517,12 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
 
     console.info('Receipt parse summary.', {
       captureId: capture._id?.toString?.() || String(capture._id || captureId),
+      jobId: null,
       totalLines,
       matchedLines,
       unmatchedLines,
-      invalidPriceSkippedLines
+      invalidPriceSkippedLines,
+      stageMetrics
     });
 
     capture.markParsed(matchedItems);
@@ -626,7 +650,7 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     await recordAuditLog({
       type: 'receipt_parse',
       actorId,
-      details: `captureId=${capture._id} items=${matchedItems.length} needsReview=${needsReview}`
+      details: `captureId=${capture._id} jobId=${job?._id?.toString?.() || 'unknown'} items=${matchedItems.length} needsReview=${needsReview} ocrLinesExtracted=${stageMetrics.ocrLinesExtracted} linesWithValidQtyPrice=${stageMetrics.linesWithValidQtyPrice} upcResolvedCount=${stageMetrics.upcResolvedCount} nameResolvedCount=${stageMetrics.nameResolvedCount} unmatchedCount=${stageMetrics.unmatchedCount} observationWritesCount=${stageMetrics.observationWritesCount}`
     });
 
     return job;
@@ -635,7 +659,9 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     parseFailureDetails = failureDetails;
     console.warn('Receipt parse failed with stage counters.', {
       captureId: capture._id?.toString?.() || String(capture._id || captureId),
+      jobId: null,
       ...parseStageFailures,
+      stageMetrics,
       parseError: failureDetails.parseError,
       parseErrorType: failureDetails.parseErrorType
     });
