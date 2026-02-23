@@ -20,7 +20,7 @@ import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCr
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import { buildInventoryUpdate, buildStoreInventoryQuery } from '../utils/receiptInventory.js';
 import { calculateRetail, calculatePerUnitCost, normalizeQuantity } from '../utils/pricing.js';
-import { normalizeReceiptProductName } from '../utils/receiptNameNormalization.js';
+import { getCanonicalReceiptNormalizedName, normalizeReceiptProductName } from '../utils/receiptNameNormalization.js';
 
 const router = express.Router();
 
@@ -39,7 +39,6 @@ const APPROVAL_ERROR_CODES = {
   NO_PERSISTED_CHANGES: 'NO_PERSISTED_CHANGES'
 };
 const normalizeReceiptName = normalizeReceiptProductName;
-
 
 const resolveProductByNormalizedName = async ({ normalizedName, session }) => {
   const normalized = normalizeReceiptName(normalizedName);
@@ -727,8 +726,10 @@ export const approveReceiptJobHandler = async (req, res) => {
           return Product.findById(upcEntry.productId).session(session);
         };
 
+        const normalizedName = getCanonicalReceiptNormalizedName(item);
+        const rawName = item.receiptName || normalizedName || 'Receipt Item';
+
         const resolveViaNormalizedName = async () => {
-          const normalizedName = normalizeReceiptName(item.normalizedName || item.receiptName);
           return resolveProductByNormalizedName({ normalizedName, session });
         };
 
@@ -754,9 +755,6 @@ export const approveReceiptJobHandler = async (req, res) => {
             lineOutcome.appliedState = 'already_persisted';
             continue;
           }
-
-          const normalizedName = normalizeReceiptName(item.normalizedName || item.receiptName);
-          const rawName = item.receiptName || normalizedName || 'Receipt Item';
 
           // Resolver order for each receipt line:
           // 1) UPC mapping (UpcItem -> Product)
@@ -811,8 +809,6 @@ export const approveReceiptJobHandler = async (req, res) => {
 
         if (!product) {
           // Always create or update UnmappedProduct for raw/unknown items
-          const normalizedName = normalizeReceiptName(item.normalizedName || item.receiptName);
-          const rawName = item.receiptName || normalizedName || 'Receipt Item';
           const now = new Date();
 
           unmapped = await UnmappedProduct.findOne({
