@@ -114,6 +114,107 @@ export const sanitizeReceiptNumber = value => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+export const normalizeReceiptLineBreaks = value => String(value || '').replace(/\r?\n+/g, ' ');
+
+export const collapseReceiptWhitespace = value => String(value || '').replace(/\s+/g, ' ').trim();
+
+export const sanitizeOcrTypos = (value, { numericOnly = false } = {}) => {
+  const source = String(value || '');
+  if (!source) return '';
+  if (numericOnly) {
+    return source
+      .replace(/[oO]/g, '0')
+      .replace(/[iIl|]/g, '1')
+      .replace(/[sS]/g, '5')
+      .replace(/[bB]/g, '8');
+  }
+  return source.replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"');
+};
+
+const getReceiptNameCandidate = item => (
+  item?.receiptName
+  ?? item?.name
+  ?? item?.itemName
+  ?? item?.description
+  ?? item?.rawLine
+  ?? ''
+);
+
+const getQuantityCandidate = item => item?.quantity ?? item?.qty ?? item?.count;
+
+const getUnitPriceCandidate = item => item?.unitPrice ?? item?.price ?? item?.priceEach;
+
+const getTotalPriceCandidate = item => item?.totalPrice ?? item?.lineTotal ?? item?.amount;
+
+const getUpcCandidate = item => item?.upc ?? item?.upcCandidate ?? item?.barcode;
+
+export const normalizeProviderReceiptItems = items => {
+  if (!Array.isArray(items)) return [];
+  return items.map(item => {
+    const receiptName = collapseReceiptWhitespace(
+      sanitizeOcrTypos(normalizeReceiptLineBreaks(getReceiptNameCandidate(item)))
+    );
+    const quantity = sanitizeReceiptNumber(getQuantityCandidate(item));
+    const unitPrice = sanitizeReceiptNumber(getUnitPriceCandidate(item));
+    const totalPrice = sanitizeReceiptNumber(getTotalPriceCandidate(item));
+    const upc = collapseReceiptWhitespace(
+      sanitizeOcrTypos(normalizeReceiptLineBreaks(getUpcCandidate(item)), { numericOnly: true })
+    );
+
+    return {
+      receiptName,
+      quantity,
+      unitPrice,
+      totalPrice,
+      upc: upc || null
+    };
+  });
+};
+
+export const normalizeProviderReceiptItemsWithMetrics = items => {
+  const metrics = {
+    inputItems: Array.isArray(items) ? items.length : 0,
+    outputItems: 0,
+    lineBreakNormalizedCount: 0,
+    whitespaceCollapsedCount: 0,
+    ocrTypoFixCount: 0,
+    commaDecimalNormalizedCount: 0,
+    emptyNameCount: 0,
+    missingQuantityCount: 0,
+    missingUnitPriceCount: 0,
+    missingTotalPriceCount: 0,
+    withUpcCount: 0
+  };
+
+  const normalizedItems = normalizeProviderReceiptItems(items || []).map((item, index) => {
+    const source = items?.[index] || {};
+    const rawName = String(getReceiptNameCandidate(source) || '');
+    const rawUpc = String(getUpcCandidate(source) || '');
+    const rawQty = String(getQuantityCandidate(source) || '');
+    const rawUnit = String(getUnitPriceCandidate(source) || '');
+    const rawTotal = String(getTotalPriceCandidate(source) || '');
+
+    if (/\r?\n/.test(rawName) || /\r?\n/.test(rawUpc)) metrics.lineBreakNormalizedCount += 1;
+    if ((rawName.trim() && collapseReceiptWhitespace(rawName) !== rawName.trim()) || (rawUpc.trim() && collapseReceiptWhitespace(rawUpc) !== rawUpc.trim())) {
+      metrics.whitespaceCollapsedCount += 1;
+    }
+    if (sanitizeOcrTypos(rawUpc, { numericOnly: true }) !== rawUpc) metrics.ocrTypoFixCount += 1;
+    if (/,\d{1,2}\b/.test(rawQty) || /,\d{1,2}\b/.test(rawUnit) || /,\d{1,2}\b/.test(rawTotal)) metrics.commaDecimalNormalizedCount += 1;
+
+    if (!item.receiptName) metrics.emptyNameCount += 1;
+    if (!(typeof item.quantity === 'number' && Number.isFinite(item.quantity))) metrics.missingQuantityCount += 1;
+    if (!(typeof item.unitPrice === 'number' && Number.isFinite(item.unitPrice))) metrics.missingUnitPriceCount += 1;
+    if (!(typeof item.totalPrice === 'number' && Number.isFinite(item.totalPrice))) metrics.missingTotalPriceCount += 1;
+    if (item.upc) metrics.withUpcCount += 1;
+
+    return item;
+  });
+
+  metrics.outputItems = normalizedItems.length;
+  return { items: normalizedItems, metrics };
+};
+
 export const parseReceiptAddress = (rawAddress = '') => {
   if (!rawAddress) return {};
   const cleaned = rawAddress.trim();

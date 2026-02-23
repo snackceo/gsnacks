@@ -3,7 +3,13 @@ import test from 'node:test';
 
 import { __test__ } from '../utils/receiptParseHelper.js';
 
-const { sanitizeReceiptNumber, parseGeminiJsonPayload, recoverItemsFromRawText } = __test__;
+const {
+  sanitizeReceiptNumber,
+  parseGeminiJsonPayload,
+  recoverItemsFromRawText,
+  normalizeProviderReceiptItems,
+  normalizeProviderReceiptItemsWithMetrics
+} = __test__;
 
 test('parseGeminiJsonPayload recovers JSON from code fences with extra text and trailing commas', () => {
   const raw = `
@@ -75,4 +81,60 @@ SPRITE 2 x 4.00
   assert.match(recovered[0].receiptName, /SPRITE/);
   assert.equal(recovered[0].quantity, 2);
   assert.equal(recovered[0].totalPrice, 4);
+});
+
+
+test('normalizeProviderReceiptItems emits unified shape with shared sanitizers', () => {
+  const normalized = normalizeProviderReceiptItems([
+    {
+      description: '  C0CA\nCOLA 12PK  ',
+      qty: 'I',
+      priceEach: '1,99',
+      lineTotal: '3,98',
+      barcode: 'O12345I89'
+    },
+    {
+      receiptName: ' LAYS  ',
+      quantity: null,
+      unitPrice: '$2.50',
+      totalPrice: '$2.50',
+      upc: ''
+    }
+  ]);
+
+  assert.equal(normalized.length, 2);
+  assert.deepEqual(normalized[0], {
+    receiptName: 'C0CA COLA 12PK',
+    quantity: 1,
+    unitPrice: 1.99,
+    totalPrice: 3.98,
+    upc: '012345189'
+  });
+  assert.deepEqual(normalized[1], {
+    receiptName: 'LAYS',
+    quantity: null,
+    unitPrice: 2.5,
+    totalPrice: 2.5,
+    upc: null
+  });
+});
+
+test('normalizeProviderReceiptItemsWithMetrics tracks sanitizer activity', () => {
+  const result = normalizeProviderReceiptItemsWithMetrics([
+    {
+      description: '  PEPSI\nZERO  ',
+      qty: 'I',
+      priceEach: '1,50',
+      lineTotal: '1,50',
+      barcode: 'O1234'
+    }
+  ]);
+
+  assert.equal(result.items.length, 1);
+  assert.equal(result.metrics.inputItems, 1);
+  assert.equal(result.metrics.outputItems, 1);
+  assert.equal(result.metrics.lineBreakNormalizedCount, 1);
+  assert.equal(result.metrics.commaDecimalNormalizedCount, 1);
+  assert.equal(result.metrics.ocrTypoFixCount, 1);
+  assert.equal(result.metrics.withUpcCount, 1);
 });
