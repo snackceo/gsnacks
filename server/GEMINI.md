@@ -62,3 +62,10 @@ Contract:
 - Server computes authoritative inventory changes.
 - Do not accept client-provided SKU generation.
 - Ensure uniqueness at Mongo layer + handle duplicate key errors gracefully.
+
+
+### Receipt approval CREATE_PRODUCT (UPC optional)
+- During receipt approval, `CREATE_PRODUCT` must not require UPC.
+- Product resolution order is: `boundProductId`/`suggestedProduct` -> UPC registry mapping (only if UPC present) -> normalized-name lookup -> create receipt stub product.
+- Receipt stub creation must initialize `frontendId`, `sku` (via atomic counter), and required `price`.
+- If UPC is present, linking via `UpcItem` remains a separate optional step.
