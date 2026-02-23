@@ -52,3 +52,27 @@ TAX 1.20
   assert.equal(recovered[1].receiptName, 'C0CA C0LA 12PK');
   assert.equal(recovered[1].totalPrice, 12.99);
 });
+
+
+test('parseGeminiJsonPayload returns null when tolerant parse still fails', () => {
+  const raw = '```json\n{ "items": [ }\n```';
+  const parsed = parseGeminiJsonPayload(raw);
+  assert.equal(parsed, null);
+});
+
+test('fallback item extraction is used when parsed.items is missing', () => {
+  const raw = `
+{"storeName":"Store Only"}
+SPRITE 2 x 4.00
+`;
+
+  const parsed = parseGeminiJsonPayload(raw);
+  assert.ok(parsed);
+  assert.equal(parsed.items, undefined);
+
+  const recovered = recoverItemsFromRawText(raw);
+  assert.equal(recovered.length, 1);
+  assert.match(recovered[0].receiptName, /SPRITE/);
+  assert.equal(recovered[0].quantity, 2);
+  assert.equal(recovered[0].totalPrice, 4);
+});

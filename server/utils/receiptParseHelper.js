@@ -150,7 +150,11 @@ const parseGeminiJsonPayload = rawText => {
   } catch (_err) {
     const tolerant = normalizeJsonCandidate(rawText);
     if (!tolerant) return null;
-    return JSON.parse(tolerant);
+    try {
+      return JSON.parse(tolerant);
+    } catch (_tolerantErr) {
+      return null;
+    }
   }
 };
 
@@ -606,6 +610,11 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
   let invalidPriceSkippedLines = 0;
   let skippedImages = [];
   let skippedImageReason = [];
+  const parseStageFailures = {
+    invalid_json: 0,
+    no_items: 0,
+    all_images_skipped: 0
+  };
 
   // --- ENFORCE ALL IMAGES ARE CLOUDINARY OR DATA URL ---
   const invalidImages = (capture.images || []).filter(img => {
@@ -753,6 +762,7 @@ RULES:
         parsed = null;
       }
       if (!parsed) {
+        parseStageFailures.invalid_json += 1;
         console.warn('Failed to parse Gemini JSON:', text.substring(0, 200));
         geminiOutput.parsedByImage.push({ error: 'Invalid JSON' });
         continue;
@@ -773,9 +783,16 @@ RULES:
         storeCandidateData.address = parseReceiptAddress(parsed.address);
       }
 
-      const recoveredItems = Array.isArray(parsed.items) && parsed.items.length
-        ? parsed.items
-        : recoverItemsFromRawText(text);
+      let recoveredItems = [];
+      if (Array.isArray(parsed.items)) {
+        recoveredItems = parsed.items;
+      } else {
+        recoveredItems = recoverItemsFromRawText(text);
+      }
+
+      if (!Array.isArray(recoveredItems) || !recoveredItems.length) {
+        parseStageFailures.no_items += 1;
+      }
 
       // Add items from this image
       if (Array.isArray(recoveredItems)) {
@@ -822,6 +839,7 @@ RULES:
     skippedImageReason = geminiOutput.skippedImages.map(skip => skip.reason).filter(Boolean);
 
     if (geminiOutput.skippedImages.length === capture.images.length) {
+      parseStageFailures.all_images_skipped += 1;
       const skipSummary = geminiOutput.skippedImages.map(skip => skip.reason).join(', ');
       capture.status = 'failed';
       capture.parseError = `All receipt images were skipped: ${skipSummary || 'unsupported images'}`;
@@ -832,6 +850,11 @@ RULES:
       };
       throw new Error(capture.parseError);
     }
+
+    console.info('Receipt parse stage failures.', {
+      captureId: capture._id?.toString?.() || String(capture._id || captureId),
+      ...parseStageFailures
+    });
 
     if (!storeCandidateData.storeType && storeCandidateData.name) {
       storeCandidateData.storeType = inferStoreType(storeCandidateData.name);
@@ -990,6 +1013,12 @@ RULES:
   } catch (err) {
     const failureDetails = parseFailureDetails ?? classifyParseError(err);
     parseFailureDetails = failureDetails;
+    console.warn('Receipt parse failed with stage counters.', {
+      captureId: capture._id?.toString?.() || String(capture._id || captureId),
+      ...parseStageFailures,
+      parseError: failureDetails.parseError,
+      parseErrorType: failureDetails.parseErrorType
+    });
     capture.status = 'failed';
     capture.parseError = failureDetails.parseError;
     await capture.save();
