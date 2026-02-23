@@ -19,6 +19,7 @@ import { getBackendBuildIdentifier } from '../utils/buildIdentifier.js';
 import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import { buildInventoryUpdate, buildStoreInventoryQuery } from '../utils/receiptInventory.js';
+import { calculateRetail } from '../utils/pricing.js';
 
 const router = express.Router();
 
@@ -561,6 +562,7 @@ export const approveReceiptJobHandler = async (req, res) => {
 
     const settingsDoc = await AppSettings.findOne({ key: 'default' }).lean();
     const allowCreateProductApproval = Boolean(settingsDoc?.allowReceiptApprovalCreateProduct);
+    const autoUpdateProductPriceFromReceipt = Boolean(settingsDoc?.autoUpdateProductPriceFromReceipt);
 
     const createdProducts = [];
     const matchedProducts = [];
@@ -653,7 +655,9 @@ export const approveReceiptJobHandler = async (req, res) => {
       try {
         const unitPrice = resolveUnitPrice(item);
         const normalizedPriceInput = buildNormalizedPriceInput(item);
+        const retailPrice = calculateRetail(unitPrice);
         lineOutcome.normalizedPriceInput = normalizedPriceInput;
+        lineOutcome.retailPrice = retailPrice;
         if (!unitPrice) {
           const lineError = { lineIndex: item.lineIndex, error: 'Invalid unit price', code: APPROVAL_ERROR_CODES.INVALID_UNIT_PRICE };
           errors.push(lineError);
@@ -869,7 +873,10 @@ export const approveReceiptJobHandler = async (req, res) => {
               $set: {
                 sku: product?.sku || undefined,
                 observedPrice: unitPrice,
+                ...(retailPrice ? { retailPrice } : {}),
                 observedAt: new Date(),
+                lastCost: unitPrice,
+                lastCostAt: new Date(),
                 lastVerified: new Date(),
                 available: true,
                 stockLevel: 'in-stock'
@@ -932,6 +939,17 @@ export const approveReceiptJobHandler = async (req, res) => {
               lineIndex: item.lineIndex
             })
           );
+        }
+
+        if (product) {
+          const productUpdate = {
+            lastCost: unitPrice,
+            lastCostAt: new Date()
+          };
+          if (autoUpdateProductPriceFromReceipt && retailPrice) {
+            productUpdate.price = retailPrice;
+          }
+          await Product.findByIdAndUpdate(product._id, { $set: productUpdate }, { session });
         }
 
         if (product) {

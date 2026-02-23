@@ -39,6 +39,7 @@ const defaultSettings = {
   allowGreenTier: false,
   platinumFreeDelivery: false,
   allowReceiptApprovalCreateProduct: false,
+  autoUpdateProductPriceFromReceipt: false,
   priceLockDays: 7,
   dailyReturnLimit: 250,
   // deliveryFee removed (legacy)
@@ -87,7 +88,8 @@ const booleanFields = [
   'allowPlatinumTier',
   'allowGreenTier',
   'platinumFreeDelivery',
-  'allowReceiptApprovalCreateProduct'
+  'allowReceiptApprovalCreateProduct',
+  'autoUpdateProductPriceFromReceipt'
 ];
 
 const optionalNumericFields = ['hubLat', 'hubLng'];
@@ -245,6 +247,7 @@ const mapSettings = (doc) => ({
   allowGreenTier: Boolean(doc?.allowGreenTier ?? defaultSettings.allowGreenTier),
   platinumFreeDelivery: Boolean(doc?.platinumFreeDelivery ?? defaultSettings.platinumFreeDelivery),
   allowReceiptApprovalCreateProduct: Boolean(doc?.allowReceiptApprovalCreateProduct ?? defaultSettings.allowReceiptApprovalCreateProduct),
+  autoUpdateProductPriceFromReceipt: Boolean(doc?.autoUpdateProductPriceFromReceipt ?? defaultSettings.autoUpdateProductPriceFromReceipt),
   priceLockDays: Number(doc?.priceLockDays ?? defaultSettings.priceLockDays),
   dailyReturnLimit: Number(doc?.dailyReturnLimit ?? defaultSettings.dailyReturnLimit),
   // deliveryFee removed (legacy)

@@ -23,6 +23,7 @@ const appSettingsSchema = new mongoose.Schema(
     allowGreenTier: { type: Boolean, default: false },
     platinumFreeDelivery: { type: Boolean, default: false },
     allowReceiptApprovalCreateProduct: { type: Boolean, default: false },
+    autoUpdateProductPriceFromReceipt: { type: Boolean, default: false },
     priceLockDays: { type: Number, default: 7 },
     storageZones: { type: [String], default: [] },
     productTypes: { type: [String], default: [] },
