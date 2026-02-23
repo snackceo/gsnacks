@@ -721,11 +721,24 @@ export const approveReceiptJobHandler = async (req, res) => {
         if (!product && item.suggestedProduct?.id && mongoose.Types.ObjectId.isValid(item.suggestedProduct.id)) {
           product = await Product.findById(item.suggestedProduct.id).session(session);
         }
-        if (!product && normalizedUpc) {
+
+        const resolveViaUpcMapping = async () => {
+          if (!normalizedUpc) return null;
           const upcEntry = await UpcItem.findOne({ upc: normalizedUpc }).session(session);
-          if (upcEntry?.productId) {
-            product = await Product.findById(upcEntry.productId).session(session);
-          }
+          if (!upcEntry?.productId) return null;
+          return Product.findById(upcEntry.productId).session(session);
+        };
+
+        const resolveViaNormalizedName = async () => {
+          const normalizedName = normalizeReceiptName(item.normalizedName || item.receiptName);
+          return resolveProductByNormalizedName({ normalizedName, session });
+        };
+
+        if (!product) {
+          product = await resolveViaUpcMapping();
+        }
+        if (!product) {
+          product = await resolveViaNormalizedName();
         }
 
         let productCreated = false;
@@ -747,13 +760,16 @@ export const approveReceiptJobHandler = async (req, res) => {
           const normalizedName = normalizeReceiptName(item.normalizedName || item.receiptName);
           const rawName = item.receiptName || normalizedName || 'Receipt Item';
 
-          // Resolution order for receipt-created products:
-          // 1) explicit/bound/suggested product IDs
-          // 2) UPC mapping (if UPC is present)
-          // 3) normalized-name match
-          // 4) create stub product
+          // Resolver order for each receipt line:
+          // 1) UPC mapping (UpcItem -> Product)
+          // 2) normalized-name match
+          // 3) if unresolved + policy allows, create receipt-origin stub product
           if (!product) {
-            product = await resolveProductByNormalizedName({ normalizedName, session });
+            product = await resolveViaUpcMapping();
+          }
+
+          if (!product) {
+            product = await resolveViaNormalizedName();
           }
 
           if (!product) {
@@ -767,7 +783,7 @@ export const approveReceiptJobHandler = async (req, res) => {
               productCreated = true;
             } catch (productCreateError) {
               if (productCreateError?.code === 11000) {
-                product = await resolveProductByNormalizedName({ normalizedName, session });
+                product = await resolveViaNormalizedName();
               }
               if (!product) {
                 throw productCreateError;
