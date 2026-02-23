@@ -24,4 +24,12 @@ export const normalizeReceiptProductName = value => {
     .trim();
 };
 
+
+export const getCanonicalReceiptNormalizedName = value => {
+  if (value && typeof value === 'object') {
+    return normalizeReceiptProductName(value.normalizedName || value.receiptName);
+  }
+  return normalizeReceiptProductName(value);
+};
+
 export default normalizeReceiptProductName;

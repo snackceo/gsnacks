@@ -19,7 +19,7 @@ import { isPricingLearningEnabled, receiptIngestionMode, receiptStoreAllowlist, 
 import { enqueueReceiptJob, getReceiptQueue, isReceiptQueueEnabled } from '../queues/receiptQueue.js';
 import { executeReceiptParse } from '../utils/receiptParseHelper.js';
 import { transitionReceiptParseJobStatus } from '../utils/receiptParseJobStatus.js';
-import { normalizeReceiptProductName } from '../utils/receiptNameNormalization.js';
+import { getCanonicalReceiptNormalizedName, normalizeReceiptProductName } from '../utils/receiptNameNormalization.js';
 import { approveReceiptJob, buildAutoCommitApprovalBody } from '../services/receiptApprovalService.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import { calculatePerUnitCost, normalizeQuantity } from '../utils/pricing.js';
@@ -582,7 +582,7 @@ const router = express.Router();
 const normalizeReceiptName = normalizeReceiptProductName;
 
 const tokenizeReceiptName = name => {
-  return normalizeReceiptName(name).split(' ').filter(Boolean);
+  return getCanonicalReceiptNormalizedName(name).split(' ').filter(Boolean);
 };
 
 const detectPromo = name => {
@@ -1670,7 +1670,7 @@ Rules: Extract product lines only (skip store, date, tax, total). Return empty [
       const quantity = Number(item.quantity) || 1;
       const totalPrice = Number(item.totalPrice) || 0;
       const unitPrice = totalPrice / quantity;
-      const normalizedName = normalizeReceiptName(receiptName);
+      const normalizedName = getCanonicalReceiptNormalizedName(receiptName);
       const tokens = extractTokens(normalizedName);
       const tokenSummary = summarizeTokens(tokens);
 
@@ -1825,7 +1825,7 @@ router.post('/receipt-parse-live', authRequired, async (req, res) => {
 
     // Convert live items to draft items for manual UPC binding
     const draftItems = items.map((item, idx) => {
-      const normalizedName = normalizeReceiptName(item.receiptName);
+      const normalizedName = getCanonicalReceiptNormalizedName(item.receiptName);
       const tokens = extractTokens(normalizedName);
       return {
         lineIndex: idx,
@@ -1960,7 +1960,7 @@ router.post('/receipt-parse-jobs/:captureId/approve', authRequired, async (req, 
         // If item is not matched to a product (no productId, no upc, no suggestedProduct)
         const hasProduct = item.suggestedProduct && item.suggestedProduct.id;
         if (!hasProduct && item.receiptName) {
-          const normalizedName = normalizeReceiptName(item.normalizedName || item.receiptName);
+          const normalizedName = getCanonicalReceiptNormalizedName(item);
           // Find or create UnmappedProduct
           let unmapped = await UnmappedProduct.findOne({ storeId: store._id, normalizedName });
           if (!unmapped) {
@@ -2711,7 +2711,7 @@ router.post('/receipt-confirm-match', authRequired, async (req, res) => {
     }
 
     // Normalize receipt name
-    const normalizedName = normalizeReceiptName(receiptName);
+    const normalizedName = getCanonicalReceiptNormalizedName(receiptName);
 
     // Create or update a receipt name alias (binding for future matches)
     const updatedAlias = await ReceiptNameAlias.findOneAndUpdate(

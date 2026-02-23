@@ -12,7 +12,7 @@ import Product from '../models/Product.js';
 import { recordAuditLog } from './audit.js';
 import { transitionReceiptParseJobStatus } from './receiptParseJobStatus.js';
 import { inferStoreType, matchStoreCandidate, normalizePhone, normalizeStoreNumber, normalizeZip } from './storeMatcher.js';
-import { normalizeReceiptProductName } from './receiptNameNormalization.js';
+import { getCanonicalReceiptNormalizedName, normalizeReceiptProductName } from './receiptNameNormalization.js';
 
 const getGeminiApiKey = () =>
   process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
@@ -382,7 +382,7 @@ async function matchReceiptItems(items, storeId) {
   const matchedItems = [];
 
   for (const item of items) {
-    const normalized = normalizeReceiptName(item.receiptName);
+    const normalized = getCanonicalReceiptNormalizedName(item.receiptName);
     const itemUpc = normalizeUpc(item.upc);
     if (itemUpc && upcLookupMap.has(itemUpc)) {
       const { entry, product } = upcLookupMap.get(itemUpc);
@@ -480,7 +480,7 @@ async function matchReceiptItems(items, storeId) {
       const product = inventory.productId;
       if (!product) continue;
       
-      const productNorm = normalizeReceiptName(product.name);
+      const productNorm = getCanonicalReceiptNormalizedName(product.name);
       const productTokens = extractTokens(product.name);
       
       let score = 0;
@@ -918,7 +918,7 @@ RULES:
     }
     const items = matchedItems.map(item => ({
       rawLine: item.receiptName,
-      nameCandidate: item.normalizedName || item.receiptName,
+      nameCandidate: getCanonicalReceiptNormalizedName(item),
       brandCandidate: item.tokens?.brand,
       sizeCandidate: item.tokens?.size,
       quantity: item.quantity,
