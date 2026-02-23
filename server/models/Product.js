@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { generateSku } from '../utils/sku.js';
 
 const productSchema = new mongoose.Schema(
   {
@@ -32,5 +33,40 @@ const productSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+productSchema.statics.createReceiptProductStub = async function createReceiptProductStub({
+  name,
+  unitPrice,
+  storeId,
+  session
+} = {}) {
+  const sku = await generateSku();
+  const safePrice = Number(unitPrice);
+
+  const [created] = await this.create([
+    {
+      frontendId: sku,
+      sku,
+      upc: undefined,
+      name: String(name || 'Receipt Item').trim() || 'Receipt Item',
+      price: Number.isFinite(safePrice) && safePrice > 0 ? safePrice : 0,
+      deposit: 0,
+      stock: 0,
+      sizeOz: 0,
+      brand: '',
+      productType: '',
+      storageZone: '',
+      storageBin: '',
+      category: 'DRINK',
+      isTaxable: true,
+      image: '',
+      isGlass: false,
+      isHeavy: false,
+      store: storeId
+    }
+  ], { session });
+
+  return created;
+};
 
 export default mongoose.model('Product', productSchema);

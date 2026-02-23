@@ -19,7 +19,6 @@ import { getBackendBuildIdentifier } from '../utils/buildIdentifier.js';
 import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import { buildInventoryUpdate, buildStoreInventoryQuery } from '../utils/receiptInventory.js';
-import { generateSku } from '../utils/sku.js';
 
 const router = express.Router();
 
@@ -713,36 +712,23 @@ export const approveReceiptJobHandler = async (req, res) => {
           const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
           const rawName = item.receiptName || normalizedName || 'Receipt Item';
 
+          // Resolution order for receipt-created products:
+          // 1) explicit/bound/suggested product IDs
+          // 2) UPC mapping (if UPC is present)
+          // 3) normalized-name match
+          // 4) create stub product
           if (!product) {
             product = await resolveProductByNormalizedName({ normalizedName, session });
           }
 
           if (!product) {
-            const sku = await generateSku();
             try {
-              const created = await Product.create([
-                {
-                  frontendId: sku,
-                  sku,
-                  upc: undefined,
-                  name: rawName,
-                  price: Number(unitPrice),
-                  deposit: 0,
-                  stock: 0,
-                  sizeOz: 0,
-                  brand: '',
-                  productType: '',
-                  storageZone: '',
-                  storageBin: '',
-                  category: 'DRINK',
-                  isTaxable: true,
-                  image: '',
-                  isGlass: false,
-                  isHeavy: false,
-                  store: store._id
-                }
-              ], { session });
-              product = created[0];
+              product = await Product.createReceiptProductStub({
+                name: rawName,
+                unitPrice,
+                storeId: store._id,
+                session
+              });
               productCreated = true;
             } catch (productCreateError) {
               if (productCreateError?.code === 11000) {
