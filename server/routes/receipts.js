@@ -20,7 +20,11 @@ import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCr
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import { buildInventoryUpdate, buildStoreInventoryQuery } from '../utils/receiptInventory.js';
 import { calculateRetail, calculatePerUnitCost, normalizeQuantity } from '../utils/pricing.js';
-import { getCanonicalReceiptNormalizedName, normalizeReceiptProductName } from '../utils/receiptNameNormalization.js';
+import {
+  getReceiptLineNormalizedName,
+  normalizeReceiptLineUpc,
+  resolveReceiptLineProduct
+} from '../utils/receiptLineResolver.js';
 
 const router = express.Router();
 
@@ -29,7 +33,7 @@ const canApproveReceipts = user => {
   return user.role === 'OWNER' || user.role === 'MANAGER' || isOwnerUsername(user.username);
 };
 
-const normalizeBarcode = value => String(value || '').replace(/\D/g, '');
+const normalizeBarcode = normalizeReceiptLineUpc;
 const APPROVAL_ERROR_CODES = {
   INVALID_UNIT_PRICE: 'INVALID_UNIT_PRICE',
   CREATE_PRODUCT_NOT_ALLOWED: 'CREATE_PRODUCT_NOT_ALLOWED',
@@ -38,18 +42,6 @@ const APPROVAL_ERROR_CODES = {
   APPLY_FAILED: 'APPLY_FAILED',
   NO_PERSISTED_CHANGES: 'NO_PERSISTED_CHANGES'
 };
-const normalizeReceiptName = normalizeReceiptProductName;
-
-const resolveProductByNormalizedName = async ({ normalizedName, session }) => {
-  const normalized = normalizeReceiptName(normalizedName);
-  if (!normalized) return null;
-
-  const product = await Product.findOne({ normalizedName: normalized })
-    .session(session);
-
-  return product || null;
-};
-
 export const toNumber = value => {
   return sanitizeOcrCurrencyNumber(value);
 };
@@ -185,7 +177,7 @@ const normalizeDraftItem = (raw) => {
   return {
     lineIndex,
     receiptName,
-    normalizedName: normalizeReceiptName(raw?.normalizedName || receiptName),
+    normalizedName: getReceiptLineNormalizedName(raw?.normalizedName || receiptName),
     quantity: raw?.quantity ?? 1,
     unitPrice: raw?.unitPrice ?? null,
     totalPrice: raw?.totalPrice ?? raw?.lineTotal ?? null,
@@ -719,25 +711,18 @@ export const approveReceiptJobHandler = async (req, res) => {
           product = await Product.findById(item.suggestedProduct.id).session(session);
         }
 
-        const resolveViaUpcMapping = async () => {
-          if (!normalizedUpc) return null;
-          const upcEntry = await UpcItem.findOne({ upc: normalizedUpc }).session(session);
-          if (!upcEntry?.productId) return null;
-          return Product.findById(upcEntry.productId).session(session);
-        };
-
-        const normalizedName = getCanonicalReceiptNormalizedName(item);
+        const normalizedName = getReceiptLineNormalizedName(item);
         const rawName = item.receiptName || normalizedName || 'Receipt Item';
 
-        const resolveViaNormalizedName = async () => {
-          return resolveProductByNormalizedName({ normalizedName, session });
-        };
-
         if (!product) {
-          product = await resolveViaUpcMapping();
-        }
-        if (!product) {
-          product = await resolveViaNormalizedName();
+          const resolved = await resolveReceiptLineProduct({
+            line: item,
+            upc: normalizedUpc,
+            normalizedName,
+            session,
+            fallback: 'unmapped'
+          });
+          product = resolved.product;
         }
 
         let productCreated = false;
@@ -761,29 +746,37 @@ export const approveReceiptJobHandler = async (req, res) => {
           // 2) normalized-name match
           // 3) if unresolved + policy allows, create receipt-origin stub product
           if (!product) {
-            product = await resolveViaUpcMapping();
-          }
-
-          if (!product) {
-            product = await resolveViaNormalizedName();
-          }
-
-          if (!product) {
             try {
-              product = await Product.createReceiptProductStub({
-                name: rawName,
-                unitPrice,
-                storeId: store._id,
-                session
+              const resolved = await resolveReceiptLineProduct({
+                line: item,
+                upc: normalizedUpc,
+                normalizedName,
+                session,
+                fallback: 'stub',
+                createProductStub: async () => {
+                  const createdProduct = await Product.createReceiptProductStub({
+                    name: rawName,
+                    unitPrice,
+                    storeId: store._id,
+                    session
+                  });
+                  productCreated = true;
+                  return createdProduct;
+                }
               });
-              productCreated = true;
+              product = resolved.product;
             } catch (productCreateError) {
               if (productCreateError?.code === 11000) {
-                product = await resolveViaNormalizedName();
+                const resolved = await resolveReceiptLineProduct({
+                  line: item,
+                  upc: normalizedUpc,
+                  normalizedName,
+                  session,
+                  fallback: 'unmapped'
+                });
+                product = resolved.product;
               }
-              if (!product) {
-                throw productCreateError;
-              }
+              if (!product) throw productCreateError;
             }
           }
 
