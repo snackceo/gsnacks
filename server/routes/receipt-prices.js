@@ -694,29 +694,56 @@ const computePriceDelta = (unitPrice, history, observedPrice) => {
 };
 
 const mapReceiptItemsForResponse = (items) => {
-  return items.map(item => ({
-    lineIndex: item.lineIndex,
-    receiptName: item.receiptName,
-    normalizedName: item.normalizedName,
-    quantity: item.quantity,
-    totalPrice: item.totalPrice,
-    unitPrice: item.unitPrice,
-    tokens: item.tokens,
-    priceDelta: item.priceDelta,
-    matchHistory: item.matchHistory,
-    suggestedProduct: item.suggestedProduct,
-    matchMethod: item.matchMethod,
-    matchConfidence: item.matchConfidence,
-    needsReview: item.needsReview,
-    reviewReason: item.reviewReason,
-    boundProductId: item.boundProductId,
-    boundUpc: item.boundUpc,
-    confirmedAt: item.confirmedAt,
-    confirmedBy: item.confirmedBy,
-    promoDetected: item.promoDetected,
-    priceType: item.priceType,
-    workflowType: item.workflowType
-  }));
+  const toPositiveNumber = (value, fallback = null) => {
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0 ? num : fallback;
+  };
+
+  const normalizeDraftItemForResponse = (item, index) => {
+    const lineIndex = typeof item?.lineIndex === 'number'
+      ? item.lineIndex
+      : (typeof item?.index === 'number' ? item.index : index);
+
+    const receiptName =
+      item?.receiptName ||
+      item?.nameCandidate ||
+      item?.rawLine ||
+      item?.rawLineText ||
+      'Receipt Item';
+
+    const quantity = toPositiveNumber(item?.quantity, 1) || 1;
+    const totalPrice = toPositiveNumber(item?.totalPrice ?? item?.lineTotal, null);
+    const unitPrice = toPositiveNumber(
+      item?.unitPrice,
+      totalPrice ? totalPrice / quantity : 0
+    ) || 0;
+
+    return {
+      lineIndex,
+      receiptName,
+      normalizedName: item?.normalizedName || getReceiptLineNormalizedName(receiptName),
+      quantity,
+      totalPrice: totalPrice ?? Number((unitPrice * quantity).toFixed(2)),
+      unitPrice: Number(unitPrice.toFixed(2)),
+      tokens: item?.tokens,
+      priceDelta: item?.priceDelta,
+      matchHistory: item?.matchHistory,
+      suggestedProduct: item?.suggestedProduct,
+      matchMethod: item?.matchMethod || item?.match?.reason,
+      matchConfidence: item?.matchConfidence ?? item?.match?.confidence,
+      needsReview: Boolean(item?.needsReview),
+      reviewReason: item?.reviewReason,
+      boundProductId: item?.boundProductId || item?.productId || item?.match?.productId,
+      boundUpc: item?.boundUpc || item?.upc || item?.upcCandidate,
+      confirmedAt: item?.confirmedAt,
+      confirmedBy: item?.confirmedBy,
+      promoDetected: item?.promoDetected,
+      priceType: item?.priceType,
+      workflowType: item?.workflowType
+    };
+  };
+
+  return (items || []).map((item, index) => normalizeDraftItemForResponse(item, index));
 };
 
 const defaultScanBatchLimit = 40;
@@ -2541,9 +2568,21 @@ router.get('/receipt-capture/:captureId/items', authRequired, async (req, res) =
       return res.status(404).json({ error: 'Receipt capture not found' });
     }
 
+    let draftItems = Array.isArray(capture.draftItems) ? capture.draftItems : [];
+    if (draftItems.length === 0) {
+      const parseJob = await ReceiptParseJob.findOne({ captureId })
+        .sort({ createdAt: -1 })
+        .select('structured.draftItems')
+        .lean();
+
+      if (Array.isArray(parseJob?.structured?.draftItems) && parseJob.structured.draftItems.length > 0) {
+        draftItems = parseJob.structured.draftItems;
+      }
+    }
+
     res.json({
       ok: true,
-      items: mapReceiptItemsForResponse(capture.draftItems || [])
+      items: mapReceiptItemsForResponse(draftItems)
     });
   } catch (error) {
     console.error('Error fetching receipt items:', error);
