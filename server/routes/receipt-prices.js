@@ -139,6 +139,44 @@ const getReceiptQueueWorkerHealth = async () => {
   };
 };
 
+const computeReceiptOcrSuccessSummary = captures => {
+  const bucketTemplate = () => ({ total: 0, success: 0, successRate: null });
+  const summary = {
+    windowDays: 7,
+    windowStart: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+    geminiOnly: bucketTemplate(),
+    visionOnly: bucketTemplate(),
+    hybrid: bucketTemplate()
+  };
+
+  const isSuccess = status => ['parsed', 'review_complete', 'committed'].includes(String(status || '').toLowerCase());
+  const toBucket = metrics => {
+    const attempted = String(metrics?.providerAttempted || '').toLowerCase();
+    const used = String(metrics?.providerUsed || '').toLowerCase();
+    const fallbackReason = metrics?.fallbackReason;
+    const isHybrid = (attempted && used && attempted !== used) || Boolean(fallbackReason);
+    if (isHybrid) return 'hybrid';
+    if (used === 'gemini') return 'geminiOnly';
+    if (used === 'vision') return 'visionOnly';
+    return null;
+  };
+
+  for (const capture of captures || []) {
+    const bucketName = toBucket(capture?.parseMetrics || {});
+    if (!bucketName) continue;
+    const bucket = summary[bucketName];
+    bucket.total += 1;
+    if (isSuccess(capture?.status)) bucket.success += 1;
+  }
+
+  for (const key of ['geminiOnly', 'visionOnly', 'hybrid']) {
+    const b = summary[key];
+    b.successRate = b.total > 0 ? Number(((b.success / b.total) * 100).toFixed(2)) : null;
+  }
+
+  return summary;
+};
+
 const coerceNumber = value => {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
@@ -2706,6 +2744,14 @@ router.get('/receipt-health', authRequired, async (req, res) => {
           missingCaptureIdsCount: staleJobCheck.missingCaptureIds.length
         }
       : { ok: false, reason: staleJobCheck.reason };
+    const sevenDayWindowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const ocrSummarySamples = await ReceiptCapture.find({
+      lastParseAt: { $gte: sevenDayWindowStart },
+      'parseMetrics.providerUsed': { $exists: true, $ne: null }
+    })
+      .select('status parseMetrics.providerAttempted parseMetrics.providerUsed parseMetrics.fallbackReason')
+      .lean();
+    const ocrProviderSummary7d = computeReceiptOcrSuccessSummary(ocrSummarySamples);
     res.json({
       ok: true,
       cloudinary: hasCloudinary,
@@ -2713,7 +2759,8 @@ router.get('/receipt-health', authRequired, async (req, res) => {
       queueStatus: await getReceiptQueueWorkerHealth(),
       learningEnabled: isPricingLearningEnabled(),
       ingestionGate,
-      staleReceiptJobs
+      staleReceiptJobs,
+      ocrProviderSummary7d
     });
   } catch (error) {
     console.error('Error fetching receipt health:', error);
