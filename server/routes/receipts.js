@@ -19,7 +19,7 @@ import { getBackendBuildIdentifier } from '../utils/buildIdentifier.js';
 import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import { buildInventoryUpdate, buildStoreInventoryQuery } from '../utils/receiptInventory.js';
-import { calculateRetail } from '../utils/pricing.js';
+import { calculateRetail, calculatePerUnitCost, normalizeQuantity } from '../utils/pricing.js';
 import { normalizeReceiptProductName } from '../utils/receiptNameNormalization.js';
 
 const router = express.Router();
@@ -123,16 +123,14 @@ export const sanitizeOcrCurrencyNumber = value => {
 
 export const resolveUnitPrice = item => {
   const parsedUnit = sanitizeOcrCurrencyNumber(item?.unitPrice);
-  if (parsedUnit) return parsedUnit;
+  const parsedTotal = sanitizeOcrCurrencyNumber(item?.totalPrice);
+  const parsedQuantity = sanitizeOcrCurrencyNumber(item?.quantity);
 
-  const total = sanitizeOcrCurrencyNumber(item?.totalPrice);
-  const qtyRaw = sanitizeOcrCurrencyNumber(item?.quantity);
-  const qty = qtyRaw && qtyRaw > 0 ? qtyRaw : 1;
-  if (total && qty > 0) {
-    return total / qty;
-  }
-
-  return null;
+  return calculatePerUnitCost({
+    unitPrice: parsedUnit,
+    totalPrice: parsedTotal,
+    quantity: parsedQuantity
+  });
 };
 
 const buildNormalizedPriceInput = item => {
@@ -853,7 +851,7 @@ export const approveReceiptJobHandler = async (req, res) => {
             storeId: store._id,
             price: unitPrice,
             cost: unitPrice,
-            quantity: Number(item.quantity || 1),
+            quantity: normalizeQuantity(item.quantity),
             source: 'receipt',
             observedAt: now,
             receiptCaptureId: capture._id,
@@ -928,6 +926,7 @@ export const approveReceiptJobHandler = async (req, res) => {
                 ...(retailPrice ? { retailPrice } : {}),
                 observedAt: new Date(),
                 lastCost: unitPrice,
+                cost: unitPrice,
                 lastCostAt: new Date(),
                 lastVerified: new Date(),
                 available: true,
@@ -944,7 +943,7 @@ export const approveReceiptJobHandler = async (req, res) => {
                   storeId: store._id,
                   captureId: capture._id.toString(),
                   orderId: capture.orderId,
-                  quantity: Number(item.quantity || 1),
+                  quantity: normalizeQuantity(item.quantity),
                   receiptImageUrl: capture.images?.[0]?.url,
                   receiptThumbnailUrl: capture.images?.[0]?.thumbnailUrl,
                   matchMethod: inventoryMatchMethod,
@@ -1015,7 +1014,7 @@ export const approveReceiptJobHandler = async (req, res) => {
             storeId: store._id,
             price: unitPrice,
             cost: unitPrice,
-            quantity: Number(item.quantity || 1),
+            quantity: normalizeQuantity(item.quantity),
             source: 'receipt',
             observedAt: new Date(),
             receiptCaptureId: capture._id,

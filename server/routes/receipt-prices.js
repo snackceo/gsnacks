@@ -22,6 +22,7 @@ import { transitionReceiptParseJobStatus } from '../utils/receiptParseJobStatus.
 import { normalizeReceiptProductName } from '../utils/receiptNameNormalization.js';
 import { approveReceiptJob, buildAutoCommitApprovalBody } from '../services/receiptApprovalService.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
+import { calculatePerUnitCost, normalizeQuantity } from '../utils/pricing.js';
 
 const getGeminiApiKey = () =>
   process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
@@ -1946,9 +1947,19 @@ router.post('/receipt-parse-jobs/:captureId/approve', authRequired, async (req, 
       const draftItems = capture.draftItems || [];
       const now = new Date();
       for (const item of draftItems) {
+        const quantity = normalizeQuantity(item?.quantity);
+        const perUnitCost = calculatePerUnitCost({
+          unitPrice: item?.unitPrice,
+          totalPrice: item?.totalPrice,
+          quantity
+        });
+        if (!perUnitCost) {
+          continue;
+        }
+
         // If item is not matched to a product (no productId, no upc, no suggestedProduct)
         const hasProduct = item.suggestedProduct && item.suggestedProduct.id;
-        if (!hasProduct && item.receiptName && item.totalPrice > 0) {
+        if (!hasProduct && item.receiptName) {
           const normalizedName = normalizeReceiptName(item.normalizedName || item.receiptName);
           // Find or create UnmappedProduct
           let unmapped = await UnmappedProduct.findOne({ storeId: store._id, normalizedName });
@@ -1969,17 +1980,21 @@ router.post('/receipt-parse-jobs/:captureId/approve', authRequired, async (req, 
           await PriceObservation.create({
             unmappedProductId: unmapped._id,
             storeId: store._id,
-            price: item.totalPrice,
+            price: perUnitCost,
+            cost: perUnitCost,
+            quantity,
             observedAt: now,
             receiptCaptureId: capture._id
           });
-        } else if (hasProduct && item.suggestedProduct.id && item.totalPrice > 0) {
+        } else if (hasProduct && item.suggestedProduct.id) {
           // Write PriceObservation for mapped product
           const PriceObservation = (await import('../models/PriceObservation.js')).default;
           await PriceObservation.create({
             productId: item.suggestedProduct.id,
             storeId: store._id,
-            price: item.totalPrice,
+            price: perUnitCost,
+            cost: perUnitCost,
+            quantity,
             observedAt: now,
             receiptCaptureId: capture._id
           });
