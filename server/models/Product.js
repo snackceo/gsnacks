@@ -33,7 +33,8 @@ const productSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Store',
       index: true
-    }
+    },
+    createdFrom: { type: String, default: '' }
   },
   { timestamps: true }
 );
@@ -81,7 +82,8 @@ productSchema.statics.createReceiptProductStub = async function createReceiptPro
       image: '',
       isGlass: false,
       isHeavy: false,
-      store: storeId
+      store: storeId,
+      createdFrom: 'receipt'
     }
   ], { session });
 
