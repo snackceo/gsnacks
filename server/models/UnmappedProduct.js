@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { normalizeReceiptProductName } from '../utils/receiptNameNormalization.js';
 
 const unmappedProductSchema = new mongoose.Schema({
   storeId: {
@@ -44,7 +45,13 @@ const unmappedProductSchema = new mongoose.Schema({
   timestamps: true
 });
 
+unmappedProductSchema.pre('validate', function setCanonicalNormalizedName(next) {
+  this.normalizedName = normalizeReceiptProductName(this.normalizedName || this.rawName);
+  next();
+});
+
 unmappedProductSchema.index({ storeId: 1, normalizedName: 1 }, { unique: true });
+unmappedProductSchema.index({ normalizedName: 1 });
 
 const UnmappedProduct = mongoose.model('UnmappedProduct', unmappedProductSchema);
 

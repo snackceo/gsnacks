@@ -19,6 +19,7 @@ import { isPricingLearningEnabled, receiptIngestionMode, receiptStoreAllowlist, 
 import { enqueueReceiptJob, getReceiptQueue, isReceiptQueueEnabled } from '../queues/receiptQueue.js';
 import { executeReceiptParse } from '../utils/receiptParseHelper.js';
 import { transitionReceiptParseJobStatus } from '../utils/receiptParseJobStatus.js';
+import { normalizeReceiptProductName } from '../utils/receiptNameNormalization.js';
 import { approveReceiptJob, buildAutoCommitApprovalBody } from '../services/receiptApprovalService.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 
@@ -577,13 +578,7 @@ const receiptLimiter = rateLimit({
 
 const router = express.Router();
 
-const normalizeReceiptName = name => {
-  return String(name || '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .replace(/[^a-z0-9\s]/g, '')
-    .trim();
-};
+const normalizeReceiptName = normalizeReceiptProductName;
 
 const tokenizeReceiptName = name => {
   return normalizeReceiptName(name).split(' ').filter(Boolean);
@@ -1954,7 +1949,7 @@ router.post('/receipt-parse-jobs/:captureId/approve', authRequired, async (req, 
         // If item is not matched to a product (no productId, no upc, no suggestedProduct)
         const hasProduct = item.suggestedProduct && item.suggestedProduct.id;
         if (!hasProduct && item.receiptName && item.totalPrice > 0) {
-          const normalizedName = (item.normalizedName || item.receiptName).trim().toUpperCase();
+          const normalizedName = normalizeReceiptName(item.normalizedName || item.receiptName);
           // Find or create UnmappedProduct
           let unmapped = await UnmappedProduct.findOne({ storeId: store._id, normalizedName });
           if (!unmapped) {
@@ -2701,7 +2696,7 @@ router.post('/receipt-confirm-match', authRequired, async (req, res) => {
     }
 
     // Normalize receipt name
-    const normalizedName = receiptName.trim().toUpperCase();
+    const normalizedName = normalizeReceiptName(receiptName);
 
     // Create or update a receipt name alias (binding for future matches)
     const updatedAlias = await ReceiptNameAlias.findOneAndUpdate(

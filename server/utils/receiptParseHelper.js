@@ -12,6 +12,7 @@ import Product from '../models/Product.js';
 import { recordAuditLog } from './audit.js';
 import { transitionReceiptParseJobStatus } from './receiptParseJobStatus.js';
 import { inferStoreType, matchStoreCandidate, normalizePhone, normalizeStoreNumber, normalizeZip } from './storeMatcher.js';
+import { normalizeReceiptProductName } from './receiptNameNormalization.js';
 
 const getGeminiApiKey = () =>
   process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
@@ -184,15 +185,8 @@ function buildInlineDataFromDataUrl(dataUrl) {
   };
 }
 
-// Normalize receipt name for matching
-function normalizeReceiptName(name) {
-  if (!name || typeof name !== 'string') return '';
-  return name
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, ' ')
-    .replace(/[^\w\s]/gi, '');
-}
+// Canonical normalize receipt name for matching
+const normalizeReceiptName = normalizeReceiptProductName;
 
 // Calculate alias confidence with time-based decay
 function getAliasEffectiveConfidence(alias) {

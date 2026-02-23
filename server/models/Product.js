@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { generateSku } from '../utils/sku.js';
+import { normalizeReceiptProductName } from '../utils/receiptNameNormalization.js';
 
 const productSchema = new mongoose.Schema(
   {
@@ -11,6 +12,7 @@ const productSchema = new mongoose.Schema(
     storageZone: { type: String, default: '' },
     storageBin: { type: String, default: '' },
     name: { type: String, required: true },
+    normalizedName: { type: String, default: '', index: true },
     price: { type: Number, required: true },
     lastCost: { type: Number },
     lastCostAt: { type: Date },
@@ -36,6 +38,18 @@ const productSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+
+productSchema.pre('validate', function setNormalizedName(next) {
+  this.normalizedName = normalizeReceiptProductName(this.name);
+  next();
+});
+
+productSchema.index({ normalizedName: 1 });
+productSchema.index(
+  { store: 1, normalizedName: 1 },
+  { unique: true, partialFilterExpression: { store: { $exists: true }, normalizedName: { $type: 'string', $ne: '' } } }
+);
+
 productSchema.statics.createReceiptProductStub = async function createReceiptProductStub({
   name,
   unitPrice,
@@ -51,6 +65,7 @@ productSchema.statics.createReceiptProductStub = async function createReceiptPro
       sku,
       upc: undefined,
       name: String(name || 'Receipt Item').trim() || 'Receipt Item',
+      normalizedName: normalizeReceiptProductName(name || 'Receipt Item'),
       price: Number.isFinite(safePrice) && safePrice > 0 ? safePrice : 0,
       lastCost: Number.isFinite(safePrice) && safePrice > 0 ? safePrice : undefined,
       lastCostAt: Number.isFinite(safePrice) && safePrice > 0 ? new Date() : undefined,
