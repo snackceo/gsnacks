@@ -12,7 +12,7 @@ import Product from '../models/Product.js';
 import { recordAuditLog } from './audit.js';
 import { transitionReceiptParseJobStatus } from './receiptParseJobStatus.js';
 import { inferStoreType, matchStoreCandidate, normalizePhone, normalizeStoreNumber, normalizeZip } from './storeMatcher.js';
-import { getCanonicalReceiptNormalizedName, normalizeReceiptProductName } from './receiptNameNormalization.js';
+import { getReceiptLineNormalizedName, normalizeReceiptLineUpc } from './receiptLineResolver.js';
 
 const getGeminiApiKey = () =>
   process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
@@ -82,13 +82,6 @@ const parseReceiptAddress = (rawAddress = '') => {
   const fallbackState = fallbackStateMatch?.[1]?.toUpperCase();
   console.warn('Receipt address parse incomplete; storing street only.', { rawAddress });
   return { street: cleaned, state: fallbackState, zip: fallbackZip };
-};
-
-const normalizeUpc = value => {
-  const digits = String(value || '').replace(/\D+/g, '');
-  if (!digits) return '';
-  if (digits.length < 8 || digits.length > 14) return '';
-  return digits;
 };
 
 
@@ -305,7 +298,7 @@ function buildInlineDataFromDataUrl(dataUrl) {
 }
 
 // Canonical normalize receipt name for matching
-const normalizeReceiptName = normalizeReceiptProductName;
+const normalizeReceiptName = getReceiptLineNormalizedName;
 
 // Calculate alias confidence with time-based decay
 function getAliasEffectiveConfidence(alias) {
@@ -365,7 +358,7 @@ async function matchReceiptItems(items, storeId) {
   const upcValues = Array.from(
     new Set(
       items
-        .map(item => normalizeUpc(item.upc))
+        .map(item => normalizeReceiptLineUpc(item.upc))
         .filter(Boolean)
     )
   );
@@ -386,8 +379,8 @@ async function matchReceiptItems(items, storeId) {
   const matchedItems = [];
 
   for (const item of items) {
-    const normalized = getCanonicalReceiptNormalizedName(item.receiptName);
-    const itemUpc = normalizeUpc(item.upc);
+    const normalized = getReceiptLineNormalizedName(item.receiptName);
+    const itemUpc = normalizeReceiptLineUpc(item.upc);
     if (itemUpc && upcLookupMap.has(itemUpc)) {
       const { entry, product } = upcLookupMap.get(itemUpc);
       const inventory = product ? inventoryMap.get(String(product._id)) : null;
@@ -484,7 +477,7 @@ async function matchReceiptItems(items, storeId) {
       const product = inventory.productId;
       if (!product) continue;
       
-      const productNorm = getCanonicalReceiptNormalizedName(product.name);
+      const productNorm = getReceiptLineNormalizedName(product.name);
       const productTokens = extractTokens(product.name);
       
       let score = 0;
@@ -819,7 +812,7 @@ RULES:
               continue;
             }
 
-            const upc = normalizeUpc(item.upc || item.upcCandidate || item.barcode);
+            const upc = normalizeReceiptLineUpc(item.upc || item.upcCandidate || item.barcode);
             draftItems.push({
               lineIndex: draftItems.length,
               receiptName: item.receiptName,
@@ -941,7 +934,7 @@ RULES:
     }
     const items = matchedItems.map(item => ({
       rawLine: item.receiptName,
-      nameCandidate: getCanonicalReceiptNormalizedName(item),
+      nameCandidate: getReceiptLineNormalizedName(item),
       brandCandidate: item.tokens?.brand,
       sizeCandidate: item.tokens?.size,
       quantity: item.quantity,
