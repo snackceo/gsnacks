@@ -4,6 +4,35 @@ const DEFAULT_MAX_RETAIL = 999.99;
 
 const roundToCents = value => Math.round(value * 100) / 100;
 
+export const normalizeQuantity = (quantity, fallback = 1) => {
+  const numericQuantity = Number(quantity);
+  if (Number.isFinite(numericQuantity) && numericQuantity > 0) {
+    return numericQuantity;
+  }
+
+  const numericFallback = Number(fallback);
+  if (Number.isFinite(numericFallback) && numericFallback > 0) {
+    return numericFallback;
+  }
+
+  return 1;
+};
+
+export const calculatePerUnitCost = ({ unitPrice, totalPrice, quantity } = {}) => {
+  const parsedUnitPrice = Number(unitPrice);
+  if (Number.isFinite(parsedUnitPrice) && parsedUnitPrice > 0) {
+    return parsedUnitPrice;
+  }
+
+  const parsedTotalPrice = Number(totalPrice);
+  const parsedQuantity = normalizeQuantity(quantity);
+  if (Number.isFinite(parsedTotalPrice) && parsedTotalPrice > 0 && parsedQuantity > 0) {
+    return parsedTotalPrice / parsedQuantity;
+  }
+
+  return null;
+};
+
 const roundUpTo99 = value => {
   if (!Number.isFinite(value) || value <= 0) return null;
 
