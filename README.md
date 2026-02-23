@@ -9,6 +9,7 @@ The following feature toggles and experimental/future features are available in 
 - **allowPlatinumTier**: Enables Platinum loyalty tier (future/experimental).
 - **platinumFreeDelivery**: If true, Platinum tier users get free delivery (future/experimental).
 - **allowReceiptApprovalCreateProduct**: If true, receipt approvals may create products from review actions (disabled by default; recommended off).
+- **autoUpdateProductPriceFromReceipt**: If true, receipt approvals can update `Product.price` from latest observed receipt cost using retail rules (disabled by default; recommended off unless catalog sync is desired).
 
 See also: GLOSSARY.md for definitions.
 # NinpoSnacks – Internal Spec: Payments, Bottle Return Service, and Fees
