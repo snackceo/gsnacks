@@ -19,6 +19,7 @@ import { getBackendBuildIdentifier } from '../utils/buildIdentifier.js';
 import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import { buildInventoryUpdate, buildStoreInventoryQuery } from '../utils/receiptInventory.js';
+import { generateSku } from '../utils/sku.js';
 
 const router = express.Router();
 
@@ -42,6 +43,29 @@ const normalizeReceiptName = value =>
     .toUpperCase()
     .replace(/\s+/g, ' ')
     .replace(/[^\w\s]/gi, '');
+
+const escapeRegex = value => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const resolveProductByNormalizedName = async ({ normalizedName, session }) => {
+  const normalized = normalizeReceiptName(normalizedName);
+  if (!normalized) return null;
+
+  const normalizedWordPattern = normalized
+    .split(' ')
+    .filter(Boolean)
+    .map(escapeRegex)
+    .join('[^A-Z0-9]*');
+
+  if (!normalizedWordPattern) return null;
+
+  const candidates = await Product.find({
+    name: { $regex: new RegExp(`^\\s*${normalizedWordPattern}\\s*$`, 'i') }
+  })
+    .limit(25)
+    .session(session);
+
+  return candidates.find(candidate => normalizeReceiptName(candidate.name) === normalized) || null;
+};
 
 export const toNumber = value => {
   return sanitizeOcrCurrencyNumber(value);
@@ -644,6 +668,7 @@ export const approveReceiptJobHandler = async (req, res) => {
         const normalizedUpc = normalizeBarcode(
           approvalItem.upc || item.boundUpc || item.suggestedProduct?.upc
         );
+        lineOutcome.effectiveAction = effectiveAction;
 
         if (effectiveAction === 'IGNORE') {
           continue;
@@ -683,6 +708,62 @@ export const approveReceiptJobHandler = async (req, res) => {
         let inventoryForUnmapped = false;
         let inventoryProductId = null;
         let inventoryUnmappedProductId = null;
+
+        if (effectiveAction === 'CREATE_PRODUCT') {
+          const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
+          const rawName = item.receiptName || normalizedName || 'Receipt Item';
+
+          if (!product) {
+            product = await resolveProductByNormalizedName({ normalizedName, session });
+          }
+
+          if (!product) {
+            const sku = await generateSku();
+            try {
+              const created = await Product.create([
+                {
+                  frontendId: sku,
+                  sku,
+                  upc: undefined,
+                  name: rawName,
+                  price: Number(unitPrice),
+                  deposit: 0,
+                  stock: 0,
+                  sizeOz: 0,
+                  brand: '',
+                  productType: '',
+                  storageZone: '',
+                  storageBin: '',
+                  category: 'DRINK',
+                  isTaxable: true,
+                  image: '',
+                  isGlass: false,
+                  isHeavy: false,
+                  store: store._id
+                }
+              ], { session });
+              product = created[0];
+              productCreated = true;
+            } catch (productCreateError) {
+              if (productCreateError?.code === 11000) {
+                product = await resolveProductByNormalizedName({ normalizedName, session });
+              }
+              if (!product) {
+                throw productCreateError;
+              }
+            }
+          }
+
+          if (productCreated) {
+            createdProducts.push({
+              id: product._id,
+              sku: product.sku,
+              name: product.name,
+              lineIndex: item.lineIndex,
+              effectiveAction: 'CREATE_PRODUCT'
+            });
+          }
+        }
 
         if (effectiveAction === 'CAPTURE_UNMAPPED') {
           product = null;
@@ -739,6 +820,15 @@ export const approveReceiptJobHandler = async (req, res) => {
           // Only set flags for shared inventory upsert
           inventoryUnmappedProductId = unmapped._id;
           inventoryForUnmapped = true;
+        }
+
+        lineOutcome.productCreated = productCreated;
+        if (productCreated && product) {
+          lineOutcome.createdProduct = {
+            id: product._id,
+            sku: product.sku,
+            name: product.name
+          };
         }
 
         if (product && !productCreated) {
