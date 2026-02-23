@@ -355,6 +355,19 @@ interface ReceiptIngestionGateHealth {
     exceeded?: boolean | null;
   };
 }
+interface ReceiptOcrSuccessBucket {
+  total?: number;
+  success?: number;
+  successRate?: number | null;
+}
+
+interface ReceiptOcrProviderSummary {
+  windowDays?: number;
+  geminiOnly?: ReceiptOcrSuccessBucket;
+  visionOnly?: ReceiptOcrSuccessBucket;
+  hybrid?: ReceiptOcrSuccessBucket;
+}
+
 interface ReceiptCapture {
   _id: string;
   storeId?: string;
@@ -408,6 +421,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [receiptQueueStatus, setReceiptQueueStatus] = useState<ReceiptQueueStatus | null>(null);
   const [receiptIngestionGate, setReceiptIngestionGate] = useState<ReceiptIngestionGateHealth | null>(null);
+  const [receiptOcrProviderSummary, setReceiptOcrProviderSummary] = useState<ReceiptOcrProviderSummary | null>(null);
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<ReceiptParseJob | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -901,9 +915,11 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       const data: any = await apiFetch(`/api/driver/receipt-health${healthQueryStoreId}`);
       setReceiptQueueStatus(data?.queueStatus || null);
       setReceiptIngestionGate(data?.ingestionGate || null);
+      setReceiptOcrProviderSummary(data?.ocrProviderSummary7d || null);
     } catch {
       setReceiptQueueStatus(null);
       setReceiptIngestionGate(null);
+      setReceiptOcrProviderSummary(null);
     }
   }, [activeStoreId]);
 
@@ -1361,6 +1377,24 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
               </p>
             </div>
           )}
+
+          <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-[11px]">
+            <p className="font-semibold uppercase tracking-widest text-[10px] text-ninpo-lime">OCR Provider Success (Rolling 7d)</p>
+            <div className="mt-2 space-y-1 text-slate-200">
+              <p>
+                Gemini-only: <span className="font-semibold">{receiptOcrProviderSummary?.geminiOnly?.successRate ?? 'n/a'}%</span>
+                {' '}({receiptOcrProviderSummary?.geminiOnly?.success ?? 0}/{receiptOcrProviderSummary?.geminiOnly?.total ?? 0})
+              </p>
+              <p>
+                Vision-only: <span className="font-semibold">{receiptOcrProviderSummary?.visionOnly?.successRate ?? 'n/a'}%</span>
+                {' '}({receiptOcrProviderSummary?.visionOnly?.success ?? 0}/{receiptOcrProviderSummary?.visionOnly?.total ?? 0})
+              </p>
+              <p>
+                Hybrid: <span className="font-semibold">{receiptOcrProviderSummary?.hybrid?.successRate ?? 'n/a'}%</span>
+                {' '}({receiptOcrProviderSummary?.hybrid?.success ?? 0}/{receiptOcrProviderSummary?.hybrid?.total ?? 0})
+              </p>
+            </div>
+          </div>
 
           <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-[11px]">
             <p className="font-semibold uppercase tracking-widest text-[10px] text-ninpo-lime">Receipt Ingestion Health</p>

@@ -445,6 +445,8 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     status: 'PARSING'
   });
 
+  const parseStartedAtMs = Date.now();
+
   try {
     const draftItems = [];
     const providerSelection = getReceiptOcrProviderSelection(options);
@@ -665,6 +667,14 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
 
     capture.markParsed(matchedItems);
     capture.geminiRequestId = `receipt_${capture._id}_${Date.now()}`;
+    capture.parseMetrics = {
+      providerAttempted: ocrRun?.attempts?.[0]?.provider || providerSelection.primaryProvider || null,
+      providerUsed: ocrRun?.providerUsed || null,
+      fallbackReason: ocrRun?.fallbackReason || null,
+      parseDurationMs: Math.max(0, Date.now() - parseStartedAtMs),
+      validItemCount: stageMetrics.linesWithValidQtyPrice || 0,
+      unmatchedCount: stageMetrics.unmatchedCount || 0
+    };
     await capture.save();
 
     // Create ReceiptParseJob for review/approval
@@ -769,8 +779,12 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
         items,
         warnings: matchedItems.filter(it => it.needsReview).map(it => it.reviewReason).filter(Boolean),
         metadata: {
+          providerAttempted: ocrRun?.attempts?.[0]?.provider || providerSelection.primaryProvider || null,
           providerUsed: ocrRun.providerUsed,
           fallbackReason: ocrRun.fallbackReason,
+          parseDurationMs: Math.max(0, Date.now() - parseStartedAtMs),
+          validItemCount: stageMetrics.linesWithValidQtyPrice,
+          unmatchedCount: stageMetrics.unmatchedCount,
           normalizationMetrics: normalizationResult.metrics,
           ocrAttempts: ocrRun.attempts || [],
           ocrConfig: {
@@ -800,7 +814,7 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     await recordAuditLog({
       type: 'receipt_parse',
       actorId,
-      details: `captureId=${capture._id} jobId=${job?._id?.toString?.() || 'unknown'} items=${matchedItems.length} needsReview=${needsReview} ocrLinesExtracted=${stageMetrics.ocrLinesExtracted} linesWithValidQtyPrice=${stageMetrics.linesWithValidQtyPrice} upcResolvedCount=${stageMetrics.upcResolvedCount} nameResolvedCount=${stageMetrics.nameResolvedCount} unmatchedCount=${stageMetrics.unmatchedCount} observationWritesCount=${stageMetrics.observationWritesCount}`
+      details: `captureId=${capture._id} jobId=${job?._id?.toString?.() || 'unknown'} items=${matchedItems.length} needsReview=${needsReview} providerAttempted=${ocrRun?.attempts?.[0]?.provider || providerSelection.primaryProvider || 'unknown'} providerUsed=${ocrRun?.providerUsed || 'unknown'} fallbackReason=${ocrRun?.fallbackReason || 'none'} parseDurationMs=${Math.max(0, Date.now() - parseStartedAtMs)} ocrLinesExtracted=${stageMetrics.ocrLinesExtracted} linesWithValidQtyPrice=${stageMetrics.linesWithValidQtyPrice} upcResolvedCount=${stageMetrics.upcResolvedCount} nameResolvedCount=${stageMetrics.nameResolvedCount} unmatchedCount=${stageMetrics.unmatchedCount} observationWritesCount=${stageMetrics.observationWritesCount}`
     });
 
     return job;

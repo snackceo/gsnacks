@@ -97,6 +97,14 @@ const receiptCaptureSchema = new mongoose.Schema({
   lastParseAt: Date,
   parseError: String,
   geminiRequestId: String,
+  parseMetrics: {
+    providerAttempted: { type: String, default: null },
+    providerUsed: { type: String, default: null },
+    fallbackReason: { type: String, default: null },
+    parseDurationMs: { type: Number, default: null },
+    validItemCount: { type: Number, default: 0 },
+    unmatchedCount: { type: Number, default: 0 }
+  },
   
   // Stats
   totalItems: { type: Number, default: 0 },
