@@ -608,6 +608,14 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     no_items: 0,
     all_images_skipped: 0
   };
+  const stageMetrics = {
+    ocrLinesExtracted: 0,
+    linesWithValidQtyPrice: 0,
+    upcResolvedCount: 0,
+    nameResolvedCount: 0,
+    unmatchedCount: 0,
+    observationWritesCount: 0
+  };
 
   // --- ENFORCE ALL IMAGES ARE CLOUDINARY OR DATA URL ---
   const invalidImages = (capture.images || []).filter(img => {
@@ -756,7 +764,11 @@ RULES:
       }
       if (!parsed) {
         parseStageFailures.invalid_json += 1;
-        console.warn('Failed to parse Gemini JSON:', text.substring(0, 200));
+        console.warn('Failed to parse Gemini JSON.', {
+          captureId: capture._id?.toString?.() || String(capture._id || captureId),
+          jobId: null,
+          sample: text.substring(0, 200)
+        });
         geminiOutput.parsedByImage.push({ error: 'Invalid JSON' });
         continue;
       }
@@ -791,6 +803,7 @@ RULES:
       if (Array.isArray(recoveredItems)) {
         for (const item of recoveredItems) {
           totalLines += 1;
+          stageMetrics.ocrLinesExtracted += 1;
           const parsedTotal = sanitizeReceiptNumber(item.totalPrice);
           const parsedUnit = sanitizeReceiptNumber(item.unitPrice);
           const parsedQty = sanitizeReceiptNumber(item.quantity);
@@ -821,6 +834,7 @@ RULES:
               unitPrice: typeof unitPrice === 'number' && Number.isFinite(unitPrice) ? unitPrice : 0,
               upc
             });
+            stageMetrics.linesWithValidQtyPrice += 1;
           } else if (item.receiptName) {
             invalidPriceSkippedLines += 1;
           }
@@ -846,6 +860,7 @@ RULES:
 
     console.info('Receipt parse stage failures.', {
       captureId: capture._id?.toString?.() || String(capture._id || captureId),
+      jobId: null,
       ...parseStageFailures
     });
 
@@ -855,12 +870,25 @@ RULES:
 
     // Match items to products
     const matchedItems = await matchReceiptItems(draftItems, capture.storeId);
+    for (const item of matchedItems) {
+      const hasSuggestedProduct = Boolean(item?.suggestedProduct?.id);
+      const hasUpc = Boolean(normalizeReceiptLineUpc(item?.upc));
+      if (!hasSuggestedProduct) {
+        stageMetrics.unmatchedCount += 1;
+      } else if (hasUpc) {
+        stageMetrics.upcResolvedCount += 1;
+      } else {
+        stageMetrics.nameResolvedCount += 1;
+      }
+    }
     const matchedLines = matchedItems.filter(item => item?.suggestedProduct?.id).length;
     const unmatchedLines = matchedItems.length - matchedLines;
 
     if (isReceiptParseDebugEnabled()) {
       console.info('Receipt parse debug matched items.', {
         captureId: capture._id?.toString?.() || String(capture._id || captureId),
+        jobId: null,
+        stageMetrics,
         lines: matchedItems.map(item => ({
           lineIndex: item.lineIndex,
           receiptName: item.receiptName,
@@ -876,10 +904,12 @@ RULES:
 
     console.info('Receipt parse summary.', {
       captureId: capture._id?.toString?.() || String(capture._id || captureId),
+      jobId: null,
       totalLines,
       matchedLines,
       unmatchedLines,
-      invalidPriceSkippedLines
+      invalidPriceSkippedLines,
+      stageMetrics
     });
 
     capture.markParsed(matchedItems);
@@ -988,6 +1018,7 @@ RULES:
         items,
         warnings: matchedItems.filter(it => it.needsReview).map(it => it.reviewReason).filter(Boolean),
         metadata: {
+          stageMetrics,
           ...(storeMatchResult?.topCandidates?.length ? {
             storeMatchCandidates: storeMatchResult.topCandidates,
             storeMatchAmbiguous: Boolean(storeMatchResult?.ambiguous)
@@ -999,7 +1030,7 @@ RULES:
     await recordAuditLog({
       type: 'receipt_parse',
       actorId,
-      details: `captureId=${capture._id} items=${matchedItems.length} needsReview=${needsReview}`
+      details: `captureId=${capture._id} jobId=${job?._id?.toString?.() || 'unknown'} items=${matchedItems.length} needsReview=${needsReview} ocrLinesExtracted=${stageMetrics.ocrLinesExtracted} linesWithValidQtyPrice=${stageMetrics.linesWithValidQtyPrice} upcResolvedCount=${stageMetrics.upcResolvedCount} nameResolvedCount=${stageMetrics.nameResolvedCount} unmatchedCount=${stageMetrics.unmatchedCount} observationWritesCount=${stageMetrics.observationWritesCount}`
     });
 
     return job;
@@ -1008,7 +1039,9 @@ RULES:
     parseFailureDetails = failureDetails;
     console.warn('Receipt parse failed with stage counters.', {
       captureId: capture._id?.toString?.() || String(capture._id || captureId),
+      jobId: null,
       ...parseStageFailures,
+      stageMetrics,
       parseError: failureDetails.parseError,
       parseErrorType: failureDetails.parseErrorType
     });

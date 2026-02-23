@@ -42,6 +42,11 @@ const APPROVAL_ERROR_CODES = {
   APPLY_FAILED: 'APPLY_FAILED',
   NO_PERSISTED_CHANGES: 'NO_PERSISTED_CHANGES'
 };
+
+const isReceiptParseDebugEnabled = () => {
+  const rawValue = process.env.RECEIPT_PARSE_DEBUG;
+  return /^(1|true|yes|on)$/i.test(String(rawValue || '').trim());
+};
 export const toNumber = value => {
   return sanitizeOcrCurrencyNumber(value);
 };
@@ -206,7 +211,8 @@ const buildApprovalMetadata = ({
   errorsByLine,
   inventoryUpdates,
   createdPriceObservations,
-  approvalType
+  approvalType,
+  stageMetrics
 }) => ({
   ...existingMetadata,
   approvedBy: username,
@@ -225,6 +231,7 @@ const buildApprovalMetadata = ({
   inventoryWriteCount: inventoryUpdates.length,
   priceObservationWriteCount: createdPriceObservations.length,
   approvalType,
+  stageMetrics,
   autoCommit: approvalType === 'auto',
   inventoryUpdates
 });
@@ -529,7 +536,7 @@ export const approveReceiptJobHandler = async (req, res) => {
       await recordAuditLog({
         type: 'store_created_from_receipt',
         actorId: username,
-        details: `captureId=${capture._id.toString()} storeId=${store._id.toString()} name=${store.name}`
+        details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} name=${store.name}`
       });
     }
 
@@ -553,6 +560,15 @@ export const approveReceiptJobHandler = async (req, res) => {
     }
     const priceObservations = [];
     const captureIdString = capture._id.toString();
+    const parseStageMetrics = parseJob?.metadata?.stageMetrics || {};
+    const approvalStageMetrics = {
+      ocrLinesExtracted: Number(parseStageMetrics.ocrLinesExtracted || 0),
+      linesWithValidQtyPrice: Number(parseStageMetrics.linesWithValidQtyPrice || 0),
+      upcResolvedCount: Number(parseStageMetrics.upcResolvedCount || 0),
+      nameResolvedCount: Number(parseStageMetrics.nameResolvedCount || 0),
+      unmatchedCount: Number(parseStageMetrics.unmatchedCount || 0),
+      observationWritesCount: 0
+    };
     const linePersistenceCache = new Map();
 
     const getPersistedLineState = async (lineIndex) => {
@@ -791,7 +807,7 @@ export const approveReceiptJobHandler = async (req, res) => {
             await recordAuditLog({
               type: 'product_created_from_receipt',
               actorId: username,
-              details: `captureId=${captureIdString} lineIndex=${item.lineIndex} productId=${product._id.toString()} sku=${product.sku}`
+              details: `jobId=${jobId} captureId=${captureIdString} lineIndex=${item.lineIndex} productId=${product._id.toString()} sku=${product.sku}`
             });
           }
         }
@@ -993,7 +1009,7 @@ export const approveReceiptJobHandler = async (req, res) => {
           await recordAuditLog({
             type: 'product_updated_from_receipt',
             actorId: username,
-            details: `captureId=${captureIdString} lineIndex=${item.lineIndex} productId=${product._id.toString()} auto_price_update=${autoUpdateProductPriceFromReceipt && Boolean(retailPrice)}`
+            details: `jobId=${jobId} captureId=${captureIdString} lineIndex=${item.lineIndex} productId=${product._id.toString()} auto_price_update=${autoUpdateProductPriceFromReceipt && Boolean(retailPrice)}`
           });
         }
 
@@ -1036,7 +1052,7 @@ export const approveReceiptJobHandler = async (req, res) => {
               await recordAuditLog({
                 type: 'upc_linked_from_receipt',
                 actorId: username,
-                details: `captureId=${capture._id.toString()} upc=${normalizedUpc} productId=${product._id.toString()} override=true`
+                details: `jobId=${jobId} captureId=${capture._id.toString()} upc=${normalizedUpc} productId=${product._id.toString()} override=true`
               });
             }
           } else {
@@ -1048,7 +1064,7 @@ export const approveReceiptJobHandler = async (req, res) => {
             await recordAuditLog({
               type: 'upc_linked_from_receipt',
               actorId: username,
-              details: `captureId=${capture._id.toString()} upc=${normalizedUpc} productId=${product._id.toString()}`
+              details: `jobId=${jobId} captureId=${capture._id.toString()} upc=${normalizedUpc} productId=${product._id.toString()}`
             });
           }
         }
@@ -1065,6 +1081,7 @@ export const approveReceiptJobHandler = async (req, res) => {
     if (priceObservations.length > 0) {
       createdPriceObservations = await PriceObservation.insertMany(priceObservations, { session });
     }
+    approvalStageMetrics.observationWritesCount = createdPriceObservations.length;
 
     const inventoryAppliedLineIndexes = new Set(
       inventoryUpdates
@@ -1103,6 +1120,25 @@ export const approveReceiptJobHandler = async (req, res) => {
         acc[entry.lineIndex] = entry.errors;
         return acc;
       }, {});
+
+    console.info('Receipt approval summary.', {
+      captureId: captureIdString,
+      jobId,
+      stageMetrics: approvalStageMetrics,
+      selectedLineCount: itemsToApprove.length,
+      appliedCount,
+      skippedCount,
+      inventoryWriteCount: inventoryUpdates.length,
+      priceObservationWriteCount: createdPriceObservations.length
+    });
+
+    if (isReceiptParseDebugEnabled()) {
+      console.info('Receipt approval debug line outcomes.', {
+        captureId: captureIdString,
+        jobId,
+        lineOutcomes
+      });
+    }
 
     if (enforceStrictValidation && Object.keys(errorsByLine).length > 0) {
       await recordAuditLog({
@@ -1188,7 +1224,8 @@ export const approveReceiptJobHandler = async (req, res) => {
         errorsByLine,
         inventoryUpdates,
         createdPriceObservations,
-        approvalType: isAutoCommit ? 'auto' : 'manual'
+        approvalType: isAutoCommit ? 'auto' : 'manual',
+        stageMetrics: approvalStageMetrics
       });
       await parseJob.save({ session });
     }
@@ -1200,7 +1237,7 @@ export const approveReceiptJobHandler = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_approved',
       actorId: username,
-      details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} ignorePriceLocks=${shouldIgnorePriceLocks} priceLockOverrides=${priceLockOverrideCount} backendBuildId=${backendBuildId} auto_commit=${isAutoCommit} approval_type=${isAutoCommit ? 'auto' : 'manual'}`
+      details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} ignorePriceLocks=${shouldIgnorePriceLocks} priceLockOverrides=${priceLockOverrideCount} backendBuildId=${backendBuildId} auto_commit=${isAutoCommit} approval_type=${isAutoCommit ? 'auto' : 'manual'} ocrLinesExtracted=${approvalStageMetrics.ocrLinesExtracted} linesWithValidQtyPrice=${approvalStageMetrics.linesWithValidQtyPrice} upcResolvedCount=${approvalStageMetrics.upcResolvedCount} nameResolvedCount=${approvalStageMetrics.nameResolvedCount} unmatchedCount=${approvalStageMetrics.unmatchedCount} observationWritesCount=${approvalStageMetrics.observationWritesCount}`
     });
 
     res.json({
@@ -1217,6 +1254,7 @@ export const approveReceiptJobHandler = async (req, res) => {
       matchedProducts,
       inventoryWriteCount: inventoryUpdates.length,
       priceObservationWriteCount: createdPriceObservations.length,
+      stageMetrics: approvalStageMetrics,
       backendBuildId,
       inventoryUpdates,
       errors
