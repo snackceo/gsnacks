@@ -20,6 +20,7 @@ import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCr
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import { buildInventoryUpdate, buildStoreInventoryQuery } from '../utils/receiptInventory.js';
 import { calculateRetail } from '../utils/pricing.js';
+import { normalizeReceiptProductName } from '../utils/receiptNameNormalization.js';
 
 const router = express.Router();
 
@@ -37,34 +38,17 @@ const APPROVAL_ERROR_CODES = {
   APPLY_FAILED: 'APPLY_FAILED',
   NO_PERSISTED_CHANGES: 'NO_PERSISTED_CHANGES'
 };
-const normalizeReceiptName = value =>
-  String(value || '')
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, ' ')
-    .replace(/[^\w\s]/gi, '');
+const normalizeReceiptName = normalizeReceiptProductName;
 
-const escapeRegex = value => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const resolveProductByNormalizedName = async ({ normalizedName, session }) => {
   const normalized = normalizeReceiptName(normalizedName);
   if (!normalized) return null;
 
-  const normalizedWordPattern = normalized
-    .split(' ')
-    .filter(Boolean)
-    .map(escapeRegex)
-    .join('[^A-Z0-9]*');
-
-  if (!normalizedWordPattern) return null;
-
-  const candidates = await Product.find({
-    name: { $regex: new RegExp(`^\\s*${normalizedWordPattern}\\s*$`, 'i') }
-  })
-    .limit(25)
+  const product = await Product.findOne({ normalizedName: normalized })
     .session(session);
 
-  return candidates.find(candidate => normalizeReceiptName(candidate.name) === normalized) || null;
+  return product || null;
 };
 
 export const toNumber = value => {
@@ -204,7 +188,7 @@ const normalizeDraftItem = (raw) => {
   return {
     lineIndex,
     receiptName,
-    normalizedName: raw?.normalizedName || normalizeReceiptName(receiptName),
+    normalizedName: normalizeReceiptName(raw?.normalizedName || receiptName),
     quantity: raw?.quantity ?? 1,
     unitPrice: raw?.unitPrice ?? null,
     totalPrice: raw?.totalPrice ?? raw?.lineTotal ?? null,
@@ -713,7 +697,7 @@ export const approveReceiptJobHandler = async (req, res) => {
         let inventoryUnmappedProductId = null;
 
         if (effectiveAction === 'CREATE_PRODUCT') {
-          const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
+          const normalizedName = normalizeReceiptName(item.normalizedName || item.receiptName);
           const rawName = item.receiptName || normalizedName || 'Receipt Item';
 
           // Resolution order for receipt-created products:
@@ -761,7 +745,7 @@ export const approveReceiptJobHandler = async (req, res) => {
 
         if (!product) {
           // Always create or update UnmappedProduct for raw/unknown items
-          const normalizedName = item.normalizedName || normalizeReceiptName(item.receiptName);
+          const normalizedName = normalizeReceiptName(item.normalizedName || item.receiptName);
           const rawName = item.receiptName || normalizedName || 'Receipt Item';
           const now = new Date();
 
