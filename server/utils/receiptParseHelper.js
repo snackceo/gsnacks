@@ -33,6 +33,11 @@ const PRICE_DELTA_POLICY = {
   stalenessDays: 30
 };
 
+const isReceiptParseDebugEnabled = () => {
+  const rawValue = process.env.RECEIPT_PARSE_DEBUG;
+  return /^(1|true|yes|on)$/i.test(String(rawValue || '').trim());
+};
+
 const parseReceiptAddress = (rawAddress = '') => {
   if (!rawAddress) return {};
   const cleaned = rawAddress.trim();
@@ -480,6 +485,8 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
 
 
   let parseFailureDetails = null;
+  let totalLines = 0;
+  let invalidPriceSkippedLines = 0;
   let skippedImages = [];
   let skippedImageReason = [];
 
@@ -650,6 +657,7 @@ RULES:
       // Add items from this image
       if (Array.isArray(parsed.items)) {
         for (const item of parsed.items) {
+          totalLines += 1;
           const parsedTotal = sanitizeReceiptNumber(item.totalPrice);
           const parsedUnit = sanitizeReceiptNumber(item.unitPrice);
           const parsedQty = sanitizeReceiptNumber(item.quantity);
@@ -667,6 +675,7 @@ RULES:
               : (hasTotal && qty > 0 ? parsedTotal / qty : null);
 
             if (!(typeof totalPrice === 'number' && totalPrice > 0) && !(typeof unitPrice === 'number' && unitPrice > 0)) {
+              invalidPriceSkippedLines += 1;
               continue;
             }
 
@@ -679,6 +688,8 @@ RULES:
               unitPrice: typeof unitPrice === 'number' && Number.isFinite(unitPrice) ? unitPrice : 0,
               upc
             });
+          } else if (item.receiptName) {
+            invalidPriceSkippedLines += 1;
           }
         }
       }
@@ -705,6 +716,32 @@ RULES:
 
     // Match items to products
     const matchedItems = await matchReceiptItems(draftItems, capture.storeId);
+    const matchedLines = matchedItems.filter(item => item?.suggestedProduct?.id).length;
+    const unmatchedLines = matchedItems.length - matchedLines;
+
+    if (isReceiptParseDebugEnabled()) {
+      console.info('Receipt parse debug matched items.', {
+        captureId: capture._id?.toString?.() || String(capture._id || captureId),
+        lines: matchedItems.map(item => ({
+          lineIndex: item.lineIndex,
+          receiptName: item.receiptName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          upc: item.upc || null,
+          matchMethod: item.matchMethod || null,
+          suggestedProductId: item.suggestedProduct?.id || null
+        }))
+      });
+    }
+
+    console.info('Receipt parse summary.', {
+      captureId: capture._id?.toString?.() || String(capture._id || captureId),
+      totalLines,
+      matchedLines,
+      unmatchedLines,
+      invalidPriceSkippedLines
+    });
 
     capture.markParsed(matchedItems);
     capture.geminiRequestId = `receipt_${capture._id}_${Date.now()}`;
