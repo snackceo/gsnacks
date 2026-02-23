@@ -8,7 +8,9 @@ const {
   parseGeminiJsonPayload,
   recoverItemsFromRawText,
   normalizeProviderReceiptItems,
-  normalizeProviderReceiptItemsWithMetrics
+  normalizeProviderReceiptItemsWithMetrics,
+  buildParseQualityMetrics,
+  getReceiptQualityThreshold
 } = __test__;
 
 test('parseGeminiJsonPayload recovers JSON from code fences with extra text and trailing commas', () => {
@@ -137,4 +139,39 @@ test('normalizeProviderReceiptItemsWithMetrics tracks sanitizer activity', () =>
   assert.equal(result.metrics.commaDecimalNormalizedCount, 1);
   assert.equal(result.metrics.ocrTypoFixCount, 1);
   assert.equal(result.metrics.withUpcCount, 1);
+});
+
+test('buildParseQualityMetrics computes expected diagnostics and quality score', () => {
+  const metrics = buildParseQualityMetrics({
+    ocrOutput: {
+      parseStageFailures: { invalid_json: 1, no_items: 1 },
+      skippedImages: [{ reason: 'blur' }]
+    },
+    normalizedProviderItems: [{}, {}, {}, {}],
+    validStructuredLineCount: 2,
+    invalidPriceSkippedLines: 2,
+    imageCount: 4
+  });
+
+  assert.equal(metrics.extractedLineCount, 4);
+  assert.equal(metrics.linesWithValidQtyPrice, 2);
+  assert.equal(metrics.invalidPriceSkippedLines, 2);
+  assert.equal(metrics.malformedStructureRate, 0.5);
+  assert.equal(metrics.skippedImageCount, 1);
+  assert.equal(metrics.qualityScore, 0.6375);
+});
+
+test('getReceiptQualityThreshold clamps and defaults values', () => {
+  const original = process.env.RECEIPT_PARSE_QUALITY_SCORE_THRESHOLD;
+  process.env.RECEIPT_PARSE_QUALITY_SCORE_THRESHOLD = '1.2';
+  assert.equal(getReceiptQualityThreshold({}), 1);
+  assert.equal(getReceiptQualityThreshold({ qualityScoreThreshold: -1 }), 0);
+  assert.equal(getReceiptQualityThreshold({ qualityScoreThreshold: 0.42 }), 0.42);
+  process.env.RECEIPT_PARSE_QUALITY_SCORE_THRESHOLD = 'not-a-number';
+  assert.equal(getReceiptQualityThreshold({}), 0.6);
+  if (original === undefined) {
+    delete process.env.RECEIPT_PARSE_QUALITY_SCORE_THRESHOLD;
+  } else {
+    process.env.RECEIPT_PARSE_QUALITY_SCORE_THRESHOLD = original;
+  }
 });

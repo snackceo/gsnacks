@@ -327,13 +327,59 @@ export const __test__ = {
   parseGeminiJsonPayload,
   recoverItemsFromRawText,
   normalizeProviderReceiptItems,
-  normalizeProviderReceiptItemsWithMetrics
+  normalizeProviderReceiptItemsWithMetrics,
+  buildParseQualityMetrics,
+  getReceiptQualityThreshold
 };
 
 const getReceiptOcrProviderSelection = options => ({
   primaryProvider: options.primaryProvider || process.env.RECEIPT_OCR_PRIMARY_PROVIDER || 'gemini',
   fallbackProvider: options.fallbackProvider || process.env.RECEIPT_OCR_FALLBACK_PROVIDER || 'vision'
 });
+
+function getReceiptQualityThreshold(options) {
+  const rawThreshold = options.qualityScoreThreshold ?? process.env.RECEIPT_PARSE_QUALITY_SCORE_THRESHOLD;
+  const parsedThreshold = Number(rawThreshold);
+  if (Number.isFinite(parsedThreshold)) {
+    return Math.min(1, Math.max(0, parsedThreshold));
+  }
+  return 0.6;
+}
+
+function buildParseQualityMetrics({
+  ocrOutput,
+  normalizedProviderItems,
+  validStructuredLineCount,
+  invalidPriceSkippedLines,
+  imageCount
+}) {
+  const extractedLineCount = Array.isArray(normalizedProviderItems) ? normalizedProviderItems.length : 0;
+  const malformedJsonCount = (ocrOutput?.parseStageFailures?.invalid_json || 0) + (ocrOutput?.parseStageFailures?.no_items || 0);
+  const denominator = Math.max(1, imageCount || 0);
+  const malformedRate = Math.min(1, malformedJsonCount / denominator);
+  const skippedImageCount = ocrOutput?.skippedImages?.length || 0;
+  const skippedRate = Math.min(1, skippedImageCount / denominator);
+  const validLineRate = extractedLineCount > 0
+    ? Math.min(1, validStructuredLineCount / extractedLineCount)
+    : 0;
+  const extractedSignal = Math.min(1, extractedLineCount / 4);
+
+  const qualityScore = Number((
+    (validLineRate * 0.45) +
+    (extractedSignal * 0.20) +
+    ((1 - malformedRate) * 0.20) +
+    ((1 - skippedRate) * 0.15)
+  ).toFixed(4));
+
+  return {
+    extractedLineCount,
+    linesWithValidQtyPrice: validStructuredLineCount,
+    invalidPriceSkippedLines,
+    malformedStructureRate: Number(malformedRate.toFixed(4)),
+    skippedImageCount,
+    qualityScore
+  };
+}
 
 export async function executeReceiptParse(captureId, actorId = 'worker', options = {}) {
   const capture = await ReceiptCapture.findById(captureId);
@@ -347,6 +393,7 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
   let invalidPriceSkippedLines = 0;
   let skippedImages = [];
   let skippedImageReason = [];
+  const qualityThreshold = getReceiptQualityThreshold(options);
   const parseStageFailures = {
     invalid_json: 0,
     no_items: 0,
@@ -405,13 +452,85 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
       ...getReceiptOcrConfigFromEnv(),
       ...(options.ocrQualityConfig || {})
     };
-    const ocrRun = await runReceiptOcrWithFallback({
+    const runOcr = async providerSelectionInput => runReceiptOcrWithFallback({
       images: capture.images,
-      primary: providerSelection.primaryProvider,
-      fallback: providerSelection.fallbackProvider,
+      primary: providerSelectionInput.primaryProvider,
+      fallback: providerSelectionInput.fallbackProvider,
       qualityConfig: ocrQualityConfig
     });
-    const ocrOutput = ocrRun.result;
+    let ocrRun = await runOcr(providerSelection);
+    let ocrOutput = ocrRun.result;
+    let normalizationResult = normalizeProviderReceiptItemsWithMetrics(ocrOutput.items || []);
+    let normalizedProviderItems = normalizationResult.items;
+    let validStructuredLineCount = normalizedProviderItems.filter(item => {
+      const parsedTotal = sanitizeReceiptNumber(item.totalPrice);
+      const parsedUnit = sanitizeReceiptNumber(item.unitPrice);
+      const parsedQty = sanitizeReceiptNumber(item.quantity);
+      const hasTotal = typeof parsedTotal === 'number' && Number.isFinite(parsedTotal) && parsedTotal > 0;
+      const hasUnit = typeof parsedUnit === 'number' && Number.isFinite(parsedUnit) && parsedUnit > 0;
+      const hasQty = typeof parsedQty === 'number' && Number.isFinite(parsedQty) && parsedQty > 0;
+      return Boolean(item.receiptName && (hasTotal || (hasUnit && hasQty)));
+    }).length;
+
+    let qualityMetrics = buildParseQualityMetrics({
+      ocrOutput,
+      normalizedProviderItems,
+      validStructuredLineCount,
+      invalidPriceSkippedLines: 0,
+      imageCount: capture.images?.length || 0
+    });
+    let fallbackTriggered = false;
+    const shouldRetryStructuring = qualityMetrics.qualityScore < qualityThreshold;
+    const canRetryWithAlternateProvider = providerSelection.primaryProvider !== providerSelection.fallbackProvider;
+    let qualityScoreBeforeFallback = qualityMetrics.qualityScore;
+
+    if (shouldRetryStructuring && canRetryWithAlternateProvider) {
+      fallbackTriggered = true;
+      const alternateSelection = {
+        primaryProvider: providerSelection.fallbackProvider,
+        fallbackProvider: providerSelection.primaryProvider
+      };
+      const alternateRun = await runOcr(alternateSelection);
+      const alternateOutput = alternateRun.result;
+      const alternateNormalization = normalizeProviderReceiptItemsWithMetrics(alternateOutput.items || []);
+      const alternateItems = alternateNormalization.items;
+      const alternateValidStructuredLineCount = alternateItems.filter(item => {
+        const parsedTotal = sanitizeReceiptNumber(item.totalPrice);
+        const parsedUnit = sanitizeReceiptNumber(item.unitPrice);
+        const parsedQty = sanitizeReceiptNumber(item.quantity);
+        const hasTotal = typeof parsedTotal === 'number' && Number.isFinite(parsedTotal) && parsedTotal > 0;
+        const hasUnit = typeof parsedUnit === 'number' && Number.isFinite(parsedUnit) && parsedUnit > 0;
+        const hasQty = typeof parsedQty === 'number' && Number.isFinite(parsedQty) && parsedQty > 0;
+        return Boolean(item.receiptName && (hasTotal || (hasUnit && hasQty)));
+      }).length;
+      const alternateQualityMetrics = buildParseQualityMetrics({
+        ocrOutput: alternateOutput,
+        normalizedProviderItems: alternateItems,
+        validStructuredLineCount: alternateValidStructuredLineCount,
+        invalidPriceSkippedLines: 0,
+        imageCount: capture.images?.length || 0
+      });
+
+      if (alternateQualityMetrics.qualityScore >= qualityMetrics.qualityScore) {
+        ocrRun = {
+          ...alternateRun,
+          attempts: [...(ocrRun.attempts || []), ...(alternateRun.attempts || [])],
+          fallbackReason: ocrRun.fallbackReason || 'quality_score_below_threshold'
+        };
+        ocrOutput = alternateOutput;
+        normalizationResult = alternateNormalization;
+        normalizedProviderItems = alternateItems;
+        validStructuredLineCount = alternateValidStructuredLineCount;
+        qualityMetrics = alternateQualityMetrics;
+      } else {
+        ocrRun = {
+          ...ocrRun,
+          attempts: [...(ocrRun.attempts || []), ...(alternateRun.attempts || [])],
+          fallbackReason: ocrRun.fallbackReason || 'quality_score_below_threshold'
+        };
+      }
+    }
+
     const geminiOutput = {
       provider: ocrRun.providerUsed,
       rawTextByImage: ocrOutput.rawTextByImage || [],
@@ -427,8 +546,6 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
     parseStageFailures.no_items = ocrOutput.parseStageFailures?.no_items || 0;
     parseStageFailures.all_images_skipped = ocrOutput.parseStageFailures?.all_images_skipped || 0;
 
-    const normalizationResult = normalizeProviderReceiptItemsWithMetrics(ocrOutput.items || []);
-    const normalizedProviderItems = normalizationResult.items;
     for (const item of normalizedProviderItems) {
       totalLines += 1;
       const parsedTotal = sanitizeReceiptNumber(item.totalPrice);
@@ -465,6 +582,17 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
         invalidPriceSkippedLines += 1;
       }
     }
+    qualityMetrics = buildParseQualityMetrics({
+      ocrOutput,
+      normalizedProviderItems,
+      validStructuredLineCount: draftItems.length,
+      invalidPriceSkippedLines,
+      imageCount: capture.images?.length || 0
+    });
+
+    stageMetrics.ocrLinesExtracted = qualityMetrics.extractedLineCount;
+    stageMetrics.linesWithValidQtyPrice = qualityMetrics.linesWithValidQtyPrice;
+
     skippedImages = geminiOutput.skippedImages;
     skippedImageReason = geminiOutput.skippedImages.map(skip => skip.reason).filter(Boolean);
 
@@ -649,6 +777,17 @@ export async function executeReceiptParse(captureId, actorId = 'worker', options
             primaryProvider: providerSelection.primaryProvider,
             fallbackProvider: providerSelection.fallbackProvider,
             qualityConfig: ocrQualityConfig
+          },
+          parseQuality: {
+            extractedLineCount: qualityMetrics.extractedLineCount,
+            linesWithValidQtyPrice: qualityMetrics.linesWithValidQtyPrice,
+            malformedStructureRate: qualityMetrics.malformedStructureRate,
+            skippedImageCount: qualityMetrics.skippedImageCount,
+            invalidPriceSkippedLines: qualityMetrics.invalidPriceSkippedLines,
+            qualityScore: qualityMetrics.qualityScore,
+            qualityScoreThreshold: qualityThreshold,
+            qualityScoreBeforeFallback,
+            fallbackTriggered
           },
           ...(storeMatchResult?.topCandidates?.length ? {
             storeMatchCandidates: storeMatchResult.topCandidates,
