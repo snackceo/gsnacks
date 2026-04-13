@@ -19,7 +19,13 @@ import { getBackendBuildIdentifier } from '../utils/buildIdentifier.js';
 import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import { buildInventoryUpdate, buildStoreInventoryQuery } from '../utils/receiptInventory.js';
-import { calculateRetail, calculatePerUnitCost, normalizeQuantity } from '../utils/pricing.js';
+import { calculateRetail, normalizeQuantity } from '../utils/pricing.js';
+import {
+  parseReceiptCurrency,
+  resolveReceiptUnitPrice,
+  buildNormalizedReceiptPriceInput,
+  buildPriceObservationPayload
+} from '../utils/receiptObservation.js';
 import {
   getReceiptLineNormalizedName,
   normalizeReceiptLineUpc,
@@ -56,107 +62,11 @@ const isReceiptParseDebugEnabled = () => {
   const rawValue = process.env.RECEIPT_PARSE_DEBUG;
   return /^(1|true|yes|on)$/i.test(String(rawValue || '').trim());
 };
-export const toNumber = value => {
-  return sanitizeOcrCurrencyNumber(value);
-};
+export const toNumber = value => parseReceiptCurrency(value);
+export const sanitizeOcrCurrencyNumber = parseReceiptCurrency;
+export const resolveUnitPrice = resolveReceiptUnitPrice;
 
-const sanitizeNumericCandidate = raw => {
-  if (raw === null || raw === undefined) return '';
-  return String(raw)
-    .replace(/\(([^)]+)\)/g, '-$1')
-    .replace(/[oO]/g, '0')
-    .replace(/[lI]/g, '1')
-    .replace(/[sS]/g, '5')
-    .replace(/\s+/g, '')
-    .replace(/[^\d,.-]/g, '');
-};
-
-const extractLikelyPriceToken = raw => {
-  const rawValue = String(raw || '').trim();
-  if (!rawValue) return null;
-
-  const slashParts = rawValue.split('/').map(part => part.trim()).filter(Boolean);
-  if (slashParts.length > 1) {
-    const slashCandidate = slashParts[slashParts.length - 1];
-    if (/\d/.test(slashCandidate)) return slashCandidate;
-  }
-
-  const multiBuyMatch = rawValue.match(/\d+\s*[xX]\s*([$]?[\d.,]+)/);
-  if (multiBuyMatch?.[1]) {
-    return multiBuyMatch[1];
-  }
-
-  return rawValue;
-};
-
-export const sanitizeOcrCurrencyNumber = value => {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'number') {
-    return Number.isFinite(value) && value > 0 ? value : null;
-  }
-
-  let cleaned = sanitizeNumericCandidate(extractLikelyPriceToken(value));
-  if (!cleaned) return null;
-
-  const lastDot = cleaned.lastIndexOf('.');
-  const lastComma = cleaned.lastIndexOf(',');
-
-  if (lastDot !== -1 && lastComma !== -1) {
-    const decimalSeparator = lastDot > lastComma ? '.' : ',';
-    if (decimalSeparator === '.') {
-      cleaned = cleaned.replace(/,/g, '');
-    } else {
-      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-    }
-  } else if (lastComma !== -1) {
-    const commaCount = (cleaned.match(/,/g) || []).length;
-    const parts = cleaned.split(',');
-    const decimalLike = commaCount === 1 && parts[1]?.length > 0 && parts[1].length <= 2;
-    cleaned = decimalLike ? cleaned.replace(',', '.') : cleaned.replace(/,/g, '');
-  } else if (lastDot !== -1) {
-    const dotCount = (cleaned.match(/\./g) || []).length;
-    if (dotCount > 1) {
-      const parts = cleaned.split('.');
-      const decimalPart = parts.pop();
-      cleaned = `${parts.join('')}.${decimalPart}`;
-    }
-  }
-
-  const parsed = Number(cleaned);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-};
-
-export const resolveUnitPrice = item => {
-  const parsedUnit = sanitizeOcrCurrencyNumber(item?.unitPrice);
-  const parsedTotal = sanitizeOcrCurrencyNumber(item?.totalPrice);
-  const parsedQuantity = sanitizeOcrCurrencyNumber(item?.quantity);
-
-  return calculatePerUnitCost({
-    unitPrice: parsedUnit,
-    totalPrice: parsedTotal,
-    quantity: parsedQuantity
-  });
-};
-
-const buildNormalizedPriceInput = item => {
-  const parsedUnitPrice = sanitizeOcrCurrencyNumber(item?.unitPrice);
-  const parsedTotalPrice = sanitizeOcrCurrencyNumber(item?.totalPrice);
-  const parsedQuantity = sanitizeOcrCurrencyNumber(item?.quantity);
-  const resolvedUnitPrice = resolveUnitPrice(item);
-  return {
-    raw: {
-      unitPrice: item?.unitPrice ?? null,
-      totalPrice: item?.totalPrice ?? null,
-      quantity: item?.quantity ?? null
-    },
-    normalized: {
-      unitPrice: parsedUnitPrice,
-      totalPrice: parsedTotalPrice,
-      quantity: parsedQuantity,
-      resolvedUnitPrice
-    }
-  };
-};
+const buildNormalizedPriceInput = item => buildNormalizedReceiptPriceInput(item);
 
 const buildStoreCandidate = (capture, parseJob, body) => {
   if (body?.storeCandidate) return body.storeCandidate;
@@ -559,6 +469,7 @@ export const approveReceiptJobHandler = async (req, res) => {
     const errors = [];
     let fatalLineError = null;
     const lineOutcomeByIndex = new Map();
+    const observationRejectedLines = [];
     const approvalItems = new Map();
     if (approvalDraft?.items && Array.isArray(approvalDraft.items)) {
       for (const entry of approvalDraft.items) {
@@ -691,6 +602,7 @@ export const approveReceiptJobHandler = async (req, res) => {
           const lineError = { lineIndex: item.lineIndex, error: 'Invalid unit price', code: APPROVAL_ERROR_CODES.INVALID_UNIT_PRICE };
           errors.push(lineError);
           lineOutcome.errors.push(lineError);
+          observationRejectedLines.push({ lineIndex: item.lineIndex, reason: 'invalid_price' });
           continue;
         }
 
@@ -860,20 +772,19 @@ export const approveReceiptJobHandler = async (req, res) => {
             unmapped = created[0];
           }
 
-          priceObservations.push({
-            unmappedProductId: unmapped._id,
+          const unmappedObservation = buildPriceObservationPayload({
+            item,
             storeId: store._id,
-            price: unitPrice,
-            cost: unitPrice,
-            quantity: normalizeQuantity(item.quantity),
-            source: 'receipt',
-            observedAt: now,
             receiptCaptureId: capture._id,
-            lineIndex: item.lineIndex,
-            matchMethod: item.matchMethod || 'unmapped',
-            workflowType: item.workflowType || 'unmapped'
+            unmappedProductId: unmapped._id,
+            observedAt: now
           });
-          lineOutcome.priceObservationPersisted = true;
+          if (unmappedObservation.ok) {
+            priceObservations.push(unmappedObservation.payload);
+            lineOutcome.priceObservationPersisted = true;
+          } else {
+            observationRejectedLines.push({ lineIndex: item.lineIndex, reason: unmappedObservation.reason });
+          }
           // Only set flags for shared inventory upsert
           inventoryUnmappedProductId = unmapped._id;
           inventoryForUnmapped = true;
@@ -1023,20 +934,19 @@ export const approveReceiptJobHandler = async (req, res) => {
         }
 
         if (product) {
-          priceObservations.push({
-            productId: product._id,
+          const mappedObservation = buildPriceObservationPayload({
+            item,
             storeId: store._id,
-            price: unitPrice,
-            cost: unitPrice,
-            quantity: normalizeQuantity(item.quantity),
-            source: 'receipt',
-            observedAt: new Date(),
             receiptCaptureId: capture._id,
-            lineIndex: item.lineIndex,
-            matchMethod: item.matchMethod || 'manual_confirm',
-            workflowType: item.workflowType || 'update_price'
+            productId: product._id,
+            observedAt: new Date()
           });
-          lineOutcome.priceObservationPersisted = true;
+          if (mappedObservation.ok) {
+            priceObservations.push(mappedObservation.payload);
+            lineOutcome.priceObservationPersisted = true;
+          } else {
+            observationRejectedLines.push({ lineIndex: item.lineIndex, reason: mappedObservation.reason });
+          }
         }
 
         // UPC linking to productId, with conflict handling
@@ -1084,6 +994,20 @@ export const approveReceiptJobHandler = async (req, res) => {
         if (!fatalLineError) fatalLineError = lineError;
         throw itemError;
       }
+    }
+
+    if (observationRejectedLines.length > 0) {
+      const reasonCounts = observationRejectedLines.reduce((acc, entry) => {
+        const key = entry.reason || 'unknown';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+      await recordAuditLog({
+        type: 'receipt_observation_rejected_lines',
+        actorId: username,
+        details: `jobId=${jobId} captureId=${capture._id.toString()} rejected=${observationRejectedLines.length} reasons=${JSON.stringify(reasonCounts)}`
+      });
+      approvalStageMetrics.observationRejectedLines = observationRejectedLines;
     }
 
     let createdPriceObservations = [];
