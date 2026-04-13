@@ -10,7 +10,7 @@
 ## 2) Product Identity Contract
 
 - `sku` is the only business identifier for products.
-- SKU format is immutable and server-generated using an atomic counter.
+- SKU format is immutable (`NP-000001`) and server-generated using an atomic counter.
 - Client-side SKU generation is forbidden.
 
 ## 3) UPC Resolution Contract
@@ -62,3 +62,25 @@ UPC -> UPC Registry -> SKU -> Product -> Action
 - Receipt commits must record price observations for matched and unmatched items.
 - Unmatched receipt items are retained for later mapping/review (not discarded).
 - Product creation from receipt review remains policy-gated.
+
+## 10) Receipt Resolution Order Contract
+
+For receipt approval `CREATE_PRODUCT` and matching workflows, use this order:
+
+1. Bound/suggested product
+2. UPC registry mapping (when UPC exists)
+3. Normalized-name matching
+4. Create stub product (policy-gated)
+
+## 11) Tier Demotion & Review Rules
+
+- Users are automatically demoted one tier for:
+  - inactivity of 180 days,
+  - spend decay below 75% of the tier minimum,
+  - loss of required verification (phone/ID).
+- The owner may manually freeze, demote, or revoke tier status at any time for risk management.
+
+## 12) System Invariants
+
+- Michigan container value is fixed at **$0.10** per eligible container.
+- Cancellations before capture/delivery must release authorized wallet credits and restock inventory immediately.
