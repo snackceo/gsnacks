@@ -25,7 +25,7 @@ import {
 } from '../utils/receiptLineResolver.js';
 import { approveReceiptJob, buildAutoCommitApprovalBody } from '../services/receiptApprovalService.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
-import { calculatePerUnitCost, normalizeQuantity } from '../utils/pricing.js';
+import { buildPriceObservationPayload } from '../utils/receiptObservation.js';
 
 const getGeminiApiKey = () =>
   process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
@@ -2014,17 +2014,8 @@ router.post('/receipt-parse-jobs/:captureId/approve', authRequired, async (req, 
       const PriceObservation = (await import('../models/PriceObservation.js')).default;
       const draftItems = capture.draftItems || [];
       const now = new Date();
+      const rejectedLines = [];
       for (const item of draftItems) {
-        const quantity = normalizeQuantity(item?.quantity);
-        const perUnitCost = calculatePerUnitCost({
-          unitPrice: item?.unitPrice,
-          totalPrice: item?.totalPrice,
-          quantity
-        });
-        if (!perUnitCost) {
-          continue;
-        }
-
         const resolution = await resolveReceiptLineProduct({
           line: item,
           normalizedName: item.normalizedName || item.receiptName,
@@ -2051,27 +2042,47 @@ router.post('/receipt-parse-jobs/:captureId/approve', authRequired, async (req, 
             await unmapped.save();
           }
           // Write PriceObservation
-          await PriceObservation.create({
-            unmappedProductId: unmapped._id,
+          const observation = buildPriceObservationPayload({
+            item,
             storeId: store._id,
-            price: perUnitCost,
-            cost: perUnitCost,
-            quantity,
-            observedAt: now,
-            receiptCaptureId: capture._id
+            receiptCaptureId: capture._id,
+            unmappedProductId: unmapped._id,
+            observedAt: now
           });
+          if (observation.ok) {
+            await PriceObservation.create(observation.payload);
+          } else {
+            rejectedLines.push({ lineIndex: item?.lineIndex, reason: observation.reason });
+          }
         } else if (product) {
           // Write PriceObservation for resolved product
-          await PriceObservation.create({
-            productId: product._id,
+          const observation = buildPriceObservationPayload({
+            item,
             storeId: store._id,
-            price: perUnitCost,
-            cost: perUnitCost,
-            quantity,
-            observedAt: now,
-            receiptCaptureId: capture._id
+            receiptCaptureId: capture._id,
+            productId: product._id,
+            observedAt: now
           });
+          if (observation.ok) {
+            await PriceObservation.create(observation.payload);
+          } else {
+            rejectedLines.push({ lineIndex: item?.lineIndex, reason: observation.reason });
+          }
+        } else {
+          rejectedLines.push({ lineIndex: item?.lineIndex, reason: 'missing_mapping' });
         }
+      }
+      if (rejectedLines.length > 0) {
+        const reasonCounts = rejectedLines.reduce((acc, entry) => {
+          const key = entry.reason || 'unknown';
+          acc[key] = (acc[key] || 0) + 1;
+          return acc;
+        }, {});
+        await recordAuditLog({
+          type: 'receipt_observation_rejected_lines',
+          actorId: username,
+          details: `captureId=${captureId} route=receipt-prices rejected=${rejectedLines.length} reasons=${JSON.stringify(reasonCounts)}`
+        });
       }
     } catch (err) {
       console.error('UnmappedProduct/PriceObservation error:', err);
