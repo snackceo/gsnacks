@@ -11,7 +11,7 @@
 ### Additional Safety Clause
 
 - The system must track credit origin (RETURN vs POINTS vs MANUAL) to enforce payout eligibility.
-This file defines the system philosophy, contract, and non-negotiable rules for all AI-assisted and future development. For all roles, permissions, scanner modes, and domain terms, see [GLOSSARY.md](GLOSSARY.md). Backend and UI contracts are detailed in [server/GEMINI.md](server/GEMINI.md) and [src/GEMINI.md](src/GEMINI.md).
+This file defines the centralized system philosophy, contract, and non-negotiable rules for all AI-assisted and future development. For all roles, permissions, scanner modes, and domain terms, see [GLOSSARY.md](GLOSSARY.md). Backend and UI contracts are centralized in this root document.
 
 ---
 

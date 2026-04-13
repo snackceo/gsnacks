@@ -13,7 +13,8 @@
     "lint": "eslint \"src/**/*.{ts,tsx,js,jsx}\"",
     "typecheck": "tsc --noEmit",
     "test": "tsc -p tsconfig.test.json && node --test scripts/tests/inventoryDisplay.test.js && rm -rf .tmp-test",
-    "glossary:audit": "node scripts/glossary-audit.cjs"
+    "glossary:audit": "node scripts/glossary-audit.cjs",
+    "docs:check-links": "node scripts/check-readme-links.cjs"
   },
   "dependencies": {
     "@google/genai": "^1.34.0",

@@ -25,11 +25,11 @@ See also: GLOSSARY.md for definitions.
 |-----|---------|
 | [README.md](README.md) | Project overview, tech, usage, doc map |
 | [GLOSSARY.md](GLOSSARY.md) | Canonical definitions for all terms |
-| [GEMINI.md](GEMINI.md) | System philosophy, contract, and rules |
-| [server/GEMINI.md](server/GEMINI.md) | Backend enforcement, data model, API contract |
-| [src/GEMINI.md](src/GEMINI.md) | UI/UX, scanner, and component contract |
+| [GEMINI.md](GEMINI.md) | Centralized system philosophy, backend/frontend contract, scanner, and rules |
 
 ---
+
+> Contract note: scoped contract docs are centralized in root [GEMINI.md](GEMINI.md); there are currently no `server/GEMINI.md` or `src/GEMINI.md` files in this repo.
 
 ## Operations & Maintenance
 
