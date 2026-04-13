@@ -24,8 +24,7 @@ import {
 } from '../../types';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
 import ReceiptCaptureFlow from '../../components/ReceiptCaptureFlow';
-import { apiFetch } from '../../utils/apiFetch';
-import { BACKEND_URL } from '../../constants';
+import { getReceiptParseUiStatus, receiptApiClient } from '../../api/receiptApiClient';
 
 const createIdempotencyKey = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -293,11 +292,6 @@ const parseReceiptApproveResponse = (data: ReceiptApproveResponse): ReceiptAppro
   };
 };
 
-const parseApprovalResponseJson = async (response: Response): Promise<ReceiptApproveResponse> => {
-  return await response.json().catch(() => ({}));
-};
-
-
 const deriveResolvedStoreCandidate = (
   previousCandidate: ReceiptStoreCandidate | undefined,
   responseData: ReceiptApproveResponse
@@ -518,7 +512,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     if (!activeReceiptCaptureId) return;
     // Fetch the capture to check image URLs before triggering parse
     try {
-      const captureData: any = await apiFetch(`/api/driver/receipt-capture/${activeReceiptCaptureId}`);
+      const captureData: any = await receiptApiClient.getCapture(activeReceiptCaptureId);
       const images = Array.isArray(captureData?.images) ? captureData.images : [];
       // Check for valid URLs (Cloudinary/data URLs, not placeholders/404s)
       const invalidImages = images.filter((img: any) => {
@@ -538,11 +532,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     }
     // Now trigger parse (do not abort request)
     try {
-      const data: any = await apiFetch('/api/driver/receipt-parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ captureId: activeReceiptCaptureId })
-      });
+      const data: any = await receiptApiClient.triggerParse(activeReceiptCaptureId);
       if (data?.error) throw new Error(data.error || 'Failed to parse receipt');
       if (data?.warning) {
         addToast(data.warning, 'warning');
@@ -553,16 +543,12 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     } catch (err: any) {
       addToast(err?.message || 'Failed to parse receipt', 'error');
     }
-  }, [activeReceiptCaptureId, addToast, apiFetch]);
+  }, [activeReceiptCaptureId, addToast]);
 
   const handleRetryParse = useCallback(
     async (captureId: string) => {
       try {
-        const data: any = await apiFetch('/api/driver/receipt-parse', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ captureId })
-        });
+        const data: any = await receiptApiClient.triggerParse(captureId);
         if (data?.error) throw new Error(data.error || 'Failed to retry parse');
         if (data?.warning) {
           addToast(data.warning, 'warning');
@@ -604,9 +590,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     captureItemsAbortRef.current = abortController;
     captureItemsInFlightRef.current.add(captureId);
     try {
-      const data: any = await apiFetch(`/api/driver/receipt-capture/${captureId}/items`, {
-        signal: abortController.signal
-      });
+      const data: any = await receiptApiClient.getCaptureItems(captureId, abortController.signal);
       if (data?.error) throw new Error(data.error || 'Failed to load receipt items');
       const items = Array.isArray(data?.items) ? data.items : [];
       const { items: classified } = classifyItems(items);
@@ -644,11 +628,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleResetReview = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
-      const data: any = await apiFetch('/api/driver/receipt-reset-review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ captureId: activeReceiptCaptureId })
-      });
+      const data: any = await receiptApiClient.resetReview(activeReceiptCaptureId);
       if (data?.error) throw new Error(data.error || 'Failed to reset review');
       setSelectedItemsForCommit(new Map());
       setApprovalMode(DEFAULT_RECEIPT_APPROVAL_MODE);
@@ -663,14 +643,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleLock = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
-      const data: any = await apiFetch('/api/driver/receipt-lock', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          captureId: activeReceiptCaptureId,
-          lockDurationDays
-        })
-      });
+      const data: any = await receiptApiClient.lockCapture(activeReceiptCaptureId, lockDurationDays);
       if (data?.error) throw new Error(data.error || 'Failed to lock receipt');
       addToast(`Receipt locked for ${lockDurationDays} days.`, 'success');
     } catch (err: any) {
@@ -681,11 +654,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleUnlock = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
-      const data: any = await apiFetch('/api/driver/receipt-unlock', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ captureId: activeReceiptCaptureId })
-      });
+      const data: any = await receiptApiClient.unlockCapture(activeReceiptCaptureId);
       if (data?.error) throw new Error(data.error || 'Failed to unlock receipt');
       addToast('Receipt unlocked.', 'success');
     } catch (err: any) {
@@ -752,32 +721,26 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         items: draftItems
       };
 
-      const approvalResponse = await fetch(`${BACKEND_URL}/api/receipts/${selectedJob._id}/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          mode: approvalMode,
-          approvalDraft,
-          selectedIndices: approvalMode === 'selected' ? selectedIndices : undefined,
-          lockDurationDays,
-          idempotencyKey: receiptApprovalIdempotencyKey,
-          forceUpcOverride,
-          ignorePriceLocks,
-          finalStoreId: approvalDraft.finalStoreId,
-          storeCandidate: approvalDraft.storeCandidate,
-          confirmStoreCreate: approvalDraft.confirmStoreCreate,
-          approvalNotes: receiptApprovalNotes || undefined
-        })
+      const approvalData = await receiptApiClient.approveJob(selectedJob._id, {
+        mode: approvalMode,
+        approvalDraft,
+        selectedIndices: approvalMode === 'selected' ? selectedIndices : undefined,
+        lockDurationDays,
+        idempotencyKey: receiptApprovalIdempotencyKey,
+        forceUpcOverride,
+        ignorePriceLocks,
+        finalStoreId: approvalDraft.finalStoreId,
+        storeCandidate: approvalDraft.storeCandidate,
+        confirmStoreCreate: approvalDraft.confirmStoreCreate,
+        approvalNotes: receiptApprovalNotes || undefined
       });
-      const approvalData = await parseApprovalResponseJson(approvalResponse);
       const { outcome, appliedCount, skippedCount, backendErrors } = parseReceiptApproveResponse(approvalData);
       const summarizedErrors = summarizeApprovalErrors(backendErrors);
 
       setApprovalOutcomeByJobId(prev => ({ ...prev, [selectedJob._id]: outcome }));
       setApprovalPanelExpandedByJobId(prev => ({ ...prev, [selectedJob._id]: true }));
 
-      if (!approvalResponse.ok || approvalData?.error || appliedCount < 1) {
+      if (approvalData?.error || appliedCount < 1) {
         if (approvalData?.needsStoreResolution) {
           const resolvedCandidate = deriveResolvedStoreCandidate(finalStoreDraft.storeCandidate || selectedJob.storeCandidate, approvalData);
           updateStoreDraft({
@@ -911,8 +874,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   const loadReceiptHealth = useCallback(async () => {
     try {
-      const healthQueryStoreId = activeStoreId ? `?storeId=${encodeURIComponent(activeStoreId)}` : '';
-      const data: any = await apiFetch(`/api/driver/receipt-health${healthQueryStoreId}`);
+      const data: any = await receiptApiClient.getHealth(activeStoreId || undefined);
       setReceiptQueueStatus(data?.queueStatus || null);
       setReceiptIngestionGate(data?.ingestionGate || null);
       setReceiptOcrProviderSummary(data?.ocrProviderSummary7d || null);
@@ -929,7 +891,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     void loadReceiptHealth();
     setJobsError(null);
     try {
-      const data: any = await apiFetch('/api/receipts/?status=CREATED,QUEUED,PARSING,NEEDS_REVIEW,PARSED,FAILED,APPROVED');
+      const data: any = await receiptApiClient.listJobs('CREATED,QUEUED,PARSING,NEEDS_REVIEW,PARSED,FAILED,APPROVED');
       if (data?.error) throw new Error(data.error || 'Failed to load parse jobs');
       const validStatuses = [...PENDING_WORKFLOW_STATUSES, ...COMPLETED_WORKFLOW_STATUSES];
       let jobs = Array.isArray(data?.jobs) ? data.jobs : [];
@@ -962,7 +924,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   }, []);
 
   const handleReceiptCaptured = useCallback((captureId: string) => {
-    addToast('Receipt captured & parsing started', 'success');
+    addToast('Receipt captured. Parse queued; monitor status before approve/reject.', 'success');
     setIsReceiptFlowOpen(false);
     setReceiptFlow('pending');
   }, [addToast]);
@@ -1016,20 +978,14 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         };
 
         // POST to canonical approval endpoint and inspect payload even on non-2xx responses.
-        const approvalResponse = await fetch(`${BACKEND_URL}/api/receipts/${job._id}/approve`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(payload)
-        });
-        const data = await parseApprovalResponseJson(approvalResponse);
+        const data = await receiptApiClient.approveJob(job._id, payload);
         const { outcome, appliedCount, skippedCount, backendErrors } = parseReceiptApproveResponse(data);
         const summarizedErrors = summarizeApprovalErrors(backendErrors);
 
         setApprovalOutcomeByJobId(prev => ({ ...prev, [job._id]: outcome }));
         setApprovalPanelExpandedByJobId(prev => ({ ...prev, [job._id]: true }));
 
-        if (!approvalResponse.ok || data?.error || appliedCount < 1) {
+        if (data?.error || appliedCount < 1) {
           if (data?.needsStoreResolution) {
             const resolvedCandidate = deriveResolvedStoreCandidate(finalStoreDraft.storeCandidate || job.storeCandidate, data);
             updateStoreDraft({
@@ -1083,9 +1039,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleRejectParseJob = useCallback(async (jobId: string) => {
     setIsProcessing(true);
     try {
-      const data = await apiFetch(`/api/receipts/${jobId}/reject`, {
-        method: 'POST',
-      });
+      const data = await receiptApiClient.rejectJob(jobId);
       addToast('Parse job rejected', 'success');
       setParseJobs(prev => prev.filter(j => j._id !== jobId));
       setSelectedJob(null);
@@ -1215,6 +1169,13 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const activeJobs = receiptFlow === 'completed' ? completedWorkflowJobs : pendingWorkflowJobs;
   const visibleJobs = activeJobs.slice(0, visibleJobCount);
   const canLoadMoreJobs = activeJobs.length > visibleJobCount;
+  const parseStateLabels: Record<string, { label: string; className: string }> = {
+    queued: { label: 'Parse queued', className: 'bg-slate-700/60 text-slate-100 border-slate-400/50' },
+    parsing: { label: 'Parsing', className: 'bg-blue-700/50 text-blue-100 border-blue-300/50' },
+    ready_for_review: { label: 'Needs review', className: 'bg-amber-700/50 text-amber-100 border-amber-300/50' },
+    failed: { label: 'Parse failed', className: 'bg-red-700/50 text-red-100 border-red-300/50' },
+    completed: { label: 'Completed', className: 'bg-green-700/50 text-green-100 border-green-300/50' }
+  };
 
   useEffect(() => {
     if (activeJobs.length <= 20) {
@@ -1237,6 +1198,9 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           <p className="text-[11px] text-slate-300">
             Capturing a receipt creates a <span className="font-semibold text-white">ReceiptParseJob</span> that stages data for
             review before catalog changes.
+          </p>
+          <p className="text-[10px] text-slate-400 uppercase tracking-widest">
+            Canonical sequence: capture → parse trigger → poll job → approve/reject.
           </p>
           <ReceiptCaptureFlow
             stores={stores}
@@ -1450,6 +1414,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             <div className="space-y-3">
               {visibleJobs.map(job => {
                 const isBroken = (job.items?.length || 0) === 0;
+                const uiParseState = getReceiptParseUiStatus(job.status);
+                const parseState = parseStateLabels[uiParseState];
                 return (
                   <div
                     key={job._id}
@@ -1462,6 +1428,9 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                         <p className="text-[10px] text-slate-400 mt-1">{job.items?.length || 0} items • {fmtTime(job.createdAt)}</p>
                       </div>
                       <div className="flex items-center gap-2">
+                        <span className={`rounded-full border px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${parseState.className}`}>
+                          {parseState.label}
+                        </span>
                         {/* Dismiss/Reject always visible */}
                         <button
                           onClick={e => {

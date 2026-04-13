@@ -12,7 +12,7 @@ import ScannerPanel, { ScannerPanelProps } from './ScannerPanel';
 import { Loader2, CheckCircle2 } from 'lucide-react';
 import { useNinpoCore } from '../hooks/useNinpoCore';
 import { ScannerMode, StoreRecord } from '../types';
-import { apiFetch } from '../utils/apiFetch';
+import { receiptApiClient } from '../api/receiptApiClient';
 
 const GATE_ERROR_STATUSES = new Set([403, 429, 503]);
 
@@ -106,6 +106,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   >({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [parseState, setParseState] = useState<'queued' | 'parsing' | 'failed' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [parseRetryCaptureId, setParseRetryCaptureId] = useState<string | null>(null);
   const [isParseRetrying, setIsParseRetrying] = useState(false);
@@ -192,10 +193,9 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
 
       try {
         // DO NOT pass abort signal to parse trigger (fire-and-forget)
-        const parseData = await apiFetch('/api/driver/receipt-parse', {
-          method: 'POST',
-          body: JSON.stringify({ captureId })
-        });
+        setParseState('queued');
+        const parseData = await receiptApiClient.triggerParse(captureId);
+        setParseState('parsing');
 
         setParseRetryCaptureId(null);
         if (isRetry) {
@@ -210,6 +210,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
         const message = getGateErrorMessage(err, 'Parse request failed.');
         console.error('Receipt parse trigger failed:', { captureId, error: err });
         setError(message);
+        setParseState('failed');
         setParseRetryCaptureId(captureId);
         addToast(message, { type: 'error' });
 
@@ -228,14 +229,12 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
       setIsSubmitting(true);
       setError(null);
       setParseRetryCaptureId(null);
+      setParseState(null);
       addToast('Uploading receipt…', { type: 'info' });
       try {
         setShowSuccess(false);
         // 1️⃣ Upload image to backend to get imageUrl and thumbnailUrl
-        const uploadResp = await apiFetch<{ url: string; thumbnailUrl?: string }>('/api/driver/upload-receipt-image', {
-          method: 'POST',
-          body: JSON.stringify({ image: photoDataUrl, mime })
-        });
+        const uploadResp = await receiptApiClient.uploadReceiptImage({ image: photoDataUrl, mime });
         const url = uploadResp.url;
         const thumbnailUrl = uploadResp.thumbnailUrl;
         if (!url) throw new Error('Image upload failed: no URL returned');
@@ -247,10 +246,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
           captureRequestId
         };
         console.log('DEBUG: captureRequestId', captureRequestId, 'captureBody', captureBody);
-        const captureResp = await apiFetch<{ captureId: string }>('/api/driver/receipt-capture', {
-          method: 'POST',
-          body: JSON.stringify(captureBody)
-        });
+        const captureResp = await receiptApiClient.createCapture(captureBody);
         const captureId = captureResp.captureId;
 
         // 3️⃣ IMMEDIATE PARSE (do not block UI forever)
@@ -309,6 +305,7 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   return createPortal(
     <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
       <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[min(92vw,48rem)] rounded-xl border border-white/20 bg-black/70 px-4 py-3 text-center text-[11px] text-slate-200">
+        Canonical flow: <span className="font-semibold text-white">Capture → Immediate Parse Trigger → Poll Job → Approve/Reject</span>.{' '}
         Capture starts a <span className="font-semibold text-white">ReceiptParseJob</span> and stages parsed data for review.{' '}
         <span className="font-semibold text-white">Approve &amp; Apply</span> later commits
         <span className="font-semibold text-white"> StoreInventory</span> updates.
@@ -340,6 +337,11 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
               <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80">
                 <CheckCircle2 className="w-16 h-16 text-ninpo-lime mb-4" />
                 <div className="text-ninpo-lime font-black text-lg uppercase tracking-widest">Receipt Added!<br/>Parsing in Progress…</div>
+              </div>
+            )}
+            {parseState && (
+              <div className="absolute bottom-8 left-1/2 -translate-x-1/2 rounded-full border border-blue-300/60 bg-blue-900/70 px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-blue-100">
+                Parse status: {parseState}
               </div>
             )}
           </div>

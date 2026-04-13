@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Camera, Plus, X, Package, Check, AlertCircle, Upload } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch';
+import { receiptApiClient } from '../api/receiptApiClient';
 
 const GATE_ERROR_STATUSES = new Set([403, 429, 503]);
 
@@ -53,6 +54,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
   const [keepScannerOpen, setKeepScannerOpen] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
   const [uploadPhase, setUploadPhase] = useState<string | null>(null);
+  const [parseStatus, setParseStatus] = useState<'queued' | 'parsing' | 'failed' | null>(null);
   const [parseRetryCaptureId, setParseRetryCaptureId] = useState<string | null>(null);
   const [isParseRetrying, setIsParseRetrying] = useState(false);
 
@@ -173,12 +175,9 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
     if (!receiptPhoto) return null;
 
     setUploadPhase('Uploading receipt image…');
-    const uploadData = await apiFetch<{ url: string; thumbnailUrl?: string }>('/api/driver/upload-receipt-image', {
-      method: 'POST',
-      body: JSON.stringify({
-        image: receiptPhoto,
-        storeId: storeId || undefined
-      })
+    const uploadData = await receiptApiClient.uploadReceiptImage({
+      image: receiptPhoto,
+      storeId: storeId || undefined
     });
 
     return uploadData;
@@ -187,21 +186,18 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
   const createReceiptCapture = async (imageUrl: string, thumbnailUrl?: string) => {
     setUploadPhase('Creating receipt capture…');
     const captureRequestId = generateCaptureId();
-    const data = await apiFetch<{ captureId: string }>('/api/driver/receipt-capture', {
-      method: 'POST',
-      body: JSON.stringify({
-        storeId: storeId || undefined,
-        storeName: storeName || undefined,
-        orderId,
-        captureRequestId,
-        images: [
-          {
-            url: imageUrl,
-            thumbnailUrl: thumbnailUrl || imageUrl,
-            mime: receiptPhotoMime
-          }
-        ]
-      })
+    const data = await receiptApiClient.createCapture({
+      storeId: storeId || undefined,
+      storeName: storeName || undefined,
+      orderId,
+      captureRequestId,
+      images: [
+        {
+          url: imageUrl,
+          thumbnailUrl: thumbnailUrl || imageUrl,
+          mime: receiptPhotoMime
+        }
+      ]
     });
 
     return data.captureId;
@@ -214,16 +210,16 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
     }
 
     try {
-      await apiFetch('/api/driver/receipt-parse', {
-        method: 'POST',
-        body: JSON.stringify({ captureId })
-      });
+      setParseStatus('queued');
+      await receiptApiClient.triggerParse(captureId);
+      setParseStatus('parsing');
 
       setParseRetryCaptureId(null);
       return true;
     } catch (parseErr: any) {
       console.error('Receipt parse trigger failed:', { captureId, error: parseErr });
       setParseRetryCaptureId(captureId);
+      setParseStatus('failed');
       setError(
         getGateErrorMessage(parseErr, 'Receipt auto-parse failed. Please try again or contact support.') +
           ' (Auto-parse error)'
@@ -246,6 +242,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
     setError(null);
     setUploadPhase(null);
     setParseRetryCaptureId(null);
+    setParseStatus(null);
 
     try {
       let receiptImageUrl: string | undefined;
@@ -261,7 +258,7 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
         receiptThumbnailUrl = uploadData.thumbnailUrl || uploadData.url;
         captureId = await createReceiptCapture(receiptImageUrl, receiptThumbnailUrl);
         
-          // Auto-trigger parsing immediately after capture
+          // Canonical lifecycle invariant: capture -> immediate parse trigger -> poll -> approve/reject
           setUploadPhase('Parsing receipt with AI…');
           await triggerParse(captureId);
       }
@@ -408,6 +405,11 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
             )}
             {uploadPhase && (
               <p className="mt-3 text-xs text-slate-300">{uploadPhase}</p>
+            )}
+            {parseStatus && (
+              <p className="mt-2 text-xs text-blue-300">
+                Parse status: {parseStatus}
+              </p>
             )}
           </div>
 
@@ -577,24 +579,13 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
                           key={matchIndex}
                           onClick={async () => {
                             try {
-                              const backendUrl = process.env.REACT_APP_BACKEND_URL || '';
-                              const res = await fetch(`${backendUrl}/api/driver/receipt-confirm-match`, {
-                                method: 'POST',
-                                credentials: 'include',
-                                headers: {
-                                  'Content-Type': 'application/json'
-                                },
-                                body: JSON.stringify({
-                                  receiptName: review.receiptName,
-                                  sku: match.sku,
-                                  storeId
-                                })
+                              await receiptApiClient.confirmMatch({
+                                receiptName: review.receiptName,
+                                sku: match.sku,
+                                storeId
                               });
-
-                              if (res.ok) {
-                                setReviewItems(prev => prev.filter((_, i) => i !== index));
-                                setError(null);
-                              }
+                              setReviewItems(prev => prev.filter((_, i) => i !== index));
+                              setError(null);
                             } catch {
                               setError('Failed to confirm match');
                             }

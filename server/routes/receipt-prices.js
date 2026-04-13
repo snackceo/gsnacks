@@ -27,6 +27,15 @@ import { approveReceiptJob, buildAutoCommitApprovalBody } from '../services/rece
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import { calculatePerUnitCost, normalizeQuantity } from '../utils/pricing.js';
 
+/**
+ * Receipt capture/parse lifecycle contract (this router):
+ * - capture/upload endpoints create ReceiptCapture + ReceiptParseJob records
+ * - parse trigger endpoint must be called immediately after capture (Gemini invariant)
+ * - health/status endpoints support polling and queue diagnostics
+ *
+ * Approval/review actions are intentionally handled in /api/receipts (routes/receipts.js).
+ */
+
 const getGeminiApiKey = () =>
   process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
 

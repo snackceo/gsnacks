@@ -159,6 +159,13 @@ app.use('/api/ai', aiRouter);
 app.use('/api/shopping', shoppingRouter); // Multi-store shopping
 app.use('/api/driver', driverRouter); // Driver operations
 app.use('/api/driver', itemsNotFoundRouter); // Items not found tracking
+/**
+ * Receipt API contract surface:
+ * - Capture/Parse lifecycle endpoints live under /api/driver/* (receipt-prices router)
+ *   capture -> immediate parse trigger -> poll health/jobs
+ * - Approval/Review endpoints live under /api/receipts/* (receipts router)
+ *   approve/reject + queue review workflows
+ */
 app.use('/api/driver', receiptPricesRouter); // Receipt-based price updates
 app.use('/api/driver', receiptAliasesRouter); // Receipt alias bindings
 
@@ -167,7 +174,7 @@ app.use('/api/store-inventory', storeInventoryRouter); // Store inventory fetch
 app.use('/api/unmapped-products', unmappedProductsRouter);
 app.use('/api/price-observations', priceObservationsRouter);
 
-// Role-neutral receipt workflow (unified receipt endpoint)
+// Role-neutral receipt workflow (approval/review endpoints)
 app.use('/api/receipts', receiptsRouter); // Approvals, uploads, reviews
 
 app.use('/api/approvals', approvalsRouter);
