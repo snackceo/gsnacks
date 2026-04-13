@@ -62,6 +62,7 @@ const MAX_LEN = 14;
 const MAX_UPLOAD_MB = 6; // Reject overly large uploads to avoid memory spikes
 const MAX_IMAGE_DIMENSION = 1920; // Max width/height
 const IMAGE_COMPRESSION_QUALITY = 0.85; // JPEG quality
+const ENABLE_PLUGGABLE_DECODER_FALLBACK = false;
 
 const normalizeUpc = (raw: string) => raw.replace(/\D/g, '');
 
@@ -185,6 +186,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   const [blocked, setBlocked] = useState(false);
   const [manualUpc, setManualUpc] = useState('');
   const [lastDetectedUpc, setLastDetectedUpc] = useState<string | null>(null);
+  const [supportsBarcodeDetector, setSupportsBarcodeDetector] = useState(true);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [previewMime, setPreviewMime] = useState('image/jpeg');
@@ -195,6 +197,24 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   const torchOnRef = useRef(false);
 
   const isReceiptMode = mode === ScannerMode.RECEIPT_PARSE_LIVE;
+  const isManualOnlyFallback = !isReceiptMode && !supportsBarcodeDetector;
+
+  const modeFallbackHint = useCallback((scannerMode?: ScannerMode) => {
+    if (scannerMode === ScannerMode.INVENTORY_CREATE) {
+      return 'Inventory mode: enter UPC manually to continue creating or updating product details.';
+    }
+    if (scannerMode === ScannerMode.UPC_LOOKUP) {
+      return 'UPC lookup mode: enter UPC manually to find or edit registry mappings.';
+    }
+    if (
+      scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS ||
+      scannerMode === ScannerMode.CUSTOMER_RETURN_SCAN ||
+      scannerMode === ScannerMode.DRIVER_FULFILL_ORDER
+    ) {
+      return 'Returns/driver mode: enter UPC manually to continue verification and fulfillment flow.';
+    }
+    return 'Manual UPC entry is available for this scanner mode.';
+  }, []);
 
   // Native camera only on mobile for receipt mode
   const isMobile =
@@ -416,13 +436,8 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       setTorchSupported(Boolean((caps as any)?.torch));
       return;
     }
-
-    // For all other modes, use BarcodeDetector
-    if (!('BarcodeDetector' in window)) {
-      setScannerError('Scanner not supported on this device.');
-      // Do not set blocked, so user can retry if it was a transient error
-      return;
-    }
+    const hasBarcodeDetector = 'BarcodeDetector' in window;
+    setSupportsBarcodeDetector(hasBarcodeDetector);
 
     try {
       await startCamera({
@@ -448,6 +463,17 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 
       const caps = track?.getCapabilities?.();
       setTorchSupported(Boolean((caps as any)?.torch));
+
+      // Keep camera preview active and route users to manual entry.
+      if (!hasBarcodeDetector) {
+        setScannerError(null);
+        setScannerHint(modeFallbackHint(mode));
+        if (ENABLE_PLUGGABLE_DECODER_FALLBACK) {
+          setScannerHint(`${modeFallbackHint(mode)} Experimental decoder fallback is enabled.`);
+          // Pluggable decoder can be integrated here behind feature flags/settings.
+        }
+        return;
+      }
 
       // Barcode detection mode
       const detector = new (window as any).BarcodeDetector({
@@ -529,7 +555,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       setIsScanning(false);
       setBlocked(true);
     }
-  }, [acceptScan, stopScanner, validateUpc, isReceiptMode, useNativeCameraOnly, startCamera, stopCamera]);
+  }, [acceptScan, stopScanner, validateUpc, isReceiptMode, useNativeCameraOnly, startCamera, stopCamera, mode, modeFallbackHint]);
 
   useEffect(() => {
     setIsScanning(streamActive);
@@ -982,6 +1008,41 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       {scannerError && (
         <div className="absolute bottom-4 left-4 right-4 z-20 text-xs text-white bg-ninpo-red/90 backdrop-blur-sm rounded-2xl p-4 shadow-lg">
           {scannerError}
+        </div>
+      )}
+
+      {!isReceiptMode && (isManualOnlyFallback || scannerHint) && (
+        <div className="absolute bottom-4 left-4 right-4 z-20 rounded-2xl border border-white/20 bg-black/80 backdrop-blur-sm p-4 shadow-xl">
+          <p className="text-[11px] font-black uppercase tracking-widest text-ninpo-lime">
+            {isManualOnlyFallback ? 'Manual UPC entry' : 'Scanner hint'}
+          </p>
+          <p className="mt-1 text-xs text-slate-200 font-semibold">
+            {scannerHint ?? modeFallbackHint(mode)}
+          </p>
+
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+              value={manualUpc}
+              onChange={e => setManualUpc(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleManualScan();
+                }
+              }}
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="Enter UPC (8-14 digits)"
+              className="w-full rounded-xl border border-white/20 bg-black/60 px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-ninpo-lime/50"
+            />
+            <button
+              type="button"
+              onClick={handleManualScan}
+              className="rounded-xl bg-ninpo-lime px-4 py-2 text-xs font-black uppercase tracking-widest text-ninpo-black"
+            >
+              Submit UPC
+            </button>
+          </div>
         </div>
       )}
 
