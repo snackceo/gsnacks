@@ -26,6 +26,15 @@ import {
   resolveReceiptLineProduct
 } from '../utils/receiptLineResolver.js';
 
+/**
+ * Receipt approval/review contract (this router):
+ * - review queue reads and job-detail reads for parser output
+ * - explicit approve/reject endpoints to finalize operator decisions
+ *
+ * Capture/parse job lifecycle endpoints intentionally live under /api/driver
+ * in routes/receipt-prices.js to preserve capture -> parse trigger invariants.
+ */
+
 const router = express.Router();
 
 const canApproveReceipts = user => {
