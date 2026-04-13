@@ -110,6 +110,25 @@ function money(n: number) {
   return `$${v.toFixed(2)}`;
 }
 
+function normalizeReturnUpcs(raw: unknown): ReturnUpcEntry[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry: any) => ({
+      upc: String(entry?.upc || '').trim(),
+      quantity: Number(entry?.quantity || 0)
+    }))
+    .filter(entry => entry.upc && Number.isFinite(entry.quantity) && entry.quantity > 0);
+}
+
+function mergeReturnUpcs(primary: ReturnUpcEntry[], fallback: ReturnUpcEntry[]) {
+  const merged = new Map<string, ReturnUpcEntry>();
+  for (const entry of primary) merged.set(entry.upc, entry);
+  for (const entry of fallback) {
+    if (!merged.has(entry.upc)) merged.set(entry.upc, entry);
+  }
+  return Array.from(merged.values());
+}
+
 const CartDrawer: React.FC<CartDrawerProps> = ({
   isOpen,
   cart,
@@ -134,6 +153,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   // ----------------------------
   const [scannerOpen, setScannerOpen] = useState(false);
   const [returnUpcs, setReturnUpcs] = useState<ReturnUpcEntry[]>([]);
+  const [returnEligibilityCache, setReturnEligibilityCache] = useState<UpcEligibilityCache>({});
   const [totalReturnContainers, setTotalReturnContainers] = useState(0);
   const [estimatedReturnCredit, setEstimatedReturnCredit] = useState(0);
 
@@ -246,6 +266,97 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const payoutMethod: ReturnPayoutMethod =
     allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
+
+  const applyReturnState = useCallback(
+    (
+      upcs: ReturnUpcEntry[],
+      eligibilityCache: UpcEligibilityCache = {}
+    ) => {
+      setReturnUpcs(upcs);
+      setReturnEligibilityCache(eligibilityCache);
+      const containerCount = upcs.reduce((sum, entry) => sum + entry.quantity, 0);
+      setTotalReturnContainers(containerCount);
+
+      const gross = containerCount * MI_DEPOSIT_VALUE;
+      const handling = containerCount * DEFAULT_HANDLING_FEE;
+      const glassCount = upcs.reduce((sum, entry) => {
+        return sum + (eligibilityCache[entry.upc]?.containerType === 'glass' ? entry.quantity : 0);
+      }, 0);
+      const glassFee = glassCount * DEFAULT_GLASS_HANDLING_FEE;
+      setEstimatedReturnCredit(Math.max(0, gross - handling - glassFee));
+    },
+    []
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateReturnState = async () => {
+      let localUpcs: ReturnUpcEntry[] = [];
+      let localEligibility: UpcEligibilityCache = {};
+      try {
+        localUpcs = normalizeReturnUpcs(JSON.parse(localStorage.getItem(LS_KEY_UPCS) || '[]'));
+      } catch {}
+      try {
+        localEligibility = JSON.parse(localStorage.getItem(LS_KEY_UPC_ELIGIBILITY) || '{}');
+      } catch {}
+
+      if (!currentUserId) {
+        if (!cancelled) applyReturnState(localUpcs, localEligibility);
+        return;
+      }
+
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/cart/return-upcs`, {
+          method: 'GET',
+          credentials: 'include'
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || 'Failed to load return UPCs');
+
+        const serverUpcs = normalizeReturnUpcs(data?.upcs);
+        const mergedUpcs = mergeReturnUpcs(serverUpcs, localUpcs);
+        const mergedEligibility = {
+          ...localEligibility,
+          ...(data?.eligibilityCache || {})
+        } as UpcEligibilityCache;
+        if (!cancelled) applyReturnState(mergedUpcs, mergedEligibility);
+      } catch {
+        if (!cancelled) applyReturnState(localUpcs, localEligibility);
+      }
+    };
+
+    hydrateReturnState();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyReturnState, currentUserId]);
+
+  const persistReturnUpcs = useCallback(async (payload: {
+    upcs: ReturnUpcEntry[];
+    eligibilityCache: UpcEligibilityCache;
+    reason: 'hydrate' | 'add' | 'increment' | 'decrement' | 'remove' | 'clear';
+  }) => {
+    if (!currentUserId || payload.reason === 'hydrate') return;
+    try {
+      if (payload.upcs.length === 0 || payload.reason === 'clear') {
+        await fetch(`${BACKEND_URL}/api/cart/return-upcs`, {
+          method: 'DELETE',
+          credentials: 'include'
+        });
+        return;
+      }
+      await fetch(`${BACKEND_URL}/api/cart/return-upcs`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          upcs: payload.upcs,
+          eligibilityCache: payload.eligibilityCache
+        })
+      });
+    } catch {}
+  }, [currentUserId]);
 
   // Address validation (runs 800ms after user stops typing)
   useEffect(() => {
@@ -1074,6 +1185,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                 <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
                   Scan bottles and cans for deposit credit
                 </p>
+                <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">
+                  My return list = customer session data
+                </p>
               </div>
               <button
                 onClick={closeScanner}
@@ -1086,6 +1200,10 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
               <CustomerReturnScanner
                 onComplete={handleScannerComplete}
                 onChange={handleScannerChange}
+                onStatePersist={persistReturnUpcs}
+                initialUpcs={returnUpcs}
+                initialEligibilityCache={returnEligibilityCache}
+                isAuthenticated={Boolean(currentUserId)}
               />
             </div>
           </div>

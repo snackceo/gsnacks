@@ -75,6 +75,9 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
         <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">
           View UPC codes, product metadata, and Michigan deposit eligibility.
         </p>
+        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-2">
+          Eligible UPC registry (operator/owner-maintained whitelist). Writes route through /api/upc.
+        </p>
       </div>
 
       <div className="bg-ninpo-card p-8 rounded-[3rem] border border-white/5 space-y-6">

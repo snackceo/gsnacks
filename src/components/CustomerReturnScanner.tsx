@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Plus, Minus, Trash2, AlertCircle, Info } from 'lucide-react';
+import { Plus, Minus, Trash2, AlertCircle } from 'lucide-react';
 import InlineScanner from './InlineScanner';
 import { ScannerMode } from '../types';
 import { BACKEND_URL } from '../constants';
@@ -20,11 +20,19 @@ interface UpcEligibility {
 interface CustomerReturnScannerProps {
   onComplete: (upcs: ReturnUpcEntry[], estimatedCredit: number) => void;
   onChange?: (totalContainers: number, estimatedCredit: number) => void;
+  onStatePersist?: (payload: {
+    upcs: ReturnUpcEntry[];
+    eligibilityCache: Record<string, UpcEligibility>;
+    reason: 'hydrate' | 'add' | 'increment' | 'decrement' | 'remove' | 'clear';
+  }) => void | Promise<void>;
+  initialUpcs?: ReturnUpcEntry[];
+  initialEligibilityCache?: Record<string, UpcEligibility>;
+  isAuthenticated?: boolean;
   className?: string;
 }
 
-const LS_KEY_UPCS = 'ninpo_customer_return_upcs';
-const LS_KEY_ELIGIBILITY = 'ninpo_customer_upc_eligibility';
+const LS_KEY_UPCS = 'ninpo_return_upcs_v1';
+const LS_KEY_ELIGIBILITY = 'ninpo_upc_eligibility_v1';
 const ELIGIBILITY_TTL_MS = 60 * 60 * 1000; // 1 hour
 const MI_DEPOSIT_VALUE = 0.1;
 const DEFAULT_HANDLING_FEE = 0.02;
@@ -37,6 +45,10 @@ function money(n: number) {
 const CustomerReturnScanner: React.FC<CustomerReturnScannerProps> = ({
   onComplete,
   onChange,
+  onStatePersist,
+  initialUpcs = [],
+  initialEligibilityCache = {},
+  isAuthenticated = false,
   className = ''
 }) => {
   const [returnUpcs, setReturnUpcs] = useState<ReturnUpcEntry[]>([]);
@@ -47,29 +59,61 @@ const CustomerReturnScanner: React.FC<CustomerReturnScannerProps> = ({
   const lastScanAtRef = useRef(0);
   const eligibilityCacheRef = useRef<Record<string, UpcEligibility>>({});
 
-  // Load from localStorage on mount
+  const mergeUpcs = useCallback((primary: ReturnUpcEntry[], fallback: ReturnUpcEntry[]) => {
+    const merged = new Map<string, ReturnUpcEntry>();
+    for (const entry of primary) {
+      if (!entry?.upc || entry.quantity <= 0) continue;
+      merged.set(entry.upc, { upc: entry.upc, quantity: entry.quantity });
+    }
+    for (const entry of fallback) {
+      if (!entry?.upc || entry.quantity <= 0 || merged.has(entry.upc)) continue;
+      merged.set(entry.upc, { upc: entry.upc, quantity: entry.quantity });
+    }
+    return Array.from(merged.values());
+  }, []);
+
+  const persistState = useCallback((upcs: ReturnUpcEntry[], reason: 'hydrate' | 'add' | 'increment' | 'decrement' | 'remove' | 'clear') => {
+    onStatePersist?.({
+      upcs,
+      eligibilityCache: eligibilityCacheRef.current,
+      reason
+    });
+  }, [onStatePersist]);
+
+  // Hydrate scanner state: server/parent data first, then local fallback.
   useEffect(() => {
+    let localUpcs: ReturnUpcEntry[] = [];
+    let localEligibility: Record<string, UpcEligibility> = {};
     try {
       const stored = localStorage.getItem(LS_KEY_UPCS);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
-          setReturnUpcs(parsed.filter((e: any) => e?.upc && e?.quantity > 0));
+          localUpcs = parsed.filter((e: any) => e?.upc && e?.quantity > 0);
         }
       }
     } catch {}
-
     try {
       const storedCache = localStorage.getItem(LS_KEY_ELIGIBILITY);
       if (storedCache) {
         const parsed = JSON.parse(storedCache);
         if (parsed && typeof parsed === 'object') {
-          eligibilityCacheRef.current = parsed;
-          setEligibilityCache(parsed);
+          localEligibility = parsed;
         }
       }
     } catch {}
-  }, []);
+
+    const baseUpcs = initialUpcs.length > 0 ? initialUpcs : localUpcs;
+    const mergedUpcs = isAuthenticated ? mergeUpcs(baseUpcs, localUpcs) : baseUpcs;
+    const mergedEligibility = {
+      ...localEligibility,
+      ...initialEligibilityCache
+    };
+    eligibilityCacheRef.current = mergedEligibility;
+    setEligibilityCache(mergedEligibility);
+    setReturnUpcs(mergedUpcs);
+    persistState(mergedUpcs, 'hydrate');
+  }, [initialUpcs, initialEligibilityCache, isAuthenticated, mergeUpcs, persistState]);
 
   // Persist to localStorage when returnUpcs changes
   useEffect(() => {
@@ -109,11 +153,14 @@ const CustomerReturnScanner: React.FC<CustomerReturnScannerProps> = ({
   const addOrIncrementUpc = useCallback((upc: string) => {
     setReturnUpcs(prev => {
       const existing = prev.find(e => e.upc === upc);
-      if (!existing) return [{ upc, quantity: 1 }, ...prev];
-      return prev.map(e => (e.upc === upc ? { ...e, quantity: e.quantity + 1 } : e));
+      const next = !existing
+        ? [{ upc, quantity: 1 }, ...prev]
+        : prev.map(e => (e.upc === upc ? { ...e, quantity: e.quantity + 1 } : e));
+      persistState(next, existing ? 'increment' : 'add');
+      return next;
     });
     setScanError(null);
-  }, []);
+  }, [persistState]);
 
   const handleScan = useCallback(async (upcRaw: string) => {
     const upc = String(upcRaw || '').replace(/\s+/g, '').trim();
@@ -145,7 +192,8 @@ const CustomerReturnScanner: React.FC<CustomerReturnScannerProps> = ({
     setIsChecking(true);
     try {
       const response = await fetch(
-        `${BACKEND_URL}/api/upc/eligibility?upc=${encodeURIComponent(upc)}`
+        `${BACKEND_URL}/api/upc/eligibility?upc=${encodeURIComponent(upc)}`,
+        { credentials: 'include' }
       );
 
       if (response.ok) {
@@ -183,28 +231,41 @@ const CustomerReturnScanner: React.FC<CustomerReturnScannerProps> = ({
 
   const incrementUpc = useCallback((upc: string) => {
     setReturnUpcs(prev =>
-      prev.map(e => (e.upc === upc ? { ...e, quantity: e.quantity + 1 } : e))
+      {
+        const next = prev.map(e => (e.upc === upc ? { ...e, quantity: e.quantity + 1 } : e));
+        persistState(next, 'increment');
+        return next;
+      }
     );
-  }, []);
+  }, [persistState]);
 
   const decrementUpc = useCallback((upc: string) => {
     setReturnUpcs(prev =>
-      prev
+      {
+        const next = prev
         .map(e =>
           e.upc === upc ? { ...e, quantity: Math.max(0, e.quantity - 1) } : e
         )
-        .filter(e => e.quantity > 0)
+        .filter(e => e.quantity > 0);
+        persistState(next, 'decrement');
+        return next;
+      }
     );
-  }, []);
+  }, [persistState]);
 
   const removeUpc = useCallback((upc: string) => {
-    setReturnUpcs(prev => prev.filter(e => e.upc !== upc));
-  }, []);
+    setReturnUpcs(prev => {
+      const next = prev.filter(e => e.upc !== upc);
+      persistState(next, 'remove');
+      return next;
+    });
+  }, [persistState]);
 
   const clearAll = useCallback(() => {
     setReturnUpcs([]);
     setScanError(null);
-  }, []);
+    persistState([], 'clear');
+  }, [persistState]);
 
   // Calculate totals and fees
   const { totalCount, grossCredit, handlingFee, glassFee, netCredit } = useMemo(() => {
@@ -346,6 +407,9 @@ const CustomerReturnScanner: React.FC<CustomerReturnScannerProps> = ({
         <div className="text-center py-8">
           <p className="text-[11px] text-slate-500 font-bold uppercase tracking-widest">
             Scan a bottle or can barcode to begin
+          </p>
+          <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-2">
+            My return list (customer session data)
           </p>
         </div>
       )}
