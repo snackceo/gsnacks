@@ -156,7 +156,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   const { videoRef, streamRef, streamActive, error: cameraError, startCamera, stopCamera } = useCameraStream({ autoStart: false });
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
   const lastAutoOpenUpcRef = useRef<string | null>(null);
-  const startedRef = useRef(false);
 
   const rafRef = useRef<number | null>(null);
   const cancelledRef = useRef<boolean>(false);
@@ -280,7 +279,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   }, [stopCamera]);
 
   const handleClose = useCallback(() => {
-    startedRef.current = false;
     void stopScanner();
     onCloseRef.current?.();
   }, [stopScanner]);
@@ -531,7 +529,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       setIsScanning(false);
       setBlocked(true);
     }
-  }, [acceptScan, stopScanner, validateUpc, isReceiptMode, startCamera, stopCamera]);
+  }, [acceptScan, stopScanner, validateUpc, isReceiptMode, useNativeCameraOnly, startCamera, stopCamera]);
 
   useEffect(() => {
     setIsScanning(streamActive);
@@ -695,7 +693,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 
   useEffect(() => {
     return () => {
-      startedRef.current = false;
       void stopScanner();
     };
   }, [stopScanner]);
@@ -708,18 +705,27 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   }, [lastDetectedUpc]);
 
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-
     if (manualStart) {
+      void stopScanner();
       setScannerError(null);
       setScannerHint(null);
       setIsScanning(false);
       return;
     }
 
-    void startScanner();
-  }, [manualStart, startScanner]);
+    let active = true;
+    const restartScannerForMode = async () => {
+      await stopScanner();
+      if (!active) return;
+      await startScanner();
+    };
+
+    void restartScannerForMode();
+
+    return () => {
+      active = false;
+    };
+  }, [manualStart, mode, startScanner, stopScanner]);
 
   // Add toast for all scanner/camera errors
   useEffect(() => {
