@@ -1219,10 +1219,12 @@ export const approveReceiptJobHandler = async (req, res) => {
   }
 };
 
+// POST /api/receipts/:jobId/approve
+// Canonical approval endpoint (replaces legacy /api/driver/receipt-parse-jobs/:captureId/approve).
 router.post('/:jobId/approve', authRequired, approveReceiptJobHandler);
 
 // POST /api/receipts/:jobId/reject
-// Role-neutral endpoint for rejecting a receipt parse job
+// Canonical reject endpoint (replaces legacy /api/driver/receipt-parse-jobs/:captureId/reject).
 router.post('/:jobId/reject', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });

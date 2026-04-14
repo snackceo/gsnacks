@@ -1,6 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Camera, Plus, X, Package, Check, AlertCircle, Upload } from 'lucide-react';
-import { apiFetch } from '../utils/apiFetch';
 import { receiptApiClient } from '../api/receiptApiClient';
 
 const GATE_ERROR_STATUSES = new Set([403, 429, 503]);
@@ -264,25 +263,22 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
       }
 
       setUploadPhase('Submitting receipt items…');
-      const result = await apiFetch<{
+      const result = await receiptApiClient.submitPriceUpdateManual({
+        storeId,
+        storeName,
+        orderId,
+        captureId,
+        receiptImageUrl,
+        receiptThumbnailUrl,
+        items
+      }) as {
         reviewItems?: any[];
         errors?: string[];
         updated?: number;
         created?: number;
         needsReview?: number;
         autoMatched?: number;
-      }>('/api/driver/receipt-price-update', {
-        method: 'POST',
-        body: JSON.stringify({
-          storeId,
-          storeName,
-          orderId,
-          captureId,
-          receiptImageUrl,
-          receiptThumbnailUrl,
-          items
-        })
-      });
+      };
 
       if (result.reviewItems && result.reviewItems.length > 0) {
         // Show review UI for confirmation

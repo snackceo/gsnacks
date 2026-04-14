@@ -7,6 +7,7 @@
 - **[GLOSSARY.md](GLOSSARY.md)** — Canonical definitions and terminology only.
 - **[GEMINI.md](GEMINI.md)** — Canonical non-negotiable behavior, invariants, and contracts.
 - **[README.md](README.md)** — Navigation, contributor workflow, and operational quickstart.
+- **[MAINTENANCE.md](MAINTENANCE.md)** — Operational maintenance and remediation runbooks.
 
 ## Quickstart
 
@@ -51,3 +52,8 @@ To prevent duplication drift:
 
 - Prefer linking to canonical sections instead of repeating policy prose.
 - During review, reject README changes that introduce contract-level language or full term definitions.
+
+
+## Operations & maintenance
+
+For maintenance scripts and runbooks, see **[MAINTENANCE.md](MAINTENANCE.md)**.

@@ -14,7 +14,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { Order } from '../../types';
 import { analytics } from '../../services/analyticsService';
 import { getDemandForecast, DemandForecastItem } from '../../services/geminiService';
-import { apiFetch } from '../../utils/apiFetch';
+import { receiptApiClient } from '../../api/receiptApiClient';
 
 // Parse job status badge colors
 const statusBadge = (status: string) => {
@@ -116,7 +116,7 @@ const ParseJobHistoryPanel: React.FC = () => {
     let isMounted = true;
     setLoading(true);
     setError(null);
-    apiFetch<{ jobs?: any[]; error?: string }>(`/api/receipts?limit=${pageSize}`)
+    receiptApiClient.listJobsWithLimit(pageSize)
       .then(data => {
         if (!isMounted) return;
         if (data?.jobs) {
@@ -231,10 +231,7 @@ const ParseJobHistoryPanel: React.FC = () => {
     if (!job?.captureId) return;
     setIsRetrying(job.captureId);
     try {
-      await apiFetch('/api/driver/receipt-parse', {
-        method: 'POST',
-        body: JSON.stringify({ captureId: job.captureId })
-      });
+      await receiptApiClient.triggerParse(job.captureId);
       addToast('Receipt parse retry started.', 'success');
     } catch (err: any) {
       addToast(err?.message || 'Failed to retry parse', 'error');
@@ -422,7 +419,7 @@ const ManagementDashboard: React.FC = () => {
   const fetchReceiptCaptureStats = async () => {
     setIsReceiptStatsLoading(true);
     try {
-      const data = await apiFetch<{ summary?: any }>('/api/driver/receipt-captures-summary');
+      const data = await receiptApiClient.getCaptureSummary();
       const s = data?.summary || {};
       setReceiptSummary({
         parsedReceiptCount: s.parsed ?? 0,

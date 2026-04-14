@@ -1155,6 +1155,11 @@ router.delete('/receipt-noise-rule/ignore', authRequired, async (req, res) => {
   }
 });
 
+/**
+ * @deprecated Legacy combined upload path.
+ * Sunset plan: migrate remaining callers to upload-receipt-image + receipt-capture + receipt-parse,
+ * then remove after 2026-09-30.
+ */
 router.post('/receipt-upload', authRequired, receiptLimiter, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
@@ -1942,6 +1947,10 @@ router.post('/receipt-parse-live', authRequired, async (req, res) => {
  * GET /api/driver/receipt-parse-jobs
  * Fetch receipt parse jobs (used by management review UI)
  */
+/**
+ * @deprecated Legacy queue list endpoint.
+ * Sunset plan: migrate queue reads to GET /api/receipts, then remove after 2026-09-30.
+ */
 router.get('/receipt-parse-jobs', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
@@ -1965,6 +1974,10 @@ router.get('/receipt-parse-jobs', authRequired, async (req, res) => {
 /**
  * POST /api/driver/receipt-parse-jobs/:captureId/approve
  * Approve store candidate from parse job proposal
+ */
+/**
+ * @deprecated Legacy approve-by-capture endpoint.
+ * Sunset plan: migrate to POST /api/receipts/:jobId/approve and remove after 2026-09-30.
  */
 router.post('/receipt-parse-jobs/:captureId/approve', authRequired, async (req, res) => {
   if (!isDbReady()) {
@@ -2116,6 +2129,10 @@ router.post('/receipt-parse-jobs/:captureId/approve', authRequired, async (req, 
  * POST /api/driver/receipt-parse-jobs/:captureId/reject
  * Reject store candidate (keeps capture store null)
  */
+/**
+ * @deprecated Legacy reject-by-capture endpoint.
+ * Sunset plan: migrate to POST /api/receipts/:jobId/reject and remove after 2026-09-30.
+ */
 router.post('/receipt-parse-jobs/:captureId/reject', authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
@@ -2214,6 +2231,10 @@ router.get('/receipt-item-history', authRequired, async (req, res) => {
 /**
  * POST /api/driver/receipt-price-update-manual
  * Manual price update (bypass receipt)
+ */
+/**
+ * @deprecated Manual ingestion path retained for compatibility with legacy operator UI.
+ * Sunset plan: move all callers to capture -> parse -> approve workflow and remove after 2026-09-30.
  */
 router.post('/receipt-price-update-manual', authRequired, async (req, res) => {
   if (!isDbReady()) {
