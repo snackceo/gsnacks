@@ -15,7 +15,11 @@ STRIPE_SECRET_KEY=
 
 STRIPE_WEBHOOK_SECRET=
 
-> If `STRIPE_WEBHOOK_SECRET` is not set, `/api/stripe/webhook` returns `Webhook not configured` and webhook processing is disabled.
+> `STRIPE_WEBHOOK_SECRET` must be the signing secret for `/api/stripe/webhook` (starts with `whsec_...`).
+>
+> - Production: copy it from the Stripe Dashboard webhook endpoint config.
+> - Local dev: run `stripe listen --forward-to localhost:5000/api/stripe/webhook` and use the `whsec_...` value printed by Stripe CLI.
+> - If this value is missing, webhook verification is disabled and `/api/stripe/webhook` returns `Webhook not configured`.
 
 ---
 
