@@ -1,5 +1,6 @@
 import receiptsRouter from './routes/receipts.js';
 import storeInventoryRouter from './routes/store-inventory.js';
+
 // IMPORTANT: Import Sentry instrument FIRST before any other modules
 import './instrument.js';
 
@@ -15,6 +16,11 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
+
+// ✅ ADDED (Swagger)
+import swaggerUi from 'swagger-ui-express';
+import YAML from 'yamljs';
+import path from 'path';
 
 import authRouter from './routes/auth.js';
 import healthRouter from './routes/health.js';
@@ -76,12 +82,14 @@ const defaultOrigins = [
   'https://gsnacks.onrender.com',
   'http://localhost:5173'
 ];
+
 const envOrigins = [
   process.env.FRONTEND_URL,
   process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
     : []
 ].flat();
+
 const allowedOrigins = Array.from(
   new Set([...defaultOrigins, ...envOrigins].filter(Boolean))
 );
@@ -108,6 +116,7 @@ app.use(
     crossOriginResourcePolicy: { policy: 'cross-origin' }
   })
 );
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
@@ -115,67 +124,55 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   skip: req => req.originalUrl === '/api/stripe/webhook'
 });
+
 app.use(apiLimiter);
 app.use(cookieParser());
 
 app.use('/uploads', express.static('uploads', { fallthrough: false }));
 
-// IMPORTANT: Do NOT run JSON parser on webhook route
-// Increase limit for receipt images (base64-encoded, up to 5MB per image × 3 = 15MB)
 app.use((req, res, next) => {
   if (req.originalUrl === '/api/stripe/webhook') return next();
-  
-  // Receipt uploads need larger limit
-  if (req.originalUrl?.includes('/api/driver/upload-receipt-image') || 
-      req.originalUrl?.includes('/api/driver/receipt-capture')) {
+
+  if (
+    req.originalUrl?.includes('/api/driver/upload-receipt-image') ||
+    req.originalUrl?.includes('/api/driver/receipt-capture')
+  ) {
     return express.json({ limit: '20mb' })(req, res, next);
   }
-  
+
   return express.json({ limit: '1mb' })(req, res, next);
 });
 
 /* =========================
    ROUTES
 ========================= */
-// Health check - always accessible
 app.use('/', healthRouter);
-
-// Auth - always accessible (needed for login)
 app.use('/api/auth', authRouter);
 
-// Customer-facing routes - blocked during maintenance (except for owners)
 app.use('/api/products', maintenanceModeGuardCached, productsRouter);
 app.use('/api/orders', maintenanceModeGuardCached, createOrdersRouter({ stripe }));
 app.use('/api/payments', maintenanceModeGuardCached, createPaymentsRouter({ stripe }));
 app.use('/api/stripe', maintenanceModeGuardCached, createStripeRouter({ stripe, webhookSecret }));
 app.use('/api/returns', maintenanceModeGuardCached, returnsRouter);
-app.use('/api/orders', maintenanceModeGuardCached, refundsRouter); // Refund requests for exceptional cases
+app.use('/api/orders', maintenanceModeGuardCached, refundsRouter);
 app.use('/api/cart', maintenanceModeGuardCached, cartRouter);
 
-// Admin/management routes - always accessible (auth protection handles access)
 app.use('/api/upc', upcRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/ai', aiRouter);
-app.use('/api/shopping', shoppingRouter); // Multi-store shopping
-app.use('/api/driver', driverRouter); // Driver operations
-app.use('/api/driver', itemsNotFoundRouter); // Items not found tracking
-/**
- * Receipt API contract surface:
- * - Capture/Parse lifecycle endpoints live under /api/driver/* (receipt-prices router)
- *   capture -> immediate parse trigger -> poll health/jobs
- * - Approval/Review endpoints live under /api/receipts/* (receipts router)
- *   approve/reject + queue review workflows
- */
-app.use('/api/driver', receiptPricesRouter); // Receipt-based price updates
-app.use('/api/driver', receiptAliasesRouter); // Receipt alias bindings
+app.use('/api/shopping', shoppingRouter);
+app.use('/api/driver', driverRouter);
+app.use('/api/driver', itemsNotFoundRouter);
 
-app.use('/api/stores', storesRouter); // Store management
-app.use('/api/store-inventory', storeInventoryRouter); // Store inventory fetch
+app.use('/api/driver', receiptPricesRouter);
+app.use('/api/driver', receiptAliasesRouter);
+
+app.use('/api/stores', storesRouter);
+app.use('/api/store-inventory', storeInventoryRouter);
 app.use('/api/unmapped-products', unmappedProductsRouter);
 app.use('/api/price-observations', priceObservationsRouter);
 
-// Role-neutral receipt workflow (approval/review endpoints)
-app.use('/api/receipts', receiptsRouter); // Approvals, uploads, reviews
+app.use('/api/receipts', receiptsRouter);
 
 app.use('/api/approvals', approvalsRouter);
 app.use('/api/settings', settingsRouter);
@@ -187,25 +184,20 @@ app.use('/api/inventory-audit', inventoryAuditRouter);
 
 /* =========================
    SENTRY ERROR HANDLER
-   Must be registered AFTER all controllers and BEFORE other error middleware
 ========================= */
 Sentry.setupExpressErrorHandler(app);
 
 /* =========================
-   ERROR HANDLING MIDDLEWARE
+   ERROR HANDLING
 ========================= */
 app.use((err, req, res, next) => {
   console.error('UNHANDLED ERROR:', err);
-  console.error('Request URL:', req.originalUrl);
-  console.error('Request Method:', req.method);
-  
-  // Don't leak error details in production
+
   const isDevelopment = process.env.NODE_ENV !== 'production';
-  
-  // The error id is attached to `res.sentry` by Sentry middleware
+
   res.status(err.status || 500).json({
     error: err.message || 'Internal server error',
-    sentryId: res.sentry, // Include Sentry error ID for support
+    sentryId: res.sentry,
     ...(isDevelopment && { stack: err.stack })
   });
 });
@@ -217,10 +209,16 @@ app.use((err, req, res, next) => {
 (async () => {
   try {
     await connectDB();
-    
+
+    // ✅ ADDED: Swagger (after DB, before server start)
+    const swaggerDocument = YAML.load(
+      path.join(process.cwd(), 'docs', 'receipt-api.yaml')
+    );
+
+    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
     const httpServer = createServer(app);
-    
-    // Setup WebSocket server
+
     const io = new SocketIOServer(httpServer, {
       cors: {
         origin: allowedOrigins,
@@ -228,24 +226,20 @@ app.use((err, req, res, next) => {
       }
     });
 
-    // WebSocket connection handling
-    io.on('connection', (socket) => {
+    io.on('connection', socket => {
       console.log(`[WebSocket] Client connected: ${socket.id}`);
-      
+
       socket.on('disconnect', () => {
         console.log(`[WebSocket] Client disconnected: ${socket.id}`);
       });
-      
-      // Join user-specific room for targeted updates
-      socket.on('join', (userId) => {
+
+      socket.on('join', userId => {
         socket.join(`user:${userId}`);
-        console.log(`[WebSocket] User ${userId} joined their room`);
       });
     });
 
-    // Make io available to routes via app.locals
     app.locals.io = io;
-    
+
     httpServer.listen(PORT, () => {
       console.log(`LOGISTICS HUB ONLINE @ ${PORT}`);
       console.log(`WebSocket server ready`);
