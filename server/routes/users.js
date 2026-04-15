@@ -10,6 +10,15 @@ router.get('/:id/bottle-returns', authRequired, async (req, res) => {
     const userId = String(req.params.id || '').trim();
     if (!userId) return res.status(400).json({ error: 'User id is required' });
 
+    const requesterId = String(req.user?.userId || req.user?.id || '').trim();
+    const requesterRole = String(req.user?.role || '').toUpperCase();
+    const isPrivileged = requesterRole === 'OWNER' || requesterRole === 'ADMIN';
+    const isSelf = requesterId === userId;
+
+    if (!isPrivileged && !isSelf) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
     // Find all verifications for this user
     const verifications = await ReturnVerification.find({ customerId: userId }).select('_id');
     const verificationIds = verifications.map(v => v._id);
