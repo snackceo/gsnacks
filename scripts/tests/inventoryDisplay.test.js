@@ -38,7 +38,7 @@ describe('getInventoryDisplay', () => {
     assert.equal(display.source, 'Observed');
   });
 
-  it('treats an observed price of 0 as a valid observed value', () => {
+  it('keeps observed price at 0 when cost is nonzero', () => {
     const entry = {
       productId: { name: 'Product', sku: 'NP-000001', upc: '123' },
       unmappedProductId: null,
@@ -48,11 +48,12 @@ describe('getInventoryDisplay', () => {
 
     const display = getInventoryDisplay(entry);
 
+    assert.equal(display.name, 'Product');
     assert.equal(display.price, 0);
     assert.equal(display.source, 'Observed');
   });
 
-  it('falls back to cost when observed price is null, including cost of 0', () => {
+  it('falls back to cost of 0 when observed price is null', () => {
     const entry = {
       productId: { name: 'Product', sku: 'NP-000001', upc: '123' },
       unmappedProductId: null,
@@ -62,6 +63,7 @@ describe('getInventoryDisplay', () => {
 
     const display = getInventoryDisplay(entry);
 
+    assert.equal(display.name, 'Product');
     assert.equal(display.price, 0);
     assert.equal(display.source, 'Cost');
   });
