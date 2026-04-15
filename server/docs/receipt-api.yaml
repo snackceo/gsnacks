@@ -1,0 +1,236 @@
+openapi: 3.0.0
+
+info:
+  title: Ninpo Snacks Receipt API
+  version: 1.0.0
+  description: Receipt ingestion, parsing, review, and pricing system
+
+servers:
+  - url: http://localhost:5000/api/v1
+
+tags:
+  - name: Capture
+  - name: Parse
+  - name: Review
+  - name: Rules
+  - name: Pricing
+  - name: Analytics
+  - name: System
+
+components:
+  schemas:
+
+    IdParam:
+      type: string
+      example: "64f123abc123"
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+
+    MessageResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+paths:
+
+  /driver/receipt-capture:
+    post:
+      tags: [Capture]
+      summary: Create receipt capture
+      responses:
+        '200':
+          description: Capture created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /driver/upload-receipt-image:
+    post:
+      tags: [Capture]
+      summary: Upload receipt image
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Image uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /driver/receipt-parse:
+    post:
+      tags: [Parse]
+      summary: Trigger receipt parsing
+      requestBody:
+        required: false
+      responses:
+        '200':
+          description: Parse started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /receipts:
+    get:
+      tags: [Review]
+      summary: List parse jobs
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /receipts/{jobId}/approve:
+    post:
+      tags: [Review]
+      summary: Approve receipt job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/IdParam'
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /receipts/{jobId}/reject:
+    post:
+      tags: [Review]
+      summary: Reject receipt job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/IdParam'
+      responses:
+        '200':
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /driver/receipt-alias:
+    post:
+      tags: [Rules]
+      summary: Create receipt alias
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                original:
+                  type: string
+                normalized:
+                  type: string
+      responses:
+        '200':
+          description: Alias created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /driver/receipt-items/{storeId}:
+    get:
+      tags: [Pricing]
+      summary: Get store items
+      parameters:
+        - name: storeId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/IdParam'
+      responses:
+        '200':
+          description: Items list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /driver/receipt-fix-price:
+    post:
+      tags: [Pricing]
+      summary: Fix item price
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                itemId:
+                  type: string
+                price:
+                  type: number
+      responses:
+        '200':
+          description: Price updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /driver/receipt-item-history:
+    get:
+      tags: [Analytics]
+      summary: Get item price history
+      responses:
+        '200':
+          description: History data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /driver/receipt-health:
+    get:
+      tags: [System]
+      summary: Health check
+      responses:
+        '200':
+          description: System healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
