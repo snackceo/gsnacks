@@ -1,6 +1,6 @@
 # GSnacks Glossary
 
-> **Canonical Source (GLOSSARY):** This file is the single source of truth for domain definitions and terminology. Do not place behavioral contracts here; put those in [GEMINI.md](GEMINI.md).
+> **Canonical Source (GLOSSARY):** This file is the single source of truth for domain definitions and terminology. Do not place behavioral contracts here; put those in [GEMINI.md](gemini.md).
 
 ## Usage Rules
 
