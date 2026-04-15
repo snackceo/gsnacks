@@ -82,3 +82,53 @@ test('quality thresholds are configurable', async () => {
   assert.equal(result.fallbackReason, null);
   assert.equal(result.attempts.length, 1);
 });
+
+
+test('throws when primary provider is unknown', async () => {
+  await assert.rejects(
+    () =>
+      runReceiptOcrWithFallback({
+        images: [{ url: 'data:image/jpeg;base64,abc' }],
+        primary: 'unknown_primary',
+        fallback: 'vision',
+        providers: {
+          vision: async () => okResult()
+        }
+      }),
+    /Unknown primary OCR provider/
+  );
+});
+
+test('throws when fallback provider is unknown', async () => {
+  await assert.rejects(
+    () =>
+      runReceiptOcrWithFallback({
+        images: [{ url: 'data:image/jpeg;base64,abc' }],
+        primary: 'gemini',
+        fallback: 'unknown_fallback',
+        providers: {
+          gemini: async () => okResult()
+        }
+      }),
+    /Unknown fallback OCR provider/
+  );
+});
+
+test('rethrows primary error when fallback is disabled', async () => {
+  await assert.rejects(
+    () =>
+      runReceiptOcrWithFallback({
+        images: [{ url: 'data:image/jpeg;base64,abc' }],
+        primary: 'gemini',
+        fallback: 'vision',
+        qualityConfig: { enableFallback: false },
+        providers: {
+          gemini: async () => {
+            throw new Error('rate limit');
+          },
+          vision: async () => okResult()
+        }
+      }),
+    /rate limit/
+  );
+});

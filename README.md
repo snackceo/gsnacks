@@ -26,7 +26,7 @@ Ninpo Snacks is designed as a scalable, modular system supporting:
 
 ## 🔐 Security
 
-- [Authentication Flow](docs/security/auth-flow.md)
+- [Authentication Flow](docs/api/auth-flow.md)
 - [Roles & Permissions](docs/security/roles-permissions.md)
 - [Secrets Management](docs/security/secrets-management.md)
 
