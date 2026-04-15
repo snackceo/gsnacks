@@ -37,4 +37,47 @@ describe('getInventoryDisplay', () => {
     assert.equal(display.price, 1.5);
     assert.equal(display.source, 'Observed');
   });
+
+  it('treats an observed price of 0 as a valid observed value', () => {
+    const entry = {
+      productId: { name: 'Product', sku: 'NP-000001', upc: '123' },
+      unmappedProductId: null,
+      observedPrice: 0,
+      cost: 1.0
+    };
+
+    const display = getInventoryDisplay(entry);
+
+    assert.equal(display.price, 0);
+    assert.equal(display.source, 'Observed');
+  });
+
+  it('falls back to cost when observed price is null, including cost of 0', () => {
+    const entry = {
+      productId: { name: 'Product', sku: 'NP-000001', upc: '123' },
+      unmappedProductId: null,
+      observedPrice: null,
+      cost: 0
+    };
+
+    const display = getInventoryDisplay(entry);
+
+    assert.equal(display.price, 0);
+    assert.equal(display.source, 'Cost');
+  });
+
+  it('uses normalized unmapped name when productId is missing and rawName is empty', () => {
+    const entry = {
+      productId: null,
+      unmappedProductId: { rawName: '', normalizedName: 'Normalized' },
+      observedPrice: null,
+      cost: null
+    };
+
+    const display = getInventoryDisplay(entry);
+
+    assert.equal(display.name, 'Normalized');
+    assert.equal(display.price, null);
+    assert.equal(display.source, '—');
+  });
 });
