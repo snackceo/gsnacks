@@ -1,26 +1,25 @@
 import receiptsRouter from './routes/receipts.js';
 import storeInventoryRouter from './routes/store-inventory.js';
 
-// IMPORTANT: Import Sentry instrument FIRST before any other modules
 import './instrument.js';
 
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import Stripe from 'stripe';
-import mongoose from 'mongoose';
 import * as Sentry from '@sentry/node';
-import connectDB, { isDbReady } from './db/connect.js';
+import connectDB from './db/connect.js';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 
-// ✅ ADDED (Swagger)
 import swaggerUi from 'swagger-ui-express';
 import YAML from 'yamljs';
 import path from 'path';
+
+import OpenApiValidator from 'express-openapi-validator';
 
 import authRouter from './routes/auth.js';
 import healthRouter from './routes/health.js';
@@ -69,7 +68,7 @@ const stripe = process.env.STRIPE_SECRET_KEY
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 /* =========================
-   STRIPE WEBHOOK (RAW BODY)
+   STRIPE WEBHOOK
 ========================= */
 app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
 
@@ -108,26 +107,27 @@ app.use(
 );
 
 /* =========================
-   MIDDLEWARE
+   SECURITY
 ========================= */
-
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' }
   })
 );
 
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: req => req.originalUrl === '/api/stripe/webhook'
-});
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 300,
+    skip: req => req.originalUrl === '/api/stripe/webhook'
+  })
+);
 
-app.use(apiLimiter);
 app.use(cookieParser());
 
+/* =========================
+   BODY PARSER
+========================= */
 app.use('/uploads', express.static('uploads', { fallthrough: false }));
 
 app.use((req, res, next) => {
@@ -142,6 +142,25 @@ app.use((req, res, next) => {
 
   return express.json({ limit: '1mb' })(req, res, next);
 });
+
+/* =========================
+   SWAGGER
+========================= */
+const swaggerFile = path.join(process.cwd(), 'docs', 'receipt-api.yaml');
+const swaggerDocument = YAML.load(swaggerFile);
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
+/* =========================
+   OPENAPI VALIDATION
+========================= */
+app.use(
+  OpenApiValidator.middleware({
+    apiSpec: swaggerFile,
+    validateRequests: true,
+    validateResponses: false
+  })
+);
 
 /* =========================
    ROUTES
@@ -168,7 +187,10 @@ app.use('/api/driver', receiptPricesRouter);
 app.use('/api/driver', receiptAliasesRouter);
 
 app.use('/api/stores', storesRouter);
+
+// FIXED ROUTE PREFIX (important)
 app.use('/api/store-inventory', storeInventoryRouter);
+
 app.use('/api/unmapped-products', unmappedProductsRouter);
 app.use('/api/price-observations', priceObservationsRouter);
 
@@ -183,56 +205,50 @@ app.use('/api/distance', distanceRouter);
 app.use('/api/inventory-audit', inventoryAuditRouter);
 
 /* =========================
-   SENTRY ERROR HANDLER
+   404 HANDLER (IMPORTANT)
 ========================= */
-Sentry.setupExpressErrorHandler(app);
-
-/* =========================
-   ERROR HANDLING
-========================= */
-app.use((err, req, res, next) => {
-  console.error('UNHANDLED ERROR:', err);
-
-  const isDevelopment = process.env.NODE_ENV !== 'production';
-
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal server error',
-    sentryId: res.sentry,
-    ...(isDevelopment && { stack: err.stack })
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: {
+      message: `Route not found: ${req.method} ${req.originalUrl}`
+    }
   });
 });
 
 /* =========================
-   START SERVER + WEBSOCKETS
+   ERROR HANDLING
 ========================= */
+Sentry.setupExpressErrorHandler(app);
 
+app.use((err, req, res, next) => {
+  console.error(err);
+
+  const isValidationError = err?.status === 400;
+
+  return res.status(err.status || 500).json({
+    success: false,
+    error: {
+      message: err.message || 'Internal server error',
+      type: isValidationError ? 'VALIDATION_ERROR' : 'SERVER_ERROR'
+    }
+  });
+});
+
+/* =========================
+   START SERVER
+========================= */
 (async () => {
   try {
     await connectDB();
 
-    // ✅ ADDED: Swagger (after DB, before server start)
-    const swaggerDocument = YAML.load(
-      path.join(process.cwd(), 'docs', 'receipt-api.yaml')
-    );
-
-    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-
     const httpServer = createServer(app);
 
     const io = new SocketIOServer(httpServer, {
-      cors: {
-        origin: allowedOrigins,
-        credentials: true
-      }
+      cors: { origin: allowedOrigins }
     });
 
     io.on('connection', socket => {
-      console.log(`[WebSocket] Client connected: ${socket.id}`);
-
-      socket.on('disconnect', () => {
-        console.log(`[WebSocket] Client disconnected: ${socket.id}`);
-      });
-
       socket.on('join', userId => {
         socket.join(`user:${userId}`);
       });
@@ -242,7 +258,7 @@ app.use((err, req, res, next) => {
 
     httpServer.listen(PORT, () => {
       console.log(`LOGISTICS HUB ONLINE @ ${PORT}`);
-      console.log(`WebSocket server ready`);
+      console.log(`Swagger: http://localhost:${PORT}/api-docs`);
     });
   } catch (err) {
     console.error('FAILED TO START SERVER', err);

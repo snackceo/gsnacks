@@ -14,7 +14,9 @@
     "typecheck": "tsc --noEmit",
     "test": "tsc -p tsconfig.test.json && node --test scripts/tests/inventoryDisplay.test.js && rm -rf .tmp-test",
     "glossary:audit": "node scripts/glossary-audit.cjs",
-    "docs:check-links": "node scripts/check-readme-links.cjs"
+    "docs:check-links": "node scripts/check-readme-links.cjs",
+    "contracts:check": "node scripts/check-contracts.cjs",
+    "contracts:check-terminology": "node scripts/check-terminology.cjs"
   },
   "dependencies": {
     "@google/genai": "^1.34.0",

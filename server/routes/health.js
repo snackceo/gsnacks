@@ -2,19 +2,10 @@ import express from 'express';
 
 const router = express.Router();
 
+import { getHealth, getApiSync } from '../controllers/health.js';
 
-import { isDbReady } from '../db/connect.js';
+router.get('/', getHealth);
 
-router.get('/', (_, res) => {
-  if (isDbReady()) {
-    res.send('NINPO MAINFRAME ONLINE');
-  } else {
-    res.status(503).send('Database not ready');
-  }
-});
-
-router.get('/api/sync', (_, res) => {
-  res.json({ status: 'online', timestamp: new Date().toISOString() });
-});
+router.get('/api/sync', getApiSync);
 
 export default router;

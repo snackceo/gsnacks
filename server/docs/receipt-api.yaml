@@ -89,8 +89,7 @@ paths:
     post:
       tags: [Parse]
       summary: Trigger receipt parsing
-      requestBody:
-        required: false
+      # ✅ FIX: removed invalid empty requestBody entirely
       responses:
         '200':
           description: Parse started

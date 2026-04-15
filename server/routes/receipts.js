@@ -31,6 +31,7 @@ import {
   normalizeReceiptLineUpc,
   resolveReceiptLineProduct
 } from '../utils/receiptLineResolver.js';
+import { RECEIPTS_ROUTES } from '../../contracts/naming.js';
 
 /**
  * Receipt approval/review contract (this router):
@@ -156,7 +157,7 @@ const buildApprovalMetadata = ({
 });
 
 // Role-neutral endpoint for fetching receipt parse jobs
-router.get('/', authRequired, async (req, res) => {
+router.get(RECEIPTS_ROUTES.GET_ALL, authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -232,7 +233,7 @@ router.get('/', authRequired, async (req, res) => {
 
 // GET /api/receipts/:jobId
 // Role-neutral endpoint for fetching a single receipt parse job
-router.get('/:jobId', authRequired, async (req, res) => {
+router.get(RECEIPTS_ROUTES.GET_ONE, authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -1221,11 +1222,11 @@ export const approveReceiptJobHandler = async (req, res) => {
 
 // POST /api/receipts/:jobId/approve
 // Canonical approval endpoint (replaces legacy /api/driver/receipt-parse-jobs/:captureId/approve).
-router.post('/:jobId/approve', authRequired, approveReceiptJobHandler);
+router.post(RECEIPTS_ROUTES.APPROVE, authRequired, approveReceiptJobHandler);
 
 // POST /api/receipts/:jobId/reject
 // Canonical reject endpoint (replaces legacy /api/driver/receipt-parse-jobs/:captureId/reject).
-router.post('/:jobId/reject', authRequired, async (req, res) => {
+router.post(RECEIPTS_ROUTES.REJECT, authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -1278,7 +1279,7 @@ router.post('/:jobId/reject', authRequired, async (req, res) => {
 
 // DELETE /api/receipts/:captureId
 // Role-neutral endpoint for deleting both ReceiptParseJob and ReceiptCapture for a given captureId
-router.delete('/:captureId', authRequired, async (req, res) => {
+router.delete(RECEIPTS_ROUTES.DELETE, authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -1299,7 +1300,7 @@ router.delete('/:captureId', authRequired, async (req, res) => {
 
 // POST /api/receipts/cleanup-queue
 // Admin endpoint to purge receipt queue jobs that reference missing captures
-router.post('/cleanup-queue', authRequired, async (req, res) => {
+router.post(RECEIPTS_ROUTES.CLEANUP_QUEUE, authRequired, async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }

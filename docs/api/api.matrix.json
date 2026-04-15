@@ -1,0 +1,389 @@
+[
+  {
+    "endpoint": "/api/driver/receipt-capture",
+    "method": "POST",
+    "domain": "capture",
+    "purpose": "Create receipt capture",
+    "owner": "capture.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-capture/:captureId",
+    "method": "GET",
+    "domain": "capture",
+    "purpose": "Fetch capture",
+    "owner": "capture.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-capture/:captureId/expire",
+    "method": "POST",
+    "domain": "capture",
+    "purpose": "Expire capture",
+    "owner": "capture.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-capture/:captureId/items",
+    "method": "GET",
+    "domain": "capture",
+    "purpose": "Get parsed items",
+    "owner": "capture.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/upload-receipt-image",
+    "method": "POST",
+    "domain": "capture",
+    "purpose": "Upload receipt image",
+    "owner": "capture.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-parse",
+    "method": "POST",
+    "domain": "parse",
+    "purpose": "Trigger parse",
+    "owner": "parse.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-parse-frame",
+    "method": "POST",
+    "domain": "parse",
+    "purpose": "Parse single frame",
+    "owner": "parse.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-parse-live",
+    "method": "POST",
+    "domain": "parse",
+    "purpose": "Live parsing",
+    "owner": "parse.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-parse-jobs",
+    "method": "GET",
+    "domain": "parse",
+    "purpose": "Legacy parse jobs",
+    "owner": "parse.routes.js",
+    "role": "Driver",
+    "status": "Deprecated"
+  },
+  {
+    "endpoint": "/api/driver/receipt-parse-jobs/:captureId/approve",
+    "method": "POST",
+    "domain": "parse",
+    "purpose": "Legacy approve",
+    "owner": "parse.routes.js",
+    "role": "Driver",
+    "status": "Deprecated"
+  },
+  {
+    "endpoint": "/api/driver/receipt-parse-jobs/:captureId/reject",
+    "method": "POST",
+    "domain": "parse",
+    "purpose": "Legacy reject",
+    "owner": "parse.routes.js",
+    "role": "Driver",
+    "status": "Deprecated"
+  },
+  {
+    "endpoint": "/api/receipts",
+    "method": "GET",
+    "domain": "review",
+    "purpose": "List parse jobs",
+    "owner": "review.routes.js",
+    "role": "Admin",
+    "status": "Canonical"
+  },
+  {
+    "endpoint": "/api/receipts/:jobId",
+    "method": "GET",
+    "domain": "review",
+    "purpose": "Job detail",
+    "owner": "review.routes.js",
+    "role": "Admin",
+    "status": "Canonical"
+  },
+  {
+    "endpoint": "/api/receipts/:jobId/approve",
+    "method": "POST",
+    "domain": "review",
+    "purpose": "Approve job",
+    "owner": "review.routes.js",
+    "role": "Admin",
+    "status": "Canonical"
+  },
+  {
+    "endpoint": "/api/receipts/:jobId/reject",
+    "method": "POST",
+    "domain": "review",
+    "purpose": "Reject job",
+    "owner": "review.routes.js",
+    "role": "Admin",
+    "status": "Canonical"
+  },
+  {
+    "endpoint": "/api/receipts/:captureId",
+    "method": "DELETE",
+    "domain": "review",
+    "purpose": "Delete job",
+    "owner": "review.routes.js",
+    "role": "Admin",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-lock",
+    "method": "POST",
+    "domain": "review",
+    "purpose": "Lock review",
+    "owner": "review.routes.js",
+    "role": "Admin",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-unlock",
+    "method": "POST",
+    "domain": "review",
+    "purpose": "Unlock review",
+    "owner": "review.routes.js",
+    "role": "Admin",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-reset-review",
+    "method": "POST",
+    "domain": "review",
+    "purpose": "Reset review",
+    "owner": "review.routes.js",
+    "role": "Admin",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-confirm-match",
+    "method": "POST",
+    "domain": "review",
+    "purpose": "Confirm mapping",
+    "owner": "review.routes.js",
+    "role": "Admin",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-aliases",
+    "method": "GET",
+    "domain": "rules",
+    "purpose": "List aliases",
+    "owner": "rules.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-alias",
+    "method": "POST",
+    "domain": "rules",
+    "purpose": "Create alias",
+    "owner": "rules.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-alias-history",
+    "method": "GET",
+    "domain": "rules",
+    "purpose": "Alias history",
+    "owner": "rules.routes.js",
+    "role": "Admin",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-store-aliases",
+    "method": "GET",
+    "domain": "rules",
+    "purpose": "Store aliases",
+    "owner": "rules.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-noise-rules",
+    "method": "GET",
+    "domain": "rules",
+    "purpose": "List noise rules",
+    "owner": "rules.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-noise-rule",
+    "method": "POST",
+    "domain": "rules",
+    "purpose": "Create noise rule",
+    "owner": "rules.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-noise-rule",
+    "method": "DELETE",
+    "domain": "rules",
+    "purpose": "Delete noise rule",
+    "owner": "rules.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-noise-rule/ignore",
+    "method": "POST",
+    "domain": "rules",
+    "purpose": "Ignore noise",
+    "owner": "rules.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-noise-rule/ignore",
+    "method": "DELETE",
+    "domain": "rules",
+    "purpose": "Remove ignore",
+    "owner": "rules.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-items/:storeId",
+    "method": "GET",
+    "domain": "pricing",
+    "purpose": "Store items",
+    "owner": "pricing.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-price-update-manual",
+    "method": "POST",
+    "domain": "pricing",
+    "purpose": "Manual update",
+    "owner": "pricing.routes.js",
+    "role": "Driver",
+    "status": "Deprecated"
+  },
+  {
+    "endpoint": "/api/driver/receipt-fix-price",
+    "method": "POST",
+    "domain": "pricing",
+    "purpose": "Fix price",
+    "owner": "pricing.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-fix-upc",
+    "method": "POST",
+    "domain": "pricing",
+    "purpose": "Fix UPC",
+    "owner": "pricing.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-refresh",
+    "method": "POST",
+    "domain": "pricing",
+    "purpose": "Refresh pricing",
+    "owner": "pricing.routes.js",
+    "role": "Admin",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-item-history",
+    "method": "GET",
+    "domain": "analytics",
+    "purpose": "Price history",
+    "owner": "analytics.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-store-summary",
+    "method": "GET",
+    "domain": "analytics",
+    "purpose": "Store metrics",
+    "owner": "analytics.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-captures-summary",
+    "method": "GET",
+    "domain": "analytics",
+    "purpose": "Capture stats",
+    "owner": "analytics.routes.js",
+    "role": "Driver",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-settings",
+    "method": "GET",
+    "domain": "system",
+    "purpose": "Get settings",
+    "owner": "admin.routes.js",
+    "role": "Admin",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-settings",
+    "method": "POST",
+    "domain": "system",
+    "purpose": "Update settings",
+    "owner": "admin.routes.js",
+    "role": "Admin",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-store-candidates",
+    "method": "GET",
+    "domain": "system",
+    "purpose": "Store candidates",
+    "owner": "admin.routes.js",
+    "role": "Admin",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-store-candidates",
+    "method": "POST",
+    "domain": "system",
+    "purpose": "Upsert candidates",
+    "owner": "admin.routes.js",
+    "role": "Admin",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/driver/receipt-health",
+    "method": "GET",
+    "domain": "system",
+    "purpose": "Health check",
+    "owner": "admin.routes.js",
+    "role": "Admin",
+    "status": "Active"
+  },
+  {
+    "endpoint": "/api/receipts/cleanup-queue",
+    "method": "POST",
+    "domain": "system",
+    "purpose": "Cleanup jobs",
+    "owner": "admin.routes.js",
+    "role": "Admin",
+    "status": "Active"
+  }
+]
