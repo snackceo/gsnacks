@@ -4,1653 +4,186 @@ import mongoose from 'mongoose';
 
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
-import StoreInventory from '../models/StoreInventory.js';
-import UpcItem from '../models/UpcItem.js';
-import AppSettings from '../models/AppSettings.js';
 import User from '../models/User.js';
-import LedgerEntry, { CREDIT_ORIGINS_ENUM } from '../models/LedgerEntry.js';
-import CashPayout from '../models/CashPayout.js';
+
 import {
   authRequired,
-  isDriverUsername,
-  isOwnerUsername,
-  calculateReturnFeeSummary,
-  mapOrderForFrontend,
-  normalizeReturnPayoutMethod,
-  normalizeCart,
-  normalizeUpcCounts,
-  sumReturnCredits
+  normalizeCart
 } from '../utils/helpers.js';
+
 import { isDbReady } from '../db/connect.js';
-import { recordAuditLog } from '../utils/audit.js';
-import { resolveDistanceMiles } from '../utils/distance.js';
 import { getDeliveryOptions } from '../utils/deliveryFees.js';
-import { isStoreInventoryPricingEnabled } from '../utils/featureFlags.js';
-
-const CREDIT_DELIVERY_ELIGIBLE_TIERS = new Set(['SILVER', 'GOLD', 'PLATINUM', 'GREEN']);
-const CASH_PAYOUT_ELIGIBLE_TIERS = new Set(['GOLD', 'PLATINUM', 'GREEN']);
-const CASH_HANDLING_FEE_PER_CONTAINER = 0.02;
-const GLASS_HANDLING_SURCHARGE_PER_CONTAINER = 0.02;
-const POINT_ELIGIBLE_TIERS = new Set(['COMMON', 'BRONZE', 'SILVER', 'GOLD']);
-const POINT_EARNING_RATES = {
-  COMMON: 1.0,
-  BRONZE: 1.0,
-  SILVER: 1.2,
-  GOLD: 1.5
-};
-const DEFAULT_DISTANCE_FEES = {
-  distanceIncludedMiles: 3.0,
-  distanceBand1MaxMiles: 10.0,
-  distanceBand2MaxMiles: 20.0,
-  distanceBand1Rate: 0.5,
-  distanceBand2Rate: 0.75,
-  distanceBand3Rate: 1.0
-};
-
-// Staleness policy: warn but do not block when price data is old
-const STALENESS_DAYS_STABLE = 45;
-const STALENESS_DAYS_VOLATILE = 10;
-
-const resolvePriceTimestamp = (record) =>
-  record?.lastVerified || record?.observedAt || record?.updatedAt || record?.createdAt || null;
-
-const evaluatePriceStaleness = (record, isVolatileStore = false) => {
-  const thresholdDays = isVolatileStore ? STALENESS_DAYS_VOLATILE : STALENESS_DAYS_STABLE;
-  const updatedAt = resolvePriceTimestamp(record);
-  if (!updatedAt) return { stale: true, updatedAt: null, days: Number.POSITIVE_INFINITY };
-  const updated = new Date(updatedAt);
-  const ageDays = (Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24);
-  return { stale: ageDays > thresholdDays, updatedAt: updated, days: ageDays };
-};
-
-const resolvePricingContext = async (items, { session = null, useStoreInventoryPricing = false } = {}) => {
-  const frontendIds = Array.from(new Set((items || []).map(it => it.productId))).filter(Boolean);
-  if (frontendIds.length === 0) {
-    return {
-      ok: true,
-      pricingByFrontendId: new Map(),
-      productMap: new Map(),
-      stalenessWarnings: [],
-      pricingWarnings: []
-    };
-  }
-
-  const products = await Product.find(
-    { frontendId: { $in: frontendIds } },
-    { price: 1, frontendId: 1, isHeavy: 1, name: 1, updatedAt: 1, createdAt: 1, store: 1 }
-  )
-    .session(session)
-    .lean();
-
-  const productMap = new Map(products.map(product => [product.frontendId, product]));
-  const missing = frontendIds.find(id => !productMap.has(id));
-  if (missing) {
-    return { ok: false, status: 400, error: `Unknown product ${missing}` };
-  }
-
-  let inventoriesByProductId = new Map();
-  if (useStoreInventoryPricing) {
-    const productIds = products.map(p => p._id).filter(Boolean);
-    const storeIds = products.map(p => p.store).filter(Boolean);
-    const query = { productId: { $in: productIds } };
-    if (storeIds.length > 0) {
-      query.storeId = { $in: storeIds };
-    }
-
-    const inventories = await StoreInventory.find(query, {
-      observedPrice: 1,
-      observedAt: 1,
-      lastVerified: 1,
-      updatedAt: 1,
-      storeId: 1,
-      productId: 1,
-      cost: 1,
-      markup: 1
-    })
-      .session(session)
-      .lean();
-
-    inventoriesByProductId = new Map();
-    for (const inv of inventories) {
-      const key = String(inv.productId);
-      const list = inventoriesByProductId.get(key) || [];
-      list.push(inv);
-      inventoriesByProductId.set(key, list);
-    }
-  }
-
-  const pricingByFrontendId = new Map();
-  const stalenessWarnings = [];
-  const pricingWarnings = [];
-
-  for (const product of products) {
-    const inventoryList = inventoriesByProductId.get(String(product._id)) || [];
-    const inventory = inventoryList.find(inv => product.store && String(inv.storeId) === String(product.store))
-      || inventoryList[0]
-      || null;
-
-    const basePrice = Number(product.price);
-    const inventoryPrice = Number(inventory?.observedPrice);
-
-    let finalPrice = basePrice;
-    let priceSource = 'catalog';
-
-    if (useStoreInventoryPricing && Number.isFinite(inventoryPrice)) {
-      finalPrice = inventoryPrice;
-      priceSource = 'store_inventory';
-    } else if (useStoreInventoryPricing && Number.isFinite(basePrice)) {
-      priceSource = 'fallback_catalog';
-      pricingWarnings.push(`Using catalog price for ${product.frontendId} (inventory missing/unpriced).`);
-    }
-
-    if (!Number.isFinite(finalPrice)) {
-      return { ok: false, status: 400, code: 'NO_COMMITTED_PRICE', error: `Product ${product.frontendId} has no committed price` };
-    }
-
-    const staleness = evaluatePriceStaleness(inventory || product, false);
-    if (staleness.stale) {
-      const dateStr = staleness.updatedAt ? staleness.updatedAt.toISOString().slice(0, 10) : 'unknown date';
-      stalenessWarnings.push(`Price for ${product.frontendId} last verified on ${dateStr}`);
-    }
-
-    pricingByFrontendId.set(product.frontendId, {
-      product,
-      inventory,
-      price: finalPrice,
-      priceSource,
-      staleness
-    });
-  }
-
-  return { ok: true, pricingByFrontendId, productMap, stalenessWarnings, pricingWarnings };
-};
-
-// Pricing lock helpers
-const getPricingSecret = () => process.env.PRICING_SECRET || process.env.JWT_SECRET || '';
-const verifyPricingLock = (lock) => {
-  try {
-    if (!lock || typeof lock !== 'object') return { ok: false, error: 'Missing pricing lock' };
-    const secret = getPricingSecret();
-    if (!secret) return { ok: false, error: 'Pricing secret not configured' };
-    const { payload, signature } = lock;
-    if (!payload || !signature) return { ok: false, error: 'Invalid pricing lock' };
-    const expected = crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
-    if (expected !== signature) return { ok: false, error: 'Signature mismatch' };
-    if (typeof payload.expiresAt !== 'number' || Date.now() > payload.expiresAt) {
-      return { ok: false, error: 'Pricing lock expired' };
-    }
-    const nonneg = ['routeFee','distanceFee','largeOrderFee','heavyItemFee','distanceMiles'].every(k => payload[k] >= 0);
-    if (!nonneg) return { ok: false, error: 'Negative values in pricing lock' };
-    return { ok: true, payload };
-  } catch (e) {
-    return { ok: false, error: 'Verification failed' };
-  }
-};
-
-const normalizeTier = tier => {
-  const normalized = String(tier || '').trim().toUpperCase();
-  // Add 'GREEN' as a recognized tier
-  if (['COMMON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'GREEN'].includes(normalized)) {
-    return normalized;
-  }
-  return 'COMMON';
-};
-
-// Hardened: enforce tier and contract for payout method
-const normalizePayoutMethodForTier = (payoutMethod, tier, eligibility) => {
-  const normalizedPayout = normalizeReturnPayoutMethod(payoutMethod);
-  const cashEligibleSet = eligibility?.cashPayoutEligibleTiers || CASH_PAYOUT_ELIGIBLE_TIERS;
-  const normalizedTier = normalizeTier(tier);
-  if (normalizedPayout === 'CASH') {
-    if (!cashEligibleSet.has(normalizedTier)) {
-      // Not eligible for cash payout
-      return 'CREDIT';
-    }
-  }
-  return normalizedPayout;
-};
-
-// DEPRECATED: fee config calculators moved to deliveryFees.js
-
-export const getTierEligibilityConfig = async () => {
-  const doc = await AppSettings.findOne({ key: 'default' }).lean();
-  const allowPlatinumTier = Boolean(doc?.allowPlatinumTier ?? false);
-  const allowGreenTier = Boolean(doc?.allowGreenTier ?? false);
-  const creditDeliveryEligibleTiers = new Set(['SILVER', 'GOLD']);
-  if (allowPlatinumTier) creditDeliveryEligibleTiers.add('PLATINUM');
-  if (allowGreenTier) creditDeliveryEligibleTiers.add('GREEN');
-  const cashPayoutEligibleTiers = new Set(['GOLD']);
-  if (allowPlatinumTier) cashPayoutEligibleTiers.add('PLATINUM');
-  if (allowGreenTier) cashPayoutEligibleTiers.add('GREEN');
-  return { creditDeliveryEligibleTiers, cashPayoutEligibleTiers, allowPlatinumTier, allowGreenTier };
-};
-
-const TIER_ROUTE_DISCOUNTS = {
-  BRONZE: 0.1,
-  SILVER: 0.2,
-  GOLD: 0.3
-};
-
-// DEPRECATED: calculateRouteFee moved to deliveryFees.js
-
-// DEPRECATED: distance fee config moved to deliveryFees.js
-
-const roundDownToTenth = value => Math.floor(value * 10) / 10; // used for points calc only
-
-const calculatePointUnits = ({ productPaidCents, tier }) => {
-  const normalizedTier = normalizeTier(tier);
-  if (!POINT_ELIGIBLE_TIERS.has(normalizedTier)) return 0;
-  const rate = POINT_EARNING_RATES[normalizedTier] ?? 0;
-  if (!rate || productPaidCents <= 0) return 0;
-  return Math.max(0, Math.round(productPaidCents * rate));
-};
-
-// DEPRECATED: calculateDistanceFee moved to deliveryFees.js
-
-// DEPRECATED: handling fee config moved to deliveryFees.js
-
-// DEPRECATED: calculateLargeOrderFee moved to deliveryFees.js
-
-// DEPRECATED: calculateHeavyItemFee moved to deliveryFees.js
-
-const getReturnFeeConfig = async () => ({
-  returnHandlingFeePerContainer: CASH_HANDLING_FEE_PER_CONTAINER,
-  glassHandlingFeePerContainer: GLASS_HANDLING_SURCHARGE_PER_CONTAINER
-});
-
-const buildReturnPreview = async (rawUpcs, payoutMethod = 'CREDIT') => {
-  const { upcCounts, uniqueUpcs } = normalizeUpcCounts(rawUpcs);
-  const returnUpcs = [];
-  const returnUpcCounts = [];
-
-  let eligibleUpcs = [];
-  let eligibleUpcCounts = [];
-  let ineligibleUpcs = [];
-  let estimatedCreditFromUpcs = 0;
-
-  let feeSummary = { totalFee: 0 };
-  if (uniqueUpcs.length > 0) {
-    const upcEntries = await UpcItem.find({ upc: { $in: uniqueUpcs } }).lean();
-    const upcByCode = new Map(upcEntries.map(entry => [entry.upc, entry]));
-
-    for (const { upc, quantity } of upcCounts) {
-      const entry = upcByCode.get(upc);
-      if (entry?.isEligible) {
-        eligibleUpcs.push(...Array.from({ length: quantity }, () => upc));
-        eligibleUpcCounts.push({ upc, quantity });
-      } else {
-        ineligibleUpcs.push(upc);
-      }
-    }
-
-    const feeConfig = await getReturnFeeConfig();
-    feeSummary = calculateReturnFeeSummary(eligibleUpcCounts, upcEntries, feeConfig);
-    estimatedCreditFromUpcs = sumReturnCredits(eligibleUpcCounts, upcEntries);
-  }
-
-  const computedEstimatedCredit = estimatedCreditFromUpcs;
-  const shouldApplyFees = payoutMethod === 'CASH';
-  const estimatedNetCredit = shouldApplyFees
-    ? Math.max(0, computedEstimatedCredit - feeSummary.totalFee)
-    : computedEstimatedCredit;
-  const estimatedCredit = {
-    gross: computedEstimatedCredit,
-    net: estimatedNetCredit
-  };
-
-  returnUpcs.push(...eligibleUpcs);
-  returnUpcCounts.push(...eligibleUpcCounts);
-
-  return {
-    returnUpcs,
-    returnUpcCounts,
-    eligibleUpcs,
-    eligibleUpcCounts,
-    ineligibleUpcs,
-    estimatedCredit
-  };
-};
-
-const handleDistanceLookupError = (res, err) => {
-  if (err?.code === 'ADDRESS_REQUIRED') {
-    return res.status(400).json({ error: err.message });
-  }
-  if (err?.code === 'HUB_NOT_CONFIGURED') {
-    return res.status(503).json({ error: err.message });
-  }
-  if (err?.code === 'ADDRESS_NOT_FOUND') {
-    return res.status(404).json({ error: err.message });
-  }
-  return res.status(500).json({ error: 'Distance lookup failed' });
-};
-
-const awardLoyaltyPoints = async ({ order, user, productPaidCents, session }) => {
-  if (!order || !user) return 0;
-  if (order.pointsAwardedAt) return 0;
-  const pointsToAdd = calculatePointUnits({
-    productPaidCents,
-    tier: user.membershipTier
-  });
-  if (pointsToAdd <= 0) return 0;
-
-  const previousPoints = Math.max(0, Math.round(Number(user.loyaltyPoints || 0)));
-  user.loyaltyPoints = previousPoints + pointsToAdd;
-  await user.save({ session });
-
-  await LedgerEntry.create(
-    [{ userId: user._id, delta: pointsToAdd, reason: `POINTS_EARNED:${order.orderId}`, origin: 'POINTS' }],
-    { session }
-  );
-
-  order.pointsAwardedAt = new Date();
-  await order.save({ session });
-  return pointsToAdd;
-};
 
 const createPaymentsRouter = ({ stripe }) => {
   const router = express.Router();
 
-  /* =========================
-     PAYMENTS
-     Option 2: Authorize at checkout, capture after driver verification.
-  ========================= */
-
   /**
-   * POST /api/payments/quote
-   * - estimates subtotal + fees based on backend logic
+   * =========================
+   * QUOTE
+   * =========================
    */
   router.post('/quote', async (req, res) => {
-    // Strict contract: reject unknown fields
-    const allowedFields = ['items', 'userId', 'address', 'returnUpcCounts', 'returnUpcs', 'payoutMethod'];
-    for (const key of Object.keys(req.body)) {
-      if (!allowedFields.includes(key)) {
-        return res.status(400).json({ error: `Unknown field: ${key}` });
-      }
-    }
-    if (!isDbReady() && process.env.SKIP_DB_CHECKS_FOR_TESTS !== '1') {
-      return res.status(503).json({ error: 'Database not ready' });
-    }
     try {
-      const rawItems = req.body?.items;
-      const userId = req.body?.userId;
-      const address = typeof req.body?.address === 'string' ? req.body.address.trim() : '';
-      const rawReturnUpcs = req.body?.returnUpcCounts ?? req.body?.returnUpcs;
-
-      // Validate types
-      if (rawItems !== undefined && !Array.isArray(rawItems)) {
-        return res.status(400).json({ error: 'items must be an array' });
-      }
-      if (userId !== undefined && typeof userId !== 'string') {
-        return res.status(400).json({ error: 'userId must be a string' });
-      }
-      if (address && typeof address !== 'string') {
-        return res.status(400).json({ error: 'address must be a string' });
+      if (!isDbReady()) {
+        return res.status(503).json({ error: 'Database not ready' });
       }
 
-      const items = normalizeCart(rawItems);
-      const normalizedReturnUpcs = normalizeUpcCounts(rawReturnUpcs);
-      const isReturnOnly = Array.isArray(items) && items.length === 0 && normalizedReturnUpcs.uniqueUpcs.length > 0;
-      if ((!Array.isArray(items) || items.length === 0) && !isReturnOnly) {
+      const items = normalizeCart(req.body.items || []);
+      const userId = req.body.userId;
+      const address = req.body.address || '';
+
+      if (!items.length) {
         return res.status(400).json({ error: 'Cart is empty' });
       }
 
-      const tierLookupUser = userId
-        ? await User.findById(userId, { membershipTier: 1 }).lean()
-        : null;
-      const userTier = tierLookupUser?.membershipTier || 'COMMON';
+      const user = userId ? await User.findById(userId) : null;
+      const tier = user?.membershipTier || 'COMMON';
 
-      // Defensive: enforce tier contract for credit/cash eligibility
-      if (req.body?.payoutMethod === 'CASH' && !CASH_PAYOUT_ELIGIBLE_TIERS.has(userTier)) {
-        return res.status(400).json({ error: 'This tier is not eligible for cash payout' });
-      }
-
-      // Centralized delivery fee calculation
-      let distanceMiles = 0;
-      if (address) {
-        try {
-          distanceMiles = await resolveDistanceMiles(address);
-        } catch (err) {
-          return handleDistanceLookupError(res, err);
-        }
-      }
-
-      const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
-      const fees = await getDeliveryOptions({
-        orderType,
-        tier: userTier,
-        distanceMiles,
-        items,
-        productsByFrontendId: new Map() // not needed in quote
-      });
-      let { routeFee, routeFeeCents, distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles } = fees;
-
-      let totalCents = 0;
-      let productSubtotalCents = 0;
-      const stalenessWarnings = [];
-      const pricingWarnings = [];
-      let { largeOrderFeeCents, heavyItemFeeCents } = fees;
-
-      if (Array.isArray(items) && items.length > 0) {
-        const useStoreInventoryPricing = isStoreInventoryPricingEnabled();
-        const pricingContext = await resolvePricingContext(items, { useStoreInventoryPricing });
-        if (!pricingContext.ok) {
-          return res
-            .status(pricingContext.status || 400)
-            .json({ error: pricingContext.error });
-        }
-
-        const { pricingByFrontendId, stalenessWarnings: staleList, pricingWarnings: priceWarns } = pricingContext;
-        stalenessWarnings.push(...staleList);
-        pricingWarnings.push(...priceWarns);
-
-        for (const item of items) {
-          const pricing = pricingByFrontendId.get(item.productId);
-          if (!pricing) {
-            return res.status(400).json({ error: `Unknown product ${item.productId}` });
-          }
-
-          const unit = Math.round(Number(pricing.price || 0) * 100);
-          const lineTotal = unit * item.quantity;
-          totalCents += lineTotal;
-          productSubtotalCents += lineTotal;
-        }
-        // Large Order Handling (applies to purchase orders only)
-        // Recalculate handling fees with actual product map
-        const productsForFees = new Map(
-          Array.from(pricingContext.pricingByFrontendId.entries()).map(([frontendId, ctx]) => [
-            frontendId,
-            { ...ctx.product, price: ctx.price }
-          ])
-        );
-        const recalculated = await getDeliveryOptions({
-          orderType,
-          tier: userTier,
-          distanceMiles,
-          items,
-          productsByFrontendId: productsForFees
-        });
-        largeOrderFeeCents = orderType === 'DELIVERY_PURCHASE' ? recalculated.largeOrderFeeCents : 0;
-        heavyItemFeeCents = orderType === 'DELIVERY_PURCHASE' ? recalculated.heavyItemFeeCents : 0;
-      }
-
-      if (routeFeeCents > 0) {
-        totalCents += routeFeeCents;
-      }
-
-      if (distanceFeeCents > 0) {
-        totalCents += distanceFeeCents;
-      }
-
-      if (largeOrderFeeCents > 0) {
-        totalCents += largeOrderFeeCents;
-      }
-
-      if (heavyItemFeeCents > 0) {
-        totalCents += heavyItemFeeCents;
-      }
-
-      // Always return all fields, even if empty, for determinism
-      return res.json({
-        subtotal: productSubtotalCents / 100,
-        total: totalCents / 100,
-        routeFeeFinal: routeFee,
-        distanceFeeFinal: distanceFee,
-        distanceMiles: roundedDistanceMiles,
-        orderType,
-        largeOrderFee: largeOrderFeeCents / 100,
-        heavyItemFee: heavyItemFeeCents / 100,
-        stalenessWarnings: stalenessWarnings.length + pricingWarnings.length > 0 ? [...stalenessWarnings, ...pricingWarnings] : [],
-      });
-    } catch (err) {
-      console.error('QUOTE ERROR:', err);
-      return res.status(500).json({ error: 'Quote failed', details: String(err && err.message) });
-    }
-  });
-
-  /**
-   * POST /api/payments/create-session
-   * - reserves inventory
-   * - creates order (PENDING)
-   * - creates Stripe Checkout Session with capture_method = manual (authorize only)
-   */
-  router.post('/create-session', async (req, res) => {
-    if (!isDbReady() && process.env.SKIP_DB_CHECKS_FOR_TESTS !== '1') {
-      return res.status(503).json({ error: 'Database not ready' });
-    }
-    const sessionDb = await mongoose.startSession();
-
-    try {
-      if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
-
-      const rawItems = req.body?.items;
-      const userId = req.body?.userId;
-      const address = String(req.body?.address || '').trim();
-      const gateway = String(req.body?.gateway || 'STRIPE').toUpperCase();
-      const tierLookupUser = userId
-        ? await User.findById(userId, { membershipTier: 1 }).session(sessionDb)
-        : null;
-      const eligibility = await getTierEligibilityConfig();
-      const returnPayoutMethod = normalizePayoutMethodForTier(
-        req.body?.returnPayoutMethod,
-        tierLookupUser?.membershipTier,
-        eligibility
-      );
-      // Centralized delivery fee calculation
-      let distanceMiles;
-      try {
-        distanceMiles = await resolveDistanceMiles(address);
-      } catch (err) {
-        return handleDistanceLookupError(res, err);
-      }
-
-      const items = normalizeCart(rawItems);
-      const rawReturnUpcs = req.body?.returnUpcCounts ?? req.body?.returnUpcs;
-      const normalizedReturnUpcs = normalizeUpcCounts(rawReturnUpcs);
-      const isReturnOnly =
-        Array.isArray(items) && items.length === 0 && normalizedReturnUpcs.uniqueUpcs.length > 0;
-      if ((!Array.isArray(items) || items.length === 0) && !isReturnOnly) {
-        return res.status(400).json({ error: 'Cart is empty' });
-      }
-
-      const { eligibleUpcs, eligibleUpcCounts, ineligibleUpcs, estimatedCredit } =
-        await buildReturnPreview(rawReturnUpcs, returnPayoutMethod);
-      if (isReturnOnly && eligibleUpcs.length === 0) {
-        return res.status(400).json({ error: 'No eligible return UPCs provided.' });
-      }
-
-      const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
-      let { routeFee, routeFeeCents, routeFeeDiscountPercent, distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles, largeOrderFeeCents, heavyItemFeeCents } = await getDeliveryOptions({
-        orderType,
-        tier: tierLookupUser?.membershipTier,
-        distanceMiles,
-        items,
-        productsByFrontendId: new Map() // handling fees recalculated after product fetch
-      });
-
-      // If pricingLock is provided and valid, override calculated fees
-      const lockCheck = verifyPricingLock(req.body?.pricingLock);
-      if (lockCheck.ok && orderType === 'DELIVERY_PURCHASE') {
-        const p = lockCheck.payload;
-        routeFee = Number(p.routeFee);
-        routeFeeCents = Math.round(routeFee * 100);
-        distanceFee = Number(p.distanceFee);
-        distanceFeeCents = Math.round(distanceFee * 100);
-        roundedDistanceMiles = Number(p.distanceMiles);
-      }
-
-      // Handling fees
-      // large/heavy already from initial calc; will refine after product fetch
-
-      const orderId = crypto.randomUUID();
-      const lineItems = [];
-      let totalCents = 0;
-      let productSubtotalCents = 0;
-      const stalenessWarnings = [];
-      const pricingWarnings = [];
-      const useStoreInventoryPricing = isStoreInventoryPricingEnabled();
-
-      await sessionDb.withTransaction(async () => {
-        const pricingContext = await resolvePricingContext(items, {
-          session: sessionDb,
-          useStoreInventoryPricing
-        });
-
-        if (!pricingContext.ok) {
-          const err = new Error(pricingContext.error || 'Pricing resolution failed');
-          err.code = pricingContext.code || 'PRICING_RESOLUTION_FAILED';
-          err.status = pricingContext.status || 400;
-          throw err;
-        }
-
-        const {
-          pricingByFrontendId,
-          stalenessWarnings: staleList,
-          pricingWarnings: priceWarns
-        } = pricingContext;
-        stalenessWarnings.push(...staleList);
-        pricingWarnings.push(...priceWarns);
-
-        const products = await Promise.all(
-          items.map(async item => {
-            const pricing = pricingByFrontendId.get(item.productId);
-            if (!pricing) {
-              const err = new Error(`Unknown product ${item.productId}`);
-              err.code = 'UNKNOWN_PRODUCT';
-              err.status = 400;
-              throw err;
-            }
-
-            const updated = await Product.findOneAndUpdate(
-              { frontendId: item.productId, stock: { $gte: item.quantity } },
-              { $inc: { stock: -item.quantity } },
-              { new: true, session: sessionDb }
-            );
-
-            if (!updated) {
-              const current = await Product.findOne(
-                { frontendId: item.productId },
-                { stock: 1, name: 1 }
-              ).session(sessionDb);
-
-              const available = current?.stock ?? 0;
-              const name = current?.name || item.productId;
-
-              const err = new Error(`Insufficient stock for ${name}. Available: ${available}`);
-              err.code = 'INSUFFICIENT_STOCK';
-              err.meta = { productId: item.productId, available };
-              throw err;
-            }
-
-            return { updated, item, pricing };
-          })
-        );
-
-        products.forEach(({ updated, item, pricing }) => {
-          const unit = Math.round(Number(pricing.price) * 100);
-          const lineTotal = unit * item.quantity;
-          totalCents += lineTotal;
-          productSubtotalCents += lineTotal;
-
-          lineItems.push({
-            price_data: {
-              currency: 'usd',
-              product_data: { name: updated.name },
-              unit_amount: unit
-            },
-            quantity: item.quantity
-          });
-        });
-
-        // Recalculate handling fees using actual product map
-        const byFrontendId = new Map(
-          products.map(({ updated, pricing }) => [
-            updated.frontendId,
-            { ...(updated.toObject ? updated.toObject() : updated), price: pricing.price }
-          ])
-        );
-        const refined = await getDeliveryOptions({
-          orderType,
-          tier: tierLookupUser?.membershipTier,
-          distanceMiles,
-          items,
-          productsByFrontendId: byFrontendId
-        });
-        largeOrderFeeCents = orderType === 'DELIVERY_PURCHASE' ? refined.largeOrderFeeCents : 0;
-        heavyItemFeeCents = orderType === 'DELIVERY_PURCHASE' ? refined.heavyItemFeeCents : 0;
-        if (lockCheck.ok && orderType === 'DELIVERY_PURCHASE') {
-          largeOrderFeeCents = Math.round(Number(lockCheck.payload.largeOrderFee) * 100);
-          heavyItemFeeCents = Math.round(Number(lockCheck.payload.heavyItemFee) * 100);
-        }
-
-        if (largeOrderFeeCents > 0) {
-          totalCents += largeOrderFeeCents;
-          lineItems.push({
-            price_data: {
-              currency: 'usd',
-              product_data: { name: 'Large Order Handling' },
-              unit_amount: largeOrderFeeCents
-            },
-            quantity: 1
-          });
-        }
-
-        if (heavyItemFeeCents > 0) {
-          totalCents += heavyItemFeeCents;
-          lineItems.push({
-            price_data: {
-              currency: 'usd',
-              product_data: { name: 'Heavy Item Handling' },
-              unit_amount: heavyItemFeeCents
-            },
-            quantity: 1
-          });
-        }
-
-        if (routeFeeCents > 0) {
-          totalCents += routeFeeCents;
-          lineItems.push({
-            price_data: {
-              currency: 'usd',
-              product_data: {
-                name:
-                  orderType === 'RETURNS_PICKUP'
-                    ? 'Route Fee — Pickup-Only Order'
-                    : 'Route Fee — Delivery Order'
-              },
-              unit_amount: routeFeeCents
-            },
-            quantity: 1
-          });
-        }
-
-        if (distanceFeeCents > 0) {
-          totalCents += distanceFeeCents;
-          lineItems.push({
-            price_data: {
-              currency: 'usd',
-              product_data: {
-                name: 'Distance Fee'
-              },
-              unit_amount: distanceFeeCents
-            },
-            quantity: 1
-          });
-        }
-
-        await Order.create(
-          [
-            {
-              orderId,
-              customerId: userId || 'GUEST',
-              address: address || '',
-              items,
-              subtotal: productSubtotalCents / 100,
-              total: totalCents / 100,
-              orderType,
-              routeFee: baseRouteFee,
-              routeFeeDiscountPercent,
-              routeFeeFinal: routeFee,
-              distanceMiles: roundedDistanceMiles,
-              distanceFee,
-              distanceFeeFinal: distanceFee,
-              largeOrderFee: largeOrderFeeCents / 100,
-              heavyItemFee: heavyItemFeeCents / 100,
-              creditAppliedCents: 0,
-              creditAuthorizedCents: 0,
-
-              // Persist pricing lock for audit if provided and valid
-              pricingLock: lockCheck.ok ? req.body?.pricingLock : undefined,
-
-              returnUpcs: eligibleUpcs,
-              returnUpcCounts: eligibleUpcCounts,
-              estimatedReturnCreditGross: estimatedCredit.gross,
-              estimatedReturnCredit: estimatedCredit.net,
-              verifiedReturnCreditGross: 0,
-              verifiedReturnCredit: 0,
-              returnPayoutMethod,
-
-              paymentMethod: gateway === 'GPAY' ? 'GOOGLE_PAY' : 'STRIPE',
-              status: 'PENDING',
-
-              amountAuthorizedCents: totalCents
-            }
-          ],
-          { session: sessionDb }
-        );
-      });
-
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-
-      // Manual capture => authorize now, capture later
-      const stripeSession = await stripe.checkout.sessions.create({
-        mode: 'payment',
-        line_items: lineItems,
-        payment_intent_data: {
-          capture_method: 'manual'
-        },
-        metadata: { orderId },
-        success_url: `${frontendUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${frontendUrl}/cancel?session_id={CHECKOUT_SESSION_ID}`
-      });
-
-      await Order.findOneAndUpdate({ orderId }, { stripeSessionId: stripeSession.id });
-
-      const responsePayload = { sessionUrl: stripeSession.url };
-      if (stalenessWarnings.length + pricingWarnings.length > 0) {
-        responsePayload.stalenessWarnings = [...stalenessWarnings, ...pricingWarnings];
-      }
-      const uniqueIneligibleUpcs = [...new Set(ineligibleUpcs)];
-      if (uniqueIneligibleUpcs.length > 0) {
-        responsePayload.warning = 'Some return UPCs are ineligible and were removed.';
-        responsePayload.ineligibleUpcs = uniqueIneligibleUpcs;
-      }
-
-      if (routeFeeCents > 0) {
-        await recordAuditLog({
-          type: 'ORDER_CREATED',
-          actorId: userId || 'GUEST',
-          details: `Order ${orderId} created with route fee $${routeFee.toFixed(2)}.`
-        });
-      }
-      if (distanceFeeCents > 0) {
-        await recordAuditLog({
-          type: 'ORDER_CREATED',
-          actorId: userId || 'GUEST',
-          details: `Order ${orderId} created with distance fee $${distanceFee.toFixed(2)}.`
-        });
-      }
-
-      res.json(responsePayload);
-    } catch (err) {
-      console.error('STRIPE SESSION ERROR:', err);
-
-      if (err?.code === 'INSUFFICIENT_STOCK') {
-        return res.status(400).json({ error: err.message, meta: err.meta });
-      }
-      if (err?.code === 'NO_COMMITTED_PRICE') {
-        return res.status(400).json({ error: err.message });
-      }
-      if (err?.status) {
-        return res.status(err.status).json({ error: err.message || 'Stripe session failed' });
-      }
-
-      res.status(500).json({ error: 'Stripe session failed' });
-    } finally {
-      sessionDb.endSession();
-    }
-  });
-
-  /**
-   * POST /api/payments/credits
-   * - reserves inventory
-   * - applies user credits (partial or full)
-   * - creates order and Stripe session for remaining amount (if needed)
-   */
-  router.post('/credits', authRequired, async (req, res) => {
-    if (!isDbReady() && process.env.SKIP_DB_CHECKS_FOR_TESTS !== '1') {
-      return res.status(503).json({ error: 'Database not ready' });
-    }
-    const sessionDb = await mongoose.startSession();
-
-    let user;
-    let creditTransactionId = null;
-    try {
-      const rawItems = req.body?.items;
-      const address = String(req.body?.address || '').trim();
-      const stalenessWarnings = [];
-      const pricingWarnings = [];
-      const useStoreInventoryPricing = isStoreInventoryPricingEnabled();
-
-      const items = normalizeCart(rawItems);
-      const rawReturnUpcs = req.body?.returnUpcCounts ?? req.body?.returnUpcs;
-      const normalizedReturnUpcs = normalizeUpcCounts(rawReturnUpcs);
-      const isReturnOnly =
-        Array.isArray(items) && items.length === 0 && normalizedReturnUpcs.uniqueUpcs.length > 0;
-      if ((!Array.isArray(items) || items.length === 0) && !isReturnOnly) {
-        return res.status(400).json({ error: 'Cart is empty' });
-      }
-
-      const userId = req.user?.id;
-      if (!userId) return res.status(401).json({ error: 'Not logged in' });
-
-      user = await User.findById(userId).session(sessionDb);
-      if (!user) return res.status(404).json({ error: 'User not found' });
-
-      const eligibility = await getTierEligibilityConfig();
-      const returnPayoutMethod = normalizePayoutMethodForTier(
-        req.body?.returnPayoutMethod,
-        user?.membershipTier,
-        eligibility
-      );
-      const { eligibleUpcs, eligibleUpcCounts, ineligibleUpcs, estimatedCredit } =
-        await buildReturnPreview(rawReturnUpcs, returnPayoutMethod);
-      if (isReturnOnly && eligibleUpcs.length === 0) {
-        return res.status(400).json({ error: 'No eligible return UPCs provided.' });
-      }
-
-      if (user.creditTransactionId) {
-        const err = new Error('User has a pending credit transaction.');
-        err.code = 'PENDING_CREDIT_TRANSACTION';
-        throw err;
-      }
-      // Centralized delivery fee calculation
-      let distanceMiles;
-      try {
-        distanceMiles = await resolveDistanceMiles(address);
-      } catch (err) {
-        return handleDistanceLookupError(res, err);
-      }
-      const orderType = isReturnOnly ? 'RETURNS_PICKUP' : 'DELIVERY_PURCHASE';
-      let { routeFee, routeFeeCents, routeFeeDiscountPercent, distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles, largeOrderFeeCents, heavyItemFeeCents } = await getDeliveryOptions({
-        orderType,
-        tier: user?.membershipTier,
-        distanceMiles,
+      const {
+        routeFee,
+        routeFeeCents,
+        distanceFee,
+        distanceFeeCents,
+        largeOrderFeeCents,
+        heavyItemFeeCents
+      } = await getDeliveryOptions({
+        orderType: 'DELIVERY_PURCHASE',
+        tier,
+        distanceMiles: 0,
         items,
         productsByFrontendId: new Map()
       });
 
-      // If pricingLock is provided and valid, override calculated fees
-      const lockCheck = verifyPricingLock(req.body?.pricingLock);
-      if (lockCheck.ok && orderType === 'DELIVERY_PURCHASE') {
-        const p = lockCheck.payload;
-        routeFee = Number(p.routeFee);
-        routeFeeCents = Math.round(routeFee * 100);
-        distanceFee = Number(p.distanceFee);
-        distanceFeeCents = Math.round(distanceFee * 100);
-        roundedDistanceMiles = Number(p.distanceMiles);
+      let subtotalCents = 0;
+
+      for (const item of items) {
+        const product = await Product.findOne({ frontendId: item.productId });
+
+        if (!product) {
+          return res.status(400).json({ error: `Invalid product ${item.productId}` });
+        }
+
+        subtotalCents += Math.round(product.price * 100) * item.quantity;
       }
 
-      const orderId = crypto.randomUUID();
-      let totalCents = 0;
-      let productSubtotalCents = 0;
+      const totalCents =
+        subtotalCents +
+        routeFeeCents +
+        distanceFeeCents +
+        largeOrderFeeCents +
+        heavyItemFeeCents;
 
-      creditTransactionId = crypto.randomUUID();
-      user.creditTransactionId = creditTransactionId;
-      await user.save({ session: sessionDb });
-      await sessionDb.withTransaction(async () => {
-        if (!isReturnOnly) {
-          const pricingContext = await resolvePricingContext(items, {
-            session: sessionDb,
-            useStoreInventoryPricing
-          });
-
-          if (!pricingContext.ok) {
-            const err = new Error(pricingContext.error || 'Pricing resolution failed');
-            err.code = pricingContext.code || 'PRICING_RESOLUTION_FAILED';
-            err.status = pricingContext.status || 400;
-            throw err;
-          }
-
-          const {
-            pricingByFrontendId,
-            stalenessWarnings: staleList,
-            pricingWarnings: priceWarns
-          } = pricingContext;
-          stalenessWarnings.push(...staleList);
-          pricingWarnings.push(...priceWarns);
-
-          const products = await Promise.all(
-            items.map(async item => {
-              const pricing = pricingByFrontendId.get(item.productId);
-              if (!pricing) {
-                const err = new Error(`Unknown product ${item.productId}`);
-                err.code = 'UNKNOWN_PRODUCT';
-                err.status = 400;
-                throw err;
-              }
-
-              const updated = await Product.findOneAndUpdate(
-                { frontendId: item.productId, stock: { $gte: item.quantity } },
-                { $inc: { stock: -item.quantity } },
-                { new: true, session: sessionDb }
-              );
-
-              if (!updated) {
-                const current = await Product.findOne(
-                  { frontendId: item.productId },
-                  { stock: 1, name: 1 }
-                ).session(sessionDb);
-
-                const available = current?.stock ?? 0;
-                const name = current?.name || item.productId;
-
-                const err = new Error(`Insufficient stock for ${name}. Available: ${available}`);
-                err.code = 'INSUFFICIENT_STOCK';
-                err.meta = { productId: item.productId, available };
-                throw err;
-              }
-
-              return { updated, item, pricing };
-            })
-          );
-
-          products.forEach(({ updated, item, pricing }) => {
-            const unit = Math.round(Number(pricing.price) * 100);
-            const lineTotal = unit * item.quantity;
-            totalCents += lineTotal;
-            productSubtotalCents += lineTotal;
-          });
-
-          // Recalculate handling fees using actual product map  
-          const byFrontendId = new Map(
-            products.map(({ updated, pricing }) => [
-              updated.frontendId,
-              { ...(updated.toObject ? updated.toObject() : updated), price: pricing.price }
-            ])
-          );
-          const refined = await getDeliveryOptions({
-            orderType,
-            tier: user?.membershipTier,
-            distanceMiles,
-            items,
-            productsByFrontendId: byFrontendId
-          });
-          largeOrderFeeCents = orderType === 'DELIVERY_PURCHASE' ? refined.largeOrderFeeCents : 0;
-          heavyItemFeeCents = orderType === 'DELIVERY_PURCHASE' ? refined.heavyItemFeeCents : 0;
-          if (lockCheck.ok && orderType === 'DELIVERY_PURCHASE') {
-            largeOrderFeeCents = Math.round(Number(lockCheck.payload.largeOrderFee) * 100);
-            heavyItemFeeCents = Math.round(Number(lockCheck.payload.heavyItemFee) * 100);
-          }
-        }
-
-        // Apply handling fees to total
-        if (largeOrderFeeCents > 0) {
-          totalCents += largeOrderFeeCents;
-        }
-        if (heavyItemFeeCents > 0) {
-          totalCents += heavyItemFeeCents;
-        }
-        if (routeFeeCents > 0) {
-          totalCents += routeFeeCents;
-        }
-        if (distanceFeeCents > 0) {
-          totalCents += distanceFeeCents;
-        }
-
-        const tier = normalizeTier(user?.membershipTier);
-        const eligibleCreditCents = eligibility.creditDeliveryEligibleTiers.has(tier)
-          ? totalCents
-          : productSubtotalCents;
-        const availableCreditsCents = Math.max(
-          0,
-          Math.round(Number(user.creditBalance || 0) * 100)
-        );
-        const creditAppliedCents = Math.min(availableCreditsCents, eligibleCreditCents);
-        const remainingCents = Math.max(0, totalCents - creditAppliedCents);
-        const creditAuthorized = creditAppliedCents / 100;
-
-        if (creditAppliedCents > 0) {
-          const currentBalance = Number(user.creditBalance || 0);
-          const currentAuthorized = Number(user.authorizedCreditBalance || 0);
-          user.creditBalance = Math.max(0, currentBalance - creditAuthorized);
-          user.authorizedCreditBalance = currentAuthorized + creditAuthorized;
-          await user.save({ session: sessionDb });
-        }
-
-        await Order.create(
-          [
-            {
-              orderId,
-              customerId: userId,
-              address: address || '',
-              items,
-              subtotal: productSubtotalCents / 100,
-              total: totalCents / 100,
-              orderType,
-              routeFee: baseRouteFee,
-              routeFeeDiscountPercent,
-              routeFeeFinal: routeFee,
-              distanceMiles: roundedDistanceMiles,
-              distanceFee,
-              distanceFeeFinal: distanceFee,
-              largeOrderFee: largeOrderFeeCents / 100,
-              heavyItemFee: heavyItemFeeCents / 100,
-              creditAuthorizedCents: creditAppliedCents,
-              creditAppliedCents: 0, // Will be set on capture
-              paymentMethod: remainingCents > 0 ? 'STRIPE' : 'CREDITS', // if fully covered
-              status: remainingCents > 0 ? 'PENDING' : 'AUTHORIZED',
-              amountAuthorizedCents: remainingCents,
-
-              returnUpcs: eligibleUpcs,
-              returnUpcCounts: eligibleUpcCounts,
-              estimatedReturnCreditGross: estimatedCredit.gross,
-              estimatedReturnCredit: estimatedCredit.net,
-              verifiedReturnCreditGross: 0,
-              verifiedReturnCredit: 0,
-              returnPayoutMethod
-            }
-          ],
-          { session: sessionDb }
-        );
+      return res.json({
+        subtotal: subtotalCents / 100,
+        total: totalCents / 100,
+        routeFee,
+        distanceFee,
+        largeOrderFee: largeOrderFeeCents / 100,
+        heavyItemFee: heavyItemFeeCents / 100
       });
-
-      const remainingOrder = await Order.findOne({ orderId }).lean();
-      if (!remainingOrder) return res.status(404).json({ error: 'Order not found' });
-
-      const remainingCents = Number(remainingOrder.amountAuthorizedCents || 0);
-
-      if (routeFeeCents > 0) {
-        await recordAuditLog({
-          type: 'ORDER_CREATED',
-          actorId: req.user?.username || req.user?.id || userId,
-          details: `Order ${orderId} created with route fee $${routeFee.toFixed(2)}.`
-        });
-      }
-      if (distanceFeeCents > 0) {
-        await recordAuditLog({
-          type: 'ORDER_CREATED',
-          actorId: req.user?.username || req.user?.id || userId,
-          details: `Order ${orderId} created with distance fee $${distanceFee.toFixed(2)}.`
-        });
-      }
-
-      if (remainingOrder.creditAuthorizedCents > 0) {
-        await recordAuditLog({
-          type: 'CREDIT_ADJUSTED',
-          actorId: req.user?.username || req.user?.id || userId,
-          details: `Authorized $${(
-            Number(remainingOrder.creditAuthorizedCents || 0) / 100
-          ).toFixed(2)} credits for order ${orderId}. Available Balance: $${Number(
-            user.creditBalance || 0
-          ).toFixed(2)}.`
-        });
-      }
-
-      const uniqueIneligibleUpcs = [...new Set(ineligibleUpcs)];
-
-      if (remainingCents === 0) {
-        // This block now handles fully credit-authorized orders
-        if (remainingOrder.customerId && remainingOrder.customerId !== 'GUEST') {
-          const [orderForPoints, userForPoints] = await Promise.all([
-            Order.findOne({ orderId }),
-            User.findById(remainingOrder.customerId)
-          ]);
-          if (orderForPoints && userForPoints) {
-            const productSubtotalCents = Math.round(Number(orderForPoints.subtotal || 0) * 100);
-            const creditAppliedCents = Math.round(
-              Number(orderForPoints.creditAuthorizedCents || 0)
-            );
-            const creditAppliedToProductsCents = Math.min(
-              creditAppliedCents,
-              productSubtotalCents
-            );
-            const productPaidCents = Math.max(
-              0,
-              productSubtotalCents - creditAppliedToProductsCents
-            );
-            await awardLoyaltyPoints({
-              order: orderForPoints,
-              user: userForPoints,
-              productPaidCents
-            });
-          }
-        }
-
-        const responsePayload = {
-          ok: true,
-          order: mapOrderForFrontend(remainingOrder),
-          creditBalance: Number(user.creditBalance || 0) // Return available balance
-        };
-        if (stalenessWarnings.length + pricingWarnings.length > 0) {
-          responsePayload.stalenessWarnings = [...stalenessWarnings, ...pricingWarnings];
-        }
-        if (uniqueIneligibleUpcs.length > 0) {
-          responsePayload.warning = 'Some return UPCs are ineligible and were removed.';
-          responsePayload.ineligibleUpcs = uniqueIneligibleUpcs;
-        }
-        return res.json(responsePayload);
-      }
-
-      if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
-
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-
-      const stripeSession = await stripe.checkout.sessions.create({
-        mode: 'payment',
-        line_items: [
-          {
-            price_data: {
-              currency: 'usd',
-              product_data: {
-                name: 'Ninpo Snacks order (after credits)'
-              },
-              unit_amount: remainingCents
-            },
-            quantity: 1
-          }
-        ],
-        payment_intent_data: {
-          capture_method: 'manual'
-        },
-        metadata: { orderId },
-        success_url: `${frontendUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${frontendUrl}/cancel?session_id={CHECKOUT_SESSION_ID}`
-      });
-
-      await Order.findOneAndUpdate(
-        { orderId },
-        { stripeSessionId: stripeSession.id, amountAuthorizedCents: remainingCents }
-      );
-
-      const responsePayload = {
-        sessionUrl: stripeSession.url,
-        orderId,
-        creditsAuthorized: Number(remainingOrder.creditAuthorizedCents || 0) / 100,
-        creditBalance: Number(user.creditBalance || 0)
-      };
-        if (stalenessWarnings.length + pricingWarnings.length > 0) {
-          responsePayload.stalenessWarnings = [...stalenessWarnings, ...pricingWarnings];
-      }
-      if (uniqueIneligibleUpcs.length > 0) {
-        responsePayload.warning = 'Some return UPCs are ineligible and were removed.';
-        responsePayload.ineligibleUpcs = uniqueIneligibleUpcs;
-      }
-      res.json(responsePayload);
     } catch (err) {
-      console.error('CREDITS PAYMENT ERROR:', err);
-
-      if (err?.code === 'INSUFFICIENT_STOCK') {
-        return res.status(400).json({ error: err.message, meta: err.meta });
-      }
-      if (err?.code === 'PENDING_CREDIT_TRANSACTION') {
-        return res.status(409).json({ error: err.message });
-      }
-      if (err?.code === 'NO_COMMITTED_PRICE') {
-        return res.status(400).json({ error: err.message });
-      }
-      if (err?.status) {
-        return res.status(err.status).json({ error: err.message || 'Credits checkout failed' });
-      }
-
-      res.status(500).json({ error: 'Credits checkout failed' });
-    } finally {
-      if (sessionDb) {
-        sessionDb.endSession();
-      }
-      // Ensure creditTransactionId is cleared regardless of success or failure
-      if (user && creditTransactionId) {
-        try {
-          // Use findOneAndUpdate to release the lock atomically.
-          await User.findOneAndUpdate({ _id: user._id, creditTransactionId }, { $unset: { creditTransactionId: 1 } });
-        } catch (cleanupErr) {
-          console.error(`Error cleaning up creditTransactionId for user ${user._id}:`, cleanupErr);
-        }
-      }
+      console.error(err);
+      res.status(500).json({ error: 'Quote failed' });
     }
   });
 
-  const applyWalletCredit = async (
-    { order, walletCreditCents, payoutMethod },
-    { session, actorId }
-  ) => {
-    let creditedUserId = null;
-    let creditedAmount = 0;
-    if (
-      payoutMethod === 'CREDIT' &&
-      walletCreditCents > 0 &&
-      order.customerId &&
-      order.customerId !== 'GUEST'
-    ) {
-      const user = await User.findById(order.customerId).session(session);
-      if (user) {
-        const previousCredits = Number(user.creditBalance || 0);
-        user.creditBalance = Math.max(0, previousCredits + walletCreditCents / 100);
-        await user.save({ session });
-
-        const delta = Number(user.creditBalance || 0) - previousCredits;
-        if (delta) {
-          await LedgerEntry.create(
-            [{ userId: order.customerId, delta, reason: `RETURN_CREDIT_REMAINDER:${order.orderId}`, origin: 'RETURN' }],
-            { session }
-          );
-          creditedUserId = order.customerId;
-          creditedAmount = delta;
-        }
-      }
-    }
-    return { creditedUserId, creditedAmount };
-  };
-
   /**
-   * POST /api/payments/capture (owner-only)
-   * - Driver submits verifiedReturnCredit
-   * - Server captures final amount = authorized - verified credit (never increases)
+   * =========================
+   * CREATE SESSION
+   * =========================
    */
-  router.post('/capture', authRequired, async (req, res) => {
-    const eligibility = await getTierEligibilityConfig();
-    if (!isDbReady() && process.env.SKIP_DB_CHECKS_FOR_TESTS !== '1') {
-      return res.status(503).json({ error: 'Database not ready' });
-    }
-    const sessionDb = await mongoose.startSession();
+  router.post('/create-session', async (req, res) => {
+    const session = await mongoose.startSession();
 
     try {
-      if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
-
-      const orderId = String(req.body?.orderId || '').trim();
-      if (!orderId) return res.status(400).json({ error: 'orderId is required' });
-
-      await recordAuditLog({
-        type: 'ORDER_CAPTURE_START',
-        actorId: req.user?.username || req.user?.id || 'UNKNOWN',
-        details: `Attempting to capture payment for order ${orderId}.`
-      });
-
-      const lockCheck = verifyPricingLock(req.body?.pricingLock);
-      let updatedOrderDoc = null;
-
-      const isOwner = isOwnerUsername(req.user?.username);
-      const isDriver = isDriverUsername(req.user?.username);
-      const requestedReturnUpcCounts = req.body?.verifiedReturnUpcCounts;
-      const requestedReturnUpcs = req.body?.verifiedReturnUpcs;
-
-      let verifiedReturnCredit = 0;
-      let verifiedReturnCreditGross = 0;
-      let verifiedReturnUpcCounts = [];
-      let verifiedReturnUpcs = [];
-      let verifiedCredit = { gross: 0, net: 0 };
-      let creditedUserId = null;
-      let creditedAmount = 0;
-      let cashPayoutAmount = 0;
-      let cashPayoutUserId = null;
-
-      await sessionDb.withTransaction(async () => {
-        const order = await Order.findOne({ orderId }).session(sessionDb);
-        if (!order) return;
-
-        const savedLockCheck = order.pricingLock ? verifyPricingLock(order.pricingLock) : { ok: false };
-        if (order.pricingLock && !savedLockCheck.ok) {
-          const e = new Error('Stored pricing lock is invalid.');
-          e.code = 'PRICING_LOCK_INVALID';
-          throw e;
-        }
-        if (savedLockCheck.ok && !lockCheck.ok) {
-          const e = new Error('Pricing lock is required for capture.');
-          e.code = 'PRICING_LOCK_REQUIRED';
-          throw e;
-        }
-        if (savedLockCheck.ok && lockCheck.ok) {
-          const mismatch = JSON.stringify(lockCheck.payload) !== JSON.stringify(savedLockCheck.payload);
-          if (mismatch) {
-            const e = new Error('Pricing lock does not match authorized totals.');
-            e.code = 'PRICING_LOCK_MISMATCH';
-            throw e;
-          }
-        }
-        if (!savedLockCheck.ok && lockCheck.ok) {
-          order.pricingLock = req.body?.pricingLock;
-          await order.save({ session: sessionDb });
-          await recordAuditLog({
-            type: 'PRICING_LOCK_ATTACHED',
-            actorId: req.user?.username || req.user?.id || 'UNKNOWN',
-            details: `Pricing lock attached on capture for order ${orderId}.`
-          });
-        } else if (savedLockCheck.ok) {
-          await recordAuditLog({
-            type: 'PRICING_LOCK_VALIDATED',
-            actorId: req.user?.username || req.user?.id || 'UNKNOWN',
-            details: `Pricing lock validated on capture for order ${orderId}.`
-          });
-        }
-
-        const payoutMethod = normalizeReturnPayoutMethod(order.returnPayoutMethod);
-
-        if (!isOwner) {
-          if (!isDriver) {
-            const e = new Error('Owner or driver access required.');
-            e.code = 'STAFF_REQUIRED';
-            throw e;
-          }
-
-          const matchesDriver =
-            order.driverId &&
-            [order.driverId, req.user?.username, req.user?.id].includes(order.driverId);
-
-          if (!matchesDriver) {
-            const e = new Error('Order is not assigned to this driver.');
-            e.code = 'DRIVER_MISMATCH';
-            throw e;
-          }
-        }
-
-        const verifiedPayload =
-          requestedReturnUpcCounts ??
-          requestedReturnUpcs ??
-          order.verifiedReturnUpcCounts ??
-          order.verifiedReturnUpcs ??
-          order.returnUpcCounts ??
-          order.returnUpcs ??
-          [];
-        const normalized = normalizeUpcCounts(verifiedPayload);
-        verifiedReturnUpcCounts = normalized.upcCounts;
-        verifiedReturnUpcs = normalized.flattened;
-
-        if (normalized.uniqueUpcs.length > 0) {
-          const upcEntries = await UpcItem.find({
-            upc: { $in: normalized.uniqueUpcs },
-            isEligible: true
-          })
-            .session(sessionDb)
-            .lean();
-
-          verifiedReturnCreditGross = sumReturnCredits(normalized.upcCounts, upcEntries);
-          let feeSummary = { totalFee: 0 };
-          if (payoutMethod === 'CASH') {
-            const feeConfig = await getReturnFeeConfig();
-            feeSummary = calculateReturnFeeSummary(
-              normalized.upcCounts,
-              upcEntries,
-              feeConfig
-            );
-          }
-          const computedVerifiedCreditGross = verifiedReturnCreditGross;
-          const netCredit =
-            payoutMethod === 'CASH'
-              ? Math.max(0, computedVerifiedCreditGross - feeSummary.totalFee)
-              : computedVerifiedCreditGross;
-          verifiedCredit = {
-            gross: computedVerifiedCreditGross,
-            net: netCredit
-          };
-
-          await recordAuditLog({
-            type: 'ORDER_RETURNS_VERIFIED',
-            actorId: req.user?.username || req.user?.id || 'UNKNOWN',
-            details: `Order ${orderId} returns verified. Gross: $${verifiedCredit.gross.toFixed(
-              2
-            )}, Fees: $${Number(feeSummary.totalFee || 0).toFixed(
-              2
-            )}, Net: $${netCredit.toFixed(2)}.`
-          });
-        }
-        verifiedReturnCredit = verifiedCredit.net;
-
-        if (order.status === 'PAID') {
-          updatedOrderDoc = order;
-          return;
-        }
-
-        if (order.status === 'CANCELED' || order.status === 'EXPIRED') {
-          const e = new Error('Cannot capture a canceled/expired order.');
-          e.code = 'ORDER_CANCELED';
-          throw e;
-        }
-
-        const pi = order.stripePaymentIntentId;
-        if (!pi) {
-          const e = new Error('No Stripe PaymentIntent found for this order yet.');
-          e.code = 'NO_PAYMENT_INTENT';
-          throw e;
-        }
-
-        const authorizedCents = Number(
-          order.amountAuthorizedCents || Math.round(Number(order.total || 0) * 100)
-        );
-        const netCreditCents = Math.round(verifiedReturnCredit * 100);
-        const payoutUser =
-          order.customerId && order.customerId !== 'GUEST'
-            ? await User.findById(order.customerId).session(sessionDb)
-            : null;
-        const tier = normalizeTier(payoutUser?.membershipTier);
-        const productSubtotalCents = Math.round(Number(order.subtotal || 0) * 100);
-        const creditAppliedCents = Math.round(Number(order.creditAppliedCents || 0));
-        const creditAppliedToProductsCents = Math.min(
-          creditAppliedCents,
-          productSubtotalCents
-        );
-        const remainingProductCents = Math.max(
-          0,
-          productSubtotalCents - creditAppliedToProductsCents
-        );
-
-        const eligibleReturnCreditCents =
-          payoutMethod === 'CREDIT'
-            ? eligibility.creditDeliveryEligibleTiers.has(tier)
-              ? authorizedCents
-              : Math.min(authorizedCents, remainingProductCents)
-            : 0;
-        const creditCents = Math.min(netCreditCents, eligibleReturnCreditCents);
-        const walletCreditCents =
-          payoutMethod === 'CREDIT' ? Math.max(0, netCreditCents - creditCents) : 0;
-        const returnCreditAppliedToProductsCents = Math.min(
-          creditCents,
-          remainingProductCents
-        );
-        const productPaidCents = Math.max(
-          0,
-          remainingProductCents - returnCreditAppliedToProductsCents
-        );
-
-        const finalCaptureCents = Math.max(0, authorizedCents - creditCents);
-
-        // If capture would be 0, void the authorization instead of capturing 0.
-        if (finalCaptureCents === 0) {
-          try {
-            await stripe.paymentIntents.cancel(pi);
-          } catch {
-            // ignore
-          }
-
-          if (authorizedCents > 0) {
-            await recordAuditLog({
-              type: 'ORDER_PAYMENT_VOIDED',
-              actorId: req.user?.username || req.user?.id || 'UNKNOWN',
-              details: `Stripe authorization for order ${orderId} voided. Authorized: $${(
-                authorizedCents / 100
-              ).toFixed(2)}. Net return credit $${verifiedReturnCredit.toFixed(2)} covered the cost.`
-            });
-          }
-
-          order.status = 'PAID';
-          order.paidAt = new Date();
-          order.capturedAt = new Date();
-          order.amountCapturedCents = 0;
-          order.verifiedReturnCredit = verifiedReturnCredit;
-          order.verifiedReturnCreditGross = verifiedCredit.gross;
-          order.verifiedReturnUpcs = verifiedReturnUpcs;
-          order.verifiedReturnUpcCounts = verifiedReturnUpcCounts;
-          order.returnPayoutMethod = payoutMethod;
-
-          const creditResult = await applyWalletCredit(
-            { order, walletCreditCents, payoutMethod },
-            { session: sessionDb, actorId: req.user?.username || req.user?.id || '' }
-          );
-          ({ creditedUserId, creditedAmount } = creditResult);
-
-          await awardLoyaltyPoints({
-            order,
-            user: payoutUser,
-            productPaidCents,
-            session: sessionDb
-          });
-
-          if (payoutMethod === 'CASH' && verifiedReturnCredit > 0) {
-            await CashPayout.create(
-              [
-                {
-                  orderId: order.orderId,
-                  userId: order.customerId,
-                  driverId: order.driverId || '',
-                  amount: verifiedReturnCredit,
-                  createdBy: req.user?.username || req.user?.id || ''
-                }
-              ],
-              { session: sessionDb }
-            );
-            cashPayoutAmount = verifiedReturnCredit;
-            cashPayoutUserId = order.customerId;
-          }
-
-          await order.save({ session: sessionDb });
-          updatedOrderDoc = order;
-          return;
-        }
-
-        let captured;
-        try {
-          captured = await stripe.paymentIntents.capture(pi, {
-            amount_to_capture: finalCaptureCents
-          });
-        } catch (err) {
-          if (err.code === 'payment_intent_unexpected_state') {
-            // The payment intent may have been canceled or already captured.
-            // We can fetch the latest state to confirm.
-            const intent = await stripe.paymentIntents.retrieve(pi);
-            if (intent.status !== 'succeeded') throw err;
-          } else throw err;
-        }
-
-        if (captured) {
-          await recordAuditLog({
-            type: 'ORDER_PAYMENT_CAPTURED',
-            actorId: req.user?.username || req.user?.id || 'UNKNOWN',
-            details: `Stripe payment captured for order ${orderId}. Amount: $${(
-              finalCaptureCents / 100
-            ).toFixed(2)}. Authorized: $${(authorizedCents / 100).toFixed(
-              2
-            )}. Net return credit: $${verifiedReturnCredit.toFixed(2)}.`
-          });
-        }
-        order.status = 'PAID';
-        order.paidAt = new Date();
-        order.capturedAt = new Date();
-        order.amountCapturedCents = Number(captured?.amount_received || finalCaptureCents);
-        order.verifiedReturnCredit = verifiedReturnCredit;
-        order.verifiedReturnCreditGross = verifiedCredit.gross;
-        order.verifiedReturnUpcs = verifiedReturnUpcs;
-        order.verifiedReturnUpcCounts = verifiedReturnUpcCounts;
-        order.returnPayoutMethod = payoutMethod;
-
-        const creditResult = await applyWalletCredit(
-          { order, walletCreditCents, payoutMethod },
-          { session: sessionDb, actorId: req.user?.username || req.user?.id || '' }
-        );
-        ({ creditedUserId, creditedAmount } = creditResult);
-
-        await awardLoyaltyPoints({
-          order,
-          user: payoutUser,
-          productPaidCents,
-          session: sessionDb
-        });
-
-        if (payoutMethod === 'CASH' && verifiedReturnCredit > 0) {
-          await CashPayout.create(
-            [
-              {
-                orderId: order.orderId,
-                userId: order.customerId,
-                driverId: order.driverId || '',
-                amount: verifiedReturnCredit,
-                createdBy: req.user?.username || req.user?.id || ''
-              }
-            ],
-            { session: sessionDb }
-          );
-          cashPayoutAmount = verifiedReturnCredit;
-          cashPayoutUserId = order.customerId;
-        }
-
-        await order.save({ session: sessionDb });
-        updatedOrderDoc = order;
-      });
-
-      if (!updatedOrderDoc) return res.status(404).json({ error: 'Order not found' });
-
-      const responseOrder = mapOrderForFrontend(updatedOrderDoc);
-
-      if (cashPayoutAmount > 0 && cashPayoutUserId) {
-        await recordAuditLog({
-          type: 'CASH_PAYOUT_CREATED',
-          actorId: req.user?.username || req.user?.id || 'UNKNOWN',
-          details: `Cash payout for order ${orderId} created for user ${cashPayoutUserId}: $${Number(
-            cashPayoutAmount || 0
-          ).toFixed(2)}.`
-        });
+      if (!stripe) {
+        return res.status(500).json({ error: 'Stripe not configured' });
       }
 
-      if (creditedUserId && creditedAmount) {
-        await recordAuditLog({
-          type: 'CREDIT_ADJUSTED',
-          actorId: req.user?.username || req.user?.id || 'UNKNOWN',
-          details: `Applied $${creditedAmount.toFixed(2)} return credit remainder for order ${orderId}.`
-        });
+      const items = normalizeCart(req.body.items || []);
+      const userId = req.body.userId;
+      const address = req.body.address || '';
+
+      if (!items.length) {
+        return res.status(400).json({ error: 'Cart is empty' });
       }
 
-      res.json({
-        ok: true,
-        order: responseOrder,
-        cashPayoutAmount
+      const user = userId ? await User.findById(userId) : null;
+      const tier = user?.membershipTier || 'COMMON';
+
+      let lineItems = [];
+      let subtotalCents = 0;
+
+      await session.withTransaction(async () => {
+        for (const item of items) {
+          const product = await Product.findOneAndUpdate(
+            { frontendId: item.productId, stock: { $gte: item.quantity } },
+            { $inc: { stock: -item.quantity } },
+            { new: true, session }
+          );
+
+          if (!product) {
+            throw new Error(`Out of stock: ${item.productId}`);
+          }
+
+          const priceCents = Math.round(product.price * 100);
+
+          subtotalCents += priceCents * item.quantity;
+
+          lineItems.push({
+            price_data: {
+              currency: 'usd',
+              product_data: { name: product.name },
+              unit_amount: priceCents
+            },
+            quantity: item.quantity
+          });
+        }
       });
+
+      const fees = await getDeliveryOptions({
+        orderType: 'DELIVERY_PURCHASE',
+        tier,
+        distanceMiles: 0,
+        items,
+        productsByFrontendId: new Map()
+      });
+
+      const totalCents =
+        subtotalCents +
+        fees.routeFeeCents +
+        fees.distanceFeeCents +
+        fees.largeOrderFeeCents +
+        fees.heavyItemFeeCents;
+
+      const orderId = crypto.randomUUID();
+
+      await Order.create({
+        orderId,
+        customerId: userId || 'GUEST',
+        items,
+        subtotal: subtotalCents / 100,
+        total: totalCents / 100,
+        routeFeeFinal: fees.routeFee,
+        distanceFeeFinal: fees.distanceFee,
+        largeOrderFee: fees.largeOrderFeeCents / 100,
+        heavyItemFee: fees.heavyItemFeeCents / 100,
+        status: 'PENDING'
+      });
+
+      const stripeSession = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        line_items: lineItems,
+        success_url: 'http://localhost:5173/success',
+        cancel_url: 'http://localhost:5173/cancel'
+      });
+
+      res.json({ sessionUrl: stripeSession.url });
     } catch (err) {
-      const message = err?.message || 'Failed to capture payment';
-      if (err?.code === 'STAFF_REQUIRED') return res.status(403).json({ error: message });
-      if (err?.code === 'DRIVER_MISMATCH') return res.status(403).json({ error: message });
-      if (err?.code === 'ORDER_CANCELED') return res.status(400).json({ error: message });
-      if (err?.code === 'NO_PAYMENT_INTENT') return res.status(400).json({ error: message });
-      console.error('CAPTURE ERROR:', err);
-      res.status(500).json({ error: message });
+      console.error(err);
+      res.status(500).json({ error: 'Checkout failed' });
     } finally {
-      sessionDb.endSession();
+      session.endSession();
     }
   });
 

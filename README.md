@@ -1,59 +1,83 @@
-# GSnacks Documentation Hub
+# Ninpo Snacks (gsnacks)
 
-> **Canonical Source (README):** This file is for navigation and operational quickstart only. Do not define domain terms or non-negotiable behavioral contracts here.
+A production-grade full-stack snack ordering and management platform built with React, Node.js, Express, and MongoDB.
 
-## Doc Ownership
+---
 
-- **[GLOSSARY.md](GLOSSARY.md)** — Canonical definitions and terminology only.
-- **[GEMINI.md](GEMINI.md)** — Canonical non-negotiable behavior, invariants, and contracts.
-- **[README.md](README.md)** — Navigation, contributor workflow, and operational quickstart.
-- **[MAINTENANCE.md](MAINTENANCE.md)** — Operational maintenance and remediation runbooks.
+## 🚀 Overview
 
-## Quickstart
+Ninpo Snacks is designed as a scalable, modular system supporting:
+- User authentication (JWT-based)
+- Role-based access control (RBAC)
+- Real-time updates (Socket.IO)
+- Payments (Stripe)
+- Media handling (Cloudinary)
+- Notifications (Twilio / OneSignal)
 
-### 1) Development startup
+---
 
-```bash
-# install dependencies (root)
-npm install
+## 🏗 Architecture
 
-# start frontend/backend as configured by repo scripts
-npm run dev
-```
+- [System Design](docs/architecture/system-design.md)
+- [Backend Architecture](docs/architecture/backend-architecture.md)
+- [Frontend Architecture](docs/architecture/frontend-architecture.md)
 
-### 2) Common operations
+---
 
-```bash
-# run tests
-npm test
+## 🔐 Security
 
-# lint (if configured)
-npm run lint
-```
+- [Authentication Flow](docs/security/auth-flow.md)
+- [Roles & Permissions](docs/security/roles-permissions.md)
+- [Secrets Management](docs/security/secrets-management.md)
 
-### 3) Where to find policy/rules
+---
 
-- API/cookie invariant, scanner contracts, SKU/UPC rules, and receipt workflow:
-  - See **GEMINI contracts** in [GEMINI.md](GEMINI.md).
-- Domain definitions (tiers, fees, statuses, scanner modes, model names):
-  - See **Glossary terms** in [GLOSSARY.md](GLOSSARY.md).
+## 📡 API
 
-## Contributor doc workflow
+- [API Overview](docs/api/endpoints.md)
+- [Authentication](docs/api/auth.md)
+- [Rate Limiting](docs/api/rate-limiting.md)
 
-When making changes:
+---
 
-1. **New/changed term?** Update [GLOSSARY.md](GLOSSARY.md) first.
-2. **New/changed invariant or contract?** Update [GEMINI.md](GEMINI.md) first.
-3. Keep README changes limited to quickstart/navigation and links.
+## 🧑‍💻 Development
 
-## Change control recommendation
+- [Setup Guide](docs/dev/setup.md)
+- [Environment Variables](docs/dev/env.md)
+- [Scripts](docs/dev/scripts.md)
 
-To prevent duplication drift:
+---
 
-- Prefer linking to canonical sections instead of repeating policy prose.
-- During review, reject README changes that introduce contract-level language or full term definitions.
+## 🚀 Operations
 
+- [Deployment](docs/ops/deployment.md)
+- [Monitoring](docs/ops/monitoring.md)
+- [Incident Response](docs/ops/incident-response.md)
 
-## Operations & maintenance
+---
 
-For maintenance scripts and runbooks, see **[MAINTENANCE.md](MAINTENANCE.md)**.
+## 📦 Tech Stack
+
+- **Frontend:** React
+- **Backend:** Node.js, Express
+- **Database:** MongoDB
+- **Auth:** JWT
+- **Payments:** Stripe
+- **Realtime:** Socket.IO
+- **Media:** Cloudinary
+
+---
+
+## ⚠️ Production Notes
+
+This system assumes:
+- Proper environment variable configuration
+- Secure secret management
+- HTTPS enforced in production
+- Rate limiting and validation enabled
+
+---
+
+## 📄 License
+
+Private / Proprietary

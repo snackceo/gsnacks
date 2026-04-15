@@ -1,5 +1,8 @@
 import AppSettings from '../models/AppSettings.js';
 
+/**
+ * DEFAULT CONFIGS
+ */
 const DEFAULT_DISTANCE_FEES = {
   distanceIncludedMiles: 3.0,
   distanceBand1MaxMiles: 10.0,
@@ -15,16 +18,26 @@ const TIER_ROUTE_DISCOUNTS = {
   GOLD: 0.3
 };
 
-const normalizeTier = tier => {
-  const normalized = String(tier || '').trim().toUpperCase();
-  if (['COMMON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'GREEN'].includes(normalized)) {
-    return normalized;
-  }
-  return 'COMMON';
+/**
+ * HELPERS
+ */
+const toNumber = (val, fallback = 0) => {
+  const n = Number(val);
+  return Number.isFinite(n) ? n : fallback;
 };
 
-const roundDownToTenth = value => Math.floor(value * 10) / 10;
+const normalizeTier = (tier) => {
+  const t = String(tier || '').trim().toUpperCase();
+  return ['COMMON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'GREEN'].includes(t)
+    ? t
+    : 'COMMON';
+};
 
+const roundDownToTenth = (value) => Math.floor(value * 10) / 10;
+
+/**
+ * ROUTE FEE (BASE DELIVERY FEE)
+ */
 export const applyTierDiscount = ({
   baseRouteFee,
   pickupOnlyMultiplier,
@@ -34,33 +47,38 @@ export const applyTierDiscount = ({
   allowPlatinumTier,
   allowGreenTier
 }) => {
-  let fee = Math.max(0, Number(baseRouteFee || 0));
+  let fee = Math.max(0, toNumber(baseRouteFee));
   const normalizedTier = normalizeTier(tier);
+
+  // pickup adjustment
+  if (orderType === 'RETURNS_PICKUP') {
+    fee *= Math.max(0, toNumber(pickupOnlyMultiplier, 1));
+  }
+
+  const originalFee = fee;
   let discountPercent = 0;
 
-  if (orderType === 'RETURNS_PICKUP') {
-    fee = fee * Math.max(0, Number(pickupOnlyMultiplier || 0));
-  }
-
-  const feeBeforeTierDiscount = fee;
-  const tierDiscount = TIER_ROUTE_DISCOUNTS[normalizedTier] ?? 0;
-
+  // standard tier discounts
+  const tierDiscount = TIER_ROUTE_DISCOUNTS[normalizedTier] || 0;
   if (tierDiscount > 0) {
+    fee *= (1 - tierDiscount);
     discountPercent = tierDiscount;
-    fee = fee * (1 - tierDiscount);
   }
 
+  // GREEN override
   if (normalizedTier === 'GREEN' && allowGreenTier) {
     fee = 1;
-    discountPercent = feeBeforeTierDiscount > 0 ? Math.max(0, Math.min(1, 1 - fee / feeBeforeTierDiscount)) : 0;
+    discountPercent = originalFee > 0 ? 1 - (fee / originalFee) : 0;
   }
 
+  // PLATINUM override
   if (normalizedTier === 'PLATINUM' && allowPlatinumTier && platinumFreeDelivery) {
     fee = 0;
-    discountPercent = feeBeforeTierDiscount > 0 ? 1 : 0;
+    discountPercent = originalFee > 0 ? 1 : 0;
   }
 
   const feeCents = Math.round(fee * 100);
+
   return {
     routeFee: feeCents / 100,
     routeFeeCents: feeCents,
@@ -68,7 +86,10 @@ export const applyTierDiscount = ({
   };
 };
 
-const calculateDistanceFeeInternal = ({
+/**
+ * DISTANCE FEE
+ */
+const calculateDistanceFee = ({
   distanceMiles,
   config,
   orderType,
@@ -77,83 +98,121 @@ const calculateDistanceFeeInternal = ({
   allowGreenTier
 }) => {
   const normalizedTier = normalizeTier(tier);
-  const rawDistance = Number(distanceMiles);
-  const sanitizedDistance = Number.isFinite(rawDistance) ? Math.max(0, rawDistance) : 0;
-  const roundedDistance = roundDownToTenth(sanitizedDistance);
+  const distance = roundDownToTenth(Math.max(0, toNumber(distanceMiles)));
 
+  // GREEN = free distance
   if (normalizedTier === 'GREEN' && allowGreenTier) {
-    return { distanceFee: 0, distanceFeeCents: 0, distanceMiles: roundedDistance };
+    return { distanceFee: 0, distanceFeeCents: 0, distanceMiles: distance };
   }
 
-  const includedMiles = Math.max(0, Number(config.distanceIncludedMiles || 0));
-  const band1Max = Math.max(includedMiles, Number(config.distanceBand1MaxMiles || 0));
-  const band2Max = Math.max(band1Max, Number(config.distanceBand2MaxMiles || 0));
-  const band1Rate = Math.max(0, Number(config.distanceBand1Rate || 0));
-  const band2Rate = Math.max(0, Number(config.distanceBand2Rate || 0));
-  const band3Rate = Math.max(0, Number(config.distanceBand3Rate || 0));
+  const included = toNumber(config.distanceIncludedMiles);
+  const band1Max = Math.max(included, toNumber(config.distanceBand1MaxMiles));
+  const band2Max = Math.max(band1Max, toNumber(config.distanceBand2MaxMiles));
 
-  const band1Miles = Math.max(0, Math.min(roundedDistance, band1Max) - includedMiles);
-  const band2Miles = Math.max(0, Math.min(roundedDistance, band2Max) - band1Max);
-  const band3Miles = Math.max(0, roundedDistance - band2Max);
+  const band1Rate = toNumber(config.distanceBand1Rate);
+  const band2Rate = toNumber(config.distanceBand2Rate);
+  const band3Rate = toNumber(config.distanceBand3Rate);
 
-  let fee = band1Miles * band1Rate + band2Miles * band2Rate + band3Miles * band3Rate;
+  const band1Miles = Math.max(0, Math.min(distance, band1Max) - included);
+  const band2Miles = Math.max(0, Math.min(distance, band2Max) - band1Max);
+  const band3Miles = Math.max(0, distance - band2Max);
+
+  let fee =
+    (band1Miles * band1Rate) +
+    (band2Miles * band2Rate) +
+    (band3Miles * band3Rate);
 
   if (orderType === 'RETURNS_PICKUP') {
-    fee = fee * Math.max(0, Number(pickupOnlyMultiplier || 0));
+    fee *= Math.max(0, toNumber(pickupOnlyMultiplier, 1));
   }
 
   const feeCents = Math.round(fee * 100);
-  return { distanceFee: feeCents / 100, distanceFeeCents: feeCents, distanceMiles: roundedDistance };
+
+  return {
+    distanceFee: feeCents / 100,
+    distanceFeeCents: feeCents,
+    distanceMiles: distance
+  };
 };
 
-const calculateLargeOrderFeeInternal = ({ items, includedItems, perItemFee }) => {
-  const totalItems = Array.isArray(items)
-    ? items.reduce((sum, it) => sum + Math.max(0, Number(it.quantity || 0)), 0)
-    : 0;
-  const extras = Math.max(0, totalItems - Math.max(0, Number(includedItems || 0)));
-  const fee = Math.max(0, Number(perItemFee || 0)) * extras;
+/**
+ * LARGE ORDER FEE
+ */
+const calculateLargeOrderFee = ({ items, includedItems, perItemFee }) => {
+  const totalItems = (items || []).reduce(
+    (sum, it) => sum + Math.max(0, toNumber(it.quantity)),
+    0
+  );
+
+  const extras = Math.max(0, totalItems - toNumber(includedItems));
+  const fee = extras * toNumber(perItemFee);
+
   const feeCents = Math.round(fee * 100);
-  return { largeOrderFee: feeCents / 100, largeOrderFeeCents: feeCents, totalItems, extras };
+
+  return {
+    largeOrderFee: feeCents / 100,
+    largeOrderFeeCents: feeCents
+  };
 };
 
-const calculateHeavyItemFeeInternal = ({ items, productsByFrontendId, perUnitFee }) => {
+/**
+ * HEAVY ITEM FEE
+ */
+const calculateHeavyItemFee = ({ items, productsByFrontendId, perUnitFee }) => {
   let heavyCount = 0;
+
   for (const it of items || []) {
-    const pid = String(it?.productId || '').trim();
-    const product = productsByFrontendId?.get ? productsByFrontendId.get(pid) : null;
+    const product = productsByFrontendId?.get?.(String(it.productId));
     if (product?.isHeavy) {
-      heavyCount += Math.max(0, Number(it.quantity || 0));
+      heavyCount += Math.max(0, toNumber(it.quantity));
     }
   }
-  const fee = Math.max(0, Number(perUnitFee || 0)) * heavyCount;
+
+  const fee = heavyCount * toNumber(perUnitFee);
   const feeCents = Math.round(fee * 100);
-  return { heavyItemFee: feeCents / 100, heavyItemFeeCents: feeCents, heavyCount };
+
+  return {
+    heavyItemFee: feeCents / 100,
+    heavyItemFeeCents: feeCents
+  };
 };
 
-export const getDeliveryOptions = async ({ orderType, tier, distanceMiles, items, productsByFrontendId }) => {
+/**
+ * MAIN ENTRY
+ */
+export const getDeliveryOptions = async ({
+  orderType,
+  tier,
+  distanceMiles,
+  items,
+  productsByFrontendId
+}) => {
   const doc = await AppSettings.findOne({ key: 'default' }).lean();
-  const baseRouteFee = Number(doc?.routeFee ?? 4.99);
-  const pickupOnlyMultiplier = Number(doc?.pickupOnlyMultiplier ?? 0.5);
-  const platinumFreeDelivery = Boolean(doc?.platinumFreeDelivery ?? false);
-  const allowPlatinumTier = Boolean(doc?.allowPlatinumTier ?? false);
-  const allowGreenTier = Boolean(doc?.allowGreenTier ?? false);
+
+  const baseRouteFee = toNumber(doc?.routeFee, 4.99);
+  const pickupOnlyMultiplier = toNumber(doc?.pickupOnlyMultiplier, 0.5);
+
+  const platinumFreeDelivery = Boolean(doc?.platinumFreeDelivery);
+  const allowPlatinumTier = Boolean(doc?.allowPlatinumTier);
+  const allowGreenTier = Boolean(doc?.allowGreenTier);
 
   const distanceConfig = {
-    distanceIncludedMiles: Number(doc?.distanceIncludedMiles ?? DEFAULT_DISTANCE_FEES.distanceIncludedMiles),
-    distanceBand1MaxMiles: Number(doc?.distanceBand1MaxMiles ?? DEFAULT_DISTANCE_FEES.distanceBand1MaxMiles),
-    distanceBand2MaxMiles: Number(doc?.distanceBand2MaxMiles ?? DEFAULT_DISTANCE_FEES.distanceBand2MaxMiles),
-    distanceBand1Rate: Number(doc?.distanceBand1Rate ?? DEFAULT_DISTANCE_FEES.distanceBand1Rate),
-    distanceBand2Rate: Number(doc?.distanceBand2Rate ?? DEFAULT_DISTANCE_FEES.distanceBand2Rate),
-    distanceBand3Rate: Number(doc?.distanceBand3Rate ?? DEFAULT_DISTANCE_FEES.distanceBand3Rate)
+    distanceIncludedMiles: toNumber(doc?.distanceIncludedMiles, DEFAULT_DISTANCE_FEES.distanceIncludedMiles),
+    distanceBand1MaxMiles: toNumber(doc?.distanceBand1MaxMiles, DEFAULT_DISTANCE_FEES.distanceBand1MaxMiles),
+    distanceBand2MaxMiles: toNumber(doc?.distanceBand2MaxMiles, DEFAULT_DISTANCE_FEES.distanceBand2MaxMiles),
+    distanceBand1Rate: toNumber(doc?.distanceBand1Rate, DEFAULT_DISTANCE_FEES.distanceBand1Rate),
+    distanceBand2Rate: toNumber(doc?.distanceBand2Rate, DEFAULT_DISTANCE_FEES.distanceBand2Rate),
+    distanceBand3Rate: toNumber(doc?.distanceBand3Rate, DEFAULT_DISTANCE_FEES.distanceBand3Rate)
   };
 
   const handlingConfig = {
-    largeOrderIncludedItems: Number(doc?.largeOrderIncludedItems ?? 10),
-    largeOrderPerItemFee: Number(doc?.largeOrderPerItemFee ?? 0.3),
-    heavyItemFeePerUnit: Number(doc?.heavyItemFeePerUnit ?? 1.5)
+    largeOrderIncludedItems: toNumber(doc?.largeOrderIncludedItems, 10),
+    largeOrderPerItemFee: toNumber(doc?.largeOrderPerItemFee, 0.3),
+    heavyItemFeePerUnit: toNumber(doc?.heavyItemFeePerUnit, 1.5)
   };
 
-  const { routeFee, routeFeeCents, routeFeeDiscountPercent } = applyTierDiscount({
+  // FEES
+  const route = applyTierDiscount({
     baseRouteFee,
     pickupOnlyMultiplier,
     orderType,
@@ -163,7 +222,7 @@ export const getDeliveryOptions = async ({ orderType, tier, distanceMiles, items
     allowGreenTier
   });
 
-  const { distanceFee, distanceFeeCents, distanceMiles: roundedDistanceMiles } = calculateDistanceFeeInternal({
+  const distance = calculateDistanceFee({
     distanceMiles,
     config: distanceConfig,
     orderType,
@@ -172,28 +231,42 @@ export const getDeliveryOptions = async ({ orderType, tier, distanceMiles, items
     allowGreenTier
   });
 
-  const { largeOrderFee, largeOrderFeeCents } = calculateLargeOrderFeeInternal({
+  const large = calculateLargeOrderFee({
     items,
     includedItems: handlingConfig.largeOrderIncludedItems,
     perItemFee: handlingConfig.largeOrderPerItemFee
   });
 
-  const { heavyItemFee, heavyItemFeeCents } = calculateHeavyItemFeeInternal({
+  const heavy = calculateHeavyItemFee({
     items,
     productsByFrontendId: productsByFrontendId || new Map(),
     perUnitFee: handlingConfig.heavyItemFeePerUnit
   });
 
+  // ✅ FINAL TOTAL (THIS IS WHAT YOU WERE MISSING)
+  const totalCents =
+    route.routeFeeCents +
+    distance.distanceFeeCents +
+    large.largeOrderFeeCents +
+    heavy.heavyItemFeeCents;
+
   return {
-    routeFee,
-    routeFeeCents,
-    routeFeeDiscountPercent,
-    distanceFee,
-    distanceFeeCents,
-    distanceMiles: roundedDistanceMiles,
-    largeOrderFee,
-    largeOrderFeeCents,
-    heavyItemFee,
-    heavyItemFeeCents
+    routeFee: route.routeFee,
+    routeFeeCents: route.routeFeeCents,
+    routeFeeDiscountPercent: route.routeFeeDiscountPercent,
+
+    distanceFee: distance.distanceFee,
+    distanceFeeCents: distance.distanceFeeCents,
+    distanceMiles: distance.distanceMiles,
+
+    largeOrderFee: large.largeOrderFee,
+    largeOrderFeeCents: large.largeOrderFeeCents,
+
+    heavyItemFee: heavy.heavyItemFee,
+    heavyItemFeeCents: heavy.heavyItemFeeCents,
+
+    // 🔥 THIS IS YOUR BASE + ALL FEES COMBINED
+    totalDeliveryFee: totalCents / 100,
+    totalDeliveryFeeCents: totalCents
   };
 };
