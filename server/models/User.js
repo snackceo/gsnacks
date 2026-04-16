@@ -6,11 +6,19 @@ const userSchema = new mongoose.Schema(
     username: { type: String, required: true, unique: true },
     usernameLower: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    role: { type: String, default: 'CUSTOMER' },
+    role: {
+      type: String,
+      enum: ['CUSTOMER', 'ADMIN', 'DRIVER'],
+      default: 'CUSTOMER'
+    },
     creditBalance: { type: Number, default: 0 },
     authorizedCreditBalance: { type: Number, default: 0 },
     loyaltyPoints: { type: Number, default: 0 },
-    membershipTier: { type: String, default: 'COMMON' },
+    membershipTier: {
+      type: String,
+      enum: ['COMMON', 'BRONZE', 'SILVER', 'GOLD'],
+      default: 'COMMON'
+    },
     ordersCompleted: { type: Number, default: 0 },
     phoneVerified: { type: Boolean, default: false },
     photoIdVerified: { type: Boolean, default: false },

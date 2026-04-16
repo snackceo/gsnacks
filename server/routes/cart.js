@@ -118,7 +118,7 @@ router.delete('/', protect, async (req, res) => {
 router.post('/optimize', protect, async (req, res) => {
   try {
     const userId = req.user._id;
-    const cart = await Order.findOne({ customerId: userId, status: 'PENDING' }).populate('items.product');
+    const cart = await Order.findOne({ user: userId, status: 'PENDING' }).populate('items.product');
 
     if (!cart || !cart.items || cart.items.length === 0) {
       return res.status(404).json({ message: 'No active cart found for optimization.' });
@@ -249,7 +249,7 @@ router.post('/update', protect, async (req, res) => {
       return res.status(400).json({ message: 'Missing items or subtotal in request body.' });
     }
 
-    const cart = await Order.findOne({ customerId: userId, status: 'PENDING' });
+    const cart = await Order.findOne({ user: userId, status: 'PENDING' });
 
     if (!cart) {
       return res.status(404).json({ message: 'No active cart found to update.' });

@@ -114,7 +114,7 @@ export const getReceiptStoreAliases = async (req, res) => {
  * @deprecated Use getReceiptStoreAliases instead.
  */
 export const getReceiptAliases = async (req, res) => {
-  return getReceiptStoreAliases(req, res);
+  return exports.getReceiptStoreAliases(req, res);
 };
 
 export const postReceiptAlias = async (req, res) => {

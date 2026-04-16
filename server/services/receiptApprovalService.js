@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { approveReceiptJobHandler } from '../routes/receipts.js';
+import { approveReceiptJobHandler } from '../controllers/receipts.controller.js';
 
 import { isReceiptAutoCommitEnabled } from '../utils/featureFlags.js';
 export { isReceiptAutoCommitEnabled };

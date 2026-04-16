@@ -1,4 +1,4 @@
-import { evaluatePriceDelta, PRICE_DELTA_POLICY } from '../controllers/receiptProcessingService.js';
+import { evaluatePriceDelta, PRICE_DELTA_POLICY } from '../services/receiptProcessingService.js';
 
 describe('evaluatePriceDelta', () => {
   const now = new Date();

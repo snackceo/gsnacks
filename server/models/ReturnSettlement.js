@@ -8,7 +8,7 @@ const ReturnSettlementSchema = new mongoose.Schema(
     cashAmount: { type: Number, default: 0 },
     feesApplied: { type: Number, default: 0 },
     settledAt: { type: Date, default: Date.now },
-    settledBy: { type: String, required: true }
+    settledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
   },
   { timestamps: true }
 );

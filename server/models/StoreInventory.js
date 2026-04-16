@@ -92,7 +92,7 @@ storeInventorySchema.index(
   {
     unique: true,
     partialFilterExpression: {
-      productId: { $exists: true, $ne: null }
+      productId: { $exists: true }
     }
   }
 );
@@ -101,7 +101,7 @@ storeInventorySchema.index(
   {
     unique: true,
     partialFilterExpression: {
-      unmappedProductId: { $exists: true, $ne: null }
+      unmappedProductId: { $exists: true }
     }
   }
 );

@@ -28,6 +28,14 @@ import {
   resolveReceiptLineProduct
 } from '../utils/receiptLineResolver.js';
 
+class ServiceError extends Error {
+  constructor(message, statusCode = 500, details = {}) {
+    super(message);
+    this.statusCode = statusCode;
+    this.details = details;
+  }
+}
+
 const canApproveReceipts = user => {
   if (!user) return false;
   return user.role === 'OWNER' || user.role === 'MANAGER' || isOwnerUsername(user.username);
@@ -70,7 +78,6 @@ const buildStoreCandidate = (capture, parseJob, body) => {
   };
 };
 
-// Helper to normalize draft items from parseJob/capture into a consistent shape
 const normalizeDraftItem = (raw) => {
   const lineIndex = typeof raw?.lineIndex === 'number'
     ? raw.lineIndex
@@ -140,35 +147,34 @@ const buildApprovalMetadata = ({
   inventoryUpdates
 });
 
-// Role-neutral endpoint for fetching receipt parse jobs
-export const getReceipts = async (req, res) => {
+export const getReceipts = async ({ user, query }) => {
   if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
+    throw new ServiceError('Database not ready', 503);
   }
   // Only OWNER/MANAGER can see all receipts; drivers only see their own
-  const isDriver = req.user?.role === 'DRIVER';
-  if (!canApproveReceipts(req.user) && !isDriver) {
-    return res.status(403).json({ error: 'Not authorized' });
+  const isDriver = user?.role === 'DRIVER';
+  if (!canApproveReceipts(user) && !isDriver) {
+    throw new ServiceError('Not authorized', 403);
   }
 
   // Support status as comma-separated or repeated query params
   // Input validation
   let statusList = [];
-  if (req.query.status) {
-    if (Array.isArray(req.query.status)) {
-      statusList = req.query.status.flatMap(s => String(s).split(',').map(x => x.trim()).filter(Boolean));
-    } else if (typeof req.query.status === 'string') {
-      statusList = String(req.query.status).split(',').map(x => x.trim()).filter(Boolean);
+  if (query.status) {
+    if (Array.isArray(query.status)) {
+      statusList = query.status.flatMap(s => String(s).split(',').map(x => x.trim()).filter(Boolean));
+    } else if (typeof query.status === 'string') {
+      statusList = String(query.status).split(',').map(x => x.trim()).filter(Boolean);
     }
     // Only allow known statuses
     const allowedStatuses = ['CREATED', 'QUEUED', 'PARSING', 'PARSED', 'NEEDS_REVIEW', 'APPROVED', 'REJECTED', 'FAILED'];
     statusList = statusList.filter(s => allowedStatuses.includes(s));
   }
   let limit = 100;
-  if (req.query.limit) {
-    const parsedLimit = Number(req.query.limit);
+  if (query.limit) {
+    const parsedLimit = Number(query.limit);
     if (!Number.isFinite(parsedLimit) || parsedLimit < 1 || parsedLimit > 200) {
-      return res.status(400).json({ error: 'Invalid limit' });
+      throw new ServiceError('Invalid limit', 400);
     }
     limit = parsedLimit;
   }
@@ -180,127 +186,123 @@ export const getReceipts = async (req, res) => {
   }
 
   // Add orderId filter if provided
-  if (req.query.orderId) {
-    const orderId = String(req.query.orderId);
+  if (query.orderId) {
+    const orderId = String(query.orderId);
     if (!/^[a-zA-Z0-9_-]{6,}$/.test(orderId)) {
-      return res.status(400).json({ error: 'Invalid orderId' });
+      throw new ServiceError('Invalid orderId', 400);
     }
     baseQuery.orderId = orderId;
   }
 
   // Role-based filtering: drivers see only their captures
-  const query = isDriver && req.user?.id
-    ? { ...baseQuery, createdByUserId: req.user.id }
+  const finalQuery = isDriver && user?.id
+    ? { ...baseQuery, createdByUserId: user.id }
     : baseQuery;
 
   try {
-    const jobs = await ReceiptParseJob.find(query).sort({ createdAt: -1 }).limit(limit).lean();
+    const jobs = await ReceiptParseJob.find(finalQuery).sort({ createdAt: -1 }).limit(limit).lean();
     if (!jobs || jobs.length === 0) {
-      // Explicit empty state message for review queues
-      return res.json({ ok: true, jobs: [], message: 'No receipts found for the current filter. If you expect work, check for stuck or failed parses.' });
+      return { ok: true, jobs: [], message: 'No receipts found for the current filter. If you expect work, check for stuck or failed parses.' };
     }
-    res.json({ ok: true, jobs });
+    return { ok: true, jobs };
   } catch (err) {
     console.error('Error fetching receipts:', {
-      user: req.user?.username,
-      query: req.query,
+      user: user?.username,
+      query: query,
       error: err.message
     });
     await recordAuditLog({
       type: 'receipt_query_error',
-      actorId: req.user?.username || 'unknown',
-      details: `query=${JSON.stringify(req.query)} error=${err.message}`
+      actorId: user?.username || 'unknown',
+      details: `query=${JSON.stringify(query)} error=${err.message}`
     });
-    res.status(500).json({ error: 'Failed to fetch receipts', message: 'Review queue unavailable. Please try again or contact support.' });
+    throw new ServiceError('Failed to fetch receipts', 500, { message: 'Review queue unavailable. Please try again or contact support.' });
   }
 };
 
-// GET /api/receipts/:jobId
-// Role-neutral endpoint for fetching a single receipt parse job
-export const getReceiptJob = async (req, res) => {
+export const getReceiptJob = async ({ user, jobId }) => {
   if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
+    throw new ServiceError('Database not ready', 503);
   }
-  // Only OWNER/MANAGER can see all jobs; drivers only see their own
-  const isDriver = req.user?.role === 'DRIVER';
-  if (!canApproveReceipts(req.user) && !isDriver) {
-    return res.status(403).json({ error: 'Not authorized' });
+  const isDriver = user?.role === 'DRIVER';
+  if (!canApproveReceipts(user) && !isDriver) {
+    throw new ServiceError('Not authorized', 403);
   }
   try {
-    const job = await ReceiptParseJob.findById(req.params.jobId).lean();
-    if (!job) return res.status(404).json({ error: 'Not found' });
-    res.json({ ok: true, job });
+    const job = await ReceiptParseJob.findById(jobId).lean();
+    if (!job) throw new ServiceError('Not found', 404);
+    return { ok: true, job };
   } catch (err) {
     console.error('Error fetching receipt job:', {
-      user: req.user?.username,
-      jobId: req.params.jobId,
+      user: user?.username,
+      jobId: jobId,
       error: err.message
     });
     await recordAuditLog({
       type: 'receipt_job_query_error',
-      actorId: req.user?.username || 'unknown',
-      details: `jobId=${req.params.jobId} error=${err.message}`
+      actorId: user?.username || 'unknown',
+      details: `jobId=${jobId} error=${err.message}`
     });
-    res.status(500).json({ error: 'Failed to fetch receipt job' });
+    throw new ServiceError('Failed to fetch receipt job', 500);
   }
 };
 
-// POST /api/receipts/:jobId/approve
-export const approveReceiptJobHandler = async (req, res) => {
+export const approveReceiptJob = async ({
+  user,
+  jobId,
+  mode,
+  selectedIndices,
+  lockDurationDays,
+  idempotencyKey,
+  ignorePriceLocks,
+  forceUpcOverride,
+  finalStoreId,
+  approvalDraft,
+  strictValidation,
+  autoCommit,
+  body // The controller passes the whole req.body as 'body'
+}) => {
   if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
+    throw new ServiceError('Database not ready', 503);
   }
-  // Only OWNER/MANAGER can approve
-  if (!canApproveReceipts(req.user)) {
-    return res.status(403).json({ error: 'Not authorized to approve receipts' });
+  if (!canApproveReceipts(user)) {
+    throw new ServiceError('Not authorized to approve receipts', 403);
   }
 
   const session = await mongoose.startSession();
   let transactionStarted = false;
   try {
-    const { jobId } = req.params;
-    const {
-      mode,
-      selectedIndices,
-      lockDurationDays,
-      idempotencyKey,
-      ignorePriceLocks,
-      forceUpcOverride,
-      finalStoreId,
-      approvalDraft,
-      strictValidation,
-      autoCommit
-    } = req.body || {};
-    const username = req.user?.username || 'unknown';
+    const username = user?.username || 'unknown';
     const shouldIgnorePriceLocks = Boolean(ignorePriceLocks);
     const isAutoCommit = Boolean(autoCommit);
     const enforceStrictValidation = Boolean(strictValidation);
-    const canIgnorePriceLocks = req.user?.role === 'MANAGER' || req.user?.role === 'OWNER' || isOwnerUsername(req.user?.username);
+    const canIgnorePriceLocks = user?.role === 'MANAGER' || user?.role === 'OWNER' || isOwnerUsername(user?.username);
 
     if (!jobId || !mongoose.Types.ObjectId.isValid(jobId)) {
-      return res.status(400).json({ error: 'Valid jobId required' });
+      throw new ServiceError('Valid jobId required', 400);
     }
 
     if (!idempotencyKey || String(idempotencyKey).trim().length < 8) {
-      return res.status(400).json({ error: 'idempotencyKey is required' });
+      throw new ServiceError('idempotencyKey is required', 400);
     }
 
+    await session.startTransaction();
+    transactionStarted = true;
 
     const parseJob = await ReceiptParseJob.findById(jobId).session(session);
     if (!parseJob) {
-      return res.status(404).json({ error: 'Receipt parse job not found' });
+      throw new ServiceError('Receipt parse job not found', 404);
     }
 
     if (parseJob.status === 'REJECTED') {
-      return res.status(409).json({ error: 'Cannot approve a rejected job' });
+      throw new ServiceError('Cannot approve a rejected job', 409);
     }
     if (parseJob.status === 'APPROVED') {
-      // Idempotent success
-      return res.json({ ok: true, idempotent: true, jobId });
+      return { ok: true, idempotent: true, jobId };
     }
 
     if (!parseJob.captureId) {
-      return res.status(400).json({ error: 'Parse job missing captureId' });
+      throw new ServiceError('Parse job missing captureId', 400);
     }
 
     const capture = await ReceiptCapture.findById(parseJob.captureId).session(session);
@@ -310,7 +312,7 @@ export const approveReceiptJobHandler = async (req, res) => {
         actorId: username,
         details: `jobId=${jobId} reason=capture_not_found captureId=${parseJob.captureId}`
       });
-      return res.status(404).json({ error: 'Receipt capture not found for job' });
+      throw new ServiceError('Receipt capture not found for job', 404);
     }
 
     if (shouldIgnorePriceLocks && !canIgnorePriceLocks) {
@@ -319,49 +321,42 @@ export const approveReceiptJobHandler = async (req, res) => {
         actorId: username,
         details: `jobId=${jobId} captureId=${capture._id.toString()} reason=ignore_price_locks_not_allowed ignorePriceLocks=${shouldIgnorePriceLocks}`
       });
-      return res.status(403).json({ error: 'Not authorized to ignore price locks' });
+      throw new ServiceError('Not authorized to ignore price locks', 403);
     }
 
-    // Enforce orderId context: if parseJob or capture has orderId, require them to match if both exist
     if (parseJob.orderId && capture.orderId && String(parseJob.orderId) !== String(capture.orderId)) {
-      return res.status(400).json({ error: 'OrderId mismatch between parse job and capture' });
+      throw new ServiceError('OrderId mismatch between parse job and capture', 400);
     }
-    // Optionally, require orderId to be present for certain approval modes (e.g., if your business logic requires it)
 
     if (!['PARSED', 'NEEDS_REVIEW'].includes(parseJob.status)) {
-      return res.status(409).json({ error: 'Job not in approvable status' });
+      throw new ServiceError('Job not in approvable status', 409);
     }
 
     if (capture.status === 'committed') {
-      return res.json({ ok: true, captureId: capture._id.toString(), status: capture.status, idempotent: true });
+      return { ok: true, captureId: capture._id.toString(), status: capture.status, idempotent: true };
     }
 
     const rawRequestMode = mode;
     if (rawRequestMode === undefined || rawRequestMode === null || String(rawRequestMode).trim().length === 0) {
-      return res.status(400).json({ error: 'mode is required: safe|selected|locked|all' });
+      throw new ServiceError('mode is required: safe|selected|locked|all', 400);
     }
 
     const normalizedMode = String(rawRequestMode).trim().toLowerCase();
     if (!['safe', 'selected', 'locked', 'all'].includes(normalizedMode)) {
-      return res.status(400).json({ error: 'Invalid mode' });
+      throw new ServiceError('Invalid mode', 400);
     }
 
     if (normalizedMode === 'selected' && (!Array.isArray(selectedIndices) || selectedIndices.length === 0)) {
-      return res.status(400).json({ error: 'selectedIndices required for selected mode' });
+      throw new ServiceError('selectedIndices required for selected mode', 400);
     }
 
-    // Safe mode: only apply high-confidence items (no warnings, has match.productId)
     const SAFE_CONFIDENCE = 0.8;
 
     const selectedSet = Array.isArray(selectedIndices)
       ? new Set(selectedIndices.map(Number))
       : null;
 
-    if (!session.inTransaction()) {
-      await session.startTransaction();
-      transactionStarted = true;
-    }
-    const storeCandidate = buildStoreCandidate(capture, parseJob, req.body);
+    const storeCandidate = buildStoreCandidate(capture, parseJob, body);
 
     let store = null;
     const effectiveStoreId = finalStoreId || storeCandidate?.storeId;
@@ -374,9 +369,7 @@ export const approveReceiptJobHandler = async (req, res) => {
     if (!store && storeCandidate) {
       const matchResult = await matchStoreCandidate(storeCandidate);
       if (matchResult?.ambiguous || (matchResult?.confidence !== undefined && matchResult.confidence < 0.7)) {
-        await session.abortTransaction();
-        return res.status(409).json({
-          error: 'Store candidate requires resolution before approval',
+        throw new ServiceError('Store candidate requires resolution before approval', 409, {
           reasonCode: 'STORE_AMBIGUOUS',
           needsStoreResolution: true,
           storeResolution: {
@@ -395,13 +388,11 @@ export const approveReceiptJobHandler = async (req, res) => {
     if (!store) {
       const candidateName = storeCandidate?.name || capture.storeName;
       if (!candidateName) {
-        await session.abortTransaction();
-        return res.status(400).json({ error: 'Store name is required to approve receipt' });
+        throw new ServiceError('Store name is required to approve receipt', 400);
       }
       const allowAutoCreate = shouldAutoCreateStore(storeCandidate);
-      if (!allowAutoCreate && !req.body.confirmStoreCreate) {
-        await session.abortTransaction();
-        return res.status(400).json({ error: 'Store creation requires explicit confirmation (confirmStoreCreate)' });
+      if (!allowAutoCreate && !body.confirmStoreCreate) {
+        throw new ServiceError('Store creation requires explicit confirmation (confirmStoreCreate)', 400);
       }
       try {
         store = await Store.create([
@@ -429,8 +420,7 @@ export const approveReceiptJobHandler = async (req, res) => {
     }
 
     if (!store) {
-      await session.abortTransaction();
-      return res.status(400).json({ error: 'Unable to resolve store for receipt' });
+      throw new ServiceError('Unable to resolve store for receipt', 400);
     }
 
     capture.storeId = store._id;
@@ -522,7 +512,7 @@ export const approveReceiptJobHandler = async (req, res) => {
         actorId: username,
         details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_draft_items ignorePriceLocks=${shouldIgnorePriceLocks}`
       });
-      return res.status(400).json({ error: 'No draft items available to apply' });
+      throw new ServiceError('No draft items available to apply', 400);
     }
 
     const normalizedDraftItems = draftItems.map(normalizeDraftItem);
@@ -536,7 +526,7 @@ export const approveReceiptJobHandler = async (req, res) => {
         actorId: username,
         details: `jobId=${jobId} captureId=${capture._id.toString()} reason=invalid_draft_items ignorePriceLocks=${shouldIgnorePriceLocks}`
       });
-      return res.status(400).json({ error: 'No draft items available to apply' });
+      throw new ServiceError('No draft items available to apply', 400);
     }
 
     // Persist normalized items so you don’t keep drifting between schemas
@@ -563,10 +553,7 @@ export const approveReceiptJobHandler = async (req, res) => {
         actorId: username,
         details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_items_to_approve modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} ignorePriceLocks=${shouldIgnorePriceLocks}`
       });
-      if (session.inTransaction()) {
-        await session.abortTransaction();
-      }
-      return res.status(400).json({ error: 'No items eligible to approve in this mode. Use mode=all or fix matches/warnings.' });
+      throw new ServiceError('No items eligible to approve in this mode. Use mode=all or fix matches/warnings.', 400);
     }
 
     for (const item of itemsToApprove) {
@@ -668,10 +655,6 @@ export const approveReceiptJobHandler = async (req, res) => {
             continue;
           }
 
-          // Resolver order for each receipt line:
-          // 1) UPC mapping (UpcItem -> Product)
-          // 2) normalized-name match
-          // 3) if unresolved + policy allows, create receipt-origin stub product
           if (!product) {
             try {
               const resolved = await resolveReceiptLineProduct({
@@ -728,7 +711,6 @@ export const approveReceiptJobHandler = async (req, res) => {
         }
 
         if (!product) {
-          // Always create or update UnmappedProduct for raw/unknown items
           const now = new Date();
 
           unmapped = await UnmappedProduct.findOne({
@@ -775,7 +757,6 @@ export const approveReceiptJobHandler = async (req, res) => {
           } else {
             observationRejectedLines.push({ lineIndex: item.lineIndex, reason: unmappedObservation.reason });
           }
-          // Only set flags for shared inventory upsert
           inventoryUnmappedProductId = unmapped._id;
           inventoryForUnmapped = true;
         }
@@ -801,7 +782,6 @@ export const approveReceiptJobHandler = async (req, res) => {
         const inventoryMatchMethod = item.matchMethod || (product ? 'manual_confirm' : 'unmapped');
         const inventoryWorkflowType = item.workflowType || (product ? 'update_price' : 'unmapped');
 
-        // Always create or update StoreInventory for this store and product/unmapped
         let storeInventoryQuery;
         if (product) {
           inventoryProductId = product._id;
@@ -832,7 +812,7 @@ export const approveReceiptJobHandler = async (req, res) => {
             lineOutcome.priceLockOverrideDetail = `priceLockUntil=${new Date(existingInventory.priceLockUntil).toISOString()}`;
           }
 
-          inventory = await StoreInventory.findOneAndUpdate(
+          const inventory = await StoreInventory.findOneAndUpdate(
             storeInventoryQuery,
             {
               $set: {
@@ -881,30 +861,26 @@ export const approveReceiptJobHandler = async (req, res) => {
           );
           if (inventory) {
             lineOutcome.inventoryPersisted = true;
+            if (normalizedMode === 'locked') {
+              const lockDays = Number(lockDurationDays) || 7;
+              const lockUntil = new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000);
+              await StoreInventory.findByIdAndUpdate(
+                inventory._id,
+                { $set: { priceLockUntil: lockUntil } },
+                { session }
+              );
+            }
+            inventoryUpdates.push(
+              buildInventoryUpdate({
+                storeId: store._id,
+                productId: inventoryProductId,
+                unmappedProductId: inventoryUnmappedProductId,
+                price: unitPrice,
+                inventoryId: inventory?._id,
+                lineIndex: item.lineIndex
+              })
+            );
           }
-        }
-
-        if (normalizedMode === 'locked' && inventory) {
-          const lockDays = Number(lockDurationDays) || 7;
-          const lockUntil = new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000);
-          await StoreInventory.findByIdAndUpdate(
-            inventory._id,
-            { $set: { priceLockUntil: lockUntil } },
-            { session }
-          );
-        }
-
-        if (inventoryProductId || inventoryUnmappedProductId) {
-          inventoryUpdates.push(
-            buildInventoryUpdate({
-              storeId: store._id,
-              productId: inventoryProductId,
-              unmappedProductId: inventoryUnmappedProductId,
-              price: unitPrice,
-              inventoryId: inventory?._id,
-              lineIndex: item.lineIndex
-            })
-          );
         }
 
         if (product) {
@@ -939,7 +915,6 @@ export const approveReceiptJobHandler = async (req, res) => {
           }
         }
 
-        // UPC linking to productId, with conflict handling
         if (product && normalizedUpc) {
           const existingUpc = await UpcItem.findOne({ upc: normalizedUpc }).session(session);
           if (existingUpc && existingUpc.productId && String(existingUpc.productId) !== String(product._id)) {
@@ -1069,11 +1044,7 @@ export const approveReceiptJobHandler = async (req, res) => {
         actorId: username,
         details: `jobId=${jobId} captureId=${capture._id.toString()} reason=strict_validation_failed modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} auto_commit=${isAutoCommit}`
       });
-      if (session.inTransaction()) {
-        await session.abortTransaction();
-      }
-      return res.status(400).json({
-        error: 'Strict validation failed. Resolve line-level errors before approval.',
+      throw new ServiceError('Strict validation failed. Resolve line-level errors before approval.', 400, {
         reasonCode: APPROVAL_ERROR_CODES.NO_PERSISTED_CHANGES,
         errorsByLine,
         lineOutcomes,
@@ -1090,16 +1061,8 @@ export const approveReceiptJobHandler = async (req, res) => {
         actorId: username,
         details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_lines_applied modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} selected=${itemsToApprove.length} ignorePriceLocks=${shouldIgnorePriceLocks} priceLockOverrides=${priceLockOverrideCount} backendBuildId=${backendBuildId}`
       });
-      if (session.inTransaction()) {
-        await session.abortTransaction();
-      }
-      return res.status(400).json({
-        error: reason,
+      throw new ServiceError(reason, 400, {
         reasonCode: APPROVAL_ERROR_CODES.NO_PERSISTED_CHANGES,
-        reasonDetail: {
-          code: APPROVAL_ERROR_CODES.NO_PERSISTED_CHANGES,
-          message: reason
-        },
         appliedCount,
         newlyAppliedCount,
         skippedCount,
@@ -1118,7 +1081,6 @@ export const approveReceiptJobHandler = async (req, res) => {
     capture.itemsNeedingReview = validDraftItems.filter(entry => entry.needsReview).length;
     capture.committedBy = username;
     capture.committedAt = new Date();
-    // Mark committed only when at least one line actually applied.
     if (appliedCount > 0) {
       capture.status = 'committed';
       capture.reviewExpiresAt = undefined;
@@ -1132,7 +1094,7 @@ export const approveReceiptJobHandler = async (req, res) => {
         existingMetadata: parseJob.metadata,
         username,
         storeId: store._id,
-        requestBody: req.body,
+        requestBody: body,
         shouldIgnorePriceLocks,
         priceLockOverrideCount,
         createdProducts,
@@ -1153,9 +1115,7 @@ export const approveReceiptJobHandler = async (req, res) => {
       await parseJob.save({ session });
     }
 
-    if (transactionStarted) {
-      await session.commitTransaction();
-    }
+    await session.commitTransaction();
 
     await recordAuditLog({
       type: 'receipt_approved',
@@ -1163,7 +1123,7 @@ export const approveReceiptJobHandler = async (req, res) => {
       details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} ignorePriceLocks=${shouldIgnorePriceLocks} priceLockOverrides=${priceLockOverrideCount} backendBuildId=${backendBuildId} auto_commit=${isAutoCommit} approval_type=${isAutoCommit ? 'auto' : 'manual'} ocrLinesExtracted=${approvalStageMetrics.ocrLinesExtracted} linesWithValidQtyPrice=${approvalStageMetrics.linesWithValidQtyPrice} upcResolvedCount=${approvalStageMetrics.upcResolvedCount} nameResolvedCount=${approvalStageMetrics.nameResolvedCount} unmatchedCount=${approvalStageMetrics.unmatchedCount} observationWritesCount=${approvalStageMetrics.observationWritesCount}`
     });
 
-    res.json({
+    return {
       ok: true,
       jobId,
       captureId: capture._id.toString(),
@@ -1181,15 +1141,17 @@ export const approveReceiptJobHandler = async (req, res) => {
       backendBuildId,
       inventoryUpdates,
       errors
-    });
+    };
   } catch (error) {
     if (transactionStarted) {
       await session.abortTransaction();
     }
     console.error('Error approving receipt:', error);
+    if (error instanceof ServiceError) {
+      throw error;
+    }
     const firstLineError = fatalLineError || errors[0] || null;
-    res.status(500).json({
-      error: 'Failed to approve receipt',
+    throw new ServiceError('Failed to approve receipt', 500, {
       reasonCode: APPROVAL_ERROR_CODES.APPLY_FAILED,
       ...(firstLineError
         ? {
@@ -1209,100 +1171,83 @@ export const approveReceiptJobHandler = async (req, res) => {
   }
 };
 
-// POST /api/receipts/:jobId/reject
-// Canonical reject endpoint (replaces legacy /api/driver/receipt-parse-jobs/:captureId/reject).
-export const rejectReceiptJobHandler = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-  // Only OWNER/MANAGER can reject
-  if (!canApproveReceipts(req.user)) {
-    return res.status(403).json({ error: 'Not authorized' });
-  }
-  const session = await mongoose.startSession();
-  let transactionStarted = false;
-  try {
-    if (!session.inTransaction()) {
-      await session.startTransaction();
-      transactionStarted = true;
+export const rejectReceiptJob = async ({ user, jobId, reason }) => {
+    if (!isDbReady()) {
+        throw new ServiceError('Database not ready', 503);
     }
-    const job = await ReceiptParseJob.findById(req.params.jobId).session(session);
-    if (!job) return res.status(404).json({ error: 'Not found' });
-    if (job.status === 'APPROVED') {
-      return res.status(409).json({ error: 'Cannot reject an approved job' });
+    if (!canApproveReceipts(user)) {
+        throw new ServiceError('Not authorized', 403);
     }
-    const alreadyRejected = job.status === 'REJECTED';
-    job.status = 'REJECTED';
-    job.metadata = {
-      ...job.metadata,
-      rejectedBy: req.user?.username,
-      rejectedAt: new Date(),
-      rejectionReason: req.body?.reason || 'unspecified'
-    };
-    await job.save({ session });
+    const session = await mongoose.startSession();
+    await session.startTransaction();
+    try {
+        const job = await ReceiptParseJob.findById(jobId).session(session);
+        if (!job) throw new ServiceError('Not found', 404);
+        if (job.status === 'APPROVED') {
+            throw new ServiceError('Cannot reject an approved job', 409);
+        }
+        const alreadyRejected = job.status === 'REJECTED';
+        job.status = 'REJECTED';
+        job.metadata = {
+            ...job.metadata,
+            rejectedBy: user?.username,
+            rejectedAt: new Date(),
+            rejectionReason: reason || 'unspecified'
+        };
+        await job.save({ session });
 
-    if (!alreadyRejected) {
-      await recordAuditLog({
-        type: 'receipt_rejected',
-        actorId: req.user?.username || 'unknown',
-        details: `jobId=${job._id} reason=${req.body?.reason || 'unspecified'}`
-      });
+        if (!alreadyRejected) {
+            await recordAuditLog({
+                type: 'receipt_rejected',
+                actorId: user?.username || 'unknown',
+                details: `jobId=${job._id} reason=${reason || 'unspecified'}`
+            });
+        }
+        await session.commitTransaction();
+        return { ok: true };
+    } catch (err) {
+        await session.abortTransaction();
+        if (err instanceof ServiceError) throw err;
+        throw new ServiceError('Failed to reject receipt', 500);
+    } finally {
+        session.endSession();
     }
-    if (transactionStarted) {
-      await session.commitTransaction();
-    }
-    res.json({ ok: true });
-  } catch (err) {
-    if (transactionStarted) {
-      await session.abortTransaction();
-    }
-    res.status(500).json({ error: 'Failed to reject receipt' });
-  } finally {
-    await session.endSession();
-  }
 };
 
-// DELETE /api/receipts/:captureId
-// Role-neutral endpoint for deleting both ReceiptParseJob and ReceiptCapture for a given captureId
-export const deleteReceiptHandler = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-  const { captureId } = req.params;
-  if (!captureId) {
-    return res.status(400).json({ error: 'captureId required' });
-  }
-  try {
-    await ReceiptParseJob.deleteMany({ captureId });
-    await ReceiptCapture.deleteOne({ _id: captureId });
-    await flushStaleReceiptJobs({ captureIds: [captureId] });
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('Failed to delete receipt and parse jobs:', err);
-    res.status(500).json({ error: 'Failed to delete receipt and parse jobs' });
-  }
+export const deleteReceipt = async ({ captureId }) => {
+    if (!isDbReady()) {
+        throw new ServiceError('Database not ready', 503);
+    }
+    if (!captureId) {
+        throw new ServiceError('captureId required', 400);
+    }
+    try {
+        await ReceiptParseJob.deleteMany({ captureId });
+        await ReceiptCapture.deleteOne({ _id: captureId });
+        await flushStaleReceiptJobs({ captureIds: [captureId] });
+        return { ok: true };
+    } catch (err) {
+        console.error('Failed to delete receipt and parse jobs:', err);
+        throw new ServiceError('Failed to delete receipt and parse jobs', 500);
+    }
 };
 
-// POST /api/receipts/cleanup-queue
-// Admin endpoint to purge receipt queue jobs that reference missing captures
-export const cleanupQueueHandler = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-  if (!canApproveReceipts(req.user)) {
-    return res.status(403).json({ error: 'Not authorized to clean receipt queue' });
-  }
-  const captureIds = Array.isArray(req.body?.captureIds) ? req.body.captureIds : null;
-  const dryRun = Boolean(req.body?.dryRun);
-
-  try {
-    const result = await flushStaleReceiptJobs({ captureIds, dryRun });
-    if (!result.ok) {
-      return res.status(503).json({ ok: false, error: result.reason || 'queue_unavailable' });
+export const cleanupQueue = async ({ user, captureIds, dryRun }) => {
+    if (!isDbReady()) {
+        throw new ServiceError('Database not ready', 503);
     }
-    res.json({ ok: true, ...result });
-  } catch (err) {
-    console.error('Failed to clean receipt queue:', err);
-    res.status(500).json({ error: 'Failed to clean receipt queue' });
-  }
+    if (!canApproveReceipts(user)) {
+        throw new ServiceError('Not authorized to clean receipt queue', 403);
+    }
+    try {
+        const result = await flushStaleReceiptJobs({ captureIds, dryRun });
+        if (!result.ok) {
+            throw new ServiceError(result.reason || 'queue_unavailable', 503);
+        }
+        return { ok: true, ...result };
+    } catch (err) {
+        console.error('Failed to clean receipt queue:', err);
+        if (err instanceof ServiceError) throw err;
+        throw new ServiceError('Failed to clean receipt queue', 500);
+    }
 };

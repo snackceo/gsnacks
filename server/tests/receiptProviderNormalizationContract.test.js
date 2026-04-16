@@ -2,9 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { providerNormalizationFixtures } from './fixtures/receiptProviderNormalization.fixtures.js';
-import { __test__ } from '../utils/receiptParseHelper.js';
-
-const { normalizeProviderReceiptItemsWithMetrics } = __test__;
+import { normalizeProviderReceiptItemsWithMetrics } from '../utils/receiptOcrProviders/shared.js';
 
 for (const fixture of providerNormalizationFixtures) {
   test(`provider normalization contract: ${fixture.name}`, () => {

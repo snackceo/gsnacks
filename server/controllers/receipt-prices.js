@@ -50,7 +50,7 @@ export const postUploadReceiptImage = async (req, res) => {
  * then remove after 2024-09-30.
  */
 export const postReceiptUpload = async (req, res) => {
-  return postUploadReceiptImage(req, res);
+  return exports.postUploadReceiptImage(req, res);
 };
 
 const executeParseWithRetries = async (captureId, actorId) => {

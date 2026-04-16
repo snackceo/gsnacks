@@ -3,7 +3,7 @@ export * from '../receiptCaptureController.js';
 export * from '../receiptNoiseController.js';
 export * from '../receiptParseController.js';
 export * from '../receiptRulesController.js';
-export * from '../receipts.js';
+export * from '../receipts.controller.js';
 export * from '../receiptSettingsController.js';
 export * from '../receiptStoreController.js';
 export * from '../receiptUploadController.js';

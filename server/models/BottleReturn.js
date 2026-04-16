@@ -1,9 +1,9 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const BottleReturnSchema = new mongoose.Schema(
   {
     user: {
-      type: mongoose.Schema.ObjectId,
+      type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
     },
@@ -17,16 +17,20 @@ const BottleReturnSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected'],
-      default: 'pending',
+      enum: ['SUBMITTED', 'REVIEWED', 'APPROVED', 'REJECTED'],
+      default: 'SUBMITTED',
     },
     creditAmount: {
       type: Number,
       default: 0,
     },
     reviewedBy: {
-      type: mongoose.Schema.ObjectId,
+      type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
+    },
+    verification: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ReturnVerification',
     },
   },
   {
@@ -34,4 +38,4 @@ const BottleReturnSchema = new mongoose.Schema(
   }
 );
 
-module.exports = mongoose.model('BottleReturn', BottleReturnSchema);
+export default mongoose.model('BottleReturn', BottleReturnSchema);

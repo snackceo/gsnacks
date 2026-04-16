@@ -3,8 +3,8 @@ import mongoose from 'mongoose';
 const ReturnVerificationSchema = new mongoose.Schema(
   {
     orderId: { type: String, required: true, index: true },
-    driverId: { type: String, required: true, index: true },
-    customerId: { type: String, required: true, index: true },
+    driverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     scans: [{
       upc: { type: String, required: true },
       timestamp: { type: Date, default: Date.now }

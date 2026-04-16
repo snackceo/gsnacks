@@ -1,5 +1,4 @@
-import Product from '../models/Product.js';
-import { generateSku } from '../utils/sku.js';
+import * as productService from '../services/productService.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import { recordAuditLog } from '../services/auditLogService.js';
 import ErrorResponse from '../utils/errorResponse.js';
@@ -57,14 +56,14 @@ const mapProduct = d => ({
 });
 
 export const getProducts = asyncHandler(async (req, res, next) => {
-  const docs = await Product.find({}).sort({ createdAt: -1 }).lean();
+  const docs = await productService.findProducts();
   const products = docs.map(mapProduct);
   res.status(200).json({ success: true, count: products.length, data: products });
 });
 
 export const getProduct = asyncHandler(async (req, res, next) => {
   const paramId = req.params.id;
-  const product = await Product.findOne({ $or: [{ frontendId: paramId }, { sku: paramId }] }).lean();
+  const product = await productService.findOneProduct(paramId);
 
   if (!product) {
     return next(new ErrorResponse(`Product not found with id of ${paramId}`, 404));
@@ -79,13 +78,7 @@ export const searchProducts = asyncHandler(async (req, res, next) => {
     return res.status(200).json({ success: true, count: 0, data: [] });
   }
 
-  const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\]/g, '\$&'), 'i');
-  const docs = await Product.find({
-    $or: [{ name: regex }, { sku: regex }, { upc: regex }]
-  })
-    .sort({ updatedAt: -1 })
-    .limit(25)
-    .lean();
+  const docs = await productService.searchProducts(query);
 
   const products = docs.map(doc => ({
     ...mapProduct(doc),
@@ -138,10 +131,7 @@ export const createProduct = asyncHandler(async (req, res, next) => {
   const safeStorageBin = validateString(storageBin, 'storageBin');
   const normalizedUpc = upc ? String(upc).trim() : '';
   
-  const sku = await generateSku();
-  const created = await Product.create({
-    frontendId: sku,
-    sku,
+  const created = await productService.createProduct({
     name,
     price: Number(price),
     deposit: Number(deposit || 0),
@@ -217,11 +207,7 @@ export const updateProduct = asyncHandler(async (req, res, next) => {
     if (updates[k] === '') updates[k] = '';
   }
 
-  const updated = await Product.findOneAndUpdate(
-    { $or: [{ frontendId: paramId }, { sku: paramId }] },
-    updates,
-    { new: true }
-  ).lean();
+  const updated = await productService.updateProduct(paramId, updates);
 
   if (!updated) return next(new ErrorResponse(`Product not found with id of ${paramId}`, 404));
 
@@ -241,7 +227,7 @@ export const updateProduct = asyncHandler(async (req, res, next) => {
 
 export const deleteProduct = asyncHandler(async (req, res, next) => {
   const paramId = req.params.id;
-  const deleted = await Product.findOneAndDelete({ $or: [{ frontendId: paramId }, { sku: paramId }] }).lean();
+  const deleted = await productService.deleteProduct(paramId);
 
   if (!deleted) return next(new ErrorResponse(`Product not found with id of ${paramId}`, 404));
   

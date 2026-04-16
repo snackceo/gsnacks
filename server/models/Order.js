@@ -4,8 +4,12 @@ const orderSchema = new mongoose.Schema(
   {
     orderId: { type: String, required: true, unique: true },
 
-    customerId: { type: String, index: true },
-    address: { type: String, default: '' },
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    shippingAddress: { type: String, default: '' },
 
     /* =========================================================
        ORDER INTENT (AUTHORITATIVE)
@@ -32,7 +36,7 @@ const orderSchema = new mongoose.Schema(
       },
     ],
     subtotal: { type: Number, default: 0 },
-    total: { type: Number, default: 0 },
+    totalPrice: { type: Number, default: 0 },
 
     /* =========================================================
        ROUTE FEES
@@ -58,8 +62,16 @@ const orderSchema = new mongoose.Schema(
     /* =========================================================
        PAYMENT
        ========================================================= */
-    paymentMethod: { type: String, default: 'NONE' },
-    status: { type: String, default: 'PENDING' },
+    paymentMethod: {
+      type: String,
+      enum: ['NONE', 'CREDIT_CARD', 'CASH_ON_DELIVERY'],
+      default: 'NONE'
+    },
+    status: {
+      type: String,
+      enum: ['PENDING', 'AUTHORIZED', 'CAPTURED', 'DELIVERY_STARTED', 'DELIVERED', 'CANCELED'],
+      default: 'PENDING'
+    },
 
     amountAuthorizedCents: { type: Number, default: 0 },
     amountCapturedCents: { type: Number, default: 0 },
@@ -74,8 +86,13 @@ const orderSchema = new mongoose.Schema(
     /* =========================================================
        RETURNS (COMMON)
        ========================================================= */
-    returnUpcs: { type: [String], default: [] },
-    returnUpcCounts: { type: Array, default: [] },
+    returnItems: {
+      type: [{
+        upc: String,
+        count: Number
+      }],
+      default: []
+    },
 
     /* =========================================================
        RETURNS – CREDIT FLOW (NO FEES)
