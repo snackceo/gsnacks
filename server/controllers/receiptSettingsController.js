@@ -1,4 +1,4 @@
-import * as receiptSettingsService from '../services/receipt/receiptSettingsService.js';
+import * as receiptSettingsService from '../services/receiptSettingsService.js';
 
 export const getReceiptSettings = async (req, res, next) => {
   try {

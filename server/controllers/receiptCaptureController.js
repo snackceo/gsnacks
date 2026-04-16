@@ -1,4 +1,4 @@
-import * as receiptCaptureService from '../services/receipt/receiptCaptureService.js';
+import * as receiptCaptureService from '../services/receiptCaptureService.js';
 
 export const postReceiptCapture = async (req, res, next) => {
   try {

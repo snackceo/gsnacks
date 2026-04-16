@@ -1,4 +1,4 @@
-import * as receiptUploadService from '../../services/receipt/receiptUploadService.js';
+import * as receiptUploadService from '../services/receiptUploadService.js';
 
 /**
  * @deprecated Legacy combined upload path.

@@ -1,4 +1,4 @@
-import * as receiptAliasService from '../../services/receipt/receiptAliasService.js';
+import * as receiptAliasService from '../services/receiptAliasService.js';
 
 export const getReceiptAliases = async (req, res, next) => {
   try {

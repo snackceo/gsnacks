@@ -1,4 +1,4 @@
-import * as receiptNoiseService from '../../services/receipt/receiptNoiseService.js';
+import * as receiptNoiseService from '../services/receiptNoiseService.js';
 
 export const getReceiptNoiseRules = async (req, res, next) => {
   try {
