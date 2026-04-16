@@ -1,5 +1,5 @@
-import { apiFetch } from '../utils/apiFetch';
-import { ReceiptApprovalDraft, ReceiptParseJob } from '../types';
+import { apiFetch } from '../apiFetch';
+import { ReceiptApprovalDraft, ReceiptParseJob, ReceiptCapture } from '../types';
 
 /**
  * Canonical receipt lifecycle contract (GEMINI invariant):
@@ -77,65 +77,24 @@ export const receiptApiClient = {
     });
   },
   getCapture(captureId: string) {
-    return apiFetch<any>(RECEIPT_API_ENDPOINTS.getCapture(captureId));
+    return apiFetch<{ capture: ReceiptCapture }>(RECEIPT_API_ENDPOINTS.getCapture(captureId));
   },
-  getCaptureItems(captureId: string, signal?: AbortSignal) {
-    return apiFetch<any>(RECEIPT_API_ENDPOINTS.getCaptureItems(captureId), { signal });
+  getCaptureItems(captureId: string) {
+    return apiFetch<{ items: any[] }>(RECEIPT_API_ENDPOINTS.getCaptureItems(captureId));
   },
-  listJobs(statuses: string) {
-    return apiFetch<{ jobs?: ReceiptParseJob[] }>(
-      `${RECEIPT_API_ENDPOINTS.listJobs}?status=${encodeURIComponent(statuses)}`
-    );
+  getCaptureSummary(storeId?: string) {
+    const endpoint = storeId
+      ? `${RECEIPT_API_ENDPOINTS.captureSummary}?storeId=${storeId}`
+      : RECEIPT_API_ENDPOINTS.captureSummary;
+    return apiFetch<{ summary: Record<string, number> }>(endpoint);
   },
-  listJobsWithLimit(limit: number) {
-    return apiFetch<{ jobs?: ReceiptParseJob[]; error?: string }>(
-      `${RECEIPT_API_ENDPOINTS.listJobs}?limit=${encodeURIComponent(String(limit))}`
-    );
-  },
-  getHealth(storeId?: string) {
-    const q = storeId ? `?storeId=${encodeURIComponent(storeId)}` : '';
-    return apiFetch<any>(`${RECEIPT_API_ENDPOINTS.receiptHealth}${q}`);
-  },
-  resetReview(captureId: string) {
-    return apiFetch<any>(RECEIPT_API_ENDPOINTS.resetReview, {
-      method: 'POST',
-      body: JSON.stringify({ captureId })
-    });
-  },
-  lockCapture(captureId: string, lockDurationDays: number) {
-    return apiFetch<any>(RECEIPT_API_ENDPOINTS.lockCapture, {
-      method: 'POST',
-      body: JSON.stringify({ captureId, lockDurationDays })
-    });
-  },
-  unlockCapture(captureId: string) {
-    return apiFetch<any>(RECEIPT_API_ENDPOINTS.unlockCapture, {
-      method: 'POST',
-      body: JSON.stringify({ captureId })
-    });
+  getHealth() {
+    return apiFetch<any>(RECEIPT_API_ENDPOINTS.receiptHealth);
   },
   approveJob(jobId: string, payload: ReceiptApprovePayload) {
     return apiFetch<any>(RECEIPT_API_ENDPOINTS.approveJob(jobId), {
       method: 'POST',
       body: JSON.stringify(payload)
-    });
-  },
-  rejectJob(jobId: string) {
-    return apiFetch<any>(RECEIPT_API_ENDPOINTS.rejectJob(jobId), { method: 'POST' });
-  },
-  confirmMatch(body: { receiptName: string; sku: string; storeId?: string }) {
-    return apiFetch<any>(RECEIPT_API_ENDPOINTS.confirmMatch, {
-      method: 'POST',
-      body: JSON.stringify(body)
-    });
-  },
-  getCaptureSummary() {
-    return apiFetch<{ summary?: any }>(RECEIPT_API_ENDPOINTS.captureSummary);
-  },
-  submitPriceUpdateManual(body: Record<string, unknown>) {
-    return apiFetch<any>(RECEIPT_API_ENDPOINTS.priceUpdateManual, {
-      method: 'POST',
-      body: JSON.stringify(body)
     });
   }
 };
