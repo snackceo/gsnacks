@@ -1,10 +1,4 @@
-import { evaluatePriceDelta } from './receipt-prices.js'; // Assuming the function is exported
-
-const PRICE_DELTA_POLICY = {
-  pctThreshold: 0.30,
-  absThreshold: 1.00,
-  stalenessDays: 30
-};
+import { evaluatePriceDelta, PRICE_DELTA_POLICY } from '../controllers/receiptProcessingService.js';
 
 describe('evaluatePriceDelta', () => {
   const now = new Date();

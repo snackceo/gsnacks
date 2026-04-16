@@ -212,11 +212,11 @@ export const updateProduct = async (req, res) => {
     for (const k of allowed) {
       if (req.body?.[k] !== undefined) {
         if (["brand","productType","storageZone","storageBin"].includes(k)) {
-          try {
-            updates[k] = validateString(req.body[k], k);
-          } catch (e) {
-            return res.status(400).json({ error: e.message });
-          }
+            try {
+                updates[k] = validateString(req.body[k], k);
+            } catch (e) {
+                return res.status(400).json({ error: e.message });
+            }
         } else {
           updates[k] = req.body[k];
         }

@@ -3,13 +3,51 @@ import rateLimit from 'express-rate-limit';
 import { authRequired } from '../utils/helpers.js';
 import { RECEIPT_PRICES_ROUTES } from '../../contracts/naming.js';
 
+import { getReceiptHealth } from '../controllers/receipt/receiptHealthController.js';
+import { 
+  getReceiptSettings, 
+  updateReceiptSettings 
+} from '../controllers/receipt/receiptSettingsController.js';
+import { 
+  getReceiptStoreCandidates,
+  postReceiptStoreCandidates 
+} from '../controllers/receipt/receiptStoreController.js';
 import {
-  getReceiptSettings,
-  updateReceiptSettings,
-  getReceiptItems,
-  getReceiptItemHistory,
-  postReceiptPriceUpdateManual,
+  postReceiptNoiseRule,
+  getReceiptNoiseRule,
+  deleteReceiptNoiseRule,
+  getReceiptNoiseRules,
+  postReceiptNoiseRuleIgnore,
+  deleteReceiptNoiseRuleIgnore
+} from '../controllers/receipt/receiptNoiseController.js';
+import {
+  getReceiptAliases,
+  postReceiptAlias,
+  getReceiptStoreAliases,
+  getReceiptAliasHistory,
+  postReceiptConfirmMatch
+} from '../controllers/receipt/receiptAliasController.js';
+
+import {
+  postReceiptUpload,
+  postUploadReceiptImage,
+} from '../controllers/receipt/receiptUploadController.js';
+import {
+  postReceiptCapture,
+  getReceiptCapture,
+  getReceiptCaptureItems,
   getReceiptCapturesSummary,
+} from '../controllers/receipt/receiptCaptureController.js';
+import {
+  postReceiptParse,
+  postReceiptParseFrame,
+  postReceiptParseLive,
+  getReceiptParseJobs,
+} from '../controllers/receipt/receiptParseController.js';
+import {
+  postReceiptParseJobsApprove,
+  postReceiptParseJobsReject,
+  postReceiptCaptureExpire,
   postReceiptRefresh,
   postReceiptLock,
   postReceiptUnlock,
@@ -17,39 +55,10 @@ import {
   postReceiptFixUpc,
   postReceiptFixPrice,
   postReceiptResetReview,
-  getReceiptHealth,
-} from '../controllers/receipt-prices.js';
-
-import {
-  getReceiptStoreCandidates,
-  postReceiptStoreCandidates,
-  postReceiptNoiseRule,
-  getReceiptNoiseRule,
-  deleteReceiptNoiseRule,
-  getReceiptAliases,
-  getReceiptNoiseRules,
-  postReceiptAlias,
-  postReceiptNoiseRuleIgnore,
-  deleteReceiptNoiseRuleIgnore,
-  getReceiptStoreAliases,
-  getReceiptAliasHistory,
-  postReceiptConfirmMatch
-} from '../controllers/receiptRulesController.js';
-
-import {
-  postReceiptUpload,
-  postUploadReceiptImage,
-  postReceiptCapture,
-  getReceiptCapture,
-  postReceiptParse,
-  postReceiptParseFrame,
-  postReceiptParseLive,
-  getReceiptParseJobs,
-  postReceiptParseJobsApprove,
-  postReceiptParseJobsReject,
-  getReceiptCaptureItems,
-  postReceiptCaptureExpire,
-} from '../controllers/receiptCaptureController.js';
+  getReceiptItems,
+  getReceiptItemHistory,
+  postReceiptPriceUpdateManual
+} from '../controllers/receipt/receiptAdminController.js';
 /**
  * Receipt capture/parse lifecycle contract (this router):
  * - capture/upload endpoints create ReceiptCapture + ReceiptParseJob records

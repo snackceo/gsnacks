@@ -1,23 +1,22 @@
 import mongoose from 'mongoose';
 import StoreInventory from '../models/StoreInventory.js';
-import Product from '../models/Product.js';
-import Store from '../models/Store.js';
 import ReceiptCapture from '../models/ReceiptCapture.js';
+import ReceiptParseJob from '../models/ReceiptParseJob.js';
 import AppSettings from '../models/AppSettings.js';
-import { isOwnerUsername } from '../utils/helpers.js';
 import { recordAuditLog } from '../utils/audit.js';
 import { isDbReady } from '../db/connect.js';
-import { receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap } from '../utils/featureFlags.js';
+import { receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap, isPricingLearningEnabled } from '../utils/featureFlags.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import * as receiptProcessingService from '../services/receiptProcessingService.js';
+import ReceiptNameAlias from '../models/ReceiptNameAlias.js';
 
 const {
   DEFAULT_PRICE_LOCK_DAYS,
-  getReceiptQueueWorkerHealth,
   getReceiptIngestionGateState,
   computeReceiptOcrSuccessSummary,
   validateUPC,
   validatePriceQuantity,
+  sanitizeSearch,
 } = receiptProcessingService;
 /**
  * Receipt capture/parse lifecycle contract (this router):
@@ -27,8 +26,6 @@ const {
  *
  * Approval/review actions are intentionally handled in /api/receipts (routes/receipts.js).
  */
-
-const defaultScanBatchLimit = 40;
 
 export const getReceiptSettings = async (req, res) => {
   if (!isDbReady()) {
@@ -385,7 +382,7 @@ export const deleteReceiptNoiseRuleIgnore = async (req, res) => {
 /**
  * @deprecated Legacy combined upload path.
  * Sunset plan: migrate remaining callers to upload-receipt-image + receipt-capture + receipt-parse,
- * then remove after 2026-09-30.
+ * then remove after 2024-09-30.
  */
 export const postReceiptUpload = async (req, res) => {
   if (!isDbReady()) {
@@ -1333,71 +1330,6 @@ export const getReceiptItemHistory = async (req, res) => {
  * @deprecated Manual ingestion path retained for compatibility with legacy operator UI.
  * Sunset plan: move all callers to capture -> parse -> approve workflow and remove after 2026-09-30.
  */
-export const postReceiptPriceUpdateManual = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId, productId, price, priceType } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!storeId || !productId) {
-      return res.status(400).json({ error: 'storeId and productId required' });
-    }
-
-    const store = await Store.findById(storeId);
-    if (!store) {
-      return res.status(404).json({ error: 'Store not found' });
-    }
-
-    const product = await Product.findById(productId);
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
-    const observedPrice = Number(price);
-    if (!Number.isFinite(observedPrice) || observedPrice <= 0) {
-      return res.status(400).json({ error: 'Valid price required' });
-    }
-
-    await StoreInventory.findOneAndUpdate(
-      { storeId, productId },
-      {
-        $set: {
-          observedPrice,
-          observedAt: new Date()
-        },
-        $push: {
-          priceHistory: {
-            price: observedPrice,
-            observedAt: new Date(),
-            matchMethod: 'manual',
-            matchConfidence: 1.0,
-            priceType: priceType || 'manual',
-            promoDetected: false,
-            workflowType: 'update_price'
-          }
-        }
-      },
-      { new: true, upsert: true }
-    );
-
-    product.price = observedPrice;
-    await product.save();
-
-    await recordAuditLog({
-      type: 'receipt_price_update_manual',
-      actorId: username,
-      details: `storeId=${storeId} productId=${productId} price=${observedPrice}`
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('Error updating receipt price manually:', error);
-    res.status(500).json({ error: 'Failed to update price' });
-  }
-});
 
 /**
  * GET /api/driver/receipt-captures-summary
@@ -1725,86 +1657,6 @@ export const postReceiptResetReview = async (req, res) => {
 });
 
 /**
- * GET /api/driver/receipt-capture/:captureId/items
- * Fetch receipt capture items for review (convenience route)
- */
-export const getReceiptCaptureItems = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { captureId } = req.params;
-    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
-      return res.status(400).json({ error: 'Valid captureId required' });
-    }
-
-    const capture = await ReceiptCapture.findById(captureId).lean();
-    if (!capture) {
-      return res.status(404).json({ error: 'Receipt capture not found' });
-    }
-
-    let draftItems = Array.isArray(capture.draftItems) ? capture.draftItems : [];
-    if (draftItems.length === 0) {
-      const parseJob = await ReceiptParseJob.findOne({ captureId })
-        .sort({ createdAt: -1 })
-        .select('structured.draftItems')
-        .lean();
-
-      if (Array.isArray(parseJob?.structured?.draftItems) && parseJob.structured.draftItems.length > 0) {
-        draftItems = parseJob.structured.draftItems;
-      }
-    }
-
-    res.json({
-      ok: true,
-      items: mapReceiptItemsForResponse(draftItems)
-    });
-  } catch (error) {
-    console.error('Error fetching receipt items:', error);
-    res.status(500).json({ error: 'Failed to fetch receipt items' });
-  }
-});
-
-/**
- * POST /api/driver/receipt-capture/:captureId/expire
- * Manually expire a receipt capture (admin only)
- */
-export const postReceiptCaptureExpire = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { captureId } = req.params;
-    const username = req.user?.username || 'unknown';
-    const isOwner = isOwnerUsername(username);
-    if (!isOwner) {
-      return res.status(403).json({ error: 'Owner access required' });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(captureId)) {
-      return res.status(400).json({ error: 'Invalid captureId' });
-    }
-
-    await ReceiptCapture.findByIdAndUpdate(captureId, {
-      reviewExpiresAt: new Date(Date.now() - 1000)
-    });
-
-    await recordAuditLog({
-      type: 'receipt_capture_expire',
-      actorId: username,
-      details: `captureId=${captureId}`
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('Error expiring receipt capture:', error);
-    res.status(500).json({ error: 'Failed to expire receipt capture' });
-  }
-});
-
-/**
  * GET /api/driver/receipt-health
  * Debug route for receipt system health
  */
@@ -1828,6 +1680,7 @@ export const getReceiptHealth = async (req, res) => {
           missingCaptureIdsCount: staleJobCheck.missingCaptureIds.length
         }
       : { ok: false, reason: staleJobCheck.reason };
+    const { getReceiptQueueWorkerHealth, isReceiptQueueEnabled } = (await import('../queues/receiptQueue.js'));
     const sevenDayWindowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const ocrSummarySamples = await ReceiptCapture.find({
       lastParseAt: { $gte: sevenDayWindowStart },
@@ -1839,6 +1692,7 @@ export const getReceiptHealth = async (req, res) => {
     res.json({
       ok: true,
       cloudinary: hasCloudinary,
+      cloudinary: receiptProcessingService.hasCloudinary,
       queueEnabled: isReceiptQueueEnabled(),
       queueStatus: await getReceiptQueueWorkerHealth(),
       learningEnabled: isPricingLearningEnabled(),
