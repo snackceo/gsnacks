@@ -321,15 +321,15 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 
       // Global cooldown
       if (now - lastAcceptAtRef.current < cooldownMsValue) {
-        addToast('Same UPC — tap to add again', { type: 'info' });
         onCooldownRef.current?.(upc, 'cooldown');
+        addToast('Same UPC — tap to add again', { type: 'info' });
         return;
       }
 
       // Prevent immediately re-accepting the exact same code even if timing jitter occurs
       if (lastAcceptedCodeRef.current === upc && now - lastAcceptAtRef.current < Math.max(600, cooldownMsValue)) {
-        addToast('Same UPC — tap to add again', { type: 'info' });
         onCooldownRef.current?.(upc, 'duplicate');
+        addToast('Same UPC — tap to add again', { type: 'info' });
         return;
       }
 

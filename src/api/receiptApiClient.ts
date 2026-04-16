@@ -76,11 +76,11 @@ export const receiptApiClient = {
       body: JSON.stringify({ captureId })
     });
   },
-  getCapture(captureId: string) {
-    return apiFetch<{ capture: ReceiptCapture }>(RECEIPT_API_ENDPOINTS.getCapture(captureId));
+  getCapture(captureId: string, signal?: AbortSignal) {
+    return apiFetch<ReceiptCapture>(RECEIPT_API_ENDPOINTS.getCapture(captureId), { signal });
   },
-  getCaptureItems(captureId: string) {
-    return apiFetch<{ items: any[] }>(RECEIPT_API_ENDPOINTS.getCaptureItems(captureId));
+  getCaptureItems(captureId: string, signal?: AbortSignal) {
+    return apiFetch<{ items: any[] }>(RECEIPT_API_ENDPOINTS.getCaptureItems(captureId), { signal });
   },
   getCaptureSummary(storeId?: string) {
     const endpoint = storeId
@@ -103,12 +103,30 @@ export const receiptApiClient = {
       body: JSON.stringify({ reason })
     });
   },
-  listJobs(status?: string) {
-    const endpoint = status ? `${RECEIPT_API_ENDPOINTS.listJobs}?status=${status}` : RECEIPT_API_ENDPOINTS.listJobs;
+  listJobs(statuses?: string | string[]) {
+    if (!statuses || (Array.isArray(statuses) && statuses.length === 0)) {
+      return apiFetch<{ jobs: ReceiptParseJob[] }>(RECEIPT_API_ENDPOINTS.listJobs);
+    }
+    const query = Array.isArray(statuses)
+      ? statuses.map(s => `status=${encodeURIComponent(s)}`).join('&')
+      : `status=${encodeURIComponent(statuses)}`;
+    const endpoint = `${RECEIPT_API_ENDPOINTS.listJobs}?${query}`;
     return apiFetch<{ jobs: ReceiptParseJob[] }>(endpoint);
   },
   getJob(jobId: string) {
     return apiFetch<{ job: ReceiptParseJob }>(`/api/receipts/${jobId}`);
+  },
+  confirmMatch(payload: { storeId: string; normalizedName: string; productId: string; upc?: string }) {
+    return apiFetch<any>(RECEIPT_API_ENDPOINTS.confirmMatch, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+  priceUpdateManual(payload: { storeId: string; productId: string; price: number; upc?: string }) {
+    return apiFetch<any>(RECEIPT_API_ENDPOINTS.priceUpdateManual, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   },
   resetReview(captureId: string) {
     return apiFetch<any>(RECEIPT_API_ENDPOINTS.resetReview, { method: 'POST', body: JSON.stringify({ captureId }) });

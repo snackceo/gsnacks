@@ -88,6 +88,30 @@ The request body must be a `ReceiptApprovePayload` object, which contains the op
 - **500 Internal Server Error:** An unexpected error occurred during processing.
 
 POST /api/receipts/:jobId/reject
+
+#### POST /api/receipts/:jobId/reject
+
+Rejects a parsed receipt job, moving it to a final `REJECTED` state. This action is typically used for duplicate, fraudulent, or unreadable receipts.
+
+**Authorization:** `OWNER` or `MANAGER`
+
+**URL Parameters:**
+- `jobId` (string, required): The ID of the `ReceiptParseJob` to reject.
+
+**Request Body:**
+
+*Example Request:*
+```json
+{
+  "reason": "Duplicate receipt, already processed under capture ID xyz."
+}
+```
+
+**Responses:**
+- **200 OK:** The job was successfully rejected.
+- **400 Bad Request:** The `reason` field is missing or empty.
+- **404 Not Found:** The specified `jobId` does not exist.
+
 DELETE /api/receipts/:captureId
 
 ---
