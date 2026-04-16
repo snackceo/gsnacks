@@ -87,86 +87,7 @@ export const postReceiptStoreCandidates = async (req, res) => {
   }
 };
 
-export const postReceiptNoiseRule = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId, normalizedName } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!storeId || !normalizedName) {
-      return res.status(400).json({ error: 'storeId and normalizedName required' });
-    }
-
-    const rule = await ReceiptNoiseRule.findOneAndUpdate(
-      { storeId, normalizedName },
-      { storeId, normalizedName, addedBy: username },
-      { new: true, upsert: true }
-    );
-
-    await recordAuditLog({
-      type: 'receipt_noise_rule_create',
-      actorId: username,
-      details: `storeId=${storeId} normalizedName=${normalizedName}`
-    });
-
-    res.json({ ok: true, rule });
-  } catch (error) {
-    console.error('Error creating receipt noise rule:', error);
-    res.status(500).json({ error: 'Failed to create noise rule' });
-  }
-};
-
-export const getReceiptNoiseRule = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId } = req.query;
-    if (!storeId) {
-      return res.status(400).json({ error: 'storeId required' });
-    }
-
-    const rules = await ReceiptNoiseRule.find({ storeId }).lean();
-    res.json({ ok: true, rules });
-  } catch (error) {
-    console.error('Error fetching noise rules:', error);
-    res.status(500).json({ error: 'Failed to fetch noise rules' });
-  }
-};
-
-export const deleteReceiptNoiseRule = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId, normalizedName } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!storeId || !normalizedName) {
-      return res.status(400).json({ error: 'storeId and normalizedName required' });
-    }
-
-    await ReceiptNoiseRule.deleteOne({ storeId, normalizedName });
-
-    await recordAuditLog({
-      type: 'receipt_noise_rule_delete',
-      actorId: username,
-      details: `storeId=${storeId} normalizedName=${normalizedName}`
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('Error deleting noise rule:', error);
-    res.status(500).json({ error: 'Failed to delete noise rule' });
-  }
-};
-
-export const getReceiptAliases = async (req, res) => {
+export const getReceiptStoreAliases = async (req, res) => {
   if (!isDbReady()) {
     return res.status(503).json({ error: 'Database not ready' });
   }
@@ -178,38 +99,22 @@ export const getReceiptAliases = async (req, res) => {
     }
 
     const aliases = await ReceiptNameAlias.find({ storeId })
-      .sort({ confirmedCount: -1 })
-      .limit(200)
+      .sort({ lastConfirmedAt: -1 })
+      .limit(100)
       .lean();
 
     res.json({ ok: true, aliases });
   } catch (error) {
-    console.error('Error fetching receipt aliases:', error);
-    res.status(500).json({ error: 'Failed to fetch receipt aliases' });
+    console.error('Error fetching store aliases:', error);
+    res.status(500).json({ error: 'Failed to fetch store aliases' });
   }
 };
 
-export const getReceiptNoiseRules = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId } = req.query;
-    if (!storeId) {
-      return res.status(400).json({ error: 'storeId required' });
-    }
-
-    const rules = await ReceiptNoiseRule.find({ storeId })
-      .sort({ createdAt: -1 })
-      .limit(200)
-      .lean();
-
-    res.json({ ok: true, rules });
-  } catch (error) {
-    console.error('Error fetching receipt noise rules:', error);
-    res.status(500).json({ error: 'Failed to fetch receipt noise rules' });
-  }
+/**
+ * @deprecated Use getReceiptStoreAliases instead.
+ */
+export const getReceiptAliases = async (req, res) => {
+  return getReceiptStoreAliases(req, res);
 };
 
 export const postReceiptAlias = async (req, res) => {
@@ -252,89 +157,6 @@ export const postReceiptAlias = async (req, res) => {
   } catch (error) {
     console.error('Error creating receipt alias:', error);
     res.status(500).json({ error: 'Failed to create receipt alias' });
-  }
-};
-
-export const postReceiptNoiseRuleIgnore = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId, normalizedName } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!storeId || !normalizedName) {
-      return res.status(400).json({ error: 'storeId and normalizedName required' });
-    }
-
-    const rule = await ReceiptNoiseRule.findOneAndUpdate(
-      { storeId, normalizedName },
-      { storeId, normalizedName, addedBy: username },
-      { new: true, upsert: true }
-    );
-
-    await recordAuditLog({
-      type: 'receipt_noise_rule_ignore',
-      actorId: username,
-      details: `storeId=${storeId} normalizedName=${normalizedName}`
-    });
-
-    res.json({ ok: true, rule });
-  } catch (error) {
-    console.error('Error creating noise rule:', error);
-    res.status(500).json({ error: 'Failed to ignore receipt noise rule' });
-  }
-};
-
-export const deleteReceiptNoiseRuleIgnore = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId, normalizedName } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!storeId || !normalizedName) {
-      return res.status(400).json({ error: 'storeId and normalizedName required' });
-    }
-
-    await ReceiptNoiseRule.deleteOne({ storeId, normalizedName });
-
-    await recordAuditLog({
-      type: 'receipt_noise_rule_unignore',
-      actorId: username,
-      details: `storeId=${storeId} normalizedName=${normalizedName}`
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('Error deleting noise rule ignore:', error);
-    res.status(500).json({ error: 'Failed to unignore receipt noise rule' });
-  }
-};
-
-export const getReceiptStoreAliases = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId } = req.query;
-    if (!storeId) {
-      return res.status(400).json({ error: 'storeId required' });
-    }
-
-    const aliases = await ReceiptNameAlias.find({ storeId })
-      .sort({ lastConfirmedAt: -1 })
-      .limit(100)
-      .lean();
-
-    res.json({ ok: true, aliases });
-  } catch (error) {
-    console.error('Error fetching store aliases:', error);
-    res.status(500).json({ error: 'Failed to fetch store aliases' });
   }
 };
 

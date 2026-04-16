@@ -19,7 +19,18 @@ const orderSchema = new mongoose.Schema(
     /* =========================================================
        ITEMS / TOTALS
        ========================================================= */
-    items: { type: Array, default: [] },
+    orderItems: [
+      {
+        name: { type: String, required: true },
+        quantity: { type: Number, required: true },
+        price: { type: Number, required: true },
+        product: {
+          type: mongoose.Schema.Types.ObjectId,
+          required: true,
+          ref: 'Product',
+        },
+      },
+    ],
     subtotal: { type: Number, default: 0 },
     total: { type: Number, default: 0 },
 

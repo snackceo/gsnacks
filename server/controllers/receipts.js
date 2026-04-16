@@ -305,6 +305,11 @@ export const approveReceiptJobHandler = async (req, res) => {
 
     const capture = await ReceiptCapture.findById(parseJob.captureId).session(session);
     if (!capture) {
+      await recordAuditLog({
+        type: 'receipt_approval_failed',
+        actorId: username,
+        details: `jobId=${jobId} reason=capture_not_found captureId=${parseJob.captureId}`
+      });
       return res.status(404).json({ error: 'Receipt capture not found for job' });
     }
 
