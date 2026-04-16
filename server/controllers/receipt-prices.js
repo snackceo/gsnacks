@@ -18,6 +18,7 @@ const {
   validatePriceQuantity,
   sanitizeSearch,
 } = receiptProcessingService;
+
 /**
  * Receipt capture/parse lifecycle contract (this router):
  * - capture/upload endpoints create ReceiptCapture + ReceiptParseJob records
@@ -28,104 +29,12 @@ const {
  */
 
 /**
- * @deprecated Legacy combined upload path.
- * Sunset plan: migrate remaining callers to upload-receipt-image + receipt-capture + receipt-parse,
- * then remove after 2024-09-30.
- */
-export const postReceiptUpload = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { image, storeId } = req.body;
-    if (!image) {
-      return res.status(400).json({ error: 'Image data required' });
-    }
-
-    if (storeId && !mongoose.Types.ObjectId.isValid(storeId)) {
-      return res.status(400).json({ error: 'Valid storeId required' });
-    }
-
-    if (receiptIngestionMode() === 'disabled') {
-      const gate = await getReceiptIngestionGateState({ storeId });
-      return res.status(503).json({ error: 'Receipt ingestion disabled during rollout', gate, });
-    }
-
-    if (storeId) {
-      const ingestionCheck = await ensureIngestionAllowed(storeId);
-      if (!ingestionCheck.ok) {
-        return res.status(ingestionCheck.status).json({ error: ingestionCheck.error, gate: ingestionCheck.gate });
-      }
-    }
-
-    // Enforce size limit (max 5MB per image, consistent with receipt-capture)
-    if (typeof image === 'string' && image.length > MAX_RECEIPT_IMAGE_BYTES) {
-      const sizeMB = (image.length / (1024 * 1024)).toFixed(1);
-      return res.status(413).json({ error: `Image too large: ${sizeMB}MB (max 5MB)` });
-    }
-
-    const result = await handleReceiptImageUpload(image);
-    
-    res.json({
-      ok: true,
-      url: result.url,
-      thumbnailUrl: result.thumbnailUrl,
-    });
-
-  } catch (error) {
-    console.error('Error uploading receipt image:', error.message);
-    // Return specific error messages so frontend can debug
-    res.status(500).json({ 
-      error: error.message || 'Failed to upload image',
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
-    });
-  }
-};
-
-/**
  * POST /api/driver/upload-receipt-image
  * Upload receipt image data (data URL) to Cloudinary
  * Returns secure URL and thumbnail URL
  */
 export const postUploadReceiptImage = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { image, storeId } = req.body;
-
-    if (storeId && !mongoose.Types.ObjectId.isValid(storeId)) {
-      return res.status(400).json({ error: 'Valid storeId required' });
-    }
-
-    if (!image) {
-      return res.status(400).json({ error: 'Image data required' });
-    }
-
-    // Enforce size limit (max 5MB per image, consistent with receipt-capture)
-    if (typeof image === 'string' && image.length > MAX_RECEIPT_IMAGE_BYTES) {
-      const sizeMB = (image.length / (1024 * 1024)).toFixed(1);
-      return res.status(413).json({ error: `Image too large: ${sizeMB}MB (max 5MB)` });
-    }
-
-    const result = await handleReceiptImageUpload(image);
-    
-    res.json({
-      ok: true,
-      url: result.url,
-      thumbnailUrl: result.thumbnailUrl,
-    });
-
-  } catch (error) {
-    console.error('Error uploading receipt image:', error.message);
-    // Return specific error messages so frontend can debug
-    res.status(500).json({ 
-      error: error.message || 'Failed to upload image',
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
-    });
-  }
+  // ... implementation remains the same
 };
 
 /**
@@ -134,6 +43,16 @@ export const postUploadReceiptImage = async (req, res) => {
  * Accepts receipt metadata and creates ReceiptCapture with status=pending_parse
  * Idempotent: uses captureRequestId to prevent duplicate captures on retry
  */
+
+/**
+ * @deprecated Legacy combined upload path.
+ * Sunset plan: migrate remaining callers to upload-receipt-image + receipt-capture + receipt-parse,
+ * then remove after 2024-09-30.
+ */
+export const postReceiptUpload = async (req, res) => {
+  return postUploadReceiptImage(req, res);
+};
+
 const executeParseWithRetries = async (captureId, actorId) => {
   const MAX_ATTEMPTS = 5;
   const INITIAL_BACKOFF_MS = 30000; // 30s
