@@ -1,386 +1,34 @@
 import mongoose from 'mongoose';
-import StoreInventory from '../models/StoreInventory.js';
-import Product from '../models/Product.js';
-import Store from '../models/Store.js';
+import { GoogleGenAI } from '@google/genai';
 import ReceiptCapture from '../models/ReceiptCapture.js';
-import AppSettings from '../models/AppSettings.js';
-import { isOwnerUsername } from '../utils/helpers.js';
-import { recordAuditLog } from '../utils/audit.js';
+import ReceiptParseJob from '../models/ReceiptParseJob.js';
+import Store from '../models/Store.js';
 import { isDbReady } from '../db/connect.js';
-import { receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap } from '../utils/featureFlags.js';
-import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
+import { recordAuditLog } from '../utils/audit.js';
+import { isOwnerUsername, isDriverUsername, driverCanAccessStore } from '../utils/helpers.js';
+import { receiptIngestionMode, getReceiptIngestionGateState, ensureIngestionAllowed } from '../utils/featureFlags.js';
 import * as receiptProcessingService from '../services/receiptProcessingService.js';
+import { matchStoreCandidate, normalizePhone, normalizeStoreNumber } from '../utils/storeMatcher.js';
+import { transitionReceiptParseJobStatus } from '../utils/receiptParseJobStatus.js';
+import { enqueueReceiptJob, getReceiptQueueWorkerHealth, isReceiptQueueEnabled } from '../queues/receiptQueue.js';
+import { executeReceiptParse } from '../utils/receiptParseHelper.js';
+import { resolveReceiptLineProduct } from '../utils/receiptLineResolver.js';
+import { buildPriceObservationPayload } from '../utils/receiptObservation.js';
+import UnmappedProduct from '../models/UnmappedProduct.js';
+import PriceObservation from '../models/PriceObservation.js';
 
 const {
-  DEFAULT_PRICE_LOCK_DAYS,
-  getReceiptQueueWorkerHealth,
-  getReceiptIngestionGateState,
-  computeReceiptOcrSuccessSummary,
-  validateUPC,
-  validatePriceQuantity,
+  handleReceiptImageUpload,
+  MAX_RECEIPT_IMAGE_BYTES,
+  ALLOWED_IMAGE_MIMES,
+  isAllowedImageDataUrl,
+  hasCloudinary,
+  isCloudinaryUrl,
+  fetchExternalReceiptImage,
+  ensureGeminiReady,
+  mapReceiptItemsForResponse,
+  attemptAutoCommit,
 } = receiptProcessingService;
-/**
- * Receipt capture/parse lifecycle contract (this router):
- * - capture/upload endpoints create ReceiptCapture + ReceiptParseJob records
- * - parse trigger endpoint must be called immediately after capture (Gemini invariant)
- * - health/status endpoints support polling and queue diagnostics
- *
- * Approval/review actions are intentionally handled in /api/receipts (routes/receipts.js).
- */
-
-const defaultScanBatchLimit = 40;
-
-export const getReceiptSettings = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const settings = await AppSettings.findOne({ key: 'default' }).lean();
-    const effective = {
-      receiptIngestionMode: receiptIngestionMode(),
-      allowlist: Array.from(receiptStoreAllowlist()),
-      dailyCap: receiptDailyCap(),
-      priceLockDays: settings?.priceLockDays || DEFAULT_PRICE_LOCK_DAYS
-    };
-    res.json({ ok: true, settings: effective });
-  } catch (error) {
-    console.error('Error fetching receipt settings:', error);
-    res.status(500).json({ error: 'Failed to fetch receipt settings' });
-  }
-};
-
-export const updateReceiptSettings = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { priceLockDays } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    const settings = await AppSettings.findOneAndUpdate(
-      { key: 'default' },
-      { priceLockDays },
-      { new: true, upsert: true }
-    );
-
-    await recordAuditLog({
-      type: 'receipt_settings_update',
-      actorId: username,
-      details: `priceLockDays=${priceLockDays}`
-    });
-
-    res.json({ ok: true, settings });
-  } catch (error) {
-    console.error('Error updating receipt settings:', error);
-    res.status(500).json({ error: 'Failed to update receipt settings' });
-  }
-};
-
-export const getReceiptStoreCandidates = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { q } = req.query;
-    const safeQuery = sanitizeSearch(q);
-    if (!safeQuery) {
-      return res.status(400).json({ error: 'Search query required' });
-    }
-
-    const stores = await Store.find({ name: { $regex: safeQuery, $options: 'i' } })
-      .select('name address phone storeType')
-      .limit(20)
-      .lean();
-
-    res.json({ ok: true, stores });
-  } catch (error) {
-    console.error('Error searching store candidates:', error);
-    res.status(500).json({ error: 'Failed to search store candidates' });
-  }
-});
-
-export const postReceiptStoreCandidates = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeName, address, phone, storeType, storeNumber } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!storeName) {
-      return res.status(400).json({ error: 'Store name required' });
-    }
-
-    const stored = await Store.findOne({ name: storeName }).lean();
-    if (stored) {
-      return res.json({ ok: true, existing: stored });
-    }
-
-    const allowCreate = shouldAutoCreateStore({
-      name: storeName,
-      address,
-      phone,
-      phoneNormalized: normalizePhone(phone),
-      storeNumber: normalizeStoreNumber(storeNumber),
-      storeType
-    });
-    if (!allowCreate) {
-      return res.status(403).json({ error: 'Auto store creation disabled' });
-    }
-
-    const store = await Store.create({
-      name: storeName,
-      address,
-      phone,
-      phoneNormalized: normalizePhone(phone),
-      storeNumber: normalizeStoreNumber(storeNumber),
-      storeType
-    });
-
-    await recordAuditLog({
-      type: 'receipt_store_create',
-      actorId: username,
-      details: `storeName=${storeName}`
-    });
-
-    res.json({ ok: true, store });
-  } catch (error) {
-    console.error('Error creating store:', error);
-    res.status(500).json({ error: 'Failed to create store' });
-  }
-});
-
-export const postReceiptNoiseRule = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId, normalizedName } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!storeId || !normalizedName) {
-      return res.status(400).json({ error: 'storeId and normalizedName required' });
-    }
-
-    const rule = await ReceiptNoiseRule.findOneAndUpdate(
-      { storeId, normalizedName },
-      { storeId, normalizedName, addedBy: username },
-      { new: true, upsert: true }
-    );
-
-    await recordAuditLog({
-      type: 'receipt_noise_rule_create',
-      actorId: username,
-      details: `storeId=${storeId} normalizedName=${normalizedName}`
-    });
-
-    res.json({ ok: true, rule });
-  } catch (error) {
-    console.error('Error creating receipt noise rule:', error);
-    res.status(500).json({ error: 'Failed to create noise rule' });
-  }
-});
-
-export const getReceiptNoiseRule = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId } = req.query;
-    if (!storeId) {
-      return res.status(400).json({ error: 'storeId required' });
-    }
-
-    const rules = await ReceiptNoiseRule.find({ storeId }).lean();
-    res.json({ ok: true, rules });
-  } catch (error) {
-    console.error('Error fetching noise rules:', error);
-    res.status(500).json({ error: 'Failed to fetch noise rules' });
-  }
-});
-
-export const deleteReceiptNoiseRule = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId, normalizedName } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!storeId || !normalizedName) {
-      return res.status(400).json({ error: 'storeId and normalizedName required' });
-    }
-
-    await ReceiptNoiseRule.deleteOne({ storeId, normalizedName });
-
-    await recordAuditLog({
-      type: 'receipt_noise_rule_delete',
-      actorId: username,
-      details: `storeId=${storeId} normalizedName=${normalizedName}`
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('Error deleting noise rule:', error);
-    res.status(500).json({ error: 'Failed to delete noise rule' });
-  }
-});
-
-export const getReceiptAliases = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId } = req.query;
-    if (!storeId) {
-      return res.status(400).json({ error: 'storeId required' });
-    }
-
-    const aliases = await ReceiptNameAlias.find({ storeId })
-      .sort({ confirmedCount: -1 })
-      .limit(200)
-      .lean();
-
-    res.json({ ok: true, aliases });
-  } catch (error) {
-    console.error('Error fetching receipt aliases:', error);
-    res.status(500).json({ error: 'Failed to fetch receipt aliases' });
-  }
-});
-
-export const getReceiptNoiseRules = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId } = req.query;
-    if (!storeId) {
-      return res.status(400).json({ error: 'storeId required' });
-    }
-
-    const rules = await ReceiptNoiseRule.find({ storeId })
-      .sort({ createdAt: -1 })
-      .limit(200)
-      .lean();
-
-    res.json({ ok: true, rules });
-  } catch (error) {
-    console.error('Error fetching receipt noise rules:', error);
-    res.status(500).json({ error: 'Failed to fetch receipt noise rules' });
-  }
-});
-
-export const postReceiptAlias = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId, normalizedName, rawName, productId, upc } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!storeId || !normalizedName || !productId) {
-      return res.status(400).json({ error: 'storeId, normalizedName, productId required' });
-    }
-
-    const alias = await ReceiptNameAlias.findOneAndUpdate(
-      { storeId, normalizedName, productId },
-      {
-        storeId,
-        normalizedName,
-        productId,
-        upc: upc || undefined,
-        $addToSet: {
-          rawNames: rawName ? { name: rawName } : undefined
-        },
-        $inc: { confirmedCount: 1 },
-        lastConfirmedAt: new Date(),
-        confirmedBy: username
-      },
-      { new: true, upsert: true }
-    );
-
-    await recordAuditLog({
-      type: 'receipt_alias_confirm',
-      actorId: username,
-      details: `storeId=${storeId} name=${normalizedName} product=${productId}`
-    });
-
-    res.json({ ok: true, alias });
-  } catch (error) {
-    console.error('Error creating receipt alias:', error);
-    res.status(500).json({ error: 'Failed to create receipt alias' });
-  }
-});
-
-export const postReceiptNoiseRuleIgnore = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId, normalizedName } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!storeId || !normalizedName) {
-      return res.status(400).json({ error: 'storeId and normalizedName required' });
-    }
-
-    const rule = await ReceiptNoiseRule.findOneAndUpdate(
-      { storeId, normalizedName },
-      { storeId, normalizedName, addedBy: username },
-      { new: true, upsert: true }
-    );
-
-    await recordAuditLog({
-      type: 'receipt_noise_rule_ignore',
-      actorId: username,
-      details: `storeId=${storeId} normalizedName=${normalizedName}`
-    });
-
-    res.json({ ok: true, rule });
-  } catch (error) {
-    console.error('Error creating noise rule:', error);
-    res.status(500).json({ error: 'Failed to ignore receipt noise rule' });
-  }
-});
-
-export const deleteReceiptNoiseRuleIgnore = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId, normalizedName } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!storeId || !normalizedName) {
-      return res.status(400).json({ error: 'storeId and normalizedName required' });
-    }
-
-    await ReceiptNoiseRule.deleteOne({ storeId, normalizedName });
-
-    await recordAuditLog({
-      type: 'receipt_noise_rule_unignore',
-      actorId: username,
-      details: `storeId=${storeId} normalizedName=${normalizedName}`
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('Error deleting noise rule ignore:', error);
-    res.status(500).json({ error: 'Failed to unignore receipt noise rule' });
-  }
-});
 
 /**
  * @deprecated Legacy combined upload path.
@@ -436,7 +84,7 @@ export const postReceiptUpload = async (req, res) => {
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
-});
+};
 
 /**
  * POST /api/driver/upload-receipt-image
@@ -481,7 +129,7 @@ export const postUploadReceiptImage = async (req, res) => {
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
-});
+};
 
 /**
  * POST /api/driver/receipt-capture
@@ -747,7 +395,7 @@ export const postReceiptCapture = async (req, res) => {
     console.error('Error creating receipt capture:', error);
     res.status(500).json({ error: 'Failed to create receipt capture' });
   }
-});
+};
 
 /**
  * GET /api/driver/receipt-capture/:captureId
@@ -806,7 +454,7 @@ export const getReceiptCapture = async (req, res) => {
     console.error('Error fetching receipt capture:', error);
     res.status(500).json({ error: 'Failed to fetch receipt capture' });
   }
-});
+};
 
 /**
  * POST /api/driver/receipt-parse
@@ -876,7 +524,7 @@ export const postReceiptParse = async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message || 'Receipt parse failed' });
   }
-});
+};
 
 /**
  * POST /api/driver/receipt-parse-frame
@@ -970,7 +618,7 @@ Rules: Extract product lines only (skip store, date, tax, total). Return empty [
     console.error('Receipt frame parse error:', error);
     res.json({ ok: true, items: [] });
   }
-});
+};
 
 /**
  * POST /api/driver/receipt-parse-live
@@ -1038,7 +686,7 @@ export const postReceiptParseLive = async (req, res) => {
     console.error('Receipt parse live error:', error);
     res.status(500).json({ error: 'Failed to save items' });
   }
-});
+};
 
 /**
  * GET /api/driver/receipt-parse-jobs
@@ -1066,7 +714,7 @@ export const getReceiptParseJobs = async (req, res) => {
     console.error('Error fetching receipt parse jobs:', error);
     res.status(500).json({ error: 'Failed to fetch parse jobs' });
   }
-});
+};
 
 /**
  * POST /api/driver/receipt-parse-jobs/:captureId/approve
@@ -1220,7 +868,7 @@ export const postReceiptParseJobsApprove = async (req, res) => {
     console.error('Error approving store candidate:', error);
     res.status(500).json({ error: 'Failed to approve store candidate' });
   }
-});
+};
 
 /**
  * POST /api/driver/receipt-parse-jobs/:captureId/reject
@@ -1256,473 +904,7 @@ export const postReceiptParseJobsReject = async (req, res) => {
     console.error('Error rejecting store candidate:', error);
     res.status(500).json({ error: 'Failed to reject store candidate' });
   }
-});
-
-/**
- * GET /api/driver/receipt-items/:storeId
- * Fetch receipt items for a store (for search / alias management)
- */
-export const getReceiptItems = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId } = req.params;
-    const { q } = req.query;
-    if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
-      return res.status(400).json({ error: 'Valid storeId required' });
-    }
-
-    const query = {
-      storeId
-    };
-
-    if (q) {
-      query.normalizedName = { $regex: sanitizeSearch(q), $options: 'i' };
-    }
-
-    const aliases = await ReceiptNameAlias.find(query)
-      .sort({ lastSeenAt: -1 })
-      .limit(200)
-      .lean();
-
-    res.json({ ok: true, aliases });
-  } catch (error) {
-    console.error('Error fetching receipt items:', error);
-    res.status(500).json({ error: 'Failed to fetch receipt items' });
-  }
-});
-
-/**
- * GET /api/driver/receipt-item-history
- * Fetch price history for a receipt item
- */
-export const getReceiptItemHistory = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId, productId } = req.query;
-    if (!storeId || !productId) {
-      return res.status(400).json({ error: 'storeId and productId required' });
-    }
-
-    const inventory = await StoreInventory.findOne({
-      storeId,
-      productId
-    }).lean();
-
-    if (!inventory) {
-      return res.json({ ok: true, history: [] });
-    }
-
-    res.json({ ok: true, history: inventory.priceHistory || [] });
-  } catch (error) {
-    console.error('Error fetching receipt item history:', error);
-    res.status(500).json({ error: 'Failed to fetch receipt item history' });
-  }
-});
-
-/**
- * POST /api/driver/receipt-price-update-manual
- * Manual price update (bypass receipt)
- */
-/**
- * @deprecated Manual ingestion path retained for compatibility with legacy operator UI.
- * Sunset plan: move all callers to capture -> parse -> approve workflow and remove after 2026-09-30.
- */
-export const postReceiptPriceUpdateManual = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId, productId, price, priceType } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!storeId || !productId) {
-      return res.status(400).json({ error: 'storeId and productId required' });
-    }
-
-    const store = await Store.findById(storeId);
-    if (!store) {
-      return res.status(404).json({ error: 'Store not found' });
-    }
-
-    const product = await Product.findById(productId);
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
-    const observedPrice = Number(price);
-    if (!Number.isFinite(observedPrice) || observedPrice <= 0) {
-      return res.status(400).json({ error: 'Valid price required' });
-    }
-
-    await StoreInventory.findOneAndUpdate(
-      { storeId, productId },
-      {
-        $set: {
-          observedPrice,
-          observedAt: new Date()
-        },
-        $push: {
-          priceHistory: {
-            price: observedPrice,
-            observedAt: new Date(),
-            matchMethod: 'manual',
-            matchConfidence: 1.0,
-            priceType: priceType || 'manual',
-            promoDetected: false,
-            workflowType: 'update_price'
-          }
-        }
-      },
-      { new: true, upsert: true }
-    );
-
-    product.price = observedPrice;
-    await product.save();
-
-    await recordAuditLog({
-      type: 'receipt_price_update_manual',
-      actorId: username,
-      details: `storeId=${storeId} productId=${productId} price=${observedPrice}`
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('Error updating receipt price manually:', error);
-    res.status(500).json({ error: 'Failed to update price' });
-  }
-});
-
-/**
- * GET /api/driver/receipt-captures-summary
- * Summary counts for receipt captures by status
- */
-export const getReceiptCapturesSummary = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId } = req.query;
-    const query = storeId ? { storeId } : {};
-
-    const total = await ReceiptCapture.countDocuments(query);
-    const pendingParse = await ReceiptCapture.countDocuments({ ...query, status: 'pending_parse' });
-    const parsed = await ReceiptCapture.countDocuments({ ...query, status: 'parsed' });
-    const reviewComplete = await ReceiptCapture.countDocuments({ ...query, status: 'review_complete' });
-    const committed = await ReceiptCapture.countDocuments({ ...query, status: 'committed' });
-    const failed = await ReceiptCapture.countDocuments({ ...query, status: 'failed' });
-
-    res.json({
-      ok: true,
-      summary: {
-        total,
-        pendingParse,
-        parsed,
-        reviewComplete,
-        committed,
-        failed
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching receipt capture summary:', error);
-    res.status(500).json({ error: 'Failed to fetch receipt capture summary' });
-  }
-});
-
-/**
- * POST /api/driver/receipt-refresh
- * Reprocess failed receipt captures for a store
- */
-export const postReceiptRefresh = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { storeId } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
-      return res.status(400).json({ error: 'Valid storeId required' });
-    }
-
-    const failed = await ReceiptCapture.find({ storeId, status: 'failed' });
-    if (failed.length === 0) {
-      return res.json({ ok: true, message: 'No failed receipts to refresh' });
-    }
-
-    for (const capture of failed) {
-      capture.status = 'pending_parse';
-      capture.parseError = null;
-      await capture.save();
-    }
-
-    await recordAuditLog({
-      type: 'receipt_refresh',
-      actorId: username,
-      details: `storeId=${storeId} count=${failed.length}`
-    });
-
-    res.json({ ok: true, refreshed: failed.length });
-  } catch (error) {
-    console.error('Error refreshing receipts:', error);
-    res.status(500).json({ error: 'Failed to refresh receipts' });
-  }
-});
-
-/**
- * POST /api/driver/receipt-lock
- * Lock receipt capture for a period (prevents edits)
- */
-export const postReceiptLock = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { captureId, days = DEFAULT_PRICE_LOCK_DAYS } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
-      return res.status(400).json({ error: 'Valid captureId required' });
-    }
-
-    const capture = await ReceiptCapture.findById(captureId);
-    if (!capture) {
-      return res.status(404).json({ error: 'Receipt capture not found' });
-    }
-
-    capture.reviewExpiresAt = new Date(Date.now() + Number(days) * 24 * 60 * 60 * 1000);
-    await capture.save();
-
-    await recordAuditLog({
-      type: 'receipt_lock',
-      actorId: username,
-      details: `captureId=${captureId} days=${days}`
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('Error locking receipt capture:', error);
-    res.status(500).json({ error: 'Failed to lock receipt capture' });
-  }
-});
-
-/**
- * POST /api/driver/receipt-unlock
- * Unlock receipt capture (remove lock)
- */
-export const postReceiptUnlock = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { captureId } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
-      return res.status(400).json({ error: 'Valid captureId required' });
-    }
-
-    const capture = await ReceiptCapture.findById(captureId);
-    if (!capture) {
-      return res.status(404).json({ error: 'Receipt capture not found' });
-    }
-
-    capture.reviewExpiresAt = null;
-    await capture.save();
-
-    await recordAuditLog({
-      type: 'receipt_unlock',
-      actorId: username,
-      details: `captureId=${captureId}`
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('Error unlocking receipt capture:', error);
-    res.status(500).json({ error: 'Failed to unlock receipt capture' });
-  }
-});
-
-/**
- * GET /api/driver/receipt-store-summary
- * Summary of receipt captures grouped by store
- */
-export const getReceiptStoreSummary = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const summary = await ReceiptCapture.aggregate([
-      {
-        $group: {
-          _id: '$storeId',
-          storeName: { $first: '$storeName' },
-          totalCaptures: { $sum: 1 },
-          pendingParse: { $sum: { $cond: [{ $eq: ['$status', 'pending_parse'] }, 1, 0] } },
-          parsed: { $sum: { $cond: [{ $eq: ['$status', 'parsed'] }, 1, 0] } },
-          reviewComplete: { $sum: { $cond: [{ $eq: ['$status', 'review_complete'] }, 1, 0] } },
-          committed: { $sum: { $cond: [{ $eq: ['$status', 'committed'] }, 1, 0] } },
-          failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } }
-        }
-      },
-      {
-        $sort: { totalCaptures: -1 }
-      }
-    ]);
-
-    res.json({ ok: true, summary });
-  } catch (error) {
-    console.error('Error fetching receipt store summary:', error);
-    res.status(500).json({ error: 'Failed to fetch store summary' });
-  }
-});
-
-/**
- * POST /api/driver/receipt-fix-upc
- * Update receipt item bound UPC (used for corrections)
- */
-export const postReceiptFixUpc = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { captureId, lineIndex, upc } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
-      return res.status(400).json({ error: 'Valid captureId required' });
-    }
-    if (!upc || !validateUPC(upc)) {
-      return res.status(400).json({ error: 'Valid UPC required' });
-    }
-
-    const capture = await ReceiptCapture.findById(captureId);
-    if (!capture) {
-      return res.status(404).json({ error: 'Receipt capture not found' });
-    }
-
-    const draftItem = capture.draftItems.find(item => item.lineIndex === lineIndex);
-    if (!draftItem) {
-      return res.status(404).json({ error: 'Draft item not found' });
-    }
-
-    draftItem.boundUpc = upc;
-    await capture.save();
-
-    await recordAuditLog({
-      type: 'receipt_fix_upc',
-      actorId: username,
-      details: `captureId=${captureId} lineIndex=${lineIndex} upc=${upc}`
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('Error fixing receipt UPC:', error);
-    res.status(500).json({ error: 'Failed to fix receipt UPC' });
-  }
-});
-
-/**
- * POST /api/driver/receipt-fix-price
- * Update receipt item price (used for corrections)
- */
-export const postReceiptFixPrice = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { captureId, lineIndex, totalPrice, quantity } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
-      return res.status(400).json({ error: 'Valid captureId required' });
-    }
-    const validation = validatePriceQuantity(totalPrice, quantity);
-    if (!validation.ok) {
-      return res.status(400).json({ error: validation.error });
-    }
-
-    const capture = await ReceiptCapture.findById(captureId);
-    if (!capture) {
-      return res.status(404).json({ error: 'Receipt capture not found' });
-    }
-
-    const draftItem = capture.draftItems.find(item => item.lineIndex === lineIndex);
-    if (!draftItem) {
-      return res.status(404).json({ error: 'Draft item not found' });
-    }
-
-    draftItem.totalPrice = totalPrice;
-    draftItem.quantity = quantity;
-    draftItem.unitPrice = totalPrice / quantity;
-    draftItem.needsReview = false;
-    draftItem.reviewReason = null;
-    await capture.save();
-
-    await recordAuditLog({
-      type: 'receipt_fix_price',
-      actorId: username,
-      details: `captureId=${captureId} lineIndex=${lineIndex} price=${totalPrice}`
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('Error fixing receipt price:', error);
-    res.status(500).json({ error: 'Failed to fix receipt price' });
-  }
-});
-
-/**
- * POST /api/driver/receipt-reset-review
- * Reset receipt review status to parsed (reopen review)
- */
-export const postReceiptResetReview = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const { captureId } = req.body;
-    const username = req.user?.username || 'unknown';
-
-    if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
-      return res.status(400).json({ error: 'Valid captureId required' });
-    }
-
-    const capture = await ReceiptCapture.findById(captureId);
-    if (!capture) {
-      return res.status(404).json({ error: 'Receipt capture not found' });
-    }
-
-    capture.status = 'parsed';
-    capture.reviewExpiresAt = null;
-    await capture.save();
-
-    await recordAuditLog({
-      type: 'receipt_reset_review',
-      actorId: username,
-      details: `captureId=${captureId}`
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('Error resetting receipt review:', error);
-    res.status(500).json({ error: 'Failed to reset review' });
-  }
-});
+};
 
 /**
  * GET /api/driver/receipt-capture/:captureId/items
@@ -1764,7 +946,7 @@ export const getReceiptCaptureItems = async (req, res) => {
     console.error('Error fetching receipt items:', error);
     res.status(500).json({ error: 'Failed to fetch receipt items' });
   }
-});
+};
 
 /**
  * POST /api/driver/receipt-capture/:captureId/expire
@@ -1802,52 +984,4 @@ export const postReceiptCaptureExpire = async (req, res) => {
     console.error('Error expiring receipt capture:', error);
     res.status(500).json({ error: 'Failed to expire receipt capture' });
   }
-});
-
-/**
- * GET /api/driver/receipt-health
- * Debug route for receipt system health
- */
-export const getReceiptHealth = async (req, res) => {
-  if (!isDbReady()) {
-    return res.status(503).json({ error: 'Database not ready' });
-  }
-
-  try {
-    const requestedStoreId =
-      typeof req.query?.storeId === 'string' && req.query.storeId.trim().length > 0
-        ? req.query.storeId.trim()
-        : null;
-    const ingestionGate = await getReceiptIngestionGateState({ storeId: requestedStoreId });
-    const staleJobCheck = await flushStaleReceiptJobs({ dryRun: true });
-    const staleReceiptJobs = staleJobCheck.ok
-      ? {
-          totalJobs: staleJobCheck.totalJobs,
-          candidates: staleJobCheck.candidates,
-          stale: staleJobCheck.stale,
-          missingCaptureIdsCount: staleJobCheck.missingCaptureIds.length
-        }
-      : { ok: false, reason: staleJobCheck.reason };
-    const sevenDayWindowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const ocrSummarySamples = await ReceiptCapture.find({
-      lastParseAt: { $gte: sevenDayWindowStart },
-      'parseMetrics.providerUsed': { $exists: true, $ne: null }
-    })
-      .select('status parseMetrics.providerAttempted parseMetrics.providerUsed parseMetrics.fallbackReason')
-      .lean();
-    const ocrProviderSummary7d = computeReceiptOcrSuccessSummary(ocrSummarySamples);
-    res.json({
-      ok: true,
-      cloudinary: hasCloudinary,
-      queueEnabled: isReceiptQueueEnabled(),
-      queueStatus: await getReceiptQueueWorkerHealth(),
-      learningEnabled: isPricingLearningEnabled(),
-      ingestionGate,
-      staleReceiptJobs,
-      ocrProviderSummary7d
-    });
-  } catch (error) {
-    console.error('Error fetching receipt health:', error);
-    res.status(500).json({ error: 'Failed to fetch receipt health' });
-  }
-});
+};

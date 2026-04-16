@@ -86,6 +86,7 @@ type QuoteResponse = {
   distanceMiles: number;
   largeOrderFee?: number;
   heavyItemFee?: number;
+  tierBenefits?: any; // From tierService.getTierBenefits
 };
 
 type CheckoutPreviewFulfillment = {
@@ -249,20 +250,14 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const cartIsEmpty = cart.length === 0;
   const hasReturnUpcs = totalReturnContainers > 0;
   const isPickupOnlyOrder = cartIsEmpty && hasReturnUpcs;
-
-  const activeTier = membershipTier ?? UserTier.COMMON;
-  const allowPlatinumTier = Boolean((core as any)?.settings?.allowPlatinumTier);
-  const allowGreenTier = Boolean((core as any)?.settings?.allowGreenTier);
-  const cashEligibleTiers: UserTier[] = [UserTier.GOLD];
-  if (allowPlatinumTier) cashEligibleTiers.push(UserTier.PLATINUM);
-  if (allowGreenTier) cashEligibleTiers.push(UserTier.GREEN);
-  const allowCashPayout = cashEligibleTiers.includes(activeTier);
+  
+  const allowCashPayout = useMemo(() => 
+    quote?.tierBenefits?.allowedReturnPayoutMethods?.includes('CASH') ?? false
+  , [quote?.tierBenefits]);
 
   useEffect(() => {
-    if (!allowCashPayout && useCashPayout) {
-      setUseCashPayout(false);
-    }
-  }, [allowCashPayout, useCashPayout]);
+    if (!allowCashPayout && useCashPayout) setUseCashPayout(false);
+  }, [allowCashPayout, useCashPayout, quote]);
 
   const payoutMethod: ReturnPayoutMethod =
     allowCashPayout && useCashPayout ? 'CASH' : 'CREDIT';
@@ -435,8 +430,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
           routeFeeFinal: Number(data?.routeFeeFinal ?? 0),
           distanceFeeFinal: Number(data?.distanceFeeFinal ?? 0),
           distanceMiles: Number(data?.distanceMiles ?? 0),
-          largeOrderFee: Number(data?.largeOrderFee ?? 0),
-          heavyItemFee: Number(data?.heavyItemFee ?? 0)
+          largeOrderFee: Number(data?.largeOrderFee ?? 0), // Already present
+          heavyItemFee: Number(data?.heavyItemFee ?? 0), // Already present
+          tierBenefits: data?.tierBenefits // NEW: Pass-through from deliveryFees service
         });
       } catch (err: any) {
         if (err?.name === 'AbortError') return;
@@ -554,11 +550,10 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const activeDistanceFeeCents = Math.round(activeDistanceFee * 100);
   const activeLargeOrderFeeCents = Math.round(activeLargeOrderFee * 100);
   const activeHeavyItemFeeCents = Math.round(activeHeavyItemFee * 100);
-
-  const deliveryCreditEligibleTiers: UserTier[] = [UserTier.SILVER, UserTier.GOLD];
-  if (allowPlatinumTier) deliveryCreditEligibleTiers.push(UserTier.PLATINUM);
-  if (allowGreenTier) deliveryCreditEligibleTiers.push(UserTier.GREEN);
-  const creditsCoverDelivery = deliveryCreditEligibleTiers.includes(activeTier);
+  
+  const creditsCoverDelivery = useMemo(() => 
+    quote?.tierBenefits?.creditsCanCoverDelivery ?? false
+  , [quote?.tierBenefits]);
   const creditEligibleCents = creditsCoverDelivery
     ? subtotalCents + activeRouteFeeCents + activeDistanceFeeCents
     : subtotalCents;

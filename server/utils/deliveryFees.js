@@ -80,12 +80,15 @@ const calculateDistanceFee = ({
   orderType,
   pickupOnlyMultiplier,
   tier,
-  allowGreenTier
+  allowGreenTier,
+  allowPlatinumTier,
+  platinumFreeDelivery
 }) => {
   const normalizedTier = normalizeTier(tier);
   const tierBenefits = getTierBenefits({
     tier: normalizedTier,
-    settings: { allowGreenTier }
+    // Pass all settings for consistency, though only green has distance override
+    settings: { allowGreenTier, allowPlatinumTier, platinumFreeDelivery }
   });
   const distance = roundDownToTenth(Math.max(0, toNumber(distanceMiles)));
 
@@ -217,7 +220,9 @@ export const getDeliveryOptions = async ({
     orderType,
     pickupOnlyMultiplier,
     tier,
-    allowGreenTier
+    allowGreenTier,
+    allowPlatinumTier,
+    platinumFreeDelivery
   });
 
   const large = calculateLargeOrderFee({
@@ -240,6 +245,12 @@ export const getDeliveryOptions = async ({
     heavy.heavyItemFeeCents;
 
   return {
+    // Pass benefits through for UI and other consumers
+    tierBenefits: getTierBenefits({
+      tier,
+      settings: { allowPlatinumTier, allowGreenTier, platinumFreeDelivery }
+    }),
+
     routeFee: route.routeFee,
     routeFeeCents: route.routeFeeCents,
     routeFeeDiscountPercent: route.routeFeeDiscountPercent,

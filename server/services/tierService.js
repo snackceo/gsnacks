@@ -35,8 +35,10 @@ export const TIER_CONFIG = Object.freeze({
       routeDiscount: 0,
       canRedeemPoints: false,
       minRedeemPoints: null,
-      canRedeemDeliveryCredits: false,
-      canCashOutBottleReturns: false
+      creditsCanCoverDelivery: false,
+      allowedReturnPayoutMethods: Object.freeze(['CREDIT']),
+      distanceFeeOverride: null,
+      routeFeeOverride: null
     })
   }),
   [USER_TIERS.BRONZE]: Object.freeze({
@@ -45,8 +47,10 @@ export const TIER_CONFIG = Object.freeze({
       routeDiscount: 0.1,
       canRedeemPoints: true,
       minRedeemPoints: 500,
-      canRedeemDeliveryCredits: false,
-      canCashOutBottleReturns: false
+      creditsCanCoverDelivery: false,
+      allowedReturnPayoutMethods: Object.freeze(['CREDIT']),
+      distanceFeeOverride: null,
+      routeFeeOverride: null
     })
   }),
   [USER_TIERS.SILVER]: Object.freeze({
@@ -55,8 +59,10 @@ export const TIER_CONFIG = Object.freeze({
       routeDiscount: 0.2,
       canRedeemPoints: true,
       minRedeemPoints: 250,
-      canRedeemDeliveryCredits: true,
-      canCashOutBottleReturns: true
+      creditsCanCoverDelivery: true,
+      allowedReturnPayoutMethods: Object.freeze(['CREDIT']),
+      distanceFeeOverride: null,
+      routeFeeOverride: null
     })
   }),
   [USER_TIERS.GOLD]: Object.freeze({
@@ -65,8 +71,10 @@ export const TIER_CONFIG = Object.freeze({
       routeDiscount: 0.3,
       canRedeemPoints: true,
       minRedeemPoints: 0,
-      canRedeemDeliveryCredits: true,
-      canCashOutBottleReturns: true
+      creditsCanCoverDelivery: true,
+      allowedReturnPayoutMethods: Object.freeze(['CREDIT', 'CASH']),
+      distanceFeeOverride: null,
+      routeFeeOverride: null
     })
   }),
   [USER_TIERS.PLATINUM]: Object.freeze({
@@ -75,10 +83,11 @@ export const TIER_CONFIG = Object.freeze({
       routeDiscount: 0,
       canRedeemPoints: true,
       minRedeemPoints: 0,
-      canRedeemDeliveryCredits: true,
-      canCashOutBottleReturns: true,
+      creditsCanCoverDelivery: true,
+      allowedReturnPayoutMethods: Object.freeze(['CREDIT', 'CASH']),
       routeFeeOverride: 0,
-      requiresSetting: 'platinumFreeDelivery'
+      distanceFeeOverride: null,
+      requiresSetting: 'platinumFreeDelivery' // Keep for gating logic
     })
   }),
   [USER_TIERS.GREEN]: Object.freeze({
@@ -87,10 +96,10 @@ export const TIER_CONFIG = Object.freeze({
       routeDiscount: 0,
       canRedeemPoints: true,
       minRedeemPoints: 0,
-      canRedeemDeliveryCredits: true,
-      canCashOutBottleReturns: true,
+      creditsCanCoverDelivery: true,
+      allowedReturnPayoutMethods: Object.freeze(['CREDIT', 'CASH']),
       routeFeeOverride: 1,
-      distanceFeeOverride: 0
+      distanceFeeOverride: 0,
     })
   })
 });
@@ -159,15 +168,22 @@ export const getTierBenefits = ({ tier, settings = {} } = {}) => {
   const platinumFreeDelivery = Boolean(settings.platinumFreeDelivery);
 
   if (normalizedTier === USER_TIERS.PLATINUM) {
-    if (!allowPlatinumTier || !platinumFreeDelivery) {
+    if (!allowPlatinumTier) {
+      // If feature-flagged tier is disabled, remove all special benefits
+      delete benefits.routeFeeOverride;
+      benefits.allowedReturnPayoutMethods = ['CREDIT'];
+    } else if (!platinumFreeDelivery) {
+      // Flag is on, but setting for free delivery is off
       delete benefits.routeFeeOverride;
     }
   }
 
   if (normalizedTier === USER_TIERS.GREEN) {
     if (!allowGreenTier) {
+      // If feature-flagged tier is disabled, remove all special benefits
       delete benefits.routeFeeOverride;
       delete benefits.distanceFeeOverride;
+      benefits.allowedReturnPayoutMethods = ['CREDIT'];
     }
   }
 

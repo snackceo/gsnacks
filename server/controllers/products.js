@@ -242,7 +242,7 @@ export const updateProduct = async (req, res) => {
       if (normalizedUpc) {
         updates.upc = normalizedUpc;
       } else {
-        delete updates.upc;
+        updates.upc = '';
       }
     }
     // If any of the storage fields are set to empty string, persist as empty string (never undefined/null)
