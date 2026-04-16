@@ -1,5 +1,6 @@
 import UpcItem from '../models/UpcItem.js';
 import UpcLookupCache from '../models/UpcLookupCache.js';
+import { getUpcWhitelist } from '../services/upcWhitelistService.js';
 import { resolveUpc, isValidBarcode as isValidBarcodeInternal } from '../services/upcResolutionService.js';
 
 const normalizeContainerType = value => {
@@ -284,23 +285,8 @@ export const getUpcItems = async (_req, res) => {
       'Vary': 'Cookie, Origin'
     });
 
-    const entries = await UpcItem.find({}).sort({ updatedAt: -1 }).lean();
-    const depositValue = await getMichiganDepositValue();
-    const upcItems = entries.map(entry => ({
-      upc: entry.upc,
-      name: entry.name || '',
-      depositValue: depositValue,
-      price: coerceNumber(entry.price),
-      containerType:
-        normalizeContainerType(entry.containerType) ||
-        (entry.isGlass ? 'glass' : 'plastic'),
-      sizeOz: coerceNumber(entry.sizeOz),
-      isEligible: entry.isEligible !== false,
-      createdAt: entry.createdAt ? new Date(entry.createdAt).toISOString() : undefined,
-      updatedAt: entry.updatedAt ? new Date(entry.updatedAt).toISOString() : undefined
-    }));
-
-    res.json({ ok: true, upcItems });
+    const whitelist = await getUpcWhitelist();
+    res.json({ ok: true, upcs: whitelist });
   } catch (err) {
     console.error('GET UPC ERROR:', err);
     res.status(500).json({ error: 'Failed to load UPC list' });
