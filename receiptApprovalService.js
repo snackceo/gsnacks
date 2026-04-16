@@ -99,21 +99,24 @@ export const approveJob = async (jobId, payload, actor) => {
 
         case 'LINK_UPC_TO_PRODUCT':
           if (item.sku && jobItem.upcCandidate) {
-            const existingProduct = await Product.findOne({ sku: item.sku }).session(session).lean();
-            if (existingProduct) {
-              await StoreInventory.findOneAndUpdate(
-                { storeId: store._id, productId: existingProduct._id },
-                { $inc: { stock: jobItem.quantity || 1 } },
-                { upsert: true, new: true, session }
-              );
-              await PriceObservation.create([{
-                productId: existingProduct._id,
-                storeId: store._id,
-                price: jobItem.unitPrice,
-                observedAt: now,
-                receiptCaptureId: capture._id,
-              }], { session });
+            const existingProduct = await Product.findOne({ sku: item.sku }).session(session);
+            if (!existingProduct) {
+              throw new Error(`Attempted to link UPC to non-existent SKU: ${item.sku}`);
             }
+
+            await StoreInventory.findOneAndUpdate(
+              { storeId: store._id, productId: existingProduct._id },
+              { $inc: { stock: jobItem.quantity || 1 } },
+              { upsert: true, new: true, session }
+            );
+            await PriceObservation.create([{
+              productId: existingProduct._id,
+              storeId: store._id,
+              price: jobItem.unitPrice,
+              observedAt: now,
+              receiptCaptureId: capture._id,
+            }], { session });
+
             await UpcItem.findOneAndUpdate(
               { upc: jobItem.upcCandidate },
               { sku: item.sku },
