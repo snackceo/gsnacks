@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getWhitelist, addUpcToWhitelist, removeUpcFromWhitelist, UpcItem } from '../upcService';
+import { getWhitelist, addUpcToWhitelist, removeUpcFromWhitelist } from '../upcService';
 import { Loader2, AlertTriangle, Plus, X } from 'lucide-react';
 
 export const UpcWhitelistView: React.FC = () => {
@@ -35,6 +35,12 @@ export const UpcWhitelistView: React.FC = () => {
     if (!newUpc.trim() || isAdding) return;
 
     const upcToAdd = newUpc.trim();
+    
+    // Prevent adding duplicates to the UI and making unnecessary API calls
+    if (upcs.includes(upcToAdd)) {
+      setError(`UPC "${upcToAdd}" is already in the whitelist.`);
+      return;
+    }
 
     setIsAdding(true);
     setError(null);
