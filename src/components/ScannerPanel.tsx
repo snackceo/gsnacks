@@ -50,6 +50,17 @@ export interface ScannerPanelProps {
   onTogglePrimarySupplier?: () => void;
 }
 
+const getCooldownForMode = (mode?: ScannerMode): number => {
+  switch (mode) {
+    case ScannerMode.INVENTORY_CREATE:
+    case ScannerMode.UPC_LOOKUP:
+      return 500; // Faster for admin tasks
+    case ScannerMode.CUSTOMER_RETURN_SCAN:
+      return 1500; // Slower for customer returns to prevent accidental duplicates
+    default:
+      return 1200; // Default cooldown
+  }
+};
 // Allow UPC/EAN lengths commonly encountered.
 // - UPC-A: 12
 // - UPC-E: 8
@@ -168,7 +179,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   const onCooldownRef = useRef<ScannerPanelProps['onCooldown']>(undefined);
   const closeOnScanRef = useRef<boolean>(closeOnScan);
   const beepEnabledRef = useRef<boolean>(beepEnabled);
-  const cooldownMsRef = useRef<number>(cooldownMs);
+  const cooldownMsRef = useRef<number>(getCooldownForMode(mode));
 
   // Cooldown + stability guards
   const lastAcceptAtRef = useRef<number>(0);
@@ -236,7 +247,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     onScanRef.current = onScan;
     onCloseRef.current = onClose;
     onCooldownRef.current = onCooldown;
-    closeOnScanRef.current = closeOnScan;
+    closeOnScanRef.current = !!closeOnScan;
     beepEnabledRef.current = beepEnabled;
     cooldownMsRef.current = cooldownMs;
   }, [beepEnabled, closeOnScan, cooldownMs, onClose, onCooldown, onScan]);
@@ -310,12 +321,14 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 
       // Global cooldown
       if (now - lastAcceptAtRef.current < cooldownMsValue) {
+        addToast('Same UPC — tap to add again', { type: 'info' });
         onCooldownRef.current?.(upc, 'cooldown');
         return;
       }
 
       // Prevent immediately re-accepting the exact same code even if timing jitter occurs
       if (lastAcceptedCodeRef.current === upc && now - lastAcceptAtRef.current < Math.max(600, cooldownMsValue)) {
+        addToast('Same UPC — tap to add again', { type: 'info' });
         onCooldownRef.current?.(upc, 'duplicate');
         return;
       }
@@ -333,7 +346,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
         handleClose();
       }
     },
-    [handleClose, playBeep]
+    [handleClose, playBeep, addToast]
   );
 
   const toggleTorch = useCallback(async () => {

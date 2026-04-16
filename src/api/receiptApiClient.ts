@@ -96,5 +96,27 @@ export const receiptApiClient = {
       method: 'POST',
       body: JSON.stringify(payload)
     });
+  },
+  rejectJob(jobId: string, reason: string) {
+    return apiFetch<any>(RECEIPT_API_ENDPOINTS.rejectJob(jobId), {
+      method: 'POST',
+      body: JSON.stringify({ reason })
+    });
+  },
+  listJobs(status?: string) {
+    const endpoint = status ? `${RECEIPT_API_ENDPOINTS.listJobs}?status=${status}` : RECEIPT_API_ENDPOINTS.listJobs;
+    return apiFetch<{ jobs: ReceiptParseJob[] }>(endpoint);
+  },
+  getJob(jobId: string) {
+    return apiFetch<{ job: ReceiptParseJob }>(`/api/receipts/${jobId}`);
+  },
+  resetReview(captureId: string) {
+    return apiFetch<any>(RECEIPT_API_ENDPOINTS.resetReview, { method: 'POST', body: JSON.stringify({ captureId }) });
+  },
+  lockCapture(captureId: string, days: number) {
+    return apiFetch<any>(RECEIPT_API_ENDPOINTS.lockCapture, { method: 'POST', body: JSON.stringify({ captureId, days }) });
+  },
+  unlockCapture(captureId: string) {
+    return apiFetch<any>(RECEIPT_API_ENDPOINTS.unlockCapture, { method: 'POST', body: JSON.stringify({ captureId }) });
   }
 };
