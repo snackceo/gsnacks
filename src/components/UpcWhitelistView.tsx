@@ -1,15 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getWhitelist, addUpcToWhitelist, removeUpcFromWhitelist } from '../upcService';
+import { getWhitelist, addUpcToWhitelist, removeUpcFromWhitelist, UpcItem } from '../upcService';
 import { Loader2, AlertTriangle, Plus, X } from 'lucide-react';
-
-interface UpcApiResponse {
-    ok: boolean;
-    upcs: string[];
-}
-
-interface ApiResponse {
-    ok: boolean;
-}
 
 export const UpcWhitelistView: React.FC = () => {
   const [upcs, setUpcs] = useState<string[]>([]);
@@ -22,7 +13,7 @@ export const UpcWhitelistView: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response: UpcApiResponse = await getWhitelist();
+      const response = await getWhitelist();
       if (response.ok) {
         setUpcs(response.upcs);
       } else {
@@ -43,19 +34,24 @@ export const UpcWhitelistView: React.FC = () => {
     e.preventDefault();
     if (!newUpc.trim() || isAdding) return;
 
+    const upcToAdd = newUpc.trim();
+
+    setIsAdding(true);
+    setError(null);
+
+    // Optimistically add to the UI
+    setUpcs(prev => [upcToAdd, ...prev]);
+    setNewUpc('');
+
     try {
-      setIsAdding(true);
-      setError(null);
-      const response: ApiResponse = await addUpcToWhitelist(newUpc.trim());
-      if (response.ok) {
-        setNewUpc('');
-        // Refresh the list to show the new UPC
-        await fetchWhitelist();
-      } else {
+      const response = await addUpcToWhitelist(upcToAdd);
+      if (!response.ok) {
         throw new Error('Failed to add UPC to whitelist.');
       }
     } catch (err: any) {
       setError(err.message || 'An unknown error occurred while adding the UPC.');
+      // On failure, revert the optimistic update by removing the item
+      setUpcs(prev => prev.filter(upc => upc !== upcToAdd));
     } finally {
       setIsAdding(false);
     }
@@ -66,7 +62,7 @@ export const UpcWhitelistView: React.FC = () => {
     setUpcs((prev: string[]) => prev.filter((upc: string) => upc !== upcToRemove));
 
     try {
-      const response: ApiResponse = await removeUpcFromWhitelist(upcToRemove);
+      const response = await removeUpcFromWhitelist(upcToRemove);
       if (!response.ok) {
         throw new Error('Server failed to remove UPC.');
       }

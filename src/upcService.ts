@@ -1,5 +1,6 @@
 import { apiFetch } from './apiFetch';
 import { Product, UpcItem } from './types';
+export type { UpcItem } from './types';
 
 interface UpcScanResponse {
   ok: boolean;
