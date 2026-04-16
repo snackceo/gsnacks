@@ -2,18 +2,13 @@ import AppSettings from '../../models/AppSettings.js';
 import { recordAuditLog } from '../../utils/audit.js';
 import { isDbReady } from '../../db/connect.js';
 import { receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap } from '../../utils/featureFlags.js';
-import { DEFAULT_PRICE_LOCK_DAYS } from '../../config/constants.js';
 
-const checkDb = () => {
-  if (!isDbReady()) {
-    const error = new Error('Database not ready');
-    error.statusCode = 503;
-    throw error;
-  }
-};
+const DEFAULT_PRICE_LOCK_DAYS = 7;
 
 export const getSettings = async () => {
-  checkDb();
+  if (!isDbReady()) {
+    throw new Error('Database not ready');
+  }
   const settings = await AppSettings.findOne({ key: 'default' }).lean();
   return {
     receiptIngestionMode: receiptIngestionMode(),
@@ -24,22 +19,20 @@ export const getSettings = async () => {
 };
 
 export const updateSettings = async ({ priceLockDays, actor }) => {
-  checkDb();
-  if (priceLockDays === undefined || priceLockDays === null || !Number.isFinite(Number(priceLockDays))) {
-    throw new Error('priceLockDays must be a number');
+  if (!isDbReady()) {
+    throw new Error('Database not ready');
+  }
+  if (typeof priceLockDays !== 'number') {
+    throw new Error('priceLockDays must be a number.');
   }
 
   const settings = await AppSettings.findOneAndUpdate(
     { key: 'default' },
-    { priceLockDays: Number(priceLockDays) },
+    { priceLockDays },
     { new: true, upsert: true }
-  ).lean();
+  );
 
-  await recordAuditLog({
-    type: 'receipt_settings_update',
-    actorId: actor,
-    details: `priceLockDays=${priceLockDays}`,
-  });
+  await recordAuditLog({ type: 'receipt_settings_update', actorId: actor, details: `priceLockDays=${priceLockDays}` });
 
   return settings;
 };
