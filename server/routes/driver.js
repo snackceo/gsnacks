@@ -1,10 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import Order from '../models/Order.js';
-import Batch from '../models/Batch.js';
-import Store from '../models/Store.js';
-import Product from '../models/Product.js';
-import User from '../models/User.js';
+import { Order, Product } from '../models/index.js';
 import {
   authRequired,
   isDriverUsername,
