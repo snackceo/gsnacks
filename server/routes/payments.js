@@ -13,6 +13,7 @@ import {
 
 import { isDbReady } from '../db/connect.js';
 import { getDeliveryOptions } from '../utils/deliveryFees.js';
+import { normalizeTier } from '../services/tierService.js';
 
 const createPaymentsRouter = ({ stripe }) => {
   const router = express.Router();
@@ -37,7 +38,7 @@ const createPaymentsRouter = ({ stripe }) => {
       }
 
       const user = userId ? await User.findById(userId) : null;
-      const tier = user?.membershipTier || 'COMMON';
+      const tier = normalizeTier(user?.membershipTier);
 
       const {
         routeFee,
@@ -109,7 +110,7 @@ const createPaymentsRouter = ({ stripe }) => {
       }
 
       const user = userId ? await User.findById(userId) : null;
-      const tier = user?.membershipTier || 'COMMON';
+      const tier = normalizeTier(user?.membershipTier);
 
       let lineItems = [];
       let subtotalCents = 0;

@@ -20,12 +20,28 @@ import CustomerReturnScanner from '../components/CustomerReturnScanner';
 import { analytics } from '../services/analyticsService';
 import AssistantSearchChat from '../components/AssistantSearchChat';
 
+const DEFAULT_TIER_POLICY = [
+  { tier: UserTier.BRONZE, threshold: { minOrders: 25, minSpend: 250 } },
+  { tier: UserTier.SILVER, threshold: { minOrders: 50, minSpend: 600, phoneVerified: true } },
+  { tier: UserTier.GOLD, threshold: { minOrders: 100, minSpend: 1500, photoIdVerified: true } },
+  { tier: UserTier.PLATINUM, threshold: { manualOnly: true } }
+];
+
+const TIER_ORDER: UserTier[] = [
+  UserTier.COMMON,
+  UserTier.BRONZE,
+  UserTier.SILVER,
+  UserTier.GOLD,
+  UserTier.PLATINUM,
+  UserTier.GREEN
+];
 
 
 const CustomerView: React.FC<CustomerViewProps> = ({
   products,
   orders,
   currentUser,
+  userStats,
   openLogin,
   addToCart,
   onRequestRefund,
@@ -47,6 +63,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
   const [lifetimeBottleReturns, setLifetimeBottleReturns] = useState<number | null>(null);
   const [bottleReturnsLoading, setBottleReturnsLoading] = useState(false);
   const [bottleReturnsError, setBottleReturnsError] = useState<string | null>(null);
+  const [tierPolicy, setTierPolicy] = useState<any[]>(DEFAULT_TIER_POLICY);
 
   useEffect(() => {
     const fetchBottleReturns = async () => {
@@ -70,6 +87,26 @@ const CustomerView: React.FC<CustomerViewProps> = ({
     fetchBottleReturns();
   }, [currentUser]);
 
+  useEffect(() => {
+    const fetchTierPolicy = async () => {
+      if (!currentUser) return;
+      try {
+        const res = await fetch('/server/users/tier-policy', { credentials: 'include' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data?.policy) && data.policy.length > 0) {
+          const filtered = data.policy.filter((entry: any) =>
+            [UserTier.BRONZE, UserTier.SILVER, UserTier.GOLD, UserTier.PLATINUM].includes(entry?.tier)
+          );
+          if (filtered.length > 0) setTierPolicy(filtered);
+        }
+      } catch (_err) {
+        // fall back to mirrored defaults
+      }
+    };
+    fetchTierPolicy();
+  }, [currentUser]);
+
   // Filtering and derived values
   const filteredProducts = products.filter(p => {
     const matchesCategory = activeCategory === 'ALL' || p.category.toUpperCase() === activeCategory;
@@ -86,48 +123,43 @@ const CustomerView: React.FC<CustomerViewProps> = ({
 
   // Checklist progress logic (backend-aligned)
   const userTier = (currentUser?.membershipTier ?? UserTier.COMMON).toString().toUpperCase();
-  const orderCount = useState?.orderCount ?? 0;
-  const totalSpend = useState?.totalSpend ?? 0;
+  const orderCount = Number(userStats?.orderCount || currentUser?.ordersCompleted || 0);
+  const totalSpend = Number(userStats?.totalSpend || 0);
   const phoneVerified = !!currentUser?.phoneVerified;
   const photoIdVerified = !!currentUser?.photoIdVerified;
+  const currentTierRank = TIER_ORDER.indexOf(userTier as UserTier);
+  const tierRequirements = tierPolicy.map((policy: any) => {
+    const tier = (policy?.tier || UserTier.COMMON).toString().toUpperCase();
+    const threshold = policy?.threshold || {};
+    const requiredOrders = Number(threshold.minOrders || 0);
+    const requiredSpend = Number(threshold.minSpend || 0);
+    const requirements = [];
 
-  // Tier requirements
-  const tierRequirements = [
-    {
-      label: 'Bronze',
-      requirements: [
-        { label: '25 orders', met: orderCount >= 25, value: `${orderCount}/25` },
-        { label: '$250 spent', met: totalSpend >= 250, value: `$${totalSpend.toFixed(2)}/$250.00` },
-        { label: 'Email verified', met: true, value: '✓' }, // always true (implicit)
-      ],
-      achieved: userTier === 'BRONZE' || userTier === 'SILVER' || userTier === 'GOLD' || userTier === 'PLATINUM',
-    },
-    {
-      label: 'Silver',
-      requirements: [
-        { label: '50 orders', met: orderCount >= 50, value: `${orderCount}/50` },
-        { label: '$600 spent', met: totalSpend >= 600, value: `$${totalSpend.toFixed(2)}/$600.00` },
-        { label: 'Phone verified', met: phoneVerified, value: phoneVerified ? '✓' : '✗' },
-      ],
-      achieved: userTier === 'SILVER' || userTier === 'GOLD' || userTier === 'PLATINUM',
-    },
-    {
-      label: 'Gold',
-      requirements: [
-        { label: '100 orders', met: orderCount >= 100, value: `${orderCount}/100` },
-        { label: '$1500 spent', met: totalSpend >= 1500, value: `$${totalSpend.toFixed(2)}/$1500.00` },
-        { label: 'Photo ID verified', met: photoIdVerified, value: photoIdVerified ? '✓' : '✗' },
-      ],
-      achieved: userTier === 'GOLD' || userTier === 'PLATINUM',
-    },
-    {
-      label: 'Platinum',
-      requirements: [
-        { label: 'Owner-assigned', met: userTier === 'PLATINUM', value: userTier === 'PLATINUM' ? '✓' : '✗' },
-      ],
-      achieved: userTier === 'PLATINUM',
-    },
-  ];
+    if (threshold.manualOnly) {
+      requirements.push({
+        label: 'Owner-assigned',
+        met: userTier === tier,
+        value: userTier === tier ? '✓' : '✗'
+      });
+    } else {
+      requirements.push(
+        { label: `${requiredOrders} orders`, met: orderCount >= requiredOrders, value: `${orderCount}/${requiredOrders}` },
+        { label: `$${requiredSpend} spent`, met: totalSpend >= requiredSpend, value: `$${totalSpend.toFixed(2)}/$${requiredSpend.toFixed(2)}` }
+      );
+      if (threshold.phoneVerified) {
+        requirements.push({ label: 'Phone verified', met: phoneVerified, value: phoneVerified ? '✓' : '✗' });
+      }
+      if (threshold.photoIdVerified) {
+        requirements.push({ label: 'Photo ID verified', met: photoIdVerified, value: photoIdVerified ? '✓' : '✗' });
+      }
+    }
+
+    return {
+      label: tier.charAt(0) + tier.slice(1).toLowerCase(),
+      requirements,
+      achieved: currentTierRank >= TIER_ORDER.indexOf(tier as UserTier)
+    };
+  });
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20">
