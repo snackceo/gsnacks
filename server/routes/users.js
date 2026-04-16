@@ -1,7 +1,20 @@
 // Get user's lifetime bottle returns (sum of all finalAcceptedCount from ReturnSettlement)
 import express from 'express';
+import Order from '../models/Order.js';
+import User from '../models/User.js';
+import AppSettings from '../models/AppSettings.js';
+import LedgerEntry, { CREDIT_ORIGINS_ENUM } from '../models/LedgerEntry.js';
 import ReturnVerification from '../models/ReturnVerification.js';
 import ReturnSettlement from '../models/ReturnSettlement.js';
+import { recordAuditLog } from '../utils/audit.js';
+import { authRequired, ownerRequired } from '../utils/helpers.js';
+import {
+  USER_TIERS,
+  TIER_CONFIG,
+  normalizeTier,
+  calculateUserTier,
+  getTierBenefits
+} from '../services/tierService.js';
 
 const router = express.Router();
 
@@ -36,19 +49,6 @@ router.get('/:id/bottle-returns', authRequired, async (req, res) => {
     res.status(500).json({ error: 'Failed to load bottle returns' });
   }
 });
-
-import Order from '../models/Order.js';
-import User from '../models/User.js';
-import LedgerEntry, { CREDIT_ORIGINS_ENUM } from '../models/LedgerEntry.js';
-import { recordAuditLog } from '../utils/audit.js';
-import { authRequired, ownerRequired } from '../utils/helpers.js';
-
-
-
-const normalizeTier = (tier) => {
-  const normalized = String(tier || '').trim().toUpperCase();
-  return !normalized || normalized === 'NONE' ? 'COMMON' : normalized;
-};
 
 const mapUser = (user) => ({
   id: user._id.toString(),
@@ -90,32 +90,23 @@ const mapLedgerEntry = (entry) => ({
   createdAt: entry.createdAt ? new Date(entry.createdAt).toISOString() : undefined
 });
 
-const tierRank = {
-  COMMON: 0,
-  BRONZE: 1,
-  SILVER: 2,
-  GOLD: 3,
-  PLATINUM: 4
-};
-
-const autoTierForUser = (user) => {
-  const ordersCompleted = Number(user?.ordersCompleted || 0);
-  const phoneVerified = Boolean(user?.phoneVerified);
-  const photoIdVerified = Boolean(user?.photoIdVerified);
-
-  if (ordersCompleted >= 15 && photoIdVerified) return 'GOLD';
-  if (ordersCompleted >= 10 && phoneVerified) return 'SILVER';
-  return 'COMMON';
-};
-
-const maybeAutoPromote = ({ user }) => {
-  if (user.membershipTier === 'PLATINUM') return;
-
-  const autoTier = autoTierForUser(user);
-  const currentTier = normalizeTier(user.membershipTier);
-  if ((tierRank[autoTier] || 0) > (tierRank[currentTier] || 0)) {
-    user.membershipTier = autoTier;
-  }
+const maybeAutoPromote = async ({ user }) => {
+  const [summary] = await Order.aggregate([
+    { $match: { customerId: String(user._id) } },
+    {
+      $group: {
+        _id: '$customerId',
+        totalSpend: { $sum: { $ifNull: ['$total', 0] } }
+      }
+    }
+  ]);
+  user.membershipTier = calculateUserTier({
+    orderCount: Number(user?.ordersCompleted || 0),
+    totalSpend: Number(summary?.totalSpend || 0),
+    phoneVerified: Boolean(user?.phoneVerified),
+    photoIdVerified: Boolean(user?.photoIdVerified),
+    currentTier: user?.membershipTier
+  });
 };
 
 router.get('/', authRequired, ownerRequired, async (_req, res) => {
@@ -170,6 +161,28 @@ router.get('/stats', authRequired, ownerRequired, async (_req, res) => {
   } catch (err) {
     console.error('USERS STATS ERROR:', err);
     res.status(500).json({ error: 'Failed to load user stats' });
+  }
+});
+
+router.get('/tier-policy', authRequired, async (_req, res) => {
+  try {
+    const doc = await AppSettings.findOne({ key: 'default' }).lean();
+    const settings = {
+      allowPlatinumTier: Boolean(doc?.allowPlatinumTier),
+      allowGreenTier: Boolean(doc?.allowGreenTier),
+      platinumFreeDelivery: Boolean(doc?.platinumFreeDelivery)
+    };
+
+    const policy = Object.values(USER_TIERS).map(tier => ({
+      tier,
+      threshold: TIER_CONFIG[tier]?.threshold || {},
+      benefits: getTierBenefits({ tier, settings })
+    }));
+
+    res.json({ ok: true, policy, settings });
+  } catch (err) {
+    console.error('TIER POLICY ERROR:', err);
+    res.status(500).json({ error: 'Failed to load tier policy' });
   }
 });
 
@@ -304,7 +317,7 @@ router.patch('/:id', authRequired, ownerRequired, async (req, res) => {
         updates.phoneVerified !== undefined ||
         updates.photoIdVerified !== undefined)
     ) {
-      maybeAutoPromote({ user });
+      await maybeAutoPromote({ user });
     }
 
     await user.save();
@@ -396,16 +409,11 @@ router.post('/:id/redeem-points', authRequired, async (req, res) => {
 
     const currentPoints = Number(user.loyaltyPoints || 0);
     const userTier = normalizeTier(user.membershipTier);
-    const minRedeemByTier = {
-      BRONZE: 500,
-      SILVER: 250,
-      GOLD: 0
-    };
-    const minRedeemPoints = minRedeemByTier[userTier];
-
-    if (minRedeemPoints === undefined) {
+    const tierBenefits = getTierBenefits({ tier: userTier });
+    if (!tierBenefits.canRedeemPoints) {
       return res.status(400).json({ error: 'Tier not eligible for points redemption' });
     }
+    const minRedeemPoints = Number(tierBenefits.minRedeemPoints || 0);
 
     if (points > currentPoints) {
       return res.status(400).json({ error: 'Not enough points' });

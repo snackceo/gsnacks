@@ -1,4 +1,5 @@
 import AppSettings from '../models/AppSettings.js';
+import { getTierBenefits, normalizeTier } from '../services/tierService.js';
 
 /**
  * DEFAULT CONFIGS
@@ -12,25 +13,12 @@ const DEFAULT_DISTANCE_FEES = {
   distanceBand3Rate: 1.0
 };
 
-const TIER_ROUTE_DISCOUNTS = {
-  BRONZE: 0.1,
-  SILVER: 0.2,
-  GOLD: 0.3
-};
-
 /**
  * HELPERS
  */
 const toNumber = (val, fallback = 0) => {
   const n = Number(val);
   return Number.isFinite(n) ? n : fallback;
-};
-
-const normalizeTier = (tier) => {
-  const t = String(tier || '').trim().toUpperCase();
-  return ['COMMON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'GREEN'].includes(t)
-    ? t
-    : 'COMMON';
 };
 
 const roundDownToTenth = (value) => Math.floor(value * 10) / 10;
@@ -49,6 +37,10 @@ export const applyTierDiscount = ({
 }) => {
   let fee = Math.max(0, toNumber(baseRouteFee));
   const normalizedTier = normalizeTier(tier);
+  const tierBenefits = getTierBenefits({
+    tier: normalizedTier,
+    settings: { allowPlatinumTier, allowGreenTier, platinumFreeDelivery }
+  });
 
   // pickup adjustment
   if (orderType === 'RETURNS_PICKUP') {
@@ -59,22 +51,15 @@ export const applyTierDiscount = ({
   let discountPercent = 0;
 
   // standard tier discounts
-  const tierDiscount = TIER_ROUTE_DISCOUNTS[normalizedTier] || 0;
+  const tierDiscount = toNumber(tierBenefits.routeDiscount, 0);
   if (tierDiscount > 0) {
     fee *= (1 - tierDiscount);
     discountPercent = tierDiscount;
   }
 
-  // GREEN override
-  if (normalizedTier === 'GREEN' && allowGreenTier) {
-    fee = 1;
+  if (tierBenefits.routeFeeOverride !== undefined && tierBenefits.routeFeeOverride !== null) {
+    fee = Math.max(0, toNumber(tierBenefits.routeFeeOverride));
     discountPercent = originalFee > 0 ? 1 - (fee / originalFee) : 0;
-  }
-
-  // PLATINUM override
-  if (normalizedTier === 'PLATINUM' && allowPlatinumTier && platinumFreeDelivery) {
-    fee = 0;
-    discountPercent = originalFee > 0 ? 1 : 0;
   }
 
   const feeCents = Math.round(fee * 100);
@@ -98,11 +83,15 @@ const calculateDistanceFee = ({
   allowGreenTier
 }) => {
   const normalizedTier = normalizeTier(tier);
+  const tierBenefits = getTierBenefits({
+    tier: normalizedTier,
+    settings: { allowGreenTier }
+  });
   const distance = roundDownToTenth(Math.max(0, toNumber(distanceMiles)));
 
-  // GREEN = free distance
-  if (normalizedTier === 'GREEN' && allowGreenTier) {
-    return { distanceFee: 0, distanceFeeCents: 0, distanceMiles: distance };
+  if (tierBenefits.distanceFeeOverride !== undefined && tierBenefits.distanceFeeOverride !== null) {
+    const distanceFeeCents = Math.round(Math.max(0, toNumber(tierBenefits.distanceFeeOverride)) * 100);
+    return { distanceFee: distanceFeeCents / 100, distanceFeeCents, distanceMiles: distance };
   }
 
   const included = toNumber(config.distanceIncludedMiles);

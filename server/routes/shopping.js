@@ -9,6 +9,7 @@ import StoreInventory from '../models/StoreInventory.js';
 import Store from '../models/Store.js';
 import Product from '../models/Product.js';
 import mongoose from 'mongoose';
+import { normalizeTier } from '../services/tierService.js';
 
 const router = express.Router();
 
@@ -279,7 +280,7 @@ router.post('/shopping/checkout-preview', authRequired, async (req, res) => {
     }
 
     // Get user tier and compute fees via centralized deliveryFees
-    const tier = req.user?.tier || 'COMMON';
+    const tier = normalizeTier(req.user?.membershipTier || req.user?.tier);
     const fees = await getDeliveryOptions({
       orderType: 'DELIVERY_PURCHASE',
       tier,
@@ -489,7 +490,7 @@ router.post('/shopping/quote', authRequired, async (req, res) => {
 
     // Get user tier
     const user = req.user;
-    const tier = user?.tier || 'COMMON';
+    const tier = normalizeTier(user?.membershipTier || user?.tier);
 
     // Build product map for heavy item calculation
     // Calculate standard delivery fees via centralized calculator
