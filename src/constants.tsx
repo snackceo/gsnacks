@@ -18,3 +18,22 @@ export const MOCK_PRODUCTS: Product[] = [
   { id: '8', name: 'SRIRACHA SAUCE 8OZ', price: 6.50, deposit: 0, stock: 30, sizeOz: 8, category: 'Condiments & Sauces', image: '', isGlass: false },
   { id: '9', name: 'MATCHA GREEN TEA POWDER', price: 12.99, deposit: 0, stock: 20, sizeOz: 2, category: 'Coffee & Tea', image: '', isGlass: false },
 ];
+
+export const SKU_FORMAT = /^NP-\d{6}$/;
+
+export const RECEIPT_STATUSES = {
+  PENDING_PARSE: 'pending_parse',
+  PARSING: 'parsing',
+  PARSED: 'parsed',
+  NEEDS_REVIEW: 'needs_review',
+  FAILED: 'failed',
+  COMMITTED: 'committed',
+} as const;
+
+export const SCANNER_MODES = [
+  'INVENTORY_CREATE',
+  'UPC_LOOKUP',
+  'DRIVER_VERIFY_CONTAINERS',
+  'DRIVER_FULFILL_ORDER',
+  'CUSTOMER_RETURN_SCAN',
+] as const;

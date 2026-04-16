@@ -63,6 +63,8 @@ const ReceiptParseJobSchema = new mongoose.Schema(
       default: null
     },
     retryAfter: Date,
+    retryCount: { type: Number, default: 0 },
+    maxRetries: { type: Number, default: 5 },
     skippedImages: [
       {
         url: String,

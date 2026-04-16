@@ -2,11 +2,11 @@
 
 > **Audience:** AI coding agents (Copilot, ChatGPT, codegen tools)  
 > **Purpose:** Prevent silent failure, invented state, and UX regressions  
-> **Source of Truth (in order):**
-> 1. GEMINI.md  
-> 2. server/GEMINI.md  
-> 3. GLOSSARY.md  
-> 4. README.md  
+> **Source of Truth (in order):**  
+> 1. `docs/contracts/gemini.md`  
+> 2. `docs/contracts/agent.md`  
+> 3. `docs/contracts/glossary.md`  
+> 4. `README.md`  
 >
 > If generated code conflicts with docs, **the code is wrong**.
 

@@ -269,6 +269,29 @@ export interface ReceiptParseJob {
   skippedImageReason?: string[];
 }
 
+export interface ReceiptCapture {
+  _id: string;
+  storeId?: string;
+  storeName?: string;
+  orderId?: string;
+  status: 'pending_parse' | 'parsed' | 'review_complete' | 'committed' | 'failed';
+  images: {
+    url: string;
+    thumbnailUrl: string;
+    sequence: number;
+  }[];
+  draftItems: ClassifiedReceiptItem[];
+  stats: {
+    totalItems: number;
+    itemsNeedingReview: number;
+    itemsConfirmed: number;
+    itemsCommitted: number;
+  };
+  parseError?: string;
+  createdAt: string;
+  reviewExpiresAt?: string;
+}
+
 export type UnmappedProductStatus = 'NEW' | 'IGNORED' | 'MAPPED';
 
 export interface UnmappedProduct {

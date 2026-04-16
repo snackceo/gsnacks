@@ -1,5 +1,6 @@
 import UpcItem from '../models/UpcItem.js';
 import UpcLookupCache from '../models/UpcLookupCache.js';
+import { resolveUpc, isValidBarcode as isValidBarcodeInternal } from '../services/upcResolutionService.js';
 
 const normalizeContainerType = value => {
   const raw = String(value || '').trim().toLowerCase();
@@ -74,7 +75,7 @@ const buildEligibilityPayload = (entry, depositValue) => {
 };
 
 const normalizeBarcode = value => String(value || '').replace(/\D/g, '');
-const isValidBarcode = value => /^\d{8,14}$/.test(value);
+const isValidBarcode = isValidBarcodeInternal;
 
 const normalizeUpcList = value => {
   if (!value) return [];
@@ -359,27 +360,25 @@ export const upsertUpcItem = async (req, res) => {
 
 export const scanUpc = async (req, res) => {
   try {
-    const { upc, qty = 1, resolveOnly } = req.body;
+    const { upc, resolveOnly } = req.body;
     const normalizedUpc = normalizeBarcode(upc);
     if (!normalizedUpc) return res.status(400).json({ error: 'upc is required' });
     if (!isValidBarcode(normalizedUpc)) {
       return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc });
     }
 
-    const upcEntry = await UpcItem.findOne({ upc: normalizedUpc }).lean();
-    const Product = (await import('../models/Product.js')).default;
+    const { product, upcEntry, action } = await resolveUpc(normalizedUpc);
 
-    if (upcEntry?.sku) {
+    if (action === 'resolved' && product) {
       if (resolveOnly) {
-        const product = await Product.findOne({ sku: upcEntry.sku }).lean();
-        return res.json({ ok: true, action: 'resolved', product });
+        return res.json({ ok: true, action: 'resolved', product, upcEntry });
       }
       const updated = await Product.findOneAndUpdate({ sku: upcEntry.sku }, { $inc: { stock: qty } }, { new: true }).lean();
       if (!updated) return res.status(404).json({ error: 'Mapped product not found' });
       return res.json({ ok: true, action: 'updated', product: updated });
     }
 
-    return res.json({ ok: true, action: 'unmapped', upc: normalizedUpc, upcEntry });
+    return res.json({ ok: true, action, upc: normalizedUpc, upcEntry });
   } catch (err) {
     console.error('UPC SCAN ERROR:', err);
     res.status(500).json({ error: 'Failed to apply UPC scan' });

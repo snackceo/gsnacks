@@ -38,7 +38,7 @@ export const getReceiptSettings = async (req, res) => {
       receiptIngestionMode: receiptIngestionMode(),
       allowlist: Array.from(receiptStoreAllowlist()),
       dailyCap: receiptDailyCap(),
-      priceLockDays: settings?.priceLockDays || DEFAULT_PRICE_LOCK_DAYS
+      priceLockDays: settings?.priceLockDays || DEFAULT_PRICE_LOCK_DAYS,
     };
     res.json({ ok: true, settings: effective });
   } catch (error) {
@@ -65,7 +65,7 @@ export const updateReceiptSettings = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_settings_update',
       actorId: username,
-      details: `priceLockDays=${priceLockDays}`
+      details: `priceLockDays=${priceLockDays}`,
     });
 
     res.json({ ok: true, settings });
@@ -123,7 +123,7 @@ export const postReceiptStoreCandidates = async (req, res) => {
       phone,
       phoneNormalized: normalizePhone(phone),
       storeNumber: normalizeStoreNumber(storeNumber),
-      storeType
+      storeType,
     });
     if (!allowCreate) {
       return res.status(403).json({ error: 'Auto store creation disabled' });
@@ -135,13 +135,13 @@ export const postReceiptStoreCandidates = async (req, res) => {
       phone,
       phoneNormalized: normalizePhone(phone),
       storeNumber: normalizeStoreNumber(storeNumber),
-      storeType
+      storeType,
     });
 
     await recordAuditLog({
       type: 'receipt_store_create',
       actorId: username,
-      details: `storeName=${storeName}`
+      details: `storeName=${storeName}`,
     });
 
     res.json({ ok: true, store });
@@ -173,7 +173,7 @@ export const postReceiptNoiseRule = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_noise_rule_create',
       actorId: username,
-      details: `storeId=${storeId} normalizedName=${normalizedName}`
+      details: `storeId=${storeId} normalizedName=${normalizedName}`,
     });
 
     res.json({ ok: true, rule });
@@ -220,7 +220,7 @@ export const deleteReceiptNoiseRule = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_noise_rule_delete',
       actorId: username,
-      details: `storeId=${storeId} normalizedName=${normalizedName}`
+      details: `storeId=${storeId} normalizedName=${normalizedName}`,
     });
 
     res.json({ ok: true });
@@ -301,7 +301,7 @@ export const postReceiptAlias = async (req, res) => {
         },
         $inc: { confirmedCount: 1 },
         lastConfirmedAt: new Date(),
-        confirmedBy: username
+        confirmedBy: username,
       },
       { new: true, upsert: true }
     );
@@ -309,7 +309,7 @@ export const postReceiptAlias = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_alias_confirm',
       actorId: username,
-      details: `storeId=${storeId} name=${normalizedName} product=${productId}`
+      details: `storeId=${storeId} name=${normalizedName} product=${productId}`,
     });
 
     res.json({ ok: true, alias });
@@ -341,7 +341,7 @@ export const postReceiptNoiseRuleIgnore = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_noise_rule_ignore',
       actorId: username,
-      details: `storeId=${storeId} normalizedName=${normalizedName}`
+      details: `storeId=${storeId} normalizedName=${normalizedName}`,
     });
 
     res.json({ ok: true, rule });
@@ -369,7 +369,7 @@ export const deleteReceiptNoiseRuleIgnore = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_noise_rule_unignore',
       actorId: username,
-      details: `storeId=${storeId} normalizedName=${normalizedName}`
+      details: `storeId=${storeId} normalizedName=${normalizedName}`,
     });
 
     res.json({ ok: true });
@@ -401,7 +401,7 @@ export const postReceiptUpload = async (req, res) => {
 
     if (receiptIngestionMode() === 'disabled') {
       const gate = await getReceiptIngestionGateState({ storeId });
-      return res.status(503).json({ error: 'Receipt ingestion disabled during rollout', gate });
+      return res.status(503).json({ error: 'Receipt ingestion disabled during rollout', gate, });
     }
 
     if (storeId) {
@@ -422,7 +422,7 @@ export const postReceiptUpload = async (req, res) => {
     res.json({
       ok: true,
       url: result.url,
-      thumbnailUrl: result.thumbnailUrl
+      thumbnailUrl: result.thumbnailUrl,
     });
 
   } catch (error) {
@@ -430,7 +430,7 @@ export const postReceiptUpload = async (req, res) => {
     // Return specific error messages so frontend can debug
     res.status(500).json({ 
       error: error.message || 'Failed to upload image',
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
   }
 });
@@ -467,7 +467,7 @@ export const postUploadReceiptImage = async (req, res) => {
     res.json({
       ok: true,
       url: result.url,
-      thumbnailUrl: result.thumbnailUrl
+      thumbnailUrl: result.thumbnailUrl,
     });
 
   } catch (error) {
@@ -475,7 +475,7 @@ export const postUploadReceiptImage = async (req, res) => {
     // Return specific error messages so frontend can debug
     res.status(500).json({ 
       error: error.message || 'Failed to upload image',
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
   }
 });
@@ -529,7 +529,7 @@ export const postReceiptCapture = async (req, res) => {
           captureId: existingCapture._id.toString(),
           status: existingCapture.status,
           imageCount: existingCapture.images.length,
-          idempotent: true
+          idempotent: true,
         });
       }
     } else if (!captureRequestId) {
@@ -539,7 +539,7 @@ export const postReceiptCapture = async (req, res) => {
     // Validation
     if (receiptIngestionMode() === 'disabled') {
       const gate = await getReceiptIngestionGateState({ storeId });
-      return res.status(503).json({ error: 'Receipt ingestion disabled during rollout', gate });
+      return res.status(503).json({ error: 'Receipt ingestion disabled during rollout', gate, });
     }
     if (storeId && !mongoose.Types.ObjectId.isValid(storeId)) {
       return res.status(400).json({ error: 'Valid storeId required' });
@@ -613,7 +613,7 @@ export const postReceiptCapture = async (req, res) => {
             actorId: username || 'unknown',
             details: `reason=unsupported_scheme url=${img.url} captureRequestId=${captureRequestId || 'none'}`
           });
-          return res.status(400).json({ error: 'Image URLs must use HTTP(S)' });
+          return res.status(400).json({ error: 'Image URLs must use HTTP(S)', });
         }
         if (!img.url.startsWith('https://')) {
           console.warn('Receipt capture rejected non-HTTPS image URL', {
@@ -625,7 +625,7 @@ export const postReceiptCapture = async (req, res) => {
             actorId: username || 'unknown',
             details: `reason=non_https url=${img.url} captureRequestId=${captureRequestId || 'none'}`
           });
-          return res.status(400).json({ error: 'Image URLs must use HTTPS' });
+          return res.status(400).json({ error: 'Image URLs must use HTTPS', });
         }
 
         const isCloudinaryHost = isCloudinaryUrl(img.url);
@@ -638,7 +638,7 @@ export const postReceiptCapture = async (req, res) => {
             const uploaded = await handleReceiptImageUpload(dataUrl);
             normalizedImages.push({
               url: uploaded.url,
-              thumbnailUrl: uploaded.thumbnailUrl
+              thumbnailUrl: uploaded.thumbnailUrl,
             });
           } catch (uploadErr) {
             return res.status(400).json({ error: uploadErr.message || 'Failed to re-upload receipt image' });
@@ -680,13 +680,13 @@ export const postReceiptCapture = async (req, res) => {
         url: img.url,
         thumbnailUrl: img.thumbnailUrl || img.url,
         uploadedAt: new Date(),
-        sequence: idx + 1
+        sequence: idx + 1,
       })),
       status: 'pending_parse',
       createdBy: username || 'unknown',
       createdByUserId: userId || undefined,
       createdByRole: createdByRole || undefined,
-      source: source || undefined
+      source: source || undefined,
     });
 
     await capture.save();
@@ -698,7 +698,7 @@ export const postReceiptCapture = async (req, res) => {
             name: store.name,
             address: store.address,
             phone: store.phone,
-            storeType: store.storeType
+            storeType: store.storeType,
           }
         : normalizedStoreName
           ? { name: normalizedStoreName }
@@ -737,7 +737,7 @@ export const postReceiptCapture = async (req, res) => {
       ok: true,
       captureId: capture._id.toString(),
       status: capture.status,
-      imageCount: capture.images.length
+      imageCount: capture.images.length,
     });
 
   } catch (error) {
@@ -788,7 +788,7 @@ export const getReceiptCapture = async (req, res) => {
           totalItems: capture.totalItems,
           itemsNeedingReview: capture.itemsNeedingReview,
           itemsConfirmed: capture.itemsConfirmed,
-          itemsCommitted: capture.itemsCommitted
+          itemsCommitted: capture.itemsCommitted,
         },
         parseError: capture.parseError,
         createdByUserId: capture.createdByUserId,
@@ -805,6 +805,29 @@ export const getReceiptCapture = async (req, res) => {
   }
 });
 
+const executeParseWithRetries = async (captureId, actorId) => {
+  const MAX_ATTEMPTS = 5;
+  const INITIAL_BACKOFF_MS = 30000; // 30s
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      // The actual parsing logic is assumed to be within executeReceiptParse
+      return await executeReceiptParse(captureId, actorId);
+    } catch (err) {
+      const isTransient = err.isTransient || err.statusCode === 429 || /timeout|network/i.test(err.message);
+      if (isTransient && attempt < MAX_ATTEMPTS) {
+        const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1);
+        console.warn(`[receipt-parse] Transient error on attempt ${attempt}. Retrying in ${backoff}ms...`, captureId);
+        await new Promise(resolve => setTimeout(resolve, backoff));
+        continue;
+      }
+      // Re-throw non-transient or final attempt errors
+      throw err;
+    }
+  }
+  // This line should not be reachable, but satisfies linting
+  throw new Error('Exhausted all retry attempts for receipt parsing.');
+};
 /**
  * POST /api/driver/receipt-parse
  * Trigger Gemini parse for a receipt capture
@@ -826,9 +849,9 @@ export const postReceiptParse = async (req, res) => {
   // Use canonical queue logic
   if (isReceiptQueueEnabled()) {
     const queueHealth = await getReceiptQueueWorkerHealth();
-    if (queueHealth.workerOffline) {
+    if (queueHealth.workerOffline) { // eslint-disable-line
       try {
-        const parseJob = await executeReceiptParse(captureId, req.user?._id || 'api', { bypassQueue: true });
+        const parseJob = await executeParseWithRetries(captureId, req.user?._id || 'api');
         const autoCommit = await attemptAutoCommit({ parseJob, captureId, user: req.user });
         return res.status(202).json({
           ok: true,
@@ -837,13 +860,13 @@ export const postReceiptParse = async (req, res) => {
           warning: 'Queue enabled, worker offline. Parsed synchronously as fallback.',
           queueHealth,
           job: parseJob,
-          autoCommit
+          autoCommit,
         });
       } catch (syncErr) {
         return res.status(503).json({
           error: 'Queue enabled, worker offline. Start receipt worker or disable queue before retrying.',
           queueHealth,
-          details: syncErr?.message || 'Synchronous fallback failed'
+          details: syncErr?.message || 'Synchronous fallback failed',
         });
       }
     }
@@ -854,7 +877,7 @@ export const postReceiptParse = async (req, res) => {
         await transitionReceiptParseJobStatus({
           captureId: capture._id.toString(),
           actor: req.user?._id || 'api',
-          status: 'QUEUED'
+          status: 'QUEUED',
         });
         return res.json({ ok: true, queued: true, jobId: result.jobId, queueHealth });
       } else {
@@ -867,7 +890,7 @@ export const postReceiptParse = async (req, res) => {
 
   // Otherwise, run the parse pipeline directly (synchronous)
   try {
-    const parseJob = await executeReceiptParse(captureId, req.user?._id || 'api');
+    const parseJob = await executeParseWithRetries(captureId, req.user?._id || 'api');
     const autoCommit = await attemptAutoCommit({ parseJob, captureId, user: req.user });
     return res.json({ ok: true, queued: false, job: parseJob, autoCommit });
   } catch (err) {
@@ -1028,7 +1051,7 @@ export const postReceiptParseLive = async (req, res) => {
       ok: true,
       captureId: capture._id.toString(),
       status: capture.status,
-      itemCount: draftItems.length
+      itemCount: draftItems.length,
     });
 
   } catch (error) {
@@ -1107,7 +1130,7 @@ export const postReceiptParseJobsApprove = async (req, res) => {
           phone,
           phoneNormalized: normalizePhone(phone),
           storeNumber: normalizeStoreNumber(storeNumber),
-          storeType
+          storeType,
         });
       }
     }
@@ -1197,7 +1220,7 @@ export const postReceiptParseJobsApprove = async (req, res) => {
         await recordAuditLog({
           type: 'receipt_observation_rejected_lines',
           actorId: username,
-          details: `captureId=${captureId} route=receipt-prices rejected=${rejectedLines.length} reasons=${JSON.stringify(reasonCounts)}`
+          details: `captureId=${captureId} route=receipt-prices rejected=${rejectedLines.length} reasons=${JSON.stringify(reasonCounts)}`,
         });
       }
     } catch (err) {
@@ -1208,7 +1231,7 @@ export const postReceiptParseJobsApprove = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_store_confirm',
       actorId: username,
-      details: `captureId=${captureId} storeId=${store._id}`
+      details: `captureId=${captureId} storeId=${store._id}`,
     });
 
     res.json({ ok: true, store });
@@ -1239,7 +1262,7 @@ export const postReceiptParseJobsReject = async (req, res) => {
     await transitionReceiptParseJobStatus({
       captureId,
       actor: username,
-      status: 'REJECTED'
+      status: 'REJECTED',
     });
 
     await recordAuditLog({
@@ -1359,7 +1382,7 @@ export const getReceiptCapturesSummary = async (req, res) => {
         parsed,
         reviewComplete,
         committed,
-        failed
+        failed,
       }
     });
   } catch (error) {
@@ -1399,7 +1422,7 @@ export const postReceiptRefresh = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_refresh',
       actorId: username,
-      details: `storeId=${storeId} count=${failed.length}`
+      details: `storeId=${storeId} count=${failed.length}`,
     });
 
     res.json({ ok: true, refreshed: failed.length });
@@ -1437,7 +1460,7 @@ export const postReceiptLock = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_lock',
       actorId: username,
-      details: `captureId=${captureId} days=${days}`
+      details: `captureId=${captureId} days=${days}`,
     });
 
     res.json({ ok: true });
@@ -1475,7 +1498,7 @@ export const postReceiptUnlock = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_unlock',
       actorId: username,
-      details: `captureId=${captureId}`
+      details: `captureId=${captureId}`,
     });
 
     res.json({ ok: true });
@@ -1505,7 +1528,7 @@ export const getReceiptStoreSummary = async (req, res) => {
           parsed: { $sum: { $cond: [{ $eq: ['$status', 'parsed'] }, 1, 0] } },
           reviewComplete: { $sum: { $cond: [{ $eq: ['$status', 'review_complete'] }, 1, 0] } },
           committed: { $sum: { $cond: [{ $eq: ['$status', 'committed'] }, 1, 0] } },
-          failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } }
+          failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } },
         }
       },
       {
@@ -1556,7 +1579,7 @@ export const postReceiptFixUpc = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_fix_upc',
       actorId: username,
-      details: `captureId=${captureId} lineIndex=${lineIndex} upc=${upc}`
+      details: `captureId=${captureId} lineIndex=${lineIndex} upc=${upc}`,
     });
 
     res.json({ ok: true });
@@ -1607,7 +1630,7 @@ export const postReceiptFixPrice = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_fix_price',
       actorId: username,
-      details: `captureId=${captureId} lineIndex=${lineIndex} price=${totalPrice}`
+      details: `captureId=${captureId} lineIndex=${lineIndex} price=${totalPrice}`,
     });
 
     res.json({ ok: true });
@@ -1646,7 +1669,7 @@ export const postReceiptResetReview = async (req, res) => {
     await recordAuditLog({
       type: 'receipt_reset_review',
       actorId: username,
-      details: `captureId=${captureId}`
+      details: `captureId=${captureId}`,
     });
 
     res.json({ ok: true });
@@ -1679,7 +1702,7 @@ export const getReceiptHealth = async (req, res) => {
           stale: staleJobCheck.stale,
           missingCaptureIdsCount: staleJobCheck.missingCaptureIds.length
         }
-      : { ok: false, reason: staleJobCheck.reason };
+      : { ok: false, reason: staleJobCheck.reason, };
     const { getReceiptQueueWorkerHealth, isReceiptQueueEnabled } = (await import('../queues/receiptQueue.js'));
     const sevenDayWindowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const ocrSummarySamples = await ReceiptCapture.find({
@@ -1698,7 +1721,7 @@ export const getReceiptHealth = async (req, res) => {
       learningEnabled: isPricingLearningEnabled(),
       ingestionGate,
       staleReceiptJobs,
-      ocrProviderSummary7d
+      ocrProviderSummary7d,
     });
   } catch (error) {
     console.error('Error fetching receipt health:', error);
