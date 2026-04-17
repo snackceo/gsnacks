@@ -1,4 +1,5 @@
 const BottleReturn = require('../models/BottleReturn.js');
+const mongoose = require('mongoose');
 const User = require('../models/User.js');
 const asyncHandler = require('../utils/asyncHandler.js');
 const ErrorResponse = require('../utils/errorResponse');
@@ -71,25 +72,36 @@ exports.reviewReturnRequest = asyncHandler(async (req, res, next) => {
   }
 
   if (request.status !== 'pending') {
-    return next(new ErrorResponse(`This request has already been reviewed and is ${request.status}.`, 400));
+    return next(new ErrorResponse(`This request cannot be reviewed because its status is '${request.status}'.`, 400));
   }
 
   request.status = status;
   request.reviewedBy = req.user._id;
 
-  // --- CRITICAL: Issue credit ONLY on approval ---
-  if (status === 'approved') {
-    const creditAmount = request.numberOfBottles * CREDIT_PER_BOTTLE;
-    request.creditAmount = creditAmount;
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-    // Find the user and add credit to their balance
-    // This should be a transactional operation in a real production system
-    await User.findByIdAndUpdate(request.user, {
-      $inc: { creditBalance: creditAmount },
-    });
+  try {
+    // --- CRITICAL: Issue credit ONLY on approval ---
+    if (status === 'approved') {
+      const creditAmount = request.numberOfBottles * CREDIT_PER_BOTTLE;
+      request.creditAmount = creditAmount;
+
+      // Find the user and add credit to their balance within the transaction
+      await User.findByIdAndUpdate(request.user, {
+        $inc: { creditBalance: creditAmount },
+      }, { session });
+    }
+
+    await request.save({ session });
+
+    await session.commitTransaction();
+  } catch (error) {
+    await session.abortTransaction();
+    return next(new ErrorResponse('Transaction failed. Could not review the request.', 500));
+  } finally {
+    session.endSession();
   }
-
-  await request.save();
 
   await recordAuditLog({
     actorId: req.user._id,

@@ -78,14 +78,6 @@ exports.stripeWebhook = asyncHandler(async (req, res, next) => {
       order.paidAt = Date.now();
       order.paymentIntentId = session.payment_intent;
       await order.save();
-
-      // --- Decrement Stock ---
-      // This is the authoritative step after successful payment
-      for (const item of order.orderItems) {
-        await Product.findByIdAndUpdate(item.product, {
-          $inc: { stock: -item.quantity },
-        });
-      }
     }
   }
 

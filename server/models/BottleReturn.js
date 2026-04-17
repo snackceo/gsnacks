@@ -17,8 +17,8 @@ const BottleReturnSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['SUBMITTED', 'REVIEWED', 'APPROVED', 'REJECTED'],
-      default: 'SUBMITTED',
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending',
     },
     creditAmount: {
       type: Number,

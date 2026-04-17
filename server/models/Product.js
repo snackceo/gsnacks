@@ -4,7 +4,6 @@ import { normalizeReceiptProductName } from '../utils/receiptNameNormalization.j
 
 const productSchema = new mongoose.Schema(
   {
-    frontendId: { type: String, required: true, unique: true }, // legacy frontend id (kept for compatibility)
     sku: { type: String, required: false, unique: true, sparse: true }, // business identifier NP-000001
     upc: { type: String, required: false, unique: true, sparse: true, index: true },
     brand: { type: String, default: '' },
@@ -62,7 +61,6 @@ productSchema.statics.createReceiptProductStub = async function createReceiptPro
 
   const [created] = await this.create([
     {
-      frontendId: sku,
       sku,
       upc: undefined,
       name: String(name || 'Receipt Item').trim() || 'Receipt Item',

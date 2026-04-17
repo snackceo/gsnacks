@@ -15,6 +15,7 @@ import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 
+import { initializeNotificationListeners } from './services/notificationHandler.js';
 import swaggerUi from 'swagger-ui-express';
 import YAML from 'yamljs';
 import path from 'path';
@@ -241,6 +242,9 @@ app.use((err, req, res, next) => {
 (async () => {
   try {
     await connectDB();
+
+    // Initialize event listeners for notifications
+    initializeNotificationListeners();
 
     const httpServer = createServer(app);
 

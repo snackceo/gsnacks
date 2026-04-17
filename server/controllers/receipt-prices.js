@@ -42,15 +42,6 @@ export const postUploadReceiptImage = async (req, res) => {
  * Create a receipt capture record for photo upload workflow
  * Accepts receipt metadata and creates ReceiptCapture with status=pending_parse
  * Idempotent: uses captureRequestId to prevent duplicate captures on retry
- */
-
-/**
- * @deprecated Legacy combined upload path.
- * Sunset plan: migrate remaining callers to upload-receipt-image + receipt-capture + receipt-parse,
- * then remove after 2024-09-30.
- */
-export const postReceiptUpload = async (req, res) => {
-  return exports.postUploadReceiptImage(req, res);
 };
 
 const executeParseWithRetries = async (captureId, actorId) => {

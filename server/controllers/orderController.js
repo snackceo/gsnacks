@@ -1,42 +1,71 @@
 const Order = require('../models/Order.js');
 const Product = require('../models/Product.js');
 const User = require('../models/User.js');
+const mongoose = require('mongoose');
 
 // @desc    Create new order
 // @route   POST /api/v1/orders
 // @access  Private (Customer)
 exports.addOrderItems = async (req, res) => {
-  try {
-    const { orderItems, shippingAddress, totalPrice } = req.body;
+  const { orderItems, shippingAddress } = req.body;
 
-    if (!orderItems || orderItems.length === 0) {
-      return res.status(400).json({ success: false, error: 'No order items' });
+  if (!orderItems || orderItems.length === 0) {
+    return res.status(400).json({ success: false, error: 'No order items' });
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const productIds = orderItems.map(item => item.product);
+    const products = await Product.find({ _id: { $in: productIds } }).session(session);
+
+    if (products.length !== productIds.length) {
+      const foundIds = new Set(products.map(p => p._id.toString()));
+      const missingIds = productIds.filter(id => !foundIds.has(id));
+      throw new Error(`One or more products not found: ${missingIds.join(', ')}`);
     }
 
-    // --- Stock Validation ---
+    const productMap = new Map(products.map(p => [p._id.toString(), p]));
+    let calculatedTotalPrice = 0;
+
+    // --- Stock and Price Validation ---
     for (const item of orderItems) {
-      const product = await Product.findById(item.product);
-      if (!product) {
-        return res.status(404).json({ success: false, error: `Product not found: ${item.name}` });
-      }
+      const product = productMap.get(item.product);
       if (product.stock < item.quantity) {
-        return res.status(400).json({ success: false, error: `Not enough stock for ${product.name}. Only ${product.stock} left.` });
+        throw new Error(`Not enough stock for ${product.name}. Only ${product.stock} left.`);
       }
+      calculatedTotalPrice += product.price * item.quantity;
     }
 
     const order = new Order({
       user: req.user._id,
       orderItems,
       shippingAddress,
-      totalPrice,
+      totalPrice: calculatedTotalPrice,
     });
 
-    const createdOrder = await order.save();
+    const createdOrder = await order.save({ session });
+
+    // --- Decrement Stock ---
+    const stockUpdates = orderItems.map(item => ({
+      updateOne: {
+        filter: { _id: item.product },
+        update: { $inc: { stock: -item.quantity } },
+      },
+    }));
+
+    await Product.bulkWrite(stockUpdates, { session });
+
+    await session.commitTransaction();
 
     res.status(201).json({ success: true, data: createdOrder });
   } catch (error) {
+    await session.abortTransaction();
     console.error('Error adding order items:', error);
-    res.status(500).json({ success: false, error: 'Server Error' });
+    res.status(400).json({ success: false, error: error.message || 'Server Error' });
+  } finally {
+    session.endSession();
   }
 };
 

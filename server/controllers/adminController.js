@@ -26,17 +26,28 @@ exports.getUser = asyncHandler(async (req, res, next) => {
 // @route   PUT /api/v1/admin/users/:id
 // @access  Private (Admin/Owner)
 exports.updateUser = asyncHandler(async (req, res, next) => {
-  const user = await User.findByIdAndUpdate(req.params.id, req.body, {
+  // Whitelist fields that can be updated to prevent mass assignment vulnerabilities
+  const { name, email, role, isVerified } = req.body;
+  const updateFields = { name, email, role, isVerified };
+
+  // Filter out undefined values so we don't accidentally nullify fields
+  Object.keys(updateFields).forEach(key => updateFields[key] === undefined && delete updateFields[key]);
+
+  const user = await User.findByIdAndUpdate(req.params.id, updateFields, {
     new: true,
     runValidators: true,
   });
+
+  if (!user) {
+    return next(new ErrorResponse(`User not found with id of ${req.params.id}`, 404));
+  }
 
   await recordAuditLog({
     actorId: req.user._id,
     action: 'USER_UPDATED',
     targetType: 'User',
     targetId: user._id,
-    details: { changes: req.body },
+    details: { changes: updateFields },
   });
 
   res.status(200).json({ success: true, data: user });

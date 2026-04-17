@@ -34,10 +34,9 @@ const resolveProductImage = value => {
 };
 
 const mapProduct = d => ({
-  id: d.sku || d.frontendId,
+  id: d.sku,
   sku: d.sku || undefined,
   upc: d.upc || undefined,
-  frontendId: d.frontendId,
   productId: d._id?.toString(),
   name: d.name,
   price: d.price,
