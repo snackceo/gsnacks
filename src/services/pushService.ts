@@ -4,6 +4,60 @@
  */
 
 /**
+ * Helper: Convert VAPID key to Uint8Array
+ */
+const urlBase64ToUint8Array = (base64String: string): Uint8Array => {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  
+  return outputArray;
+};
+
+/**
+ * Save push subscription to server
+ */
+const saveSubscriptionToServer = async (subscription: PushSubscription): Promise<void> => {
+  try {
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+    
+    await fetch(`${API_URL}/api/push/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(subscription),
+    });
+    
+    console.log('[Push] Subscription saved to server');
+  } catch (error) {
+    console.error('[Push] Failed to save subscription:', error);
+  }
+};
+
+/**
+ * Remove push subscription from server
+ */
+const removeSubscriptionFromServer = async (subscription: PushSubscription): Promise<void> => {
+    try {
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+        await fetch(`${API_URL}/api/push/unsubscribe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(subscription),
+        });
+        console.log('[Push] Subscription removed from server');
+    }
+    catch (error) {
+        console.error('[Push] Failed to remove subscription:', error);
+    }
+};
+/**
  * Check if push notifications are supported
  */
 export const isPushSupported = (): boolean => {
@@ -189,61 +243,5 @@ export const showLocalNotification = async (title: string, options?: Notificatio
     console.log('[Push] Local notification shown:', title);
   } catch (error) {
     console.log('[Push] Local notification error:', error);
-  }
-};
-
-/**
- * Helper: Convert VAPID key to Uint8Array
- */
-const urlBase64ToUint8Array = (base64String: string): Uint8Array => {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  
-  return outputArray;
-};
-
-/**
- * Save push subscription to server
- */
-const saveSubscriptionToServer = async (subscription: PushSubscription): Promise<void> => {
-  try {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
-    
-    await fetch(`${API_URL}/api/push/subscribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(subscription),
-    });
-    
-    console.log('[Push] Subscription saved to server');
-  } catch (error) {
-    console.error('[Push] Failed to save subscription:', error);
-  }
-};
-
-/**
- * Remove push subscription from server
- */
-const removeSubscriptionFromServer = async (subscription: PushSubscription): Promise<void> => {
-  try {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
-    
-    await fetch(`${API_URL}/api/push/unsubscribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(subscription),
-    });
-    
-    console.log('[Push] Subscription removed from server');
-  } catch (error) {
-    console.error('[Push] Failed to remove subscription:', error);
   }
 };

@@ -215,7 +215,8 @@ app.use((err, req, res, next) => {
     success: false,
     error: {
       message: err.message || 'Internal server error',
-      type: isValidationError ? 'VALIDATION_ERROR' : 'SERVER_ERROR'
+      type: isValidationError ? 'VALIDATION_ERROR' : 'SERVER_ERROR',
+      details: isValidationError ? err.errors : undefined
     }
   });
 });

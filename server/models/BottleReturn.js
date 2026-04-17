@@ -6,6 +6,7 @@ const BottleReturnSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
+      index: true
     },
     numberOfBottles: {
       type: Number,
@@ -19,6 +20,7 @@ const BottleReturnSchema = new mongoose.Schema(
       type: String,
       enum: ['pending', 'approved', 'rejected'],
       default: 'pending',
+      index: true
     },
     creditAmount: {
       type: Number,

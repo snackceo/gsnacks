@@ -36,23 +36,24 @@ function App() {
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
   const [hasWarnedCloudinary, setHasWarnedCloudinary] = useState(false);
 
-  const findProductByCartId = (productId: string) =>
+  const findProductByIdentifier = (identifier: string) =>
     core.products.find(
       p =>
-        (p as any).frontendId === productId ||
-        p.id === productId ||
-        (p as any)._id === productId
+        p.frontendId === identifier ||
+        p.id === identifier || // This is the SKU
+        p.productId === identifier // This is the MongoDB _id
     );
 
-  const normalizeCartProductId = (productId: string) => {
-    const product = findProductByCartId(productId);
-    return (product as any)?.frontendId || product?.id || (product as any)?._id || productId;
+  const getCanonicalCartProductId = (identifier: string) => {
+    const product = findProductByIdentifier(identifier);
+    return product?.productId || identifier; // Use productId as the canonical ID
   };
 
   // Track page views
   useEffect(() => {
-    analytics.trackPageView(location.pathname, core.currentUser?._id);
-  }, [location.pathname, core.currentUser?._id]);
+    const currentUserId = (core.currentUser as any)?._id;
+    analytics.trackPageView(location.pathname, currentUserId);
+  }, [location.pathname, core.currentUser]);
 
 
   useEffect(() => {
@@ -61,24 +62,24 @@ function App() {
 
     const isManagementRoute = location.pathname.startsWith('/management');
 
-const isStaffUser =
-  !!core.currentUser &&
-  (core.currentUser.role === UserRole.OWNER ||
-   core.currentUser.role === UserRole.ADMIN);
+    const isStaffUser =
+      !!core.currentUser &&
+      (core.currentUser.role === UserRole.OWNER ||
+       core.currentUser.role === UserRole.ADMIN);
 
-if (
-  isManagementRoute &&
-  isStaffUser &&
-  !hasWarnedCloudinary
-) {
-  core.addToast(
-    'Cloudinary not configured. Receipt uploads will fail until VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET are set.',
-    'warning'
-  );
-  setHasWarnedCloudinary(true);
-}
+    if (
+      isManagementRoute &&
+      isStaffUser
+    ) {
+      core.addToast(
+        'Cloudinary not configured. Receipt uploads will fail until VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET are set.',
+        'warning'
+      );
+      setHasWarnedCloudinary(true);
+    }
 
   }, [
+    core,
     core.addToast,
     core.currentUser?.role,
     hasWarnedCloudinary,
@@ -101,7 +102,7 @@ if (
       analytics.clearUser();
     }
   }, [core.currentUser]);
-
+  
   const handleExternalPayment = async (
     type: 'STRIPE' | 'GPAY',
     returnUpcs: ReturnUpcCount[],
@@ -118,7 +119,7 @@ if (
     
     // Track payment initiation
     const total = core.cart.reduce((sum, item) => {
-      const product = findProductByCartId(item.productId);
+      const product = findProductByIdentifier(item.productId);
       return sum + (product?.price || 0) * item.quantity;
     }, 0);
     
@@ -176,7 +177,7 @@ if (
     setIsProcessingOrder(true);
     
     const total = core.cart.reduce((sum, item) => {
-      const product = findProductByCartId(item.productId);
+      const product = findProductByIdentifier(item.productId);
       return sum + (product?.price || 0) * item.quantity;
     }, 0);
     
@@ -276,8 +277,8 @@ if (
             element={
               <CustomerView
                 products={core.products}
-                orders={core.orders.filter(
-                  o => o.customerId === core.currentUser?._id
+                orders={core.orders.filter(o =>
+                  o.customerId === core.currentUser?._id
                 )}
                 currentUser={core.currentUser}
                 userStats={core.currentUser ? core.userStats[core.currentUser._id] : undefined}
@@ -291,11 +292,11 @@ if (
                     }
                   }
 
-                  const product = findProductByCartId(productId);
-                  const stock = (product as any)?.stock ?? 0;
-                  const normalizedProductId = normalizeCartProductId(productId);
+                  const product = findProductByIdentifier(productId);
+                  const stock = product?.stock ?? 0;
+                  const canonicalCartProductId = getCanonicalCartProductId(productId);
                   const inCart =
-                    core.cart.find(i => i.productId === normalizedProductId)?.quantity ??
+                    core.cart.find(i => i.productId === canonicalCartProductId)?.quantity ??
                     0;
 
                   // Enforce stock locally (prevents adding beyond available stock)
@@ -310,14 +311,14 @@ if (
                   }
 
                   core.setCart(prev => {
-                    const existing = prev.find(i => i.productId === normalizedProductId);
+                    const existing = prev.find(i => i.productId === canonicalCartProductId);
                     return existing
                       ? prev.map(i =>
-                          i.productId === normalizedProductId
+                          i.productId === canonicalCartProductId
                             ? { ...i, quantity: i.quantity + 1 }
                             : i
                         )
-                      : [...prev, { productId: normalizedProductId, quantity: 1 }];
+                      : [...prev, { productId: canonicalCartProductId, quantity: 1 }];
                   });
 
                   core.addToast('ADDED TO CARGO', 'success');
@@ -343,25 +344,6 @@ if (
             element={
               core.currentUser?.role === UserRole.OWNER ? (
                 <ManagementView
-                  user={core.currentUser}
-                  products={core.products}
-                  setProducts={core.setProducts}
-                  orders={core.orders}
-                  users={core.users}
-                  userStats={core.userStats}
-                  settings={core.settings}
-                  setSettings={core.setSettings}
-                  approvals={core.approvals}
-                  auditLogs={core.auditLogs}
-                  updateOrder={core.updateOrder}
-                  adjustCredits={core.adjustCredits}
-                  updateUserProfile={core.updateUserProfile}
-                  fetchUsers={core.fetchUsers}
-                  fetchUserStats={core.fetchUserStats}
-                  fetchApprovals={core.fetchApprovals}
-                  fetchAuditLogs={core.fetchAuditLogs}
-                  fetchReturnVerifications={core.fetchReturnVerifications}
-                  settleReturnVerification={core.settleReturnVerification}
                 />
               ) : (
                 <Navigate to="/" replace />
@@ -448,8 +430,13 @@ if (
       )}
 
       {/* SUPPORT CHATBOT */}
-      <SupportChatbot 
-        currentUser={core.currentUser || undefined}
+      <SupportChatbot
+        currentUser={core.currentUser ? {
+          id: core.currentUser._id,
+          username: core.currentUser.username || 'user',
+          creditBalance: core.currentUser.creditBalance,
+          membershipTier: core.currentUser.tier,
+        } : undefined}
         recentOrders={core.orders || []}
       />
 

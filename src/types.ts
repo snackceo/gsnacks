@@ -65,13 +65,16 @@ export enum UserTier {
 }
 
 export interface User {
-  id: string;
+  _id: string; // Matches MongoDB _id
+  id?: string; // Optional, if a separate 'id' is used on frontend
+  email?: string; // Added
   name?: string;
   username?: string;
   role: UserRole;
   creditBalance: number;
   loyaltyPoints?: number;
-  membershipTier: UserTier;
+  tier: UserTier; // Changed from membershipTier to match usage
+  membershipTier?: UserTier; // Kept for compatibility if needed
   ordersCompleted?: number;
   phoneVerified?: boolean;
   photoIdVerified?: boolean;
@@ -98,6 +101,7 @@ export interface Product {
   sku?: string;
   upc?: string;
   productId?: string;
+  frontendId?: string; // Add temporary frontend ID
   name: string;
   price: number;
   deposit: number;
@@ -454,6 +458,7 @@ export interface AppSettings {
 
   allowPlatinumTier: boolean;
   platinumFreeDelivery: boolean;
+  allowGreenTier: boolean;
   allowReceiptApprovalCreateProduct: boolean;
   priceLockDays: number;
 
@@ -614,4 +619,12 @@ export interface ParsedReceipt {
     D: number; // Noise / non-product
   };
   parsedAt: string;
+}
+
+export interface BatchQueueItem {
+  id: string;
+  upc: string;
+  status: "saved" | "queued" | "failed";
+  containerType: "aluminum" | "glass" | "plastic";
+  error?: string;
 }

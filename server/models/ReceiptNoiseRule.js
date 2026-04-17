@@ -16,15 +16,11 @@ const receiptNoiseRuleSchema = new mongoose.Schema({
     occurrences: { type: Number, default: 1 }
   }],
   createdBy: String,
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
   lastSeenAt: {
     type: Date,
     default: Date.now
   }
-});
+}, { timestamps: { createdAt: true, updatedAt: false } });
 
 receiptNoiseRuleSchema.index({ storeId: 1, normalizedName: 1 }, { unique: true });
 receiptNoiseRuleSchema.index({ storeId: 1, lastSeenAt: -1 });

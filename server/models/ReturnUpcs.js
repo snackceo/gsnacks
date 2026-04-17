@@ -26,10 +26,6 @@ const returnUpcsSchema = new mongoose.Schema({
     type: Map,
     of: Boolean
   },
-  updatedAt: {
-    type: Date,
-    default: Date.now
-  }
 }, {
   timestamps: true
 });

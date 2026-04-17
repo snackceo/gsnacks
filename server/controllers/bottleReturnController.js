@@ -1,9 +1,9 @@
-const BottleReturn = require('../models/BottleReturn.js');
-const mongoose = require('mongoose');
-const User = require('../models/User.js');
-const asyncHandler = require('../utils/asyncHandler.js');
-const ErrorResponse = require('../utils/errorResponse');
-const { recordAuditLog } = require('../services/auditLogService.js');
+import BottleReturn from '../models/BottleReturn.js';
+import mongoose from 'mongoose';
+import User from '../models/User.js';
+import asyncHandler from '../utils/asyncHandler.js';
+import ErrorResponse from '../utils/errorResponse.js';
+import { recordAuditLog } from '../services/auditLogService.js';
 
 const DAILY_SUBMISSION_LIMIT = 1; // Fraud prevention
 const CREDIT_PER_BOTTLE = 0.1; // Example: $0.10 credit per bottle
@@ -11,7 +11,7 @@ const CREDIT_PER_BOTTLE = 0.1; // Example: $0.10 credit per bottle
 // @desc    Create a bottle return request
 // @route   POST /api/v1/returns
 // @access  Private (Customer)
-exports.createReturnRequest = asyncHandler(async (req, res, next) => {
+export const createReturnRequest = asyncHandler(async (req, res, next) => {
   const { numberOfBottles, imageProofUrl } = req.body;
 
   if (req.user.role !== 'CUSTOMER') {
@@ -46,7 +46,7 @@ exports.createReturnRequest = asyncHandler(async (req, res, next) => {
 // @desc    Get all return requests
 // @route   GET /api/v1/returns
 // @access  Private (Admin/Owner)
-exports.getReturnRequests = asyncHandler(async (req, res, next) => {
+export const getReturnRequests = asyncHandler(async (req, res, next) => {
   const requests = await BottleReturn.find().populate('user', 'name email');
   res.status(200).json({ success: true, count: requests.length, data: requests });
 });
@@ -54,7 +54,7 @@ exports.getReturnRequests = asyncHandler(async (req, res, next) => {
 // @desc    Get my return requests
 // @route   GET /api/v1/returns/myreturns
 // @access  Private (Customer)
-exports.getMyReturnRequests = asyncHandler(async (req, res, next) => {
+export const getMyReturnRequests = asyncHandler(async (req, res, next) => {
   const requests = await BottleReturn.find({ user: req.user._id });
   res.status(200).json({ success: true, count: requests.length, data: requests });
 });
@@ -62,7 +62,7 @@ exports.getMyReturnRequests = asyncHandler(async (req, res, next) => {
 // @desc    Review a bottle return request (Approve/Reject)
 // @route   PUT /api/v1/returns/:id/review
 // @access  Private (Admin/Owner)
-exports.reviewReturnRequest = asyncHandler(async (req, res, next) => {
+export const reviewReturnRequest = asyncHandler(async (req, res, next) => {
   const { status } = req.body; // 'approved' or 'rejected'
 
   if (!['approved', 'rejected'].includes(status)) {

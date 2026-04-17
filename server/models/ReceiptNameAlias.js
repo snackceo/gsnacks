@@ -75,11 +75,7 @@ const receiptNameAliasSchema = new mongoose.Schema({
   
   // Metadata
   createdBy: String,
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
-});
+}, { timestamps: { updatedAt: false } });
 
 // Compound index for fast lookups
 receiptNameAliasSchema.index({ storeId: 1, normalizedName: 1 }, { unique: true });

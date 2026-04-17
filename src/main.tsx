@@ -32,7 +32,7 @@ Sentry.init({
       enableInp: true,
     }),
     Sentry.replayIntegration({
-      maskAllText: false, // Set to true in production for privacy
+      maskAllText: true, // Set to true in production for privacy
       blockAllMedia: false,
     }),
   ],
