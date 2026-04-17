@@ -1,8 +1,8 @@
 const Stripe = require('stripe');
 const asyncHandler = require('../utils/asyncHandler.js');
 const ErrorResponse = require('../utils/errorResponse');
-const Order = require('./models/Order.js');
-const Product = require('./models/Product.js');
+const Order = require('../models/Order.js');
+const Product = require('../models/Product.js');
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 

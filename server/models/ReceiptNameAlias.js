@@ -4,8 +4,7 @@ const receiptNameAliasSchema = new mongoose.Schema({
   // Normalized receipt name (e.g., "COCA COLA 12 PACK")
   normalizedName: {
     type: String,
-    required: true,
-    index: true
+    required: true
   },
   
   // Store where this alias was observed
@@ -13,7 +12,6 @@ const receiptNameAliasSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Store',
     required: true,
-    index: true
   },
   
   // Product this alias maps to
@@ -26,7 +24,6 @@ const receiptNameAliasSchema = new mongoose.Schema({
   // UPC for quick reference
   upc: {
     type: String,
-    index: true
   },
   
   // How many times a human confirmed this mapping

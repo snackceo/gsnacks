@@ -1,9 +1,9 @@
 import mongoose from 'mongoose';
 import { handleReceiptImageUpload, ensureIngestionAllowed } from './receiptProcessingService.js';
 import { getReceiptIngestionGateState, receiptIngestionMode } from '../../utils/featureFlags.js';
-import { MAX_RECEIPT_IMAGE_BYTES } from '../../config/constants.js';
+import { MAX_RECEIPT_IMAGE_BYTES } from '../config/constants.js'; // Centralized constant
 
-const validateImageBody = (body) => {
+const validateImageBody = (body) => { // Removed ALLOWED_IMAGE_MIMES as it's handled by isAllowedImageDataUrl
   const { image, storeId } = body;
 
   if (!image) {
@@ -18,8 +18,11 @@ const validateImageBody = (body) => {
     throw error;
   }
 
-  if (typeof image === 'string' && image.length > MAX_RECEIPT_IMAGE_BYTES) {
-    const sizeMB = (image.length / (1024 * 1024)).toFixed(1);
+  // For base64 encoded strings, image.length is not the true byte size.
+  // isAllowedImageDataUrl (from receiptProcessingService) now handles the byte size validation.
+  // This check is for raw image data or if the base64 string is excessively long before parsing.
+  if (typeof image === 'string' && image.length * 0.75 > MAX_RECEIPT_IMAGE_BYTES) { // Approximate base64 to byte length
+    const sizeMB = (image.length * 0.75 / (1024 * 1024)).toFixed(1);
     const error = new Error(`Image too large: ${sizeMB}MB (max 5MB)`);
     error.statusCode = 413;
     throw error;

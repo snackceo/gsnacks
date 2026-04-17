@@ -1,44 +1,41 @@
 import mongoose from 'mongoose';
 import ReceiptCapture from '../../models/ReceiptCapture.js';
 import Store from '../../models/Store.js';
-import { recordAuditLog } from '../../utils/audit.js';
-import { isDbReady } from '../../db/connect.js';
+import { recordAuditLog } from './auditLogService.js';
 import { isOwnerUsername, isDriverUsername, driverCanAccessStore } from '../../utils/helpers.js';
-import { getReceiptIngestionGateState, ensureIngestionAllowed } from './receiptProcessingService.js';
-import { handleReceiptImageUpload, isCloudinaryUrl, fetchExternalReceiptImage, isAllowedReceiptMime, isAllowedImageDataUrl, MAX_RECEIPT_IMAGE_BYTES, hasCloudinary } from './receiptUploadService.js';
+import { getReceiptIngestionGateState, ensureIngestionAllowed, isCloudinaryUrl, fetchExternalReceiptImage, isAllowedReceiptMime, isAllowedImageDataUrl, hasCloudinary } from './receiptProcessingService.js';
+import { handleReceiptImageUpload } from './receiptUploadService.js'; // Import handleReceiptImageUpload from receiptUploadService.js
 import { transitionReceiptParseJobStatus } from '../../utils/receiptParseJobStatus.js';
 import { matchStoreCandidate } from './receiptStoreService.js';
-import { normalizePhone } from '../../utils/phone.js';
-
-const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+import { checkDb, validateCaptureId } from './serviceUtils.js';
+import { MAX_RECEIPT_IMAGE_BYTES, ALLOWED_IMAGE_MIMES } from '../config/constants.js'; // Import constants
 
 export const createCapture = async ({ body, user }) => {
-  if (!isDbReady()) throw new Error('Database not ready');
+  checkDb();
 
   const { storeId, storeName, orderId, images, captureRequestId, source: requestedSource } = body;
-  const username = user?.username;
-  const userId = user?.id || user?.userId;
+  const { username, _id: userId, role } = user || {};
 
-  const isOwner = isOwnerUsername(username);
-  const isDriver = isDriverUsername(username);
-  const createdByRole = isOwner ? 'OWNER' : isDriver ? 'DRIVER' : undefined;
-  const source = requestedSource === 'email_import' && isOwner ? 'email_import' : isOwner ? 'management_upload' : isDriver ? 'driver_camera' : undefined;
+  let source = 'driver_camera'; // Default for drivers
+  if (role === 'OWNER' || role === 'MANAGER') {
+    source = requestedSource === 'email_import' ? 'email_import' : 'management_upload';
+  }
 
-  if (!isOwner && !isDriver) {
+  const isAuthorized = role === 'OWNER' || role === 'MANAGER' || role === 'DRIVER';
+
+  if (!isAuthorized) {
     const err = new Error('Not authorized to upload receipts');
     err.statusCode = 403;
     throw err;
   }
 
   if (captureRequestId) {
-    const existingCapture = await ReceiptCapture.findOne({ captureRequestId, createdBy: username });
-    if (existingCapture) {
-      return { captureId: existingCapture._id.toString(), status: existingCapture.status, idempotent: true };
+    const existingCapture = await ReceiptCapture.findOne({ captureRequestId, createdByUserId: userId });
+    if (existingCapture) { // If a capture with this ID already exists, return it as idempotent
+      return { captureId: existingCapture._id.toString(), status: existingCapture.status, idempotent: true }; //
     }
   } else {
-    const err = new Error('captureRequestId required (UUID recommended)');
-    err.statusCode = 400;
-    throw err;
+    throw new ServiceError('captureRequestId required (UUID recommended)', 400); //
   }
 
   // Further validation...
@@ -56,7 +53,7 @@ export const createCapture = async ({ body, user }) => {
       err.statusCode = 404;
       throw err;
     }
-    if (isDriver && !driverCanAccessStore(username, store._id.toString())) {
+    if (role === 'DRIVER' && !driverCanAccessStore(username, store._id.toString())) {
       const err = new Error('Driver not authorized for this store');
       err.statusCode = 403;
       throw err;
@@ -83,8 +80,8 @@ export const createCapture = async ({ body, user }) => {
     images: normalizedImages.map((img, idx) => ({ ...img, uploadedAt: new Date(), sequence: idx + 1 })),
     status: 'pending_parse',
     createdBy: username || 'unknown',
-    createdByUserId: userId || undefined,
-    createdByRole,
+    createdByUserId: userId,
+    createdByRole: role,
     source,
   });
 
@@ -93,25 +90,21 @@ export const createCapture = async ({ body, user }) => {
   // Create a draft ReceiptParseJob
   await transitionReceiptParseJobStatus({
     captureId: capture._id.toString(),
-    actor: username || 'unknown',
+    actor: userId,
     status: 'CREATED',
   });
 
   await recordAuditLog({
-    type: 'receipt_capture_create',
-    actorId: username || 'unknown',
-    details: `capture=${capture._id.toString()}`,
+    action: 'RECEIPT_CAPTURE_CREATED',
+    actorId: userId,
+    details: { captureId: capture._id.toString(), storeId: store?._id?.toString(), imageCount: normalizedImages.length },
   });
 
   return { captureId: capture._id.toString(), status: capture.status, imageCount: capture.images.length };
 };
 
 export const getCapture = async (captureId) => {
-  if (!mongoose.Types.ObjectId.isValid(captureId)) {
-    const err = new Error('Invalid captureId');
-    err.statusCode = 400;
-    throw err;
-  }
+  validateCaptureId(captureId);
   const capture = await ReceiptCapture.findById(captureId).lean();
   if (!capture) {
     const err = new Error('Receipt capture not found');
@@ -127,19 +120,31 @@ export const getCaptureItems = async (captureId) => {
 };
 
 export const getSummary = async (storeId) => {
-  const query = storeId ? { storeId } : {};
-  const statuses = ['pending_parse', 'parsed', 'review_complete', 'committed', 'failed'];
-  const counts = await Promise.all(
-    statuses.map(status => ReceiptCapture.countDocuments({ ...query, status }))
-  );
-  const total = await ReceiptCapture.countDocuments(query);
+  const matchStage = storeId ? { $match: { storeId: new mongoose.Types.ObjectId(storeId) } } : { $match: {} }; // Simplified match stage
+
+  const aggregationResult = await ReceiptCapture.aggregate([
+    matchStage,
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        pendingParse: { $sum: { $cond: [{ $eq: ['$status', 'pending_parse'] }, 1, 0] } },
+        parsed: { $sum: { $cond: [{ $eq: ['$status', 'parsed'] }, 1, 0] } },
+        reviewComplete: { $sum: { $cond: [{ $eq: ['$status', 'review_complete'] }, 1, 0] } },
+        committed: { $sum: { $cond: [{ $eq: ['$status', 'committed'] }, 1, 0] } },
+        failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } },
+      },
+    },
+  ]);
+
+  const summary = aggregationResult[0] || {};
 
   return {
-    total,
-    pendingParse: counts[0],
-    parsed: counts[1],
-    reviewComplete: counts[2],
-    committed: counts[3],
-    failed: counts[4],
+    total: summary.total || 0,
+    pendingParse: summary.pendingParse || 0,
+    parsed: summary.parsed || 0,
+    reviewComplete: summary.reviewComplete || 0,
+    committed: summary.committed || 0,
+    failed: summary.failed || 0,
   };
 };

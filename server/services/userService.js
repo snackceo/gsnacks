@@ -8,8 +8,8 @@ export const findUserByUsernameLower = async (usernameLower) => {
   return await User.findOne({ usernameLower });
 };
 
-export const createUser = async (username, password) => {
-  const user = new User({ username, password });
+export const createUser = async (userData) => {
+  const user = new User(userData);
   await user.save();
   return user;
 };

@@ -7,22 +7,19 @@ const storeInventorySchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Store',
       required: true,
-      index: true
     },
     productId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Product',
       required: false,
-      index: true
     },
     // For unmapped inventory lines
     unmappedProductId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'UnmappedProduct',
       required: false,
-      index: true
     },
-    sku: { type: String, index: true }, // Denormalized for fast lookups
+    sku: { type: String, sparse: true }, // Denormalized for fast lookups
     
     // Store-specific pricing
     cost: { type: Number, required: true }, // Internal base cost (used when no observed price)

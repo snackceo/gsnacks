@@ -3,8 +3,11 @@ import mongoose from 'mongoose';
 const auditLogSchema = new mongoose.Schema(
   {
     type: { type: String, required: true },
-    actorId: { type: String, required: true },
-    details: { type: String, default: '' },
+    actorId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    details: { type: mongoose.Schema.Types.Mixed, default: {} },
     createdAt: { type: Date, default: Date.now }
   },
   { timestamps: false }

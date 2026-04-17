@@ -1,14 +1,11 @@
 import AppSettings from '../../models/AppSettings.js';
-import { recordAuditLog } from '../../utils/audit.js';
-import { isDbReady } from '../../db/connect.js';
+import { recordAuditLog } from './auditLogService.js';
 import { receiptIngestionMode, receiptStoreAllowlist, receiptDailyCap } from '../../utils/featureFlags.js';
-
-const DEFAULT_PRICE_LOCK_DAYS = 7;
+import { checkDb } from './serviceUtils.js'; // Assuming serviceUtils.js is in the same directory
+import { DEFAULT_PRICE_LOCK_DAYS } from '../config/constants.js'; // Centralized constant
 
 export const getSettings = async () => {
-  if (!isDbReady()) {
-    throw new Error('Database not ready');
-  }
+  checkDb();
   const settings = await AppSettings.findOne({ key: 'default' }).lean();
   return {
     receiptIngestionMode: receiptIngestionMode(),
@@ -18,10 +15,8 @@ export const getSettings = async () => {
   };
 };
 
-export const updateSettings = async ({ priceLockDays, actor }) => {
-  if (!isDbReady()) {
-    throw new Error('Database not ready');
-  }
+export const updateSettings = async ({ priceLockDays, actorId }) => {
+  checkDb();
   if (typeof priceLockDays !== 'number') {
     throw new Error('priceLockDays must be a number.');
   }
@@ -32,7 +27,7 @@ export const updateSettings = async ({ priceLockDays, actor }) => {
     { new: true, upsert: true }
   );
 
-  await recordAuditLog({ type: 'receipt_settings_update', actorId: actor, details: `priceLockDays=${priceLockDays}` });
+  await recordAuditLog({ action: 'RECEIPT_SETTINGS_UPDATED', actorId: actorId, details: { priceLockDays } });
 
   return settings;
 };

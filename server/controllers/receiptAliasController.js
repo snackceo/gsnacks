@@ -1,54 +1,35 @@
 import * as receiptAliasService from '../services/receiptAliasService.js';
+import asyncHandler from '../utils/asyncHandler.js';
 
-export const getReceiptAliases = async (req, res, next) => {
-  try {
-    const aliases = await receiptAliasService.getAliasesByStore(req.query.storeId);
-    res.json({ ok: true, aliases });
-  } catch (error) {
-    next(error);
-  }
-};
+export const getReceiptAliases = asyncHandler(async (req, res, next) => {
+  const aliases = await receiptAliasService.getAliasesByStore(req.query.storeId);
+  res.json({ ok: true, aliases });
+});
 
-export const postReceiptAlias = async (req, res, next) => {
-  try {
-    const alias = await receiptAliasService.createAlias({
-      ...req.body,
-      actor: req.user?.username || 'unknown',
-    });
-    res.json({ ok: true, alias });
-  } catch (error) {
-    next(error);
-  }
-};
+export const postReceiptAlias = asyncHandler(async (req, res, next) => {
+  const alias = await receiptAliasService.createAlias({
+    ...req.body,
+    actorId: req.user?._id,
+  });
+  res.json({ ok: true, alias });
+});
 
-export const getReceiptStoreAliases = async (req, res, next) => {
+export const getReceiptStoreAliases = asyncHandler(async (req, res, next) => {
   // This appears to be a duplicate of getReceiptAliases but with a different sort.
   // We will create a specific service method for it.
-  try {
-    const aliases = await receiptAliasService.getStoreAliasesSortedByConfirmation(req.query.storeId);
-    res.json({ ok: true, aliases });
-  } catch (error) {
-    next(error);
-  }
-};
+  const aliases = await receiptAliasService.getStoreAliasesSortedByConfirmation(req.query.storeId);
+  res.json({ ok: true, aliases });
+});
 
-export const getReceiptAliasHistory = async (req, res, next) => {
-  try {
-    const alias = await receiptAliasService.getAliasHistory(req.query);
-    res.json({ ok: true, alias });
-  } catch (error) {
-    next(error);
-  }
-};
+export const getReceiptAliasHistory = asyncHandler(async (req, res, next) => {
+  const alias = await receiptAliasService.getAliasHistory(req.query);
+  res.json({ ok: true, alias });
+});
 
-export const postReceiptConfirmMatch = async (req, res, next) => {
-  try {
-    const result = await receiptAliasService.confirmMatch({
-      ...req.body,
-      actor: req.user?.username || 'unknown',
-    });
-    res.json({ ok: true, ...result });
-  } catch (error) {
-    next(error);
-  }
-};
+export const postReceiptConfirmMatch = asyncHandler(async (req, res, next) => {
+  const result = await receiptAliasService.confirmMatch({
+    ...req.body,
+    actorId: req.user?._id,
+  });
+  res.json({ ok: true, ...result });
+});

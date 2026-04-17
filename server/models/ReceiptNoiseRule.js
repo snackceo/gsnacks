@@ -3,14 +3,12 @@ import mongoose from 'mongoose';
 const receiptNoiseRuleSchema = new mongoose.Schema({
   normalizedName: {
     type: String,
-    required: true,
-    index: true
+    required: true
   },
   storeId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Store',
     required: true,
-    index: true
   },
   rawNames: [{
     name: String,

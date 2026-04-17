@@ -1,6 +1,6 @@
-const appEmitter = require('../events/eventEmitter');
-const { sendSms, sendPushNotification } = require('./notificationService.js');
-const User = require('./models/User.js');
+import appEmitter from '../events/eventEmitter.js';
+import { sendSms, sendPushNotification } from './notificationService.js';
+import User from '../models/User.js';
 
 /**
  * Initializes all notification-related event listeners.

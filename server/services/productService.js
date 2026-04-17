@@ -6,11 +6,11 @@ export const findProducts = async () => {
 };
 
 export const findOneProduct = async (paramId) => {
-  return await Product.findOne({ $or: [{ frontendId: paramId }, { sku: paramId }] }).lean();
+  return await Product.findOne({ sku: paramId }).lean();
 };
 
 export const searchProducts = async (query) => {
-  const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\]/g, '\$&'), 'i');
+  const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
   return await Product.find({
     $or: [{ name: regex }, { sku: regex }, { upc: regex }]
   })
@@ -20,19 +20,19 @@ export const searchProducts = async (query) => {
 };
 
 export const createProduct = async (productData) => {
-  const sku = await generateSku();
-  const newProduct = { ...productData, sku, frontendId: sku };
+  const sku = await generateSku(); // Generate SKU
+  const newProduct = { ...productData, sku }; // Assign SKU
   return await Product.create(newProduct);
 };
 
 export const updateProduct = async (paramId, updates) => {
   return await Product.findOneAndUpdate(
-    { $or: [{ frontendId: paramId }, { sku: paramId }] },
+    { sku: paramId },
     updates,
     { new: true }
   ).lean();
 };
 
 export const deleteProduct = async (paramId) => {
-  return await Product.findOneAndDelete({ $or: [{ frontendId: paramId }, { sku: paramId }] }).lean();
+  return await Product.findOneAndDelete({ sku: paramId }).lean();
 };

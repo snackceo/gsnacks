@@ -1,18 +1,14 @@
 import mongoose from 'mongoose';
 import ReceiptCapture from '../models/ReceiptCapture.js';
 import ReceiptParseJob from '../models/ReceiptParseJob.js';
-import Store from '../models/Store.js';
 import Product from '../models/Product.js';
 import StoreInventory from '../models/StoreInventory.js';
 import UpcItem from '../models/UpcItem.js';
 import UnmappedProduct from '../models/UnmappedProduct.js';
 import PriceObservation from '../models/PriceObservation.js';
 import AppSettings from '../models/AppSettings.js';
-import { isDbReady } from '../db/connect.js';
-import { isOwnerUsername } from '../utils/helpers.js';
-import { recordAuditLog } from '../utils/audit.js';
+import { recordAuditLog } from './auditLogService.js';
 import { getBackendBuildIdentifier } from '../utils/buildIdentifier.js';
-import { matchStoreCandidate, normalizePhone, normalizeStoreNumber, shouldAutoCreateStore } from '../utils/storeMatcher.js';
 import { flushStaleReceiptJobs } from '../utils/receiptQueueCleanup.js';
 import { buildInventoryUpdate, buildStoreInventoryQuery } from '../utils/receiptInventory.js';
 import { calculateRetail, normalizeQuantity } from '../utils/pricing.js';
@@ -27,21 +23,9 @@ import {
   normalizeReceiptLineUpc,
   resolveReceiptLineProduct
 } from '../utils/receiptLineResolver.js';
+import { checkDb } from './serviceUtils.js';
+import * as receiptStoreService from './receiptStoreService.js'; // Assuming receiptStoreService.js is in the same directory
 
-class ServiceError extends Error {
-  constructor(message, statusCode = 500, details = {}) {
-    super(message);
-    this.statusCode = statusCode;
-    this.details = details;
-  }
-}
-
-const canApproveReceipts = user => {
-  if (!user) return false;
-  return user.role === 'OWNER' || user.role === 'MANAGER' || isOwnerUsername(user.username);
-};
-
-const normalizeBarcode = normalizeReceiptLineUpc;
 const APPROVAL_ERROR_CODES = {
   INVALID_UNIT_PRICE: 'INVALID_UNIT_PRICE',
   CREATE_PRODUCT_NOT_ALLOWED: 'CREATE_PRODUCT_NOT_ALLOWED',
@@ -55,56 +39,248 @@ const isReceiptParseDebugEnabled = () => {
   const rawValue = process.env.RECEIPT_PARSE_DEBUG;
   return /^(1|true|yes|on)$/i.test(String(rawValue || '').trim());
 };
-export const toNumber = value => parseReceiptCurrency(value);
-export const sanitizeOcrCurrencyNumber = parseReceiptCurrency;
-export const resolveUnitPrice = resolveReceiptUnitPrice;
 
-const buildNormalizedPriceInput = item => buildNormalizedReceiptPriceInput(item);
 
-const buildStoreCandidate = (capture, parseJob, body) => {
-  if (body?.storeCandidate) return body.storeCandidate;
-  if (parseJob?.storeCandidate) return parseJob.storeCandidate;
-  const name = body?.storeName || capture?.storeName;
-  const storeId = body?.storeId || capture?.storeId;
-  if (!name && !storeId) return null;
-  return {
-    name,
-    storeId,
-    address: body?.storeAddress,
-    phone: body?.storePhone,
-    phoneNormalized: normalizePhone(body?.storePhone),
-    storeNumber: normalizeStoreNumber(body?.storeNumber || parseJob?.storeCandidate?.storeNumber),
-    storeType: body?.storeType || parseJob?.storeCandidate?.storeType
-  };
+class ServiceError extends Error {
+  constructor(message, statusCode = 500, details = {}) {
+    super(message);
+    this.statusCode = statusCode;
+    this.details = details;
+  }
+}
+
+const canApproveReceipts = user => {
+  if (!user) return false;
+  return user.role === 'OWNER' || user.role === 'MANAGER';
 };
 
-const normalizeDraftItem = (raw) => {
-  const lineIndex = typeof raw?.lineIndex === 'number'
-    ? raw.lineIndex
-    : (typeof raw?.index === 'number' ? raw.index : 0);
+const validateApprovalMode = (mode, selectedIndices) => {
+  if (mode === undefined || mode === null || String(mode).trim().length === 0) {
+    throw new ServiceError('mode is required: safe|selected|locked|all', 400);
+  }
 
-  const receiptName =
-    raw?.receiptName ||
-    raw?.nameCandidate ||
-    raw?.rawLine ||
-    raw?.rawLineText ||
-    'Receipt Item';
+  const normalizedMode = String(mode).trim().toLowerCase();
+  if (!['safe', 'selected', 'locked', 'all'].includes(normalizedMode)) {
+    throw new ServiceError('Invalid mode', 400);
+  }
 
-  return {
-    lineIndex,
-    receiptName,
-    normalizedName: getReceiptLineNormalizedName(raw?.normalizedName || receiptName),
-    quantity: raw?.quantity ?? 1,
-    unitPrice: raw?.unitPrice ?? null,
-    totalPrice: raw?.totalPrice ?? raw?.lineTotal ?? null,
-    boundUpc: raw?.upc || raw?.upcCandidate || '',
-    boundProductId: raw?.boundProductId || raw?.productId || raw?.match?.productId || null,
-    suggestedProduct: raw?.suggestedProduct || null,
-    matchConfidence: raw?.matchConfidence ?? raw?.match?.confidence ?? null,
-    matchMethod: raw?.matchMethod || 'parse',
-    needsReview: true,
-  };
+  if (normalizedMode === 'selected' && (!Array.isArray(selectedIndices) || selectedIndices.length === 0)) {
+    throw new ServiceError('selectedIndices required for selected mode', 400);
+  }
+  return normalizedMode;
 };
+
+const filterItemsToApprove = ({ validDraftItems, mode, selectedIndices, parseJob }) => {
+  const SAFE_CONFIDENCE = 0.8;
+  const selectedSet = Array.isArray(selectedIndices)
+    ? new Set(selectedIndices.map(Number))
+    : null;
+
+  return validDraftItems.filter(item => {
+    if (mode === 'selected') {
+      return selectedSet?.has(item.lineIndex);
+    }
+    if (mode === 'safe') {
+      const jobItem = (parseJob.items || []).find(i => Number(i.lineIndex) === Number(item.lineIndex));
+      const confidence = Number(jobItem?.match?.confidence || item.matchConfidence || 0);
+      const hasWarnings = Array.isArray(jobItem?.warnings) && jobItem.warnings.length > 0;
+      const hasProduct = Boolean(jobItem?.match?.productId || item.boundProductId || item.suggestedProduct?.id);
+      return !hasWarnings && hasProduct && confidence >= SAFE_CONFIDENCE;
+    }
+    return true; // 'all' or 'locked' mode
+  });
+};
+
+/**
+ * Processes a single line item during the receipt approval workflow.
+ * This function is designed to be called within a MongoDB transaction.
+ * @private
+ */
+async function _processLineItemForApproval({
+  item,
+  approvalItem,
+  store,
+  capture,
+  jobId,
+  session,
+  settings,
+  actorId,
+  forceUpcOverride,
+  shouldIgnorePriceLocks,
+}) {
+  const { allowCreateProductApproval, autoUpdateProductPriceFromReceipt } = settings;
+  const lineOutcome = {
+    lineIndex: item.lineIndex,
+    inventoryPersisted: false,
+    priceObservationPersisted: false,
+    priceLockOverridden: false,
+    priceLockOverrideDetail: null,
+    errors: [],
+  };
+
+  const unitPrice = resolveReceiptUnitPrice(item);
+  const normalizedPriceInput = buildNormalizedReceiptPriceInput(item);
+  const retailPrice = calculateRetail(unitPrice);
+  lineOutcome.normalizedPriceInput = normalizedPriceInput;
+  lineOutcome.retailPrice = retailPrice;
+
+  if (!unitPrice) {
+    lineOutcome.errors.push({ lineIndex: item.lineIndex, error: 'Invalid unit price', code: APPROVAL_ERROR_CODES.INVALID_UNIT_PRICE });
+    return { lineOutcome, priceObservation: null };
+  }
+
+  lineOutcome.effectiveAction = approvalItem.action || (item.boundProductId || item.suggestedProduct?.id ? 'LINK_UPC_TO_PRODUCT' : 'CAPTURE_UNMAPPED');
+  const normalizedUpc = normalizeReceiptLineUpc(approvalItem.upc || item.boundUpc || item.suggestedProduct?.upc); // Use direct function
+
+  if (lineOutcome.effectiveAction === 'IGNORE') {
+    return { lineOutcome, priceObservation: null };
+  }
+
+  if (lineOutcome.effectiveAction === 'CREATE_PRODUCT' && !allowCreateProductApproval) {
+    lineOutcome.errors.push({
+      lineIndex: item.lineIndex,
+      error: 'Receipt-driven product creation is not allowed by policy',
+      code: APPROVAL_ERROR_CODES.CREATE_PRODUCT_NOT_ALLOWED,
+    });
+    return { lineOutcome, priceObservation: null };
+  }
+
+  const normalizedName = getReceiptLineNormalizedName(item);
+  const rawName = item.receiptName || normalizedName || 'Receipt Item';
+  let { product, productCreated } = await _resolveOrCreateProduct({
+    item, approvalItem, store, session, settings, normalizedUpc, rawName, unitPrice, lineOutcome
+  });
+  let unmapped = null;
+  let inventoryForUnmapped = false;
+  let inventoryProductId = null;
+  let inventoryUnmappedProductId = null;
+
+  if (!product) {
+    ({ unmapped, inventoryUnmappedProductId, inventoryForUnmapped } = await _handleUnmappedProduct({ storeId: store._id, normalizedName, rawName, session }));
+  }
+
+  lineOutcome.productCreated = productCreated;
+  if (product) {
+    lineOutcome.product = { id: product._id, sku: product.sku, name: product.name };
+  }
+
+  const inventoryMatchMethod = item.matchMethod || (product ? 'manual_confirm' : 'unmapped');
+  const inventoryWorkflowType = item.workflowType || (product ? 'update_price' : 'unmapped');
+
+  if (product) {
+    inventoryProductId = product._id;
+  }
+
+  const storeInventoryQuery = buildStoreInventoryQuery({ storeId: store._id, productId: inventoryProductId, unmappedProductId: inventoryUnmappedProductId });
+
+  if (storeInventoryQuery) {
+    const existingInventory = await StoreInventory.findOne(storeInventoryQuery).session(session);
+    if (existingInventory?.priceLockUntil && new Date(existingInventory.priceLockUntil) > new Date()) {
+      if (!shouldIgnorePriceLocks) {
+        lineOutcome.errors.push({ lineIndex: item.lineIndex, error: 'Price locked', code: APPROVAL_ERROR_CODES.PRICE_LOCKED, lockedUntil: existingInventory.priceLockUntil });
+        return { lineOutcome, priceObservation: null };
+      }
+      lineOutcome.priceLockOverridden = true;
+      lineOutcome.priceLockOverrideDetail = `priceLockUntil=${new Date(existingInventory.priceLockUntil).toISOString()}`;
+    }
+
+    const inventory = await StoreInventory.findOneAndUpdate(
+      storeInventoryQuery,
+      {
+        $set: { sku: product?.sku || undefined, observedPrice: unitPrice, ...(retailPrice ? { retailPrice } : {}), observedAt: new Date(), lastCost: unitPrice, cost: unitPrice, lastCostAt: new Date(), lastVerified: new Date(), available: true, stockLevel: 'in-stock' },
+        $setOnInsert: { cost: unitPrice, markup: 1.2 },
+        $push: { priceHistory: { price: unitPrice, observedAt: new Date(), storeId: store._id, captureId: capture._id.toString(), orderId: capture.orderId, quantity: normalizeQuantity(item.quantity), receiptImageUrl: capture.images?.[0]?.url, receiptThumbnailUrl: capture.images?.[0]?.thumbnailUrl, matchMethod: inventoryMatchMethod, matchConfidence: item.matchConfidence, confirmedBy: actorId, priceType: item.priceType || 'unknown', promoDetected: item.promoDetected || false, workflowType: productCreated ? 'new_product' : inventoryWorkflowType } },
+        $addToSet: { appliedCaptures: { captureId: capture._id.toString(), lineIndex: item.lineIndex, appliedAt: new Date() } },
+      },
+      { new: true, upsert: true, session }
+    );
+
+    if (inventory) {
+      lineOutcome.inventoryPersisted = true;
+      lineOutcome.inventoryUpdate = buildInventoryUpdate({ storeId: store._id, productId: inventoryProductId, unmappedProductId: inventoryUnmappedProductId, price: unitPrice, inventoryId: inventory?._id, lineIndex: item.lineIndex });
+    }
+  }
+
+  if (product) {
+    const productUpdate = { lastCost: unitPrice, lastCostAt: new Date() };
+    if (autoUpdateProductPriceFromReceipt && retailPrice) {
+      productUpdate.price = retailPrice;
+    }
+    await Product.findByIdAndUpdate(product._id, { $set: productUpdate }, { session });
+  }
+
+  let priceObservation = null;
+  const observationPayload = buildPriceObservationPayload({ item, storeId: store._id, receiptCaptureId: capture._id, productId: product?._id, unmappedProductId: unmapped?._id, observedAt: new Date() });
+  if (observationPayload.ok) {
+    priceObservation = observationPayload.payload;
+    lineOutcome.priceObservationPersisted = true;
+  } else {
+    lineOutcome.observationRejectedReason = observationPayload.reason;
+  }
+
+  if (product && normalizedUpc) await _handleUpcLinking({ product, normalizedUpc, forceUpcOverride, item, lineOutcome, session });
+  return { lineOutcome, priceObservation };
+}
+
+/**
+ * Collects and audits the results of processing a single line item.
+ * @private
+ */
+async function _collectAndAuditLineItemResults({
+  result,
+  lineOutcomeByIndex,
+  errors,
+  observationRejectedLines,
+  priceObservations,
+  createdProducts,
+  matchedProducts,
+  inventoryUpdates,
+  jobId,
+  captureIdString,
+  actorId,
+  autoUpdateProductPriceFromReceipt,
+  session // Pass session for audit logs if they need to be part of the transaction
+}) {
+  lineOutcomeByIndex.set(result.lineOutcome.lineIndex, result.lineOutcome);
+
+  if (result.lineOutcome.errors.length > 0) {
+    errors.push(...result.lineOutcome.errors);
+  }
+
+  if (result.lineOutcome.observationRejectedReason) {
+    observationRejectedLines.push({ lineIndex: result.lineOutcome.lineIndex, reason: result.lineOutcome.observationRejectedReason });
+  }
+
+  if (result.priceObservation) {
+    priceObservations.push(result.priceObservation);
+  }
+
+  if (result.lineOutcome.productCreated) {
+    createdProducts.push({ ...result.lineOutcome.product, lineIndex: result.lineOutcome.lineIndex });
+    await recordAuditLog({
+      action: 'PRODUCT_CREATED_FROM_RECEIPT',
+      actorId,
+      details: { jobId, captureId: captureIdString, lineIndex: result.lineOutcome.lineIndex, productId: result.lineOutcome.product.id, sku: result.lineOutcome.product.sku },
+      session // Pass session
+    });
+  } else if (result.lineOutcome.product) {
+    matchedProducts.push({ ...result.lineOutcome.product, lineIndex: result.lineOutcome.lineIndex });
+    await recordAuditLog({
+      action: 'PRODUCT_UPDATED_FROM_RECEIPT',
+      actorId,
+      details: { jobId, captureId: captureIdString, lineIndex: result.lineOutcome.lineIndex, productId: result.lineOutcome.product.id, autoPriceUpdate: autoUpdateProductPriceFromReceipt && Boolean(result.lineOutcome.retailPrice) },
+      session // Pass session
+    });
+  }
+
+  if (result.lineOutcome.inventoryUpdate) {
+    inventoryUpdates.push(result.lineOutcome.inventoryUpdate);
+  }
+
+  if (result.lineOutcome.upcLink) {
+    await recordAuditLog({ action: 'UPC_LINKED_FROM_RECEIPT', actorId, details: { jobId, captureId: captureIdString, ...result.lineOutcome.upcLink }, session }); // Pass session
+  }
+}
 
 const buildApprovalMetadata = ({
   existingMetadata,
@@ -147,10 +323,99 @@ const buildApprovalMetadata = ({
   inventoryUpdates
 });
 
-export const getReceipts = async ({ user, query }) => {
-  if (!isDbReady()) {
-    throw new ServiceError('Database not ready', 503);
+/**
+ * Updates the final state of the ReceiptCapture and ReceiptParseJob after approval processing.
+ * @private
+ */
+async function _finalizeApprovalState({
+  capture,
+  parseJob,
+  lineOutcomes,
+  newlyAppliedCount,
+  appliedCount,
+  session,
+  metadata
+}) {
+  const previousCommitted = Number(capture.itemsCommitted || 0);
+  capture.itemsCommitted = Math.min(capture.totalItems, previousCommitted + newlyAppliedCount);
+  capture.itemsConfirmed = lineOutcomes.filter(entry => entry.boundProductId).length;
+  capture.itemsNeedingReview = lineOutcomes.filter(entry => entry.needsReview).length;
+  capture.committedBy = metadata.username;
+  capture.committedAt = new Date();
+
+  if (appliedCount > 0) {
+    capture.status = 'committed';
+    capture.reviewExpiresAt = undefined;
   }
+
+  await capture.save({ session });
+
+  if (parseJob) {
+    parseJob.status = 'APPROVED';
+    parseJob.metadata = buildApprovalMetadata({
+      existingMetadata: parseJob.metadata,
+      ...metadata,
+      lineOutcomes,
+      priceNormalizationByLine: lineOutcomes.reduce((acc, entry) => {
+        acc[entry.lineIndex] = entry.normalizedPriceInput || null;
+        return acc;
+      }, {}),
+    });
+    await parseJob.save({ session });
+  }
+}
+
+/**
+ * Builds a store candidate object based on various sources with a clear precedence.
+ * Precedence: body.storeCandidate > parseJob.storeCandidate > body/capture data.
+ * @private
+ */
+const buildStoreCandidate = (capture, parseJob, body) => { // Refactored for clarity and completeness
+  const baseCandidate = {
+    name: body?.storeName || capture?.storeName || 'Unknown Store',
+    storeId: body?.storeId || capture?.storeId,
+    address: body?.storeAddress || {},
+    phone: body?.storePhone,
+    storeType: body?.storeType,
+    storeNumber: body?.storeNumber,
+  };
+
+  // Merge with parseJob.storeCandidate if available, then with body.storeCandidate
+  const finalCandidate = { ...baseCandidate, ...parseJob?.storeCandidate, ...body?.storeCandidate };
+
+  return finalCandidate.name ? finalCandidate : null; // Must have a name to be a valid candidate
+};
+
+const normalizeDraftItem = (raw) => {
+  const lineIndex = typeof raw?.lineIndex === 'number'
+    ? raw.lineIndex
+    : (typeof raw?.index === 'number' ? raw.index : 0);
+
+  const receiptName =
+    raw?.receiptName ||
+    raw?.nameCandidate ||
+    raw?.rawLine ||
+    raw?.rawLineText ||
+    'Receipt Item';
+
+  return {
+    lineIndex,
+    receiptName,
+    normalizedName: getReceiptLineNormalizedName(raw?.normalizedName || receiptName),
+    quantity: raw?.quantity ?? 1,
+    unitPrice: raw?.unitPrice ?? null,
+    totalPrice: raw?.totalPrice ?? raw?.lineTotal ?? null,
+    boundUpc: raw?.upc || raw?.upcCandidate || '',
+    boundProductId: raw?.boundProductId || raw?.productId || raw?.match?.productId || null,
+    suggestedProduct: raw?.suggestedProduct || null,
+    matchConfidence: raw?.matchConfidence ?? raw?.match?.confidence ?? null,
+    matchMethod: raw?.matchMethod || 'parse',
+    needsReview: true,
+  };
+};
+
+export const getReceipts = async ({ user, query }) => {
+  checkDb();
   // Only OWNER/MANAGER can see all receipts; drivers only see their own
   const isDriver = user?.role === 'DRIVER';
   if (!canApproveReceipts(user) && !isDriver) {
@@ -212,18 +477,16 @@ export const getReceipts = async ({ user, query }) => {
       error: err.message
     });
     await recordAuditLog({
-      type: 'receipt_query_error',
-      actorId: user?.username || 'unknown',
-      details: `query=${JSON.stringify(query)} error=${err.message}`
+      action: 'RECEIPT_QUERY_ERROR',
+      actorId: user?._id,
+      details: { query, error: err.message }
     });
     throw new ServiceError('Failed to fetch receipts', 500, { message: 'Review queue unavailable. Please try again or contact support.' });
   }
 };
 
 export const getReceiptJob = async ({ user, jobId }) => {
-  if (!isDbReady()) {
-    throw new ServiceError('Database not ready', 503);
-  }
+  checkDb();
   const isDriver = user?.role === 'DRIVER';
   if (!canApproveReceipts(user) && !isDriver) {
     throw new ServiceError('Not authorized', 403);
@@ -239,9 +502,9 @@ export const getReceiptJob = async ({ user, jobId }) => {
       error: err.message
     });
     await recordAuditLog({
-      type: 'receipt_job_query_error',
-      actorId: user?.username || 'unknown',
-      details: `jobId=${jobId} error=${err.message}`
+      action: 'RECEIPT_JOB_QUERY_ERROR',
+      actorId: user?._id,
+      details: { jobId, error: err.message }
     });
     throw new ServiceError('Failed to fetch receipt job', 500);
   }
@@ -262,9 +525,7 @@ export const approveReceiptJob = async ({
   autoCommit,
   body // The controller passes the whole req.body as 'body'
 }) => {
-  if (!isDbReady()) {
-    throw new ServiceError('Database not ready', 503);
-  }
+  checkDb();
   if (!canApproveReceipts(user)) {
     throw new ServiceError('Not authorized to approve receipts', 403);
   }
@@ -272,11 +533,11 @@ export const approveReceiptJob = async ({
   const session = await mongoose.startSession();
   let transactionStarted = false;
   try {
-    const username = user?.username || 'unknown';
+    const actorId = user?._id;
     const shouldIgnorePriceLocks = Boolean(ignorePriceLocks);
     const isAutoCommit = Boolean(autoCommit);
     const enforceStrictValidation = Boolean(strictValidation);
-    const canIgnorePriceLocks = user?.role === 'MANAGER' || user?.role === 'OWNER' || isOwnerUsername(user?.username);
+    const canIgnorePriceLocks = user?.role === 'MANAGER' || user?.role === 'OWNER';
 
     if (!jobId || !mongoose.Types.ObjectId.isValid(jobId)) {
       throw new ServiceError('Valid jobId required', 400);
@@ -308,18 +569,18 @@ export const approveReceiptJob = async ({
     const capture = await ReceiptCapture.findById(parseJob.captureId).session(session);
     if (!capture) {
       await recordAuditLog({
-        type: 'receipt_approval_failed',
-        actorId: username,
-        details: `jobId=${jobId} reason=capture_not_found captureId=${parseJob.captureId}`
+        action: 'RECEIPT_APPROVAL_FAILED',
+        actorId: actorId,
+        details: { jobId, reason: 'capture_not_found', captureId: parseJob.captureId }
       });
       throw new ServiceError('Receipt capture not found for job', 404);
     }
 
     if (shouldIgnorePriceLocks && !canIgnorePriceLocks) {
       await recordAuditLog({
-        type: 'receipt_approval_failed',
-        actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=ignore_price_locks_not_allowed ignorePriceLocks=${shouldIgnorePriceLocks}`
+        action: 'RECEIPT_APPROVAL_FAILED',
+        actorId: actorId,
+        details: { jobId, captureId: capture._id.toString(), reason: 'ignore_price_locks_not_allowed', ignorePriceLocks: shouldIgnorePriceLocks }
       });
       throw new ServiceError('Not authorized to ignore price locks', 403);
     }
@@ -336,87 +597,15 @@ export const approveReceiptJob = async ({
       return { ok: true, captureId: capture._id.toString(), status: capture.status, idempotent: true };
     }
 
-    const rawRequestMode = mode;
-    if (rawRequestMode === undefined || rawRequestMode === null || String(rawRequestMode).trim().length === 0) {
-      throw new ServiceError('mode is required: safe|selected|locked|all', 400);
-    }
-
-    const normalizedMode = String(rawRequestMode).trim().toLowerCase();
-    if (!['safe', 'selected', 'locked', 'all'].includes(normalizedMode)) {
-      throw new ServiceError('Invalid mode', 400);
-    }
-
-    if (normalizedMode === 'selected' && (!Array.isArray(selectedIndices) || selectedIndices.length === 0)) {
-      throw new ServiceError('selectedIndices required for selected mode', 400);
-    }
-
-    const SAFE_CONFIDENCE = 0.8;
-
-    const selectedSet = Array.isArray(selectedIndices)
-      ? new Set(selectedIndices.map(Number))
-      : null;
-
-    const storeCandidate = buildStoreCandidate(capture, parseJob, body);
+    const normalizedMode = validateApprovalMode(mode, selectedIndices);
 
     let store = null;
-    const effectiveStoreId = finalStoreId || storeCandidate?.storeId;
-    if (effectiveStoreId && mongoose.Types.ObjectId.isValid(effectiveStoreId)) {
-      store = await Store.findById(effectiveStoreId).session(session);
-    } else if (storeCandidate) {
-      store = await Store.findById(storeCandidate.storeId).session(session);
-    }
-
-    if (!store && storeCandidate) {
-      const matchResult = await matchStoreCandidate(storeCandidate);
-      if (matchResult?.ambiguous || (matchResult?.confidence !== undefined && matchResult.confidence < 0.7)) {
-        throw new ServiceError('Store candidate requires resolution before approval', 409, {
-          reasonCode: 'STORE_AMBIGUOUS',
-          needsStoreResolution: true,
-          storeResolution: {
-            matchReason: matchResult?.matchReason || 'ambiguous_candidates',
-            confidence: matchResult?.confidence ?? 0,
-            candidates: Array.isArray(matchResult?.topCandidates) ? matchResult.topCandidates : []
-          }
-        });
-      }
-      if (matchResult?.match?._id) {
-        store = await Store.findById(matchResult.match._id).session(session);
-      }
-    }
-
     let storeCreated = false;
-    if (!store) {
-      const candidateName = storeCandidate?.name || capture.storeName;
-      if (!candidateName) {
-        throw new ServiceError('Store name is required to approve receipt', 400);
-      }
-      const allowAutoCreate = shouldAutoCreateStore(storeCandidate);
-      if (!allowAutoCreate && !body.confirmStoreCreate) {
-        throw new ServiceError('Store creation requires explicit confirmation (confirmStoreCreate)', 400);
-      }
-      try {
-        store = await Store.create([
-          {
-            name: candidateName,
-            phone: storeCandidate?.phone || '',
-            phoneNormalized: normalizePhone(storeCandidate?.phoneNormalized || storeCandidate?.phone),
-            storeNumber: normalizeStoreNumber(storeCandidate?.storeNumber),
-            address: storeCandidate?.address || {},
-            storeType: storeCandidate?.storeType || 'other',
-            isActive: false,
-            createdFrom: 'receipt_upload'
-          }
-        ], { session });
-        store = store[0];
-        storeCreated = true;
-      } catch (err) {
-        if (err?.code === 11000) {
-          store = await Store.findOne({ name: candidateName }).session(session);
-        }
-        if (!store) {
-          throw err;
-        }
-      }
+    const storeCandidate = buildStoreCandidate(capture, parseJob, body);
+    if (storeCandidate) {
+      const storeResult = await receiptStoreService.createStoreCandidate({ storeData: storeCandidate, user });
+      store = storeResult.store || storeResult.existing;
+      storeCreated = !!storeResult.store;
     }
 
     if (!store) {
@@ -433,21 +622,20 @@ export const approveReceiptJob = async ({
 
     if (storeCreated) {
       await recordAuditLog({
-        type: 'store_created_from_receipt',
-        actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} name=${store.name}`
+        action: 'STORE_CREATED_FROM_RECEIPT',
+        actorId: actorId,
+        details: { jobId, captureId: capture._id.toString(), storeId: store._id.toString(), name: store.name }
       });
     }
 
     const settingsDoc = await AppSettings.findOne({ key: 'default' }).lean();
     const allowCreateProductApproval = Boolean(settingsDoc?.allowReceiptApprovalCreateProduct);
     const autoUpdateProductPriceFromReceipt = Boolean(settingsDoc?.autoUpdateProductPriceFromReceipt);
-
+    const settings = { allowCreateProductApproval, autoUpdateProductPriceFromReceipt };
     const createdProducts = [];
     const matchedProducts = [];
     const inventoryUpdates = [];
     const errors = [];
-    let fatalLineError = null;
     const lineOutcomeByIndex = new Map();
     const observationRejectedLines = [];
     const approvalItems = new Map();
@@ -508,9 +696,9 @@ export const approveReceiptJob = async ({
 
     if (draftItems.length === 0) {
       await recordAuditLog({
-        type: 'receipt_approval_failed',
-        actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_draft_items ignorePriceLocks=${shouldIgnorePriceLocks}`
+        action: 'RECEIPT_APPROVAL_FAILED',
+        actorId: actorId,
+        details: { jobId, captureId: capture._id.toString(), reason: 'no_draft_items', ignorePriceLocks: shouldIgnorePriceLocks }
       });
       throw new ServiceError('No draft items available to apply', 400);
     }
@@ -522,9 +710,9 @@ export const approveReceiptJob = async ({
 
     if (validDraftItems.length === 0) {
       await recordAuditLog({
-        type: 'receipt_approval_failed',
-        actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=invalid_draft_items ignorePriceLocks=${shouldIgnorePriceLocks}`
+        action: 'RECEIPT_APPROVAL_FAILED',
+        actorId: actorId,
+        details: { jobId, captureId: capture._id.toString(), reason: 'invalid_draft_items', ignorePriceLocks: shouldIgnorePriceLocks }
       });
       throw new ServiceError('No draft items available to apply', 400);
     }
@@ -535,430 +723,77 @@ export const approveReceiptJob = async ({
       capture.totalItems = validDraftItems.length;
     }
 
-    const itemsToApprove = validDraftItems.filter(item => {
-      if (normalizedMode === 'selected') return selectedSet?.has(item.lineIndex);
-      if (normalizedMode === 'safe') {
-        const jobItem = (parseJob.items || []).find(i => Number(i.lineIndex) === Number(item.lineIndex));
-        const confidence = Number(jobItem?.match?.confidence || item.matchConfidence || 0);
-        const hasWarnings = Array.isArray(jobItem?.warnings) && jobItem.warnings.length > 0;
-        const hasProduct = Boolean(jobItem?.match?.productId || item.boundProductId || item.suggestedProduct?.id);
-        return !hasWarnings && hasProduct && confidence >= SAFE_CONFIDENCE;
-      }
-      return true;
+    const itemsToApprove = filterItemsToApprove({
+      validDraftItems,
+      mode: normalizedMode,
+      selectedIndices,
+      parseJob
     });
 
     if (itemsToApprove.length === 0) {
       await recordAuditLog({
-        type: 'receipt_approval_failed',
-        actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_items_to_approve modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} ignorePriceLocks=${shouldIgnorePriceLocks}`
+        action: 'RECEIPT_APPROVAL_FAILED',
+        actorId: actorId,
+        details: { jobId, captureId: capture._id.toString(), reason: 'no_items_to_approve', mode: normalizedMode, ignorePriceLocks: shouldIgnorePriceLocks }
       });
       throw new ServiceError('No items eligible to approve in this mode. Use mode=all or fix matches/warnings.', 400);
     }
 
-    for (const item of itemsToApprove) {
-      if (!lineOutcomeByIndex.has(item.lineIndex)) {
-        lineOutcomeByIndex.set(item.lineIndex, {
-          lineIndex: item.lineIndex,
-          inventoryPersisted: false,
-          priceObservationPersisted: false,
-          priceLockOverridden: false,
-          priceLockOverrideDetail: null,
-          errors: []
-        });
-      }
-
-      const lineOutcome = lineOutcomeByIndex.get(item.lineIndex);
+    const processingPromises = itemsToApprove.map(async (item) => { // Changed to Promise.allSettled below
       try {
-        const unitPrice = resolveUnitPrice(item);
-        const normalizedPriceInput = buildNormalizedPriceInput(item);
-        const retailPrice = calculateRetail(unitPrice);
-        lineOutcome.normalizedPriceInput = normalizedPriceInput;
-        lineOutcome.retailPrice = retailPrice;
-        if (!unitPrice) {
-          const lineError = { lineIndex: item.lineIndex, error: 'Invalid unit price', code: APPROVAL_ERROR_CODES.INVALID_UNIT_PRICE };
-          errors.push(lineError);
-          lineOutcome.errors.push(lineError);
-          observationRejectedLines.push({ lineIndex: item.lineIndex, reason: 'invalid_price' });
-          continue;
-        }
-
-        const approvalItem = approvalItems.get(item.lineIndex) || {};
-        const action = approvalItem.action || null;
-        const effectiveAction = action || (item.boundProductId || item.suggestedProduct?.id ? 'LINK_UPC_TO_PRODUCT' : 'CAPTURE_UNMAPPED');
-        const normalizedUpc = normalizeBarcode(
-          approvalItem.upc || item.boundUpc || item.suggestedProduct?.upc
-        );
-        lineOutcome.effectiveAction = effectiveAction;
-
-        if (effectiveAction === 'IGNORE') {
-          continue;
-        }
-
         const persistedLineState = await getPersistedLineState(item.lineIndex);
         if (persistedLineState.inventoryPersisted || persistedLineState.priceObservationPersisted) {
-          lineOutcome.inventoryPersisted = persistedLineState.inventoryPersisted;
-          lineOutcome.priceObservationPersisted = persistedLineState.priceObservationPersisted;
-          lineOutcome.appliedState = 'already_persisted';
-          continue;
-        }
-
-        if (effectiveAction === 'CREATE_PRODUCT' && !allowCreateProductApproval) {
-          const lineError = {
-            lineIndex: item.lineIndex,
-            error: 'Receipt-driven product creation is not allowed by policy',
-            code: APPROVAL_ERROR_CODES.CREATE_PRODUCT_NOT_ALLOWED
-          };
-          errors.push(lineError);
-          lineOutcome.errors.push(lineError);
-          continue;
-        }
-
-        let product = null;
-        if (approvalItem.productId && mongoose.Types.ObjectId.isValid(approvalItem.productId)) {
-          product = await Product.findById(approvalItem.productId).session(session);
-        }
-        if (!product && item.boundProductId && mongoose.Types.ObjectId.isValid(item.boundProductId)) {
-          product = await Product.findById(item.boundProductId).session(session);
-        }
-        if (!product && item.suggestedProduct?.id && mongoose.Types.ObjectId.isValid(item.suggestedProduct.id)) {
-          product = await Product.findById(item.suggestedProduct.id).session(session);
-        }
-
-        const normalizedName = getReceiptLineNormalizedName(item);
-        const rawName = item.receiptName || normalizedName || 'Receipt Item';
-
-        if (!product) {
-          const resolved = await resolveReceiptLineProduct({
-            line: item,
-            upc: normalizedUpc,
-            normalizedName,
-            session,
-            fallback: 'unmapped'
-          });
-          product = resolved.product;
-        }
-
-        let productCreated = false;
-        let unmapped = null;
-        let inventory = null;
-        let inventoryForUnmapped = false;
-        let inventoryProductId = null;
-        let inventoryUnmappedProductId = null;
-
-        if (effectiveAction === 'CREATE_PRODUCT') {
-          const createProductPersistedState = await getPersistedLineState(item.lineIndex);
-          if (createProductPersistedState.inventoryPersisted || createProductPersistedState.priceObservationPersisted) {
-            lineOutcome.inventoryPersisted = createProductPersistedState.inventoryPersisted;
-            lineOutcome.priceObservationPersisted = createProductPersistedState.priceObservationPersisted;
-            lineOutcome.appliedState = 'already_persisted';
-            continue;
-          }
-
-          if (!product) {
-            try {
-              const resolved = await resolveReceiptLineProduct({
-                line: item,
-                upc: normalizedUpc,
-                normalizedName,
-                session,
-                fallback: 'stub',
-                createProductStub: async () => {
-                  const createdProduct = await Product.createReceiptProductStub({
-                    name: rawName,
-                    unitPrice,
-                    storeId: store._id,
-                    session
-                  });
-                  productCreated = true;
-                  return createdProduct;
-                }
-              });
-              product = resolved.product;
-            } catch (productCreateError) {
-              if (productCreateError?.code === 11000) {
-                const resolved = await resolveReceiptLineProduct({
-                  line: item,
-                  upc: normalizedUpc,
-                  normalizedName,
-                  session,
-                  fallback: 'unmapped'
-                });
-                product = resolved.product;
-              }
-              if (!product) throw productCreateError;
-            }
-          }
-
-          if (productCreated) {
-            createdProducts.push({
-              id: product._id,
-              sku: product.sku,
-              name: product.name,
+          return {
+            lineOutcome: {
               lineIndex: item.lineIndex,
-              effectiveAction: 'CREATE_PRODUCT'
-            });
-            await recordAuditLog({
-              type: 'product_created_from_receipt',
-              actorId: username,
-              details: `jobId=${jobId} captureId=${captureIdString} lineIndex=${item.lineIndex} productId=${product._id.toString()} sku=${product.sku}`
-            });
-          }
-        }
-
-        if (effectiveAction === 'CAPTURE_UNMAPPED') {
-          product = null;
-        }
-
-        if (!product) {
-          const now = new Date();
-
-          unmapped = await UnmappedProduct.findOne({
-            storeId: store._id,
-            normalizedName
-          }).session(session);
-
-          if (unmapped) {
-            await UnmappedProduct.updateOne(
-              { _id: unmapped._id },
-              {
-                $set: {
-                  lastSeenAt: now,
-                  lastSeenRawName: rawName
-                }
-              },
-              { session }
-            );
-          } else {
-            const created = await UnmappedProduct.create([
-              {
-                storeId: store._id,
-                rawName,
-                normalizedName,
-                firstSeenAt: now,
-                lastSeenAt: now,
-                lastSeenRawName: rawName,
-                status: 'NEW'
-              }
-            ], { session });
-            unmapped = created[0];
-          }
-
-          const unmappedObservation = buildPriceObservationPayload({
-            item,
-            storeId: store._id,
-            receiptCaptureId: capture._id,
-            unmappedProductId: unmapped._id,
-            observedAt: now
-          });
-          if (unmappedObservation.ok) {
-            priceObservations.push(unmappedObservation.payload);
-            lineOutcome.priceObservationPersisted = true;
-          } else {
-            observationRejectedLines.push({ lineIndex: item.lineIndex, reason: unmappedObservation.reason });
-          }
-          inventoryUnmappedProductId = unmapped._id;
-          inventoryForUnmapped = true;
-        }
-
-        lineOutcome.productCreated = productCreated;
-        if (productCreated && product) {
-          lineOutcome.createdProduct = {
-            id: product._id,
-            sku: product.sku,
-            name: product.name
-          };
-        }
-
-        if (product && !productCreated) {
-          matchedProducts.push({
-            id: product._id,
-            sku: product.sku,
-            name: product.name,
-            lineIndex: item.lineIndex
-          });
-        }
-
-        const inventoryMatchMethod = item.matchMethod || (product ? 'manual_confirm' : 'unmapped');
-        const inventoryWorkflowType = item.workflowType || (product ? 'update_price' : 'unmapped');
-
-        let storeInventoryQuery;
-        if (product) {
-          inventoryProductId = product._id;
-        } else if (inventoryForUnmapped && unmapped) {
-          inventoryUnmappedProductId = unmapped._id;
-        }
-        storeInventoryQuery = buildStoreInventoryQuery({
-          storeId: store._id,
-          productId: inventoryProductId,
-          unmappedProductId: inventoryUnmappedProductId
-        });
-        if (storeInventoryQuery) {
-          const existingInventory = await StoreInventory.findOne(storeInventoryQuery).session(session);
-          if (existingInventory?.priceLockUntil && new Date(existingInventory.priceLockUntil) > new Date()) {
-            if (!shouldIgnorePriceLocks) {
-              const lineError = {
-                lineIndex: item.lineIndex,
-                error: 'Price locked',
-                code: APPROVAL_ERROR_CODES.PRICE_LOCKED,
-                lockedUntil: existingInventory.priceLockUntil
-              };
-              errors.push(lineError);
-              lineOutcome.errors.push(lineError);
-              continue;
-            }
-
-            lineOutcome.priceLockOverridden = true;
-            lineOutcome.priceLockOverrideDetail = `priceLockUntil=${new Date(existingInventory.priceLockUntil).toISOString()}`;
-          }
-
-          const inventory = await StoreInventory.findOneAndUpdate(
-            storeInventoryQuery,
-            {
-              $set: {
-                sku: product?.sku || undefined,
-                observedPrice: unitPrice,
-                ...(retailPrice ? { retailPrice } : {}),
-                observedAt: new Date(),
-                lastCost: unitPrice,
-                cost: unitPrice,
-                lastCostAt: new Date(),
-                lastVerified: new Date(),
-                available: true,
-                stockLevel: 'in-stock'
-              },
-              $setOnInsert: {
-                cost: unitPrice,
-                markup: 1.2
-              },
-              $push: {
-                priceHistory: {
-                  price: unitPrice,
-                  observedAt: new Date(),
-                  storeId: store._id,
-                  captureId: capture._id.toString(),
-                  orderId: capture.orderId,
-                  quantity: normalizeQuantity(item.quantity),
-                  receiptImageUrl: capture.images?.[0]?.url,
-                  receiptThumbnailUrl: capture.images?.[0]?.thumbnailUrl,
-                  matchMethod: inventoryMatchMethod,
-                  matchConfidence: item.matchConfidence,
-                  confirmedBy: username,
-                  priceType: item.priceType || 'unknown',
-                  promoDetected: item.promoDetected || false,
-                  workflowType: productCreated ? 'new_product' : inventoryWorkflowType
-                }
-              },
-              $addToSet: {
-                appliedCaptures: {
-                  captureId: capture._id.toString(),
-                  lineIndex: item.lineIndex,
-                  appliedAt: new Date()
-                }
-              }
+              inventoryPersisted: persistedLineState.inventoryPersisted,
+              priceObservationPersisted: persistedLineState.priceObservationPersisted,
+              appliedState: 'already_persisted',
+              errors: [],
             },
-            { new: true, upsert: true, session }
-          );
-          if (inventory) {
-            lineOutcome.inventoryPersisted = true;
-            if (normalizedMode === 'locked') {
-              const lockDays = Number(lockDurationDays) || 7;
-              const lockUntil = new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000);
-              await StoreInventory.findByIdAndUpdate(
-                inventory._id,
-                { $set: { priceLockUntil: lockUntil } },
-                { session }
-              );
-            }
-            inventoryUpdates.push(
-              buildInventoryUpdate({
-                storeId: store._id,
-                productId: inventoryProductId,
-                unmappedProductId: inventoryUnmappedProductId,
-                price: unitPrice,
-                inventoryId: inventory?._id,
-                lineIndex: item.lineIndex
-              })
-            );
-          }
-        }
-
-        if (product) {
-          const productUpdate = {
-            lastCost: unitPrice,
-            lastCostAt: new Date()
+            priceObservation: null,
           };
-          if (autoUpdateProductPriceFromReceipt && retailPrice) {
-            productUpdate.price = retailPrice;
-          }
-          await Product.findByIdAndUpdate(product._id, { $set: productUpdate }, { session });
-          await recordAuditLog({
-            type: 'product_updated_from_receipt',
-            actorId: username,
-            details: `jobId=${jobId} captureId=${captureIdString} lineIndex=${item.lineIndex} productId=${product._id.toString()} auto_price_update=${autoUpdateProductPriceFromReceipt && Boolean(retailPrice)}`
-          });
         }
-
-        if (product) {
-          const mappedObservation = buildPriceObservationPayload({
-            item,
-            storeId: store._id,
-            receiptCaptureId: capture._id,
-            productId: product._id,
-            observedAt: new Date()
-          });
-          if (mappedObservation.ok) {
-            priceObservations.push(mappedObservation.payload);
-            lineOutcome.priceObservationPersisted = true;
-          } else {
-            observationRejectedLines.push({ lineIndex: item.lineIndex, reason: mappedObservation.reason });
-          }
-        }
-
-        if (product && normalizedUpc) {
-          const existingUpc = await UpcItem.findOne({ upc: normalizedUpc }).session(session);
-          if (existingUpc && existingUpc.productId && String(existingUpc.productId) !== String(product._id)) {
-            if (!forceUpcOverride) {
-              const lineError = {
-                lineIndex: item.lineIndex,
-                error: 'UPC already linked to different product',
-                code: APPROVAL_ERROR_CODES.UPC_CONFLICT,
-                upc: normalizedUpc
-              };
-              errors.push(lineError);
-              lineOutcome.errors.push(lineError);
-            } else {
-              await UpcItem.updateOne(
-                { upc: normalizedUpc },
-                { $set: { productId: product._id, name: product.name } },
-                { session }
-              );
-              await recordAuditLog({
-                type: 'upc_linked_from_receipt',
-                actorId: username,
-                details: `jobId=${jobId} captureId=${capture._id.toString()} upc=${normalizedUpc} productId=${product._id.toString()} override=true`
-              });
-            }
-          } else {
-            await UpcItem.findOneAndUpdate(
-              { upc: normalizedUpc },
-              { $set: { productId: product._id, name: product.name } },
-              { new: true, upsert: true, setDefaultsOnInsert: true, session }
-            );
-            await recordAuditLog({
-              type: 'upc_linked_from_receipt',
-              actorId: username,
-              details: `jobId=${jobId} captureId=${capture._id.toString()} upc=${normalizedUpc} productId=${product._id.toString()}`
-            });
-          }
-        }
+        return _processLineItemForApproval({
+          item,
+          approvalItem: approvalItems.get(item.lineIndex) || {},
+          store,
+          capture,
+          jobId,
+          session,
+          settings,
+          actorId,
+          forceUpcOverride,
+          shouldIgnorePriceLocks,
+        });
       } catch (itemError) {
+        // Collect errors but allow other promises to settle
         const lineError = { lineIndex: item.lineIndex, error: itemError.message, code: APPROVAL_ERROR_CODES.APPLY_FAILED };
-        errors.push(lineError);
-        lineOutcome.errors.push(lineError);
-        if (!fatalLineError) fatalLineError = lineError;
-        throw itemError;
+        return { lineOutcome: { lineIndex: item.lineIndex, errors: [lineError] }, priceObservation: null, status: 'rejected', reason: itemError };
       }
+    });
+
+    const settledResults = await Promise.allSettled(processingPromises);
+    const processingResults = settledResults.map(result => {
+      if (result.status === 'rejected') {
+        // The reason is already the object we want from the catch block
+        return result.reason;
+      }
+      return result.value;
+    });
+
+    for (const result of processingResults) { // Collect and audit results for each line item
+      await _collectAndAuditLineItemResults({
+        result,
+        lineOutcomeByIndex,
+        errors,
+        observationRejectedLines,
+        priceObservations,
+        createdProducts,
+        matchedProducts,
+        inventoryUpdates,
+        jobId, captureIdString, actorId, autoUpdateProductPriceFromReceipt, session
+      });
     }
 
     if (observationRejectedLines.length > 0) {
@@ -968,9 +803,9 @@ export const approveReceiptJob = async ({
         return acc;
       }, {});
       await recordAuditLog({
-        type: 'receipt_observation_rejected_lines',
-        actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} rejected=${observationRejectedLines.length} reasons=${JSON.stringify(reasonCounts)}`
+        action: 'RECEIPT_OBSERVATION_REJECTED_LINES',
+        actorId: actorId,
+        details: { jobId, captureId: capture._id.toString(), rejectedCount: observationRejectedLines.length, reasons: reasonCounts }
       });
       approvalStageMetrics.observationRejectedLines = observationRejectedLines;
     }
@@ -981,8 +816,22 @@ export const approveReceiptJob = async ({
     }
     approvalStageMetrics.observationWritesCount = createdPriceObservations.length;
 
+    const lineOutcomes = Array.from(lineOutcomeByIndex.values()).map(entry => ({
+      ...entry,
+      inventoryPersisted: entry.inventoryPersisted,
+      priceObservationPersisted: entry.priceObservationPersisted,
+      applied: Boolean(
+        entry.inventoryPersisted
+        || entry.priceObservationPersisted
+      )
+    }));
+    for (const lineOutcome of lineOutcomes) {
+      if (lineOutcome.appliedState === 'already_persisted') continue;
+      lineOutcome.appliedState = lineOutcome.applied ? 'newly_applied' : 'not_applied';
+    }
+
     const inventoryAppliedLineIndexes = new Set(
-      inventoryUpdates
+      lineOutcomes
         .map(entry => (typeof entry?.lineIndex === 'number' ? entry.lineIndex : null))
         .filter(lineIndex => lineIndex !== null)
     );
@@ -992,21 +841,6 @@ export const approveReceiptJob = async ({
         .filter(lineIndex => lineIndex !== null)
     );
 
-    const lineOutcomes = Array.from(lineOutcomeByIndex.values()).map(entry => ({
-      ...entry,
-      inventoryPersisted: entry.inventoryPersisted || inventoryAppliedLineIndexes.has(entry.lineIndex),
-      priceObservationPersisted: entry.priceObservationPersisted || observationAppliedLineIndexes.has(entry.lineIndex),
-      applied: Boolean(
-        entry.inventoryPersisted
-        || entry.priceObservationPersisted
-        || inventoryAppliedLineIndexes.has(entry.lineIndex)
-        || observationAppliedLineIndexes.has(entry.lineIndex)
-      )
-    }));
-    for (const lineOutcome of lineOutcomes) {
-      if (lineOutcome.appliedState === 'already_persisted') continue;
-      lineOutcome.appliedState = lineOutcome.applied ? 'newly_applied' : 'not_applied';
-    }
     const priceLockOverrideCount = lineOutcomes.filter(entry => entry.priceLockOverridden).length;
     const newlyAppliedCount = inventoryUpdates.length + createdPriceObservations.length;
     const appliedCount = lineOutcomes.filter(entry => entry.applied).length;
@@ -1040,9 +874,9 @@ export const approveReceiptJob = async ({
 
     if (enforceStrictValidation && Object.keys(errorsByLine).length > 0) {
       await recordAuditLog({
-        type: 'receipt_approval_failed',
-        actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=strict_validation_failed modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} auto_commit=${isAutoCommit}`
+        action: 'RECEIPT_APPROVAL_FAILED',
+        actorId: actorId,
+        details: { jobId, captureId: capture._id.toString(), reason: 'strict_validation_failed', mode: normalizedMode, autoCommit: isAutoCommit }
       });
       throw new ServiceError('Strict validation failed. Resolve line-level errors before approval.', 400, {
         reasonCode: APPROVAL_ERROR_CODES.NO_PERSISTED_CHANGES,
@@ -1056,10 +890,10 @@ export const approveReceiptJob = async ({
       const reason = errors.length > 0
         ? 'No receipt lines were applied. All selected lines were skipped due to validation or mapping errors.'
         : 'No receipt lines were applied. Verify product mappings and unit prices, then retry.';
-      await recordAuditLog({
-        type: 'receipt_approval_failed',
-        actorId: username,
-        details: `jobId=${jobId} captureId=${capture._id.toString()} reason=no_lines_applied modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} selected=${itemsToApprove.length} ignorePriceLocks=${shouldIgnorePriceLocks} priceLockOverrides=${priceLockOverrideCount} backendBuildId=${backendBuildId}`
+      await recordAuditLog({ // username is not defined here
+        action: 'RECEIPT_APPROVAL_FAILED',
+        actorId: actorId,
+        details: { jobId, captureId: capture._id.toString(), reason: 'no_lines_applied', mode: normalizedMode, selectedCount: itemsToApprove.length, ignorePriceLocks: shouldIgnorePriceLocks, priceLockOverrides: priceLockOverrideCount, backendBuildId }
       });
       throw new ServiceError(reason, 400, {
         reasonCode: APPROVAL_ERROR_CODES.NO_PERSISTED_CHANGES,
@@ -1075,52 +909,34 @@ export const approveReceiptJob = async ({
       });
     }
 
-    const previousCommitted = Number(capture.itemsCommitted || 0);
-    capture.itemsCommitted = Math.min(capture.totalItems, previousCommitted + newlyAppliedCount);
-    capture.itemsConfirmed = validDraftItems.filter(entry => entry.boundProductId).length;
-    capture.itemsNeedingReview = validDraftItems.filter(entry => entry.needsReview).length;
-    capture.committedBy = username;
-    capture.committedAt = new Date();
-    if (appliedCount > 0) {
-      capture.status = 'committed';
-      capture.reviewExpiresAt = undefined;
-    }
-
-    await capture.save({ session });
-
-    if (parseJob) {
-      parseJob.status = 'APPROVED';
-      parseJob.metadata = buildApprovalMetadata({
-        existingMetadata: parseJob.metadata,
-        username,
+    await _finalizeApprovalState({
+      capture,
+      parseJob,
+      lineOutcomes,
+      newlyAppliedCount,
+      appliedCount,
+      session,
+      metadata: {
+        username: user.username,
         storeId: store._id,
         requestBody: body,
         shouldIgnorePriceLocks,
         priceLockOverrideCount,
-        createdProducts,
-        matchedProducts,
-        appliedCount,
         skippedCount,
-        lineOutcomes,
-        priceNormalizationByLine: lineOutcomes.reduce((acc, entry) => {
-          acc[entry.lineIndex] = entry.normalizedPriceInput || null;
-          return acc;
-        }, {}),
         errorsByLine,
         inventoryUpdates,
         createdPriceObservations,
         approvalType: isAutoCommit ? 'auto' : 'manual',
         stageMetrics: approvalStageMetrics
-      });
-      await parseJob.save({ session });
-    }
+      }
+    });
 
     await session.commitTransaction();
 
     await recordAuditLog({
-      type: 'receipt_approved',
-      actorId: username,
-      details: `jobId=${jobId} captureId=${capture._id.toString()} storeId=${store._id.toString()} productsCreated=${createdProducts.length} inventoryUpdates=${inventoryUpdates.length} modeRaw=${String(rawRequestMode)} modeNormalized=${normalizedMode} ignorePriceLocks=${shouldIgnorePriceLocks} priceLockOverrides=${priceLockOverrideCount} backendBuildId=${backendBuildId} auto_commit=${isAutoCommit} approval_type=${isAutoCommit ? 'auto' : 'manual'} ocrLinesExtracted=${approvalStageMetrics.ocrLinesExtracted} linesWithValidQtyPrice=${approvalStageMetrics.linesWithValidQtyPrice} upcResolvedCount=${approvalStageMetrics.upcResolvedCount} nameResolvedCount=${approvalStageMetrics.nameResolvedCount} unmatchedCount=${approvalStageMetrics.unmatchedCount} observationWritesCount=${approvalStageMetrics.observationWritesCount}`
+      action: 'RECEIPT_APPROVED',
+      actorId: actorId,
+      details: { jobId, captureId: capture._id.toString(), storeId: store._id.toString(), productsCreated: createdProducts.length, inventoryUpdates: inventoryUpdates.length, mode: normalizedMode, ignorePriceLocks: shouldIgnorePriceLocks, priceLockOverrides: priceLockOverrideCount, backendBuildId, autoCommit: isAutoCommit, ...approvalStageMetrics }
     });
 
     return {
@@ -1150,31 +966,16 @@ export const approveReceiptJob = async ({
     if (error instanceof ServiceError) {
       throw error;
     }
-    const firstLineError = fatalLineError || errors[0] || null;
-    throw new ServiceError('Failed to approve receipt', 500, {
-      reasonCode: APPROVAL_ERROR_CODES.APPLY_FAILED,
-      ...(firstLineError
-        ? {
-            reasonDetail: {
-              code: firstLineError.code || APPROVAL_ERROR_CODES.APPLY_FAILED,
-              message: firstLineError.error,
-              lineIndex: firstLineError.lineIndex
-            },
-            firstLineError,
-            firstFailingLineIndex: firstLineError.lineIndex,
-            firstFailingCode: firstLineError.code || APPROVAL_ERROR_CODES.APPLY_FAILED
-          }
-        : {})
-    });
+    // The detailed error is now part of the thrown ServiceError from the try/catch block
+    // or a generic one is created if the error is not a ServiceError.
+    throw new ServiceError('Failed to approve receipt', 500, { reasonCode: APPROVAL_ERROR_CODES.APPLY_FAILED });
   } finally {
     await session.endSession();
   }
 };
 
 export const rejectReceiptJob = async ({ user, jobId, reason }) => {
-    if (!isDbReady()) {
-        throw new ServiceError('Database not ready', 503);
-    }
+    checkDb();
     if (!canApproveReceipts(user)) {
         throw new ServiceError('Not authorized', 403);
     }
@@ -1190,7 +991,7 @@ export const rejectReceiptJob = async ({ user, jobId, reason }) => {
         job.status = 'REJECTED';
         job.metadata = {
             ...job.metadata,
-            rejectedBy: user?.username,
+            rejectedBy: user.username,
             rejectedAt: new Date(),
             rejectionReason: reason || 'unspecified'
         };
@@ -1198,9 +999,9 @@ export const rejectReceiptJob = async ({ user, jobId, reason }) => {
 
         if (!alreadyRejected) {
             await recordAuditLog({
-                type: 'receipt_rejected',
-                actorId: user?.username || 'unknown',
-                details: `jobId=${job._id} reason=${reason || 'unspecified'}`
+                action: 'RECEIPT_REJECTED',
+                actorId: user?._id,
+                details: { jobId: job._id.toString(), reason: reason || 'unspecified' }
             });
         }
         await session.commitTransaction();
@@ -1214,9 +1015,11 @@ export const rejectReceiptJob = async ({ user, jobId, reason }) => {
     }
 };
 
-export const deleteReceipt = async ({ captureId }) => {
-    if (!isDbReady()) {
-        throw new ServiceError('Database not ready', 503);
+export const deleteReceipt = async ({ captureId, user }) => { // Added user for authorization
+    checkDb();
+    // Authorization check
+    if (!canApproveReceipts(user)) {
+        throw new ServiceError('Not authorized to delete receipts', 403);
     }
     if (!captureId) {
         throw new ServiceError('captureId required', 400);
@@ -1233,9 +1036,7 @@ export const deleteReceipt = async ({ captureId }) => {
 };
 
 export const cleanupQueue = async ({ user, captureIds, dryRun }) => {
-    if (!isDbReady()) {
-        throw new ServiceError('Database not ready', 503);
-    }
+    checkDb();
     if (!canApproveReceipts(user)) {
         throw new ServiceError('Not authorized to clean receipt queue', 403);
     }

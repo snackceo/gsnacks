@@ -5,8 +5,7 @@ const unmappedProductSchema = new mongoose.Schema({
   storeId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Store',
-    required: true,
-    index: true
+    required: true
   },
   rawName: {
     type: String,
@@ -28,14 +27,12 @@ const unmappedProductSchema = new mongoose.Schema({
   },
   lastSeenAt: {
     type: Date,
-    default: Date.now,
-    index: true
+    default: Date.now
   },
   status: {
     type: String,
     enum: ['NEW', 'IGNORED', 'MAPPED'],
-    default: 'NEW',
-    index: true
+    default: 'NEW'
   },
   mappedProductId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -51,7 +48,8 @@ unmappedProductSchema.pre('validate', function setCanonicalNormalizedName(next) 
 });
 
 unmappedProductSchema.index({ storeId: 1, normalizedName: 1 }, { unique: true });
-unmappedProductSchema.index({ normalizedName: 1 });
+unmappedProductSchema.index({ storeId: 1, status: 1 });
+unmappedProductSchema.index({ storeId: 1, lastSeenAt: -1 });
 
 const UnmappedProduct = mongoose.model('UnmappedProduct', unmappedProductSchema);
 

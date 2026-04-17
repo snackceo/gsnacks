@@ -1,16 +1,8 @@
 import Store from '../../models/Store.js';
-import { isDbReady } from '../../db/connect.js';
-import { recordAuditLog } from '../../utils/audit.js';
+import { recordAuditLog } from './auditLogService.js';
 import { shouldAutoCreateStore, normalizePhone, normalizeStoreNumber } from '../../utils/storeMatcher.js';
 import { sanitizeSearch } from './receiptValidationService.js';
-
-const checkDb = () => {
-  if (!isDbReady()) {
-    const error = new Error('Database not ready');
-    error.statusCode = 503;
-    throw error;
-  }
-};
+import { checkDb } from './serviceUtils.js';
 
 export const findStoreCandidates = async (searchQuery) => {
   checkDb();
@@ -27,7 +19,7 @@ export const findStoreCandidates = async (searchQuery) => {
     .lean();
 };
 
-export const createStoreCandidate = async ({ storeData, actor }) => {
+export const createStoreCandidate = async ({ storeData, user }) => {
   checkDb();
   const { storeName, address, phone, storeType, storeNumber } = storeData;
 
@@ -52,9 +44,9 @@ export const createStoreCandidate = async ({ storeData, actor }) => {
   const store = await Store.create(creationData);
 
   await recordAuditLog({
-    type: 'receipt_store_create',
-    actorId: actor,
-    details: `storeName=${storeName}`,
+    action: 'RECEIPT_STORE_CREATED',
+    actorId: user?._id,
+    details: { storeName, storeId: store._id.toString() },
   });
 
   return { store };

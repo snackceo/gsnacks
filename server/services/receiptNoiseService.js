@@ -1,26 +1,14 @@
 import ReceiptNoiseRule from '../../models/ReceiptNoiseRule.js';
-import { isDbReady } from '../../db/connect.js';
-import { recordAuditLog } from '../../utils/audit.js';
-
-const checkDb = () => {
-  if (!isDbReady()) {
-    const error = new Error('Database not ready');
-    error.statusCode = 503;
-    throw error;
-  }
-};
+import { recordAuditLog } from './auditLogService.js';
+import { checkDb, validateStoreId } from './serviceUtils.js';
 
 export const getRules = async (storeId) => {
   checkDb();
-  if (!storeId) {
-    const error = new Error('storeId required');
-    error.statusCode = 400;
-    throw error;
-  }
+  validateStoreId(storeId);
   return ReceiptNoiseRule.find({ storeId }).sort({ createdAt: -1 }).limit(200).lean();
 };
 
-export const createRule = async ({ storeId, normalizedName, actor }) => {
+export const createRule = async ({ storeId, normalizedName, actorId }) => {
   checkDb();
   if (!storeId || !normalizedName) {
     const error = new Error('storeId and normalizedName required');
@@ -30,20 +18,20 @@ export const createRule = async ({ storeId, normalizedName, actor }) => {
 
   const rule = await ReceiptNoiseRule.findOneAndUpdate(
     { storeId, normalizedName },
-    { storeId, normalizedName, addedBy: actor },
+    { storeId, normalizedName, addedBy: actorId },
     { new: true, upsert: true }
   ).lean();
 
   await recordAuditLog({
-    type: 'receipt_noise_rule_create',
-    actorId: actor,
-    details: `storeId=${storeId} normalizedName=${normalizedName}`,
+    action: 'RECEIPT_NOISE_RULE_CREATED',
+    actorId: actorId,
+    details: { storeId, normalizedName },
   });
 
   return rule;
 };
 
-export const deleteRule = async ({ storeId, normalizedName, actor }) => {
+export const deleteRule = async ({ storeId, normalizedName, actorId }) => {
   checkDb();
   if (!storeId || !normalizedName) {
     const error = new Error('storeId and normalizedName required');
@@ -54,8 +42,8 @@ export const deleteRule = async ({ storeId, normalizedName, actor }) => {
   await ReceiptNoiseRule.deleteOne({ storeId, normalizedName });
 
   await recordAuditLog({
-    type: 'receipt_noise_rule_delete',
-    actorId: actor,
-    details: `storeId=${storeId} normalizedName=${normalizedName}`,
+    action: 'RECEIPT_NOISE_RULE_DELETED',
+    actorId: actorId,
+    details: { storeId, normalizedName },
   });
 };

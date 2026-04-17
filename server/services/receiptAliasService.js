@@ -2,39 +2,23 @@ import mongoose from 'mongoose';
 import ReceiptNameAlias from '../../models/ReceiptNameAlias.js';
 import Product from '../../models/Product.js';
 import Store from '../../models/Store.js';
-import { isDbReady } from '../../db/connect.js';
-import { recordAuditLog } from '../../utils/audit.js';
+import { recordAuditLog } from './auditLogService.js';
 import { getReceiptLineNormalizedName } from '../../utils/receiptLineResolver.js';
-
-const checkDb = () => {
-  if (!isDbReady()) {
-    const error = new Error('Database not ready');
-    error.statusCode = 503;
-    throw error;
-  }
-};
+import { checkDb, validateStoreId } from './serviceUtils.js';
 
 export const getAliasesByStore = async (storeId) => {
   checkDb();
-  if (!storeId) {
-    const error = new Error('storeId required');
-    error.statusCode = 400;
-    throw error;
-  }
+  validateStoreId(storeId);
   return ReceiptNameAlias.find({ storeId }).sort({ confirmedCount: -1 }).limit(200).lean();
 };
 
 export const getStoreAliasesSortedByConfirmation = async (storeId) => {
   checkDb();
-  if (!storeId) {
-    const error = new Error('storeId required');
-    error.statusCode = 400;
-    throw error;
-  }
+  validateStoreId(storeId);
   return ReceiptNameAlias.find({ storeId }).sort({ lastConfirmedAt: -1 }).limit(100).lean();
 };
 
-export const createAlias = async ({ storeId, normalizedName, rawName, productId, upc, actor }) => {
+export const createAlias = async ({ storeId, normalizedName, rawName, productId, upc, actorId }) => {
   checkDb();
   if (!storeId || !normalizedName || !productId) {
     const error = new Error('storeId, normalizedName, and productId are required');
@@ -48,19 +32,19 @@ export const createAlias = async ({ storeId, normalizedName, rawName, productId,
       storeId,
       normalizedName,
       productId,
-      upc: upc || undefined,
-      $addToSet: { rawNames: rawName ? { name: rawName } : undefined },
+      ...(upc && { upc }), // Only add upc if it exists
+      ...(rawName && { $addToSet: { rawNames: { name: rawName } } }), // Only add rawName if it exists
       $inc: { confirmedCount: 1 },
       lastConfirmedAt: new Date(),
-      confirmedBy: actor,
+      confirmedBy: actorId,
     },
     { new: true, upsert: true }
   ).lean();
 
   await recordAuditLog({
-    type: 'receipt_alias_confirm',
-    actorId: actor,
-    details: `storeId=${storeId} name=${normalizedName} product=${productId}`,
+    action: 'RECEIPT_ALIAS_CONFIRMED',
+    actorId: actorId,
+    details: { storeId, normalizedName, productId },
   });
 
   return alias;
@@ -76,7 +60,7 @@ export const getAliasHistory = async ({ storeId, normalizedName }) => {
   return ReceiptNameAlias.findOne({ storeId, normalizedName }).lean();
 };
 
-export const confirmMatch = async ({ receiptName, sku, storeId, actor }) => {
+export const confirmMatch = async ({ receiptName, sku, storeId, actorId }) => {
   checkDb();
   if (!receiptName || !sku) {
     const error = new Error('receiptName and sku are required');
@@ -92,7 +76,7 @@ export const confirmMatch = async ({ receiptName, sku, storeId, actor }) => {
   }
 
   const normalizedName = getReceiptLineNormalizedName(receiptName);
-  const alias = await createAlias({ storeId, normalizedName, rawName: receiptName, productId: product._id, upc: product.upc, actor });
+  const alias = await createAlias({ storeId, normalizedName, rawName: receiptName, productId: product._id, upc: product.upc, actorId });
 
   return { message: 'Receipt item match confirmed', aliasId: alias._id, productId: product._id, sku };
 };

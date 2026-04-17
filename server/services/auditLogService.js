@@ -1,4 +1,4 @@
-const AuditLog = require('../models/AuditLog.js');
+import AuditLog from '../models/AuditLog.js';
 
 /**
  * Records an action in the audit log.
@@ -10,5 +10,11 @@ const AuditLog = require('../models/AuditLog.js');
  * @param {object} [logData.details] - Any additional details about the action.
  */
 exports.recordAuditLog = async (logData) => {
-  await AuditLog.create({ actor: logData.actorId, ...logData });
+  // Ensure we only log fields that exist in the schema
+  const { actorId, action, targetType, targetId, details } = logData;
+  await AuditLog.create({
+    actorId,
+    type: action, // The model uses 'type' for the action name
+    details: { targetType, targetId, ...details }
+  });
 };

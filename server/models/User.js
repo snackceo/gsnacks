@@ -8,11 +8,10 @@ const userSchema = new mongoose.Schema(
     password: { type: String, required: true },
     role: {
       type: String,
-      enum: ['CUSTOMER', 'ADMIN', 'DRIVER'],
+      enum: ['CUSTOMER', 'ADMIN', 'DRIVER', 'OWNER'],
       default: 'CUSTOMER'
     },
     creditBalance: { type: Number, default: 0 },
-    authorizedCreditBalance: { type: Number, default: 0 },
     loyaltyPoints: { type: Number, default: 0 },
     membershipTier: {
       type: String,
@@ -23,8 +22,7 @@ const userSchema = new mongoose.Schema(
     phoneVerified: { type: Boolean, default: false },
     photoIdVerified: { type: Boolean, default: false },
     resetTokenHash: { type: String },
-    resetTokenExpiresAt: { type: Date },
-    creditTransactionId: { type: String }
+    resetTokenExpiresAt: { type: Date }
   },
   { timestamps: true }
 );

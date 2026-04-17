@@ -12,7 +12,6 @@ const receiptCaptureSchema = new mongoose.Schema({
   storeId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Store',
-    index: true
   },
   storeName: String,
   
@@ -36,11 +35,6 @@ const receiptCaptureSchema = new mongoose.Schema({
     enum: ['pending_parse', 'parsing', 'parsed', 'review_complete', 'committed', 'failed'],
     default: 'pending_parse',
     index: true
-  },
-  // Expiry for review/cleanup
-  reviewExpiresAt: {
-    type: Date,
-    index: { expireAfterSeconds: 0, sparse: true }
   },
   
   // Draft line items from Gemini parse
@@ -85,7 +79,7 @@ const receiptCaptureSchema = new mongoose.Schema({
     boundProductId: mongoose.Schema.Types.ObjectId,
     boundUpc: String,
     confirmedAt: Date,
-    confirmedBy: String,
+    confirmedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     
     // Promo detection
     promoDetected: { type: Boolean, default: false },
@@ -114,21 +108,21 @@ const receiptCaptureSchema = new mongoose.Schema({
   
   // Audit
   createdBy: String,
-  createdByUserId: String,
+  createdByUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   createdByRole: {
     type: String,
-    enum: ['DRIVER', 'MANAGER', 'OWNER']
+    enum: ['DRIVER', 'MANAGER', 'OWNER', 'CUSTOMER', 'ADMIN']
   },
   source: {
     type: String,
     enum: ['driver_camera', 'management_upload', 'email_import']
   },
-  reviewedBy: [String],
+  reviewedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   committedBy: String,
   committedAt: Date,
   
-  // Expiration (for pending reviews)
-  reviewExpiresAt: Date
+  // Expiration for pending reviews, used by TTL index
+  reviewExpiresAt: { type: Date, sparse: true },
 }, {
   timestamps: true
 });
@@ -136,10 +130,7 @@ const receiptCaptureSchema = new mongoose.Schema({
 // Indexes
 receiptCaptureSchema.index({ storeId: 1, status: 1 });
 receiptCaptureSchema.index({ createdAt: -1 });
-receiptCaptureSchema.index({ reviewExpiresAt: 1 }, { 
-  sparse: true,
-  expireAfterSeconds: 0 // Auto-delete expired reviews
-});
+receiptCaptureSchema.index({ reviewExpiresAt: 1 }, { sparse: true });
 
 // Methods
 receiptCaptureSchema.methods.markParsing = function() {

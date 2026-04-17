@@ -2,24 +2,14 @@ import mongoose from 'mongoose';
 import ReceiptCapture from '../../models/ReceiptCapture.js';
 import StoreInventory from '../../models/StoreInventory.js';
 import ReceiptNameAlias from '../../models/ReceiptNameAlias.js';
-import { isDbReady } from '../../db/connect.js';
-import { recordAuditLog } from '../../utils/audit.js';
-import { sanitizeSearch, validateUPC, validatePriceQuantity } from './receiptValidationService.js';
-import { DEFAULT_PRICE_LOCK_DAYS } from '../../config/constants.js';
-
-const checkDb = () => {
-  if (!isDbReady()) {
-    const error = new Error('Database not ready');
-    error.statusCode = 503;
-    throw error;
-  }
-};
+import { recordAuditLog } from './auditLogService.js';
+import { sanitizeSearch, validateUPC, validatePriceQuantity } from './receiptValidationService.js'; // Assuming these are in receiptValidationService.js
+import { DEFAULT_PRICE_LOCK_DAYS } from '../config/constants.js'; // Centralized constant
+import { checkDb, validateStoreId, validateCaptureId } from './serviceUtils.js';
 
 export const getItemsForStore = async ({ storeId, q }) => {
   checkDb();
-  if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
-    throw { statusCode: 400, message: 'Valid storeId required' };
-  }
+  validateStoreId(storeId);
   const query = { storeId };
   if (q) {
     query.normalizedName = { $regex: sanitizeSearch(q), $options: 'i' };
@@ -29,18 +19,19 @@ export const getItemsForStore = async ({ storeId, q }) => {
 
 export const getItemHistory = async ({ storeId, productId }) => {
   checkDb();
-  if (!storeId || !productId) {
-    throw { statusCode: 400, message: 'storeId and productId required' };
+  validateStoreId(storeId);
+  if (!productId) {
+    const error = new Error('productId required');
+    error.statusCode = 400;
+    throw error;
   }
   const inventory = await StoreInventory.findOne({ storeId, productId }).lean();
   return inventory?.priceHistory || [];
 };
 
-export const refreshFailedCaptures = async ({ storeId, actor }) => {
+export const refreshFailedCaptures = async ({ storeId, actorId }) => {
   checkDb();
-  if (!storeId || !mongoose.Types.ObjectId.isValid(storeId)) {
-    throw { statusCode: 400, message: 'Valid storeId required' };
-  }
+  validateStoreId(storeId);
   const failed = await ReceiptCapture.find({ storeId, status: 'failed' });
   if (failed.length === 0) {
     return { refreshed: 0, message: 'No failed receipts to refresh' };
@@ -50,37 +41,37 @@ export const refreshFailedCaptures = async ({ storeId, actor }) => {
     capture.parseError = null;
     await capture.save();
   }
-  await recordAuditLog({ type: 'receipt_refresh', actorId: actor, details: `storeId=${storeId} count=${failed.length}` });
+  await recordAuditLog({ action: 'RECEIPT_REFRESH', actorId: actorId, details: { storeId, count: failed.length } });
   return { refreshed: failed.length };
 };
 
-export const lockCapture = async ({ captureId, days, actor }) => {
+export const lockCapture = async ({ captureId, days, actorId }) => {
   checkDb();
-  if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
-    throw { statusCode: 400, message: 'Valid captureId required' };
-  }
+  validateCaptureId(captureId);
   const capture = await ReceiptCapture.findById(captureId);
   if (!capture) {
-    throw { statusCode: 404, message: 'Receipt capture not found' };
+    const error = new Error('Receipt capture not found');
+    error.statusCode = 404;
+    throw error;
   }
   const lockDays = Number(days) || DEFAULT_PRICE_LOCK_DAYS;
   capture.reviewExpiresAt = new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000);
   await capture.save();
-  await recordAuditLog({ type: 'receipt_lock', actorId: actor, details: `captureId=${captureId} days=${lockDays}` });
+  await recordAuditLog({ action: 'RECEIPT_LOCKED', actorId: actorId, details: { captureId, days: lockDays } });
 };
 
-export const unlockCapture = async ({ captureId, actor }) => {
+export const unlockCapture = async ({ captureId, actorId }) => {
   checkDb();
-  if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
-    throw { statusCode: 400, message: 'Valid captureId required' };
-  }
+  validateCaptureId(captureId);
   const capture = await ReceiptCapture.findById(captureId);
   if (!capture) {
-    throw { statusCode: 404, message: 'Receipt capture not found' };
+    const error = new Error('Receipt capture not found');
+    error.statusCode = 404;
+    throw error;
   }
   capture.reviewExpiresAt = null;
   await capture.save();
-  await recordAuditLog({ type: 'receipt_unlock', actorId: actor, details: `captureId=${captureId}` });
+  await recordAuditLog({ action: 'RECEIPT_UNLOCKED', actorId: actorId, details: { captureId } });
 };
 
 export const getStoreSummary = async () => {
@@ -102,52 +93,72 @@ export const getStoreSummary = async () => {
   ]);
 };
 
-export const fixItemUpc = async ({ captureId, lineIndex, upc, actor }) => {
+export const fixItemUpc = async ({ captureId, lineIndex, upc, actorId }) => {
   checkDb();
-  if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
-    throw { statusCode: 400, message: 'Valid captureId required' };
-  }
+  validateCaptureId(captureId);
   if (!upc || !validateUPC(upc)) {
-    throw { statusCode: 400, message: 'Valid UPC required' };
+    const error = new Error('Valid UPC required');
+    error.statusCode = 400;
+    throw error;
   }
   const capture = await ReceiptCapture.findById(captureId);
-  if (!capture) throw { statusCode: 404, message: 'Receipt capture not found' };
+  if (!capture) {
+    const error = new Error('Receipt capture not found');
+    error.statusCode = 404;
+    throw error;
+  }
   const draftItem = capture.draftItems.find(item => item.lineIndex === lineIndex);
-  if (!draftItem) throw { statusCode: 404, message: 'Draft item not found' };
+  if (!draftItem) {
+    const error = new Error('Draft item not found');
+    error.statusCode = 404;
+    throw error;
+  }
   draftItem.boundUpc = upc;
   await capture.save();
-  await recordAuditLog({ type: 'receipt_fix_upc', actorId: actor, details: `captureId=${captureId} lineIndex=${lineIndex} upc=${upc}` });
+  await recordAuditLog({ action: 'RECEIPT_ITEM_UPC_FIXED', actorId: actorId, details: { captureId, lineIndex, upc } });
 };
 
-export const fixItemPrice = async ({ captureId, lineIndex, totalPrice, quantity, actor }) => {
+export const fixItemPrice = async ({ captureId, lineIndex, totalPrice, quantity, actorId }) => {
   checkDb();
-  if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
-    throw { statusCode: 400, message: 'Valid captureId required' };
-  }
+  validateCaptureId(captureId);
   const validation = validatePriceQuantity(totalPrice, quantity);
-  if (!validation.ok) throw { statusCode: 400, message: validation.error };
+  if (!validation.ok) {
+    const error = new Error(validation.error);
+    error.statusCode = 400;
+    throw error;
+  }
   const capture = await ReceiptCapture.findById(captureId);
-  if (!capture) throw { statusCode: 404, message: 'Receipt capture not found' };
+  if (!capture) {
+    const error = new Error('Receipt capture not found');
+    error.statusCode = 404;
+    throw error;
+  }
   const draftItem = capture.draftItems.find(item => item.lineIndex === lineIndex);
-  if (!draftItem) throw { statusCode: 404, message: 'Draft item not found' };
+  if (!draftItem) {
+    const error = new Error('Draft item not found');
+    error.statusCode = 404;
+    throw error;
+  }
   draftItem.totalPrice = totalPrice;
   draftItem.quantity = quantity;
   draftItem.unitPrice = totalPrice / quantity;
   draftItem.needsReview = false;
   draftItem.reviewReason = null;
   await capture.save();
-  await recordAuditLog({ type: 'receipt_fix_price', actorId: actor, details: `captureId=${captureId} lineIndex=${lineIndex} price=${totalPrice}` });
+  await recordAuditLog({ action: 'RECEIPT_ITEM_PRICE_FIXED', actorId: actorId, details: { captureId, lineIndex, totalPrice, quantity } });
 };
 
-export const resetReview = async ({ captureId, actor }) => {
+export const resetReview = async ({ captureId, actorId }) => {
   checkDb();
-  if (!captureId || !mongoose.Types.ObjectId.isValid(captureId)) {
-    throw { statusCode: 400, message: 'Valid captureId required' };
-  }
+  validateCaptureId(captureId);
   const capture = await ReceiptCapture.findById(captureId);
-  if (!capture) throw { statusCode: 404, message: 'Receipt capture not found' };
+  if (!capture) {
+    const error = new Error('Receipt capture not found');
+    error.statusCode = 404;
+    throw error;
+  }
   capture.status = 'parsed';
   capture.reviewExpiresAt = null;
   await capture.save();
-  await recordAuditLog({ type: 'receipt_reset_review', actorId: actor, details: `captureId=${captureId}` });
+  await recordAuditLog({ action: 'RECEIPT_REVIEW_RESET', actorId: actorId, details: { captureId } });
 };

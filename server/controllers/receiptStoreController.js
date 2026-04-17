@@ -1,22 +1,15 @@
 import * as receiptStoreService from '../services/receiptStoreService.js';
+import asyncHandler from '../utils/asyncHandler.js';
 
-export const getReceiptStoreCandidates = async (req, res, next) => {
-  try {
-    const stores = await receiptStoreService.findStoreCandidates(req.query.q);
-    res.json({ ok: true, stores });
-  } catch (error) {
-    next(error);
-  }
-};
+export const getReceiptStoreCandidates = asyncHandler(async (req, res, next) => {
+  const stores = await receiptStoreService.findStoreCandidates(req.query.q);
+  res.json({ ok: true, stores });
+});
 
-export const postReceiptStoreCandidates = async (req, res, next) => {
-  try {
-    const result = await receiptStoreService.createStoreCandidate({
-      storeData: req.body,
-      actor: req.user?.username || 'unknown',
-    });
-    res.json({ ok: true, ...result });
-  } catch (error) {
-    next(error);
-  }
-};
+export const postReceiptStoreCandidates = asyncHandler(async (req, res, next) => {
+  const result = await receiptStoreService.createStoreCandidate({
+    storeData: req.body,
+    user: req.user,
+  });
+  res.json({ ok: true, ...result });
+});

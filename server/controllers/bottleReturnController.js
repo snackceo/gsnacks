@@ -14,6 +14,10 @@ const CREDIT_PER_BOTTLE = 0.1; // Example: $0.10 credit per bottle
 exports.createReturnRequest = asyncHandler(async (req, res, next) => {
   const { numberOfBottles, imageProofUrl } = req.body;
 
+  if (req.user.role !== 'CUSTOMER') {
+    return next(new ErrorResponse('Only customers can create bottle return requests.', 403));
+  }
+
   // --- Fraud Prevention: Limit submissions per day ---
   const today = new Date();
   today.setHours(0, 0, 0, 0);

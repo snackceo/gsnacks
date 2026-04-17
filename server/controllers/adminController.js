@@ -57,12 +57,11 @@ exports.updateUser = asyncHandler(async (req, res, next) => {
 // @route   DELETE /api/v1/admin/users/:id
 // @access  Private (Owner)
 exports.deleteUser = asyncHandler(async (req, res, next) => {
-  const user = await User.findById(req.params.id);
-  if (!user) {
+  const deletedUser = await User.findByIdAndDelete(req.params.id);
+
+  if (!deletedUser) {
     return next(new ErrorResponse(`User not found with id of ${req.params.id}`, 404));
   }
-
-  await user.remove();
 
   await recordAuditLog({
     actorId: req.user._id,

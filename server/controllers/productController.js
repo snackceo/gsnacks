@@ -33,6 +33,13 @@ const resolveProductImage = value => {
   return PRODUCT_IMAGE_FALLBACK_URL;
 };
 
+const validateString = (val, field, max = 64) => {
+  if (val === undefined || val === null) return '';
+  if (typeof val !== 'string') throw new ErrorResponse(`${field} must be a string`, 400);
+  if (val.length > max) throw new ErrorResponse(`${field} too long (max ${max})`, 400);
+  return val.trim();
+};
+
 const mapProduct = d => ({
   id: d.sku,
   sku: d.sku || undefined,
@@ -117,13 +124,6 @@ export const createProduct = asyncHandler(async (req, res, next) => {
   
   const normalizedImage = normalizeProductImageInput(req.body?.image);
   
-  const validateString = (val, field, max = 64) => {
-    if (val === undefined || val === null) return '';
-    if (typeof val !== 'string') throw new ErrorResponse(`${field} must be a string`, 400);
-    if (val.length > max) throw new ErrorResponse(`${field} too long (max ${max})`, 400);
-    return val.trim();
-  };
-  
   const safeBrand = validateString(brand, 'brand');
   const safeProductType = validateString(productType, 'productType');
   const safeStorageZone = validateString(storageZone, 'storageZone');
@@ -165,45 +165,33 @@ export const createProduct = asyncHandler(async (req, res, next) => {
 export const updateProduct = asyncHandler(async (req, res, next) => {
   const paramId = req.params.id;
 
+  const {
+    name, price, deposit, stock, sizeOz, isTaxable,
+    category, brand, productType, storageZone, storageBin,
+    image, isGlass, isHeavy, upc
+  } = req.body;
+
   const updates = {};
-  const allowed = [
-    'name', 'price', 'deposit', 'stock', 'sizeOz', 'isTaxable',
-    'category', 'brand', 'productType', 'storageZone', 'storageBin',
-    'image', 'isGlass', 'isHeavy', 'upc'
-  ];
 
-  const validateString = (val, field, max = 64) => {
-    if (val === undefined || val === null) return '';
-    if (typeof val !== 'string') throw new ErrorResponse(`${field} must be a string`, 400);
-    if (val.length > max) throw new ErrorResponse(`${field} too long (max ${max})`, 400);
-    return val.trim();
-  };
+  if (name !== undefined) updates.name = name;
+  if (price !== undefined) updates.price = Number(price);
+  if (deposit !== undefined) updates.deposit = Number(deposit);
+  if (stock !== undefined) updates.stock = Number(stock);
+  if (sizeOz !== undefined) updates.sizeOz = Number(sizeOz);
+  if (isTaxable !== undefined) updates.isTaxable = !!isTaxable;
+  if (category !== undefined) updates.category = category;
+  if (image !== undefined) updates.image = normalizeProductImageInput(image);
+  if (isGlass !== undefined) updates.isGlass = !!isGlass;
+  if (isHeavy !== undefined) updates.isHeavy = !!isHeavy;
 
-  for (const k of allowed) {
-    if (req.body?.[k] !== undefined) {
-      if (["brand","productType","storageZone","storageBin"].includes(k)) {
-          updates[k] = validateString(req.body[k], k);
-      } else {
-        updates[k] = req.body[k];
-      }
-    }
-  }
+  if (brand !== undefined) updates.brand = validateString(brand, 'brand');
+  if (productType !== undefined) updates.productType = validateString(productType, 'productType');
+  if (storageZone !== undefined) updates.storageZone = validateString(storageZone, 'storageZone');
+  if (storageBin !== undefined) updates.storageBin = validateString(storageBin, 'storageBin');
 
-  if (updates.price !== undefined) updates.price = Number(updates.price);
-  if (updates.deposit !== undefined) updates.deposit = Number(updates.deposit);
-  if (updates.stock !== undefined) updates.stock = Number(updates.stock);
-  if (updates.sizeOz !== undefined) updates.sizeOz = Number(updates.sizeOz);
-  if (updates.isGlass !== undefined) updates.isGlass = !!updates.isGlass;
-  if (updates.isHeavy !== undefined) updates.isHeavy = !!updates.isHeavy;
-  if (updates.isTaxable !== undefined) updates.isTaxable = !!updates.isTaxable;
-  if (updates.image !== undefined) updates.image = normalizeProductImageInput(updates.image);
-  if (updates.upc !== undefined) {
-    const normalizedUpc = String(updates.upc).trim();
-    updates.upc = normalizedUpc || '';
-  }
-
-  for (const k of ["brand","productType","storageZone","storageBin"]) {
-    if (updates[k] === '') updates[k] = '';
+  if (upc !== undefined) {
+    const normalizedUpc = String(upc).trim();
+    updates.upc = normalizedUpc || undefined; // Use undefined to remove if empty
   }
 
   const updated = await productService.updateProduct(paramId, updates);

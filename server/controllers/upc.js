@@ -1,5 +1,6 @@
 import UpcItem from '../models/UpcItem.js';
 import UpcLookupCache from '../models/UpcLookupCache.js';
+import asyncHandler from '../utils/asyncHandler.js';
 import { getUpcWhitelist } from '../services/upcWhitelistService.js';
 import { resolveUpc, isValidBarcode as isValidBarcodeInternal } from '../services/upcResolutionService.js';
 
@@ -114,358 +115,305 @@ const synchronizeContainerType = (updates) => {
   return newUpdates;
 };
 
-export const getEligibility = async (req, res) => {
-  try {
-    const upc = normalizeBarcode(req.query?.upc);
-    if (!upc) return res.status(400).json({ error: 'upc is required' });
-    if (!isValidBarcode(upc)) {
-      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
-    }
-    const depositValue = await getMichiganDepositValue();
-    const entry = await UpcItem.findOne({ upc }).lean();
-    res.json(buildEligibilityPayload(entry, depositValue));
-  } catch (err) {
-    console.error('UPC ELIGIBILITY ERROR:', err);
-    res.status(500).json({ error: 'Failed to check UPC eligibility' });
+export const getEligibility = asyncHandler(async (req, res, next) => {
+  const upc = normalizeBarcode(req.query?.upc);
+  if (!upc) return res.status(400).json({ error: 'upc is required' });
+  if (!isValidBarcode(upc)) {
+    return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
   }
-};
+  const depositValue = await getMichiganDepositValue();
+  const entry = await UpcItem.findOne({ upc }).lean();
+  res.json(buildEligibilityPayload(entry, depositValue));
+});
 
-export const postEligibility = async (req, res) => {
-  try {
-    const body = req.body;
-    const upcs = normalizeUpcList(Array.isArray(body) ? body : body?.upcs);
-    const depositValue = await getMichiganDepositValue();
+export const postEligibility = asyncHandler(async (req, res, next) => {
+  const body = req.body;
+  const upcs = normalizeUpcList(Array.isArray(body) ? body : body?.upcs);
+  const depositValue = await getMichiganDepositValue();
 
-    if (upcs.length > 0) {
-      const invalidUpcs = upcs.filter(upc => !isValidBarcode(upc));
-      if (invalidUpcs.length > 0) {
-        return res.status(400).json({
-          error: 'Invalid barcode format',
-          invalidUpcs
-        });
-      }
-      const entries = await UpcItem.find({ upc: { $in: upcs } }).lean();
-      const entryMap = new Map(entries.map(entry => [entry.upc, entry]));
-      const results = upcs.map(upc => ({
-        upc,
-        ...buildEligibilityPayload(entryMap.get(upc), depositValue)
-      }));
-
-      return res.json({ results });
-    }
-
-    const upc = normalizeBarcode(body?.upc);
-    if (!upc) return res.status(400).json({ error: 'upc is required' });
-    if (!isValidBarcode(upc)) {
-      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
-    }
-
-    const entry = await UpcItem.findOne({ upc }).lean();
-    return res.json(buildEligibilityPayload(entry, depositValue));
-  } catch (err) {
-    console.error('UPC ELIGIBILITY BULK ERROR:', err);
-    return res.status(500).json({ error: 'Failed to check UPC eligibility' });
-  }
-};
-
-export const getOffLookup = async (req, res) => {
-  try {
-    // Prevent browser caching for owner-only data
-    res.set({
-      'Cache-Control': 'no-store',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-      'Vary': 'Cookie, Origin'
-    });
-
-    const code = normalizeBarcode(req.params.code);
-    if (!code) return res.status(400).json({ error: 'code is required' });
-    if (!isValidBarcode(code)) {
-      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: code });
-    }
-
-    if (isOffCooldownActive()) {
-      return res.status(503).json({
-        error: 'Open Food Facts lookup temporarily unavailable due to upstream issues.'
+  if (upcs.length > 0) {
+    const invalidUpcs = upcs.filter(upc => !isValidBarcode(upc));
+    if (invalidUpcs.length > 0) {
+      return res.status(400).json({
+        error: 'Invalid barcode format',
+        invalidUpcs
       });
     }
+    const entries = await UpcItem.find({ upc: { $in: upcs } }).lean();
+    const entryMap = new Map(entries.map(entry => [entry.upc, entry]));
+    const results = upcs.map(upc => ({
+      upc,
+      ...buildEligibilityPayload(entryMap.get(upc), depositValue)
+    }));
 
-    const cached = await UpcLookupCache.findOne({ code }).lean();
-    if (cached?.payload) {
-      return res.json({ ok: true, cached: true, ...cached.payload });
+    return res.json({ results });
+  }
+
+  const upc = normalizeBarcode(body?.upc);
+  if (!upc) return res.status(400).json({ error: 'upc is required' });
+  if (!isValidBarcode(upc)) {
+    return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
+  }
+
+  const entry = await UpcItem.findOne({ upc }).lean();
+  return res.json(buildEligibilityPayload(entry, depositValue));
+});
+
+export const getOffLookup = asyncHandler(async (req, res, next) => {
+  // Prevent browser caching for owner-only data
+  res.set({
+    'Cache-Control': 'no-store',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+    'Vary': 'Cookie, Origin'
+  });
+
+  const code = normalizeBarcode(req.params.code);
+  if (!code) return res.status(400).json({ error: 'code is required' });
+  if (!isValidBarcode(code)) {
+    return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: code });
+  }
+
+  if (isOffCooldownActive()) {
+    return res.status(503).json({
+      error: 'Open Food Facts lookup temporarily unavailable due to upstream issues.'
+    });
+  }
+
+  const cached = await UpcLookupCache.findOne({ code }).lean();
+  if (cached?.payload) {
+    return res.json({ ok: true, cached: true, ...cached.payload });
+  }
+
+  const url = `${OFF_ENDPOINT}/${encodeURIComponent(code)}?fields=${OFF_FIELDS}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+
+  let offResponse;
+  try {
+    offResponse = await fetch(url, {
+      headers: { 'User-Agent': OFF_USER_AGENT },
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!offResponse.ok) {
+    if (offResponse.status === 429 || offResponse.status >= 500) {
+      recordOffFailure();
     }
+    return res.status(502).json({ error: 'Open Food Facts lookup failed' });
+  }
 
-    const url = `${OFF_ENDPOINT}/${encodeURIComponent(code)}?fields=${OFF_FIELDS}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-
-    let offResponse;
-    try {
-      offResponse = await fetch(url, {
-        headers: { 'User-Agent': OFF_USER_AGENT },
-        signal: controller.signal
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (!offResponse.ok) {
-      if (offResponse.status === 429 || offResponse.status >= 500) {
-        recordOffFailure();
+  let offData;
+  try {
+    offData = await offResponse.json();
+  } catch (jsonError) {
+    console.error('OFF LOOKUP: JSON PARSE ERROR:', jsonError);
+    return res.status(502).json({ error: 'Failed to parse Open Food Facts response' });
+  }
+  resetOffFailures();
+  const found = Boolean(offData?.status === 1 && offData?.product);
+  const payload = found
+    ? {
+        found: true,
+        code,
+        product: mapOffProduct(offData.product)
       }
-      return res.status(502).json({ error: 'Open Food Facts lookup failed' });
-    }
+    : { found: false, code };
 
-    let offData;
-    try {
-      offData = await offResponse.json();
-    } catch (jsonError) {
-      console.error('OFF LOOKUP: JSON PARSE ERROR:', jsonError);
-      return res.status(502).json({ error: 'Failed to parse Open Food Facts response' });
-    }
-    resetOffFailures();
-    const found = Boolean(offData?.status === 1 && offData?.product);
-    const payload = found
-      ? {
-          found: true,
-          code,
-          product: mapOffProduct(offData.product)
-        }
-      : { found: false, code };
+  await UpcLookupCache.findOneAndUpdate(
+    { code },
+    { code, payload, fetchedAt: new Date() },
+    { upsert: true, setDefaultsOnInsert: true }
+  );
 
-    await UpcLookupCache.findOneAndUpdate(
-      { code },
-      { code, payload, fetchedAt: new Date() },
-      { upsert: true, setDefaultsOnInsert: true }
-    );
+  return res.json({ ok: true, ...payload });
+});
 
-    return res.json({ ok: true, ...payload });
-  } catch (err) {
-    if (err?.name === 'AbortError') {
-      return res.status(504).json({ error: 'Open Food Facts lookup timed out' });
-    }
-    console.error('OFF LOOKUP ERROR:', err);
-    return res.status(500).json({ error: 'Failed to lookup UPC' });
+export const getUpcEligibility = asyncHandler(async (req, res, next) => {
+  const upc = normalizeBarcode(req.params.upc);
+  if (!upc) return res.status(400).json({ error: 'upc is required' });
+  if (!isValidBarcode(upc)) {
+    return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
   }
-};
+  const depositValue = await getMichiganDepositValue();
 
-export const getUpcEligibility = async (req, res) => {
-  try {
-    const upc = normalizeBarcode(req.params.upc);
-    if (!upc) return res.status(400).json({ error: 'upc is required' });
-    if (!isValidBarcode(upc)) {
-      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
-    }
-    const depositValue = await getMichiganDepositValue();
-
-    const entry = await UpcItem.findOne({ upc }).lean();
-    if (!entry) {
-      return res.json({ ok: true, upc, isEligible: false, depositValue });
-    }
-
-    res.json({
-      ok: true,
-      upc,
-      isEligible: entry.isEligible !== false,
-      depositValue: Number(entry.depositValue || depositValue)
-    });
-  } catch (err) {
-    console.error('UPC ELIGIBILITY ERROR:', err);
-    res.status(500).json({ error: 'Failed to check UPC eligibility' });
+  const entry = await UpcItem.findOne({ upc }).lean();
+  if (!entry) {
+    return res.json({ ok: true, upc, isEligible: false, depositValue });
   }
-};
 
-export const getUpcItems = async (_req, res) => {
-  try {
-    // Prevent browser caching for owner-only data
-    res.set({
-      'Cache-Control': 'no-store',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-      'Vary': 'Cookie, Origin'
-    });
+  res.json({
+    ok: true,
+    upc,
+    isEligible: entry.isEligible !== false,
+    depositValue: Number(entry.depositValue || depositValue)
+  });
+});
 
-    const whitelist = await getUpcWhitelist();
-    res.json({ ok: true, upcs: whitelist });
-  } catch (err) {
-    console.error('GET UPC ERROR:', err);
-    res.status(500).json({ error: 'Failed to load UPC list' });
+export const getUpcItems = asyncHandler(async (_req, res, next) => {
+  // Prevent browser caching for owner-only data
+  res.set({
+    'Cache-Control': 'no-store',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+    'Vary': 'Cookie, Origin'
+  });
+
+  const whitelist = await getUpcWhitelist();
+  res.json({ ok: true, upcs: whitelist });
+});
+
+export const upsertUpcItem = asyncHandler(async (req, res, next) => {
+  const upc = normalizeBarcode(req.body?.upc);
+  if (!upc) return res.status(400).json({ error: 'upc is required' });
+  if (!isValidBarcode(upc)) {
+    return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
   }
-};
+  const depositValue = await getMichiganDepositValue();
 
-export const upsertUpcItem = async (req, res) => {
-  try {
-    const upc = normalizeBarcode(req.body?.upc);
-    if (!upc) return res.status(400).json({ error: 'upc is required' });
-    if (!isValidBarcode(upc)) {
-      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
-    }
-    const depositValue = await getMichiganDepositValue();
+  let updates = {
+    upc,
+    name: req.body?.name ?? '',
+    depositValue: depositValue,
+    sku: req.body?.sku ? String(req.body.sku).trim() : undefined,
+    price: coerceNumber(req.body?.price),
+    containerType: normalizeContainerType(req.body?.containerType),
+    sizeOz: coerceNumber(req.body?.sizeOz),
+    isEligible: req.body?.isEligible !== false
+  };
+  if (req.body.isGlass !== undefined) updates.isGlass = req.body.isGlass;
+  updates = synchronizeContainerType(updates);
 
-    let updates = {
-      upc,
-      name: req.body?.name ?? '',
+  const entry = await UpcItem.findOneAndUpdate({ upc }, updates, {
+    new: true,
+    upsert: true,
+    setDefaultsOnInsert: true
+  }).lean();
+
+  res.json({
+    ok: true,
+    upcItem: {
+      upc: entry.upc,
+      sku: entry.sku || undefined,
+      name: entry.name || '',
       depositValue: depositValue,
-      sku: req.body?.sku ? String(req.body.sku).trim() : undefined,
-      price: coerceNumber(req.body?.price),
-      containerType: normalizeContainerType(req.body?.containerType),
-      sizeOz: coerceNumber(req.body?.sizeOz),
-      isEligible: req.body?.isEligible !== false
-    };
-    if (req.body.isGlass !== undefined) updates.isGlass = req.body.isGlass;
-    updates = synchronizeContainerType(updates);
+      price: coerceNumber(entry.price),
+      containerType:
+        normalizeContainerType(entry.containerType) ||
+        (entry.isGlass ? 'glass' : 'plastic'),
+      sizeOz: coerceNumber(entry.sizeOz),
+      isEligible: entry.isEligible !== false,
+      createdAt: entry.createdAt ? new Date(entry.createdAt).toISOString() : undefined,
+      updatedAt: entry.updatedAt ? new Date(entry.updatedAt).toISOString() : undefined
+    }
+  });
+});
 
-    const entry = await UpcItem.findOneAndUpdate({ upc }, updates, {
-      new: true,
-      upsert: true,
-      setDefaultsOnInsert: true
-    }).lean();
-
-    res.json({
-      ok: true,
-      upcItem: {
-        upc: entry.upc,
-        sku: entry.sku || undefined,
-        name: entry.name || '',
-        depositValue: depositValue,
-        price: coerceNumber(entry.price),
-        containerType:
-          normalizeContainerType(entry.containerType) ||
-          (entry.isGlass ? 'glass' : 'plastic'),
-        sizeOz: coerceNumber(entry.sizeOz),
-        isEligible: entry.isEligible !== false,
-        createdAt: entry.createdAt ? new Date(entry.createdAt).toISOString() : undefined,
-        updatedAt: entry.updatedAt ? new Date(entry.updatedAt).toISOString() : undefined
-      }
-    });
-  } catch (err) {
-    console.error('UPSERT UPC ERROR:', err);
-    res.status(500).json({ error: 'Failed to save UPC' });
+export const scanUpc = asyncHandler(async (req, res, next) => {
+  const { upc, resolveOnly } = req.body;
+  const normalizedUpc = normalizeBarcode(upc);
+  if (!normalizedUpc) return res.status(400).json({ error: 'upc is required' });
+  if (!isValidBarcode(normalizedUpc)) {
+    return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc });
   }
-};
 
-export const scanUpc = async (req, res) => {
-  try {
-    const { upc, resolveOnly } = req.body;
-    const normalizedUpc = normalizeBarcode(upc);
-    if (!normalizedUpc) return res.status(400).json({ error: 'upc is required' });
-    if (!isValidBarcode(normalizedUpc)) {
-      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc });
+  const { product, upcEntry, action } = await resolveUpc(normalizedUpc);
+
+  if (action === 'resolved' && product) {
+    if (resolveOnly) {
+      return res.json({ ok: true, action: 'resolved', product, upcEntry });
     }
-
-    const { product, upcEntry, action } = await resolveUpc(normalizedUpc);
-
-    if (action === 'resolved' && product) {
-      if (resolveOnly) {
-        return res.json({ ok: true, action: 'resolved', product, upcEntry });
-      }
-      const updated = await Product.findOneAndUpdate({ sku: upcEntry.sku }, { $inc: { stock: qty } }, { new: true }).lean();
-      if (!updated) return res.status(404).json({ error: 'Mapped product not found' });
-      return res.json({ ok: true, action: 'updated', product: updated });
-    }
-
-    return res.json({ ok: true, action, upc: normalizedUpc, upcEntry });
-  } catch (err) {
-    console.error('UPC SCAN ERROR:', err);
-    res.status(500).json({ error: 'Failed to apply UPC scan' });
+    const updated = await Product.findOneAndUpdate({ sku: upcEntry.sku }, { $inc: { stock: qty } }, { new: true }).lean();
+    if (!updated) return res.status(404).json({ error: 'Mapped product not found' });
+    return res.json({ ok: true, action: 'updated', product: updated });
   }
-};
 
-export const linkUpc = async (req, res) => {
-  try {
-    const { productId } = req.body;
-    const upc = normalizeBarcode(req.body?.upc);
-    if (!upc || !productId) {
-      return res.status(400).json({ error: 'upc and productId are required' });
-    }
-    if (!isValidBarcode(upc)) {
-      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
-    }
+  return res.json({ ok: true, action, upc: normalizedUpc, upcEntry });
+});
 
-    const upcEntry = await UpcItem.findOneAndUpdate(
-      { upc },
-      { sku: productId },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    ).lean();
-
-    res.json({ ok: true, upcEntry });
-  } catch (err) {
-    console.error('UPC LINK ERROR:', err);
-    res.status(500).json({ error: 'Failed to link UPC' });
+export const linkUpc = asyncHandler(async (req, res, next) => {
+  const { productId } = req.body;
+  const upc = normalizeBarcode(req.body?.upc);
+  if (!upc || !productId) {
+    return res.status(400).json({ error: 'upc and productId are required' });
   }
-};
-
-export const patchUpcItem = async (req, res) => {
-  try {
-    const upc = normalizeBarcode(req.params.upc);
-    if (!upc) return res.status(400).json({ error: 'upc is required' });
-    if (!isValidBarcode(upc)) {
-      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
-    }
-    const depositValue = await getMichiganDepositValue();
-
-    const updates = {};
-    const allowed = [
-      'name',
-      'price',
-      'containerType',
-      'sizeOz',
-      'isGlass',
-      'isEligible'
-    ];
-    for (const key of allowed) {
-      if (req.body?.[key] !== undefined) updates[key] = req.body[key];
-    }
-
-    let processedUpdates = { ...updates };
-    if (updates.price !== undefined) updates.price = coerceNumber(updates.price);
-    if (updates.sizeOz !== undefined) updates.sizeOz = coerceNumber(updates.sizeOz);
-    if (updates.isEligible !== undefined) updates.isEligible = !!updates.isEligible;
-
-    processedUpdates = synchronizeContainerType(processedUpdates);
-
-    const entry = await UpcItem.findOneAndUpdate({ upc }, processedUpdates, {
-      new: true
-    }).lean();
-
-    if (!entry) return res.status(404).json({ error: 'UPC not found' });
-
-    res.json({
-      ok: true,
-      upcItem: {
-        upc: entry.upc,
-        name: entry.name || '',
-        depositValue: depositValue,
-        price: coerceNumber(entry.price),
-        containerType:
-          normalizeContainerType(entry.containerType) ||
-          (entry.isGlass ? 'glass' : 'plastic'),
-        sizeOz: coerceNumber(entry.sizeOz),
-        isEligible: entry.isEligible !== false,
-        createdAt: entry.createdAt ? new Date(entry.createdAt).toISOString() : undefined,
-        updatedAt: entry.updatedAt ? new Date(entry.updatedAt).toISOString() : undefined
-      }
-    });
-  } catch (err) {
-    console.error('PATCH UPC ERROR:', err);
-    res.status(500).json({ error: 'Failed to update UPC' });
+  if (!isValidBarcode(upc)) {
+    return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
   }
-};
 
-export const deleteUpcItem = async (req, res) => {
-  try {
-    const upc = normalizeBarcode(req.params.upc);
-    if (!upc) return res.status(400).json({ error: 'upc is required' });
-    if (!isValidBarcode(upc)) {
-      return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
-    }
+  const upcEntry = await UpcItem.findOneAndUpdate(
+    { upc },
+    { sku: productId },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  ).lean();
 
-    const deleted = await UpcItem.findOneAndDelete({ upc }).lean();
-    if (!deleted) return res.status(404).json({ error: 'UPC not found' });
+  res.json({ ok: true, upcEntry });
+});
 
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('DELETE UPC ERROR:', err);
-    res.status(500).json({ error: 'Failed to delete UPC' });
+export const patchUpcItem = asyncHandler(async (req, res, next) => {
+  const upc = normalizeBarcode(req.params.upc);
+  if (!upc) return res.status(400).json({ error: 'upc is required' });
+  if (!isValidBarcode(upc)) {
+    return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
   }
-};
+  const depositValue = await getMichiganDepositValue();
+
+  const updates = {};
+  const allowed = [
+    'name',
+    'price',
+    'containerType',
+    'sizeOz',
+    'isGlass',
+    'isEligible'
+  ];
+  for (const key of allowed) {
+    if (req.body?.[key] !== undefined) updates[key] = req.body[key];
+  }
+
+  let processedUpdates = { ...updates };
+  if (updates.price !== undefined) updates.price = coerceNumber(updates.price);
+  if (updates.sizeOz !== undefined) updates.sizeOz = coerceNumber(updates.sizeOz);
+  if (updates.isEligible !== undefined) updates.isEligible = !!updates.isEligible;
+
+  processedUpdates = synchronizeContainerType(processedUpdates);
+
+  const entry = await UpcItem.findOneAndUpdate({ upc }, processedUpdates, {
+    new: true
+  }).lean();
+
+  if (!entry) return res.status(404).json({ error: 'UPC not found' });
+
+  res.json({
+    ok: true,
+    upcItem: {
+      upc: entry.upc,
+      name: entry.name || '',
+      depositValue: depositValue,
+      price: coerceNumber(entry.price),
+      containerType:
+        normalizeContainerType(entry.containerType) ||
+        (entry.isGlass ? 'glass' : 'plastic'),
+      sizeOz: coerceNumber(entry.sizeOz),
+      isEligible: entry.isEligible !== false,
+      createdAt: entry.createdAt ? new Date(entry.createdAt).toISOString() : undefined,
+      updatedAt: entry.updatedAt ? new Date(entry.updatedAt).toISOString() : undefined
+    }
+  });
+});
+
+export const deleteUpcItem = asyncHandler(async (req, res, next) => {
+  const upc = normalizeBarcode(req.params.upc);
+  if (!upc) return res.status(400).json({ error: 'upc is required' });
+  if (!isValidBarcode(upc)) {
+    return res.status(400).json({ error: 'Invalid barcode format', normalizedUpc: upc });
+  }
+
+  const deleted = await UpcItem.findOneAndDelete({ upc }).lean();
+  if (!deleted) return res.status(404).json({ error: 'UPC not found' });
+
+  res.json({ ok: true });
+});

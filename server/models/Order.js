@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { customAlphabet } from 'nanoid';
 
 const orderSchema = new mongoose.Schema(
   {
@@ -72,6 +73,9 @@ const orderSchema = new mongoose.Schema(
       enum: ['PENDING', 'AUTHORIZED', 'CAPTURED', 'DELIVERY_STARTED', 'DELIVERED', 'CANCELED'],
       default: 'PENDING'
     },
+    statusHistory: [{ status: String, timestamp: Date }],
+    isPaid: { type: Boolean, default: false },
+    paidAt: { type: Date },
 
     amountAuthorizedCents: { type: Number, default: 0 },
     amountCapturedCents: { type: Number, default: 0 },
@@ -132,7 +136,11 @@ const orderSchema = new mongoose.Schema(
     /* =========================================================
        DRIVER ASSIGNMENT & DELIVERY
        ========================================================= */
-    driverId: { type: String, index: true },
+    driver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      index: true
+    },
     assignedAt: { type: Date },
     pickedUpAt: { type: Date },
     deliveryStartedAt: { type: Date },
@@ -178,5 +186,15 @@ const orderSchema = new mongoose.Schema(
 );
 
 orderSchema.index({ createdAt: 1 });
+
+// Generate a unique, human-readable order ID before saving
+orderSchema.pre('save', function (next) {
+  if (this.isNew && !this.orderId) {
+    // Example: 'GS-A1B2C3D4'
+    const nanoid = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', 8);
+    this.orderId = `GS-${nanoid()}`;
+  }
+  next();
+});
 
 export default mongoose.model('Order', orderSchema);

@@ -345,24 +345,18 @@ async function releaseCreditAuthorization(order, sessionDb) {
   if (!order) return;
   // Idempotency: if creditApplied is already set, capture happened.
   // If inventory is already released, this has been run.
-  if (order.creditAppliedCents > 0 || order.inventoryReleasedAt) {
+  if (order.creditAppliedCents > 0 || order.inventoryReleasedAt || !order.user) {
     return;
   }
 
   const creditToReleaseCents = Number(order.creditAuthorizedCents || 0);
-  if (
-    creditToReleaseCents > 0 &&
-    order.customerId &&
-    order.customerId !== 'GUEST'
-  ) {
-    const user = await User.findById(order.customerId).session(sessionDb);
+  if (creditToReleaseCents > 0) {
+    const user = await User.findById(order.user).session(sessionDb);
     if (user) {
       const creditToRelease = creditToReleaseCents / 100;
       const currentBalance = Number(user.creditBalance || 0);
-      const currentAuthorized = Number(user.authorizedCreditBalance || 0);
 
-      user.creditBalance = currentBalance + creditToRelease;
-      user.authorizedCreditBalance = Math.max(0, currentAuthorized - creditToRelease);
+      user.creditBalance = (user.creditBalance || 0) + creditToRelease;
       await user.save({ session: sessionDb });
     }
   }
