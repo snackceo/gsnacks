@@ -1,14 +1,14 @@
-const express = require('express');
-const {
+import express from 'express';
+import {
   createReturnRequest,
   getReturnRequests,
   getMyReturnRequests,
   reviewReturnRequest,
-} = require('../controllers/bottleReturnController.js');
+} from '../controllers/bottleReturnController.js';
 
 const router = express.Router();
 
-const { protect, authorize } = require('../middleware/auth.js');
+import { protect, authorize } from '../middleware/auth.js';
 
 router
   .route('/')
@@ -19,4 +19,4 @@ router.route('/myreturns').get(protect, authorize('customer'), getMyReturnReques
 
 router.route('/:id/review').put(protect, authorize('admin', 'owner'), reviewReturnRequest);
 
-module.exports = router;
+export default router;

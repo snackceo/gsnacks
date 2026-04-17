@@ -1,15 +1,15 @@
-const Stripe = require('stripe');
-const asyncHandler = require('../utils/asyncHandler.js');
-const ErrorResponse = require('../utils/errorResponse');
-const Order = require('../models/Order.js');
-const Product = require('../models/Product.js');
+import Stripe from 'stripe';
+import asyncHandler from '../utils/asyncHandler.js';
+import ErrorResponse from '../utils/errorResponse.js';
+import Order from '../models/Order.js';
+import Product from '../models/Product.js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // @desc    Create Stripe checkout session
 // @route   POST /api/v1/orders/:orderId/checkout-session
 // @access  Private (Customer)
-exports.createCheckoutSession = asyncHandler(async (req, res, next) => {
+export const createCheckoutSession = asyncHandler(async (req, res, next) => {
   const order = await Order.findById(req.params.orderId);
 
   if (!order) {
@@ -53,7 +53,7 @@ exports.createCheckoutSession = asyncHandler(async (req, res, next) => {
 // @desc    Stripe webhook for payment verification
 // @route   POST /api/v1/stripe-webhook
 // @access  Public (called by Stripe)
-exports.stripeWebhook = asyncHandler(async (req, res, next) => {
+export const stripeWebhook = asyncHandler(async (req, res, next) => {
   const signature = req.headers['stripe-signature'];
   let event;
 

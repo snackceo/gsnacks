@@ -1,5 +1,5 @@
-const express = require('express');
-const {
+import express from 'express';
+import {
   addOrderItems,
   getOrderById,
   getMyOrders,
@@ -8,14 +8,15 @@ const {
   assignDriverToOrder,
   getAssignedOrders,
   updateDriverLocation,
-} = require('../controllers/orderController.js');
+} from '../controllers/orderController.js';
 
 const router = express.Router();
 
 // Nested Payment Router
-router.use('/:orderId', require('./paymentRoutes.js'));
+import paymentRoutes from './paymentRoutes.js';
+router.use('/:orderId', paymentRoutes);
 
-const { protect, authorize } = require('../middleware/auth.js');
+import { protect, authorize } from '../middleware/auth.js';
 
 router
   .route('/')
@@ -42,4 +43,4 @@ router
   .route('/:id/location')
   .put(protect, authorize('driver'), updateDriverLocation);
 
-module.exports = router;
+export default router;

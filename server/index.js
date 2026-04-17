@@ -130,19 +130,7 @@ app.use(cookieParser());
    BODY PARSER
 ========================= */
 app.use('/uploads', express.static('uploads', { fallthrough: false }));
-
-app.use((req, res, next) => {
-  if (req.originalUrl === '/api/stripe/webhook') return next();
-
-  if (
-    req.originalUrl?.includes('/api/driver/upload-receipt-image') ||
-    req.originalUrl?.includes('/api/driver/receipt-capture')
-  ) {
-    return express.json({ limit: '20mb' })(req, res, next);
-  }
-
-  return express.json({ limit: '1mb' })(req, res, next);
-});
+app.use(express.json({ limit: '1mb' }));
 
 /* =========================
    SWAGGER
@@ -174,18 +162,14 @@ app.use('/api/orders', maintenanceModeGuardCached, createOrdersRouter({ stripe }
 app.use('/api/payments', maintenanceModeGuardCached, createPaymentsRouter({ stripe }));
 app.use('/api/stripe', maintenanceModeGuardCached, createStripeRouter({ stripe, webhookSecret }));
 app.use('/api/returns', maintenanceModeGuardCached, returnsRouter);
-app.use('/api/orders', maintenanceModeGuardCached, refundsRouter);
+app.use('/api/refunds', maintenanceModeGuardCached, refundsRouter);
 app.use('/api/cart', maintenanceModeGuardCached, cartRouter);
 
 app.use('/api/upc', upcRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/shopping', shoppingRouter);
-app.use('/api/driver', driverRouter);
-app.use('/api/driver', itemsNotFoundRouter);
-
-app.use('/api/driver', receiptPricesRouter);
-app.use('/api/driver', receiptAliasesRouter);
+app.use('/api/driver', express.json({ limit: '20mb' }), driverRouter, itemsNotFoundRouter, receiptPricesRouter, receiptAliasesRouter);
 
 app.use('/api/stores', storesRouter);
 

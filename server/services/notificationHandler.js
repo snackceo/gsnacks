@@ -35,4 +35,4 @@ const initializeNotificationListeners = () => {
   console.log('Notification listeners initialized.');
 };
 
-module.exports = { initializeNotificationListeners };
+export { initializeNotificationListeners };

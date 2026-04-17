@@ -1,15 +1,25 @@
-const express = require('express');
-const helmet = require('helmet');
-const cors = require('cors');
-const http = require('http');
-const { Server } = require('socket.io');
-const rateLimit = require('express-rate-limit');
-const connectDB = require('./server/config/db');
-const errorHandler = require('./server/middleware/errorHandler');
-const { initializeNotificationListeners } = require('./server/services/notificationHandler');
+import express from 'express';
+import helmet from 'helmet';
+import dotenv from 'dotenv';
+import cors from 'cors';
+import http from 'http';
+import { Server } from 'socket.io';
+import rateLimit from 'express-rate-limit';
+import connectDB from './server/config/db.js';
+import errorHandler from './server/middleware/errorHandler.js';
+import { initializeNotificationListeners } from './server/services/notificationHandler.js';
+
+// Import Routes
+import authRoutes from './server/routes/authRoutes.js';
+import productRoutes from './server/routes/productRoutes.js';
+import orderRoutes from './server/routes/orderRoutes.js';
+import bottleReturnRoutes from './server/routes/bottleReturnRoutes.js';
+import adminRoutes from './server/routes/adminRoutes.js';
+import paymentRoutes from './server/routes/paymentRoutes.js';
+import { stripeWebhook } from './server/controllers/paymentController.js'; // For webhook
 
 // Load environment variables
-require('dotenv').config({ path: './config/config.env' });
+dotenv.config({ path: './config/config.env' });
 
 // Connect to Database
 connectDB();
@@ -25,7 +35,7 @@ const io = new Server(server);
 app.post(
   '/api/v1/stripe-webhook',
   express.raw({ type: 'application/json' }),
-  require('./server/controllers/paymentController').stripeWebhook
+  stripeWebhook
 );
 
 // Body Parser
@@ -36,8 +46,8 @@ app.use(helmet());
 
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
-    ? process.env.CORS_ORIGIN // Your frontend URL, e.g., https://www.your-app.com
-    : '*', // Allow all for development
+    ? process.env.CORS_ORIGIN_PROD // e.g., https://www.your-app.com
+    : process.env.CORS_ORIGIN_DEV, // e.g., http://localhost:3000
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
 };
 app.use(cors(corsOptions));
@@ -54,12 +64,12 @@ app.use(limiter);
 app.set('io', io);
 
 // Mount Routers (to be added)
-app.use('/api/v1/auth', require('./server/routes/authRoutes.js'));
-app.use('/api/v1/products', require('./server/routes/productRoutes.js'));
-app.use('/api/v1/orders', require('./server/routes/orderRoutes.js'));
-app.use('/api/v1/returns', require('./server/routes/bottleReturnRoutes.js'));
-app.use('/api/v1/admin', require('./server/routes/adminRoutes.js'));
-app.use('/api/v1/orders', require('./server/routes/paymentRoutes.js'));
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/products', productRoutes);
+app.use('/api/v1/orders', orderRoutes);
+app.use('/api/v1/returns', bottleReturnRoutes);
+app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/payments', paymentRoutes);
 
 // Socket.IO connection
 io.on('connection', (socket) => {

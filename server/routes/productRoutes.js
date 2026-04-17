@@ -11,7 +11,7 @@ import {
 const router = express.Router();
 
 // These imports are CommonJS, they should be updated if the project migrates fully.
-const { protect, authorize } = require('../middleware/auth.js');
+import { protect, authorize } from '../middleware/auth.js';
 
 router.route('/search').get(searchProducts);
 
