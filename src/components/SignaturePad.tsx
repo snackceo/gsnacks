@@ -14,10 +14,6 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ orderId, onSign, onClose })
   const [hasSignature, setHasSignature] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  useEffect(() => {
-    initializeCanvas();
-  }, []);
-
   const initializeCanvas = () => {
     if (canvasRef.current) {
       const canvas = canvasRef.current;
@@ -37,6 +33,10 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ orderId, onSign, onClose })
       }
     }
   };
+
+  useEffect(() => {
+    initializeCanvas();
+  }, []);
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     setIsDrawing(true);

@@ -32,10 +32,6 @@ const DriverPerformanceDashboard: React.FC<DriverPerformanceDashboardProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchPerformance();
-  }, [driverId]);
-
   const fetchPerformance = async () => {
     try {
       setLoading(true);
@@ -57,6 +53,10 @@ const DriverPerformanceDashboard: React.FC<DriverPerformanceDashboardProps> = ({
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchPerformance();
+  }, [driverId]);
 
   const getRankBadge = (rating: number) => {
     if (rating >= 4.8) return { label: 'Platinum', color: 'bg-purple-500/20 border-purple-500/50 text-purple-300' };

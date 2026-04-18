@@ -1,5 +1,5 @@
 // src/components/ProductRecommendations.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getProductRecommendations, ProductRecommendation } from '../services/geminiService';
 import { Sparkles, TrendingUp } from 'lucide-react';
 
@@ -20,11 +20,7 @@ export const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadRecommendations();
-  }, [userId]);
-
-  const loadRecommendations = async () => {
+  const loadRecommendations = useCallback(async () => {
     if (!userId) return;
     
     setIsLoading(true);
@@ -39,7 +35,11 @@ export const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [userId, orderHistory, currentCart]);
+
+  useEffect(() => {
+    loadRecommendations();
+  }, [loadRecommendations]);
 
   if (!userId) return null;
   if (isLoading) {

@@ -95,16 +95,17 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = (props) => {
     onPrimarySupplierToggle(activeStore.id, nextValue);
   }, [activeStore, onPrimarySupplierToggle, selectedStoreIsPrimary]);
 
-  if (!isOpen) return null;
-
   React.useEffect(() => {
-    document.body.classList.add('modal-open');
-    return () => document.body.classList.remove('modal-open');
-  }, []);
+    if (isOpen) {
+      document.body.classList.add('modal-open');
+    }
+    return () => {
+      document.body.classList.remove('modal-open');
+    };
+  }, [isOpen]);
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center">
-      <div className="w-full sm:max-w-md h-[100dvh] sm:h-auto sm:max-h-[90dvh] bg-ninpo-black border border-white/10 rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col">
+  return isOpen ? (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center">      <div className="w-full sm:max-w-md h-[100dvh] sm:h-auto sm:max-h-[90dvh] bg-ninpo-black border border-white/10 rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col">
         {/* Header */}
         <div className="sticky top-0 z-10 bg-ninpo-black border-b border-white/10 px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -240,8 +241,7 @@ const StoreSelectorModal: React.FC<StoreSelectorModalProps> = (props) => {
           </div>
         </div>
       </div>
-    </div>
-  );
+    </div>  ) : null;
 };
 
 export default StoreSelectorModal;

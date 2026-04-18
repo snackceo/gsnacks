@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { receiptApiClient } from '../api/receiptApiClient';
-import { ReceiptParseJob, ReceiptParseStatus } from '../types';
+import { ReceiptParseJob } from '../types';
 import { useReceiptJobStatus } from '../hooks/useReceiptJobStatus';
-import ReceiptReviewModal from './ReceiptReviewModal';
+import ReceiptItemBucket from './ReceiptItemBucket';
 
 interface JobRowProps {
   initialJob: ReceiptParseJob;
@@ -59,12 +59,6 @@ export const ManagementReceiptsView: React.FC = () => {
     fetchJobs();
   }, []);
 
-  const handleReviewApproved = () => {
-    // Refetch the list of jobs after one is approved
-    setJobs(prev => prev.filter(j => j._id !== selectedJob?._id));
-    setSelectedJob(null);
-  };
-
   if (isLoading) {
     return <div>Loading pending receipts...</div>;
   }
@@ -79,7 +73,12 @@ export const ManagementReceiptsView: React.FC = () => {
       </div>
       {jobs.length === 0 && <p className="text-slate-500">No receipts are currently pending review.</p>}
 
-      <ReceiptReviewModal isOpen={!!selectedJob} job={selectedJob} onClose={() => setSelectedJob(null)} onApproved={handleReviewApproved} />
+      {selectedJob && (
+        <ReceiptItemBucket
+          items={(selectedJob as any).result?.items ?? []}
+          isReadOnly={false}
+        />
+      )}
     </div>
   );
 };

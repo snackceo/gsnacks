@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertCircle, CheckCircle2, Plus, X, ShoppingBag } from 'lucide-react';
+import { AlertCircle, CheckCircle2, X, ShoppingBag } from 'lucide-react';
 
 interface NotFoundItem {
   sku: string;
@@ -12,22 +12,18 @@ interface NotFoundItem {
 }
 
 interface ItemNotFoundTrackerProps {
-  orderId: string;
   onItemNotFound: (item: NotFoundItem) => void;
   notFoundItems: NotFoundItem[];
   onRemoveNotFound: (sku: string) => void;
   currentStore: string;
-  availableStores: Array<{ id: string; name: string }>;
   onMarkFound?: (sku: string, storeName: string) => void;
 }
 
 const ItemNotFoundTracker: React.FC<ItemNotFoundTrackerProps> = ({
-  orderId,
   onItemNotFound,
   notFoundItems,
   onRemoveNotFound,
   currentStore,
-  availableStores,
   onMarkFound
 }) => {
   const [expandedSku, setExpandedSku] = useState<string | null>(null);

@@ -31,7 +31,6 @@ interface ReceiptCaptureProps {
 }
 
 const PDF_UPLOAD_MESSAGE = 'PDF upload coming soon.';
-const STORE_REQUIRED_MESSAGE = 'Store selection is required to submit receipt items.';
 
 const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
   orderId,
@@ -237,6 +236,11 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
       return;
     }
 
+    if (!storeId) {
+      setError('A store must be selected before submitting.');
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
     setUploadPhase(null);
@@ -263,22 +267,29 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
       }
 
       setUploadPhase('Submitting receipt items…');
-      const result = await receiptApiClient.submitPriceUpdateManual({
-        storeId,
-        storeName,
-        orderId,
-        captureId,
-        receiptImageUrl,
-        receiptThumbnailUrl,
-        items
-      }) as {
-        reviewItems?: any[];
-        errors?: string[];
-        updated?: number;
-        created?: number;
-        needsReview?: number;
-        autoMatched?: number;
-      };
+
+      // The API expects one item at a time. We must iterate and call it for each.
+      const results = await Promise.all(
+        items.map(item =>
+          receiptApiClient.priceUpdateManual({
+            storeId,
+            productId: item.sku || '', // Assuming SKU can be used as productId
+            price: item.totalPrice,
+            upc: item.upc,
+            // Other metadata might be needed here depending on the final API design
+            // but for now, we'll stick to what the type expects.
+          })
+        )
+      );
+
+      // Aggregate results for UI feedback
+      const result = results.reduce((acc, res: any) => {
+          acc.updated += res.updated || 0;
+          acc.created += res.created || 0;
+          acc.needsReview += res.needsReview || 0;
+          if (res.errors) acc.errors.push(...res.errors);
+          return acc;
+      }, { updated: 0, created: 0, needsReview: 0, errors: [] });
 
       if (result.reviewItems && result.reviewItems.length > 0) {
         // Show review UI for confirmation
@@ -574,11 +585,15 @@ const ReceiptCapture: React.FC<ReceiptCaptureProps> = ({
                         <button
                           key={matchIndex}
                           onClick={async () => {
+                            if (!storeId) {
+                              setError('A store must be selected to confirm matches.');
+                              return;
+                            }
                             try {
                               await receiptApiClient.confirmMatch({
-                                receiptName: review.receiptName,
-                                sku: match.sku,
-                                storeId
+                                storeId,
+                                productId: match.productId,
+                                normalizedName: review.receiptName
                               });
                               setReviewItems(prev => prev.filter((_, i) => i !== index));
                               setError(null);

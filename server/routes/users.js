@@ -2,6 +2,11 @@
 import express from 'express';
 import { getTierBenefits, calculateUserTier, normalizeTier as normalizeTierFromService } from '../services/tierService.js';
 import ReturnVerification from '../models/ReturnVerification.js';
+import Order from '../models/Order.js';
+import User from '../models/User.js';
+import LedgerEntry, { CREDIT_ORIGINS_ENUM } from '../models/LedgerEntry.js';
+import { recordAuditLog } from '../utils/audit.js';
+import { authRequired, ownerRequired } from '../utils/helpers.js';
 import ReturnSettlement from '../models/ReturnSettlement.js';
 
 const router = express.Router();
@@ -28,12 +33,6 @@ router.get('/:id/bottle-returns', authRequired, async (req, res) => {
     res.status(500).json({ error: 'Failed to load bottle returns' });
   }
 });
-
-import Order from '../models/Order.js';
-import User from '../models/User.js';
-import LedgerEntry, { CREDIT_ORIGINS_ENUM } from '../models/LedgerEntry.js';
-import { recordAuditLog } from '../utils/audit.js';
-import { authRequired, ownerRequired } from '../utils/helpers.js';
 
 const mapUser = (user) => ({
   id: user._id.toString(),

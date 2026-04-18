@@ -31,6 +31,28 @@ export const AssistantSearchChat: React.FC<AssistantSearchChatProps> = ({
   const [lastInterpretation, setLastInterpretation] = useState<string>('');
   const [recommendations, setRecommendations] = useState<any[]>([]);
 
+  const fetchRecommendations = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/ai/recommendations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          userId: currentUser?._id || currentUser?.id,
+          orderHistory: recentOrders.slice(0, 10),
+          currentCart: []
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setRecommendations(data.recommendations || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch recommendations:', err);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!input.trim() || isLoading) return;
     setIsLoading(true);
@@ -97,28 +119,6 @@ export const AssistantSearchChat: React.FC<AssistantSearchChatProps> = ({
   };
 
   const disabled = isLoading;
-
-  const fetchRecommendations = async () => {
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/ai/recommendations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          userId: currentUser?._id || currentUser?.id,
-          orderHistory: recentOrders.slice(0, 10),
-          currentCart: []
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setRecommendations(data.recommendations || []);
-      }
-    } catch (err) {
-      console.error('Failed to fetch recommendations:', err);
-    }
-  };
 
   return (
     <div className="w-full bg-ninpo-card border border-white/10 rounded-[1.75rem] p-4 shadow-xl space-y-3">

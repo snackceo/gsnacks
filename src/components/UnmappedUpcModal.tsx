@@ -27,7 +27,7 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
   onClose,
   products
 }) => {
-  const { addToast } = useNinpoCore ? useNinpoCore() : { addToast: () => {} };
+  const { addToast } = useNinpoCore();
   const [activeTab, setActiveTab] = useState<'create' | 'attach'>('create');
   const [createForm, setCreateForm] = useState({
     name: '',
@@ -57,8 +57,6 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
     }
   }, [data]);
 
-  const sizeUnitOptions: SizeUnit[] = ['oz', 'fl oz', 'g', 'kg', 'ml', 'l'];
-
   const filteredProducts = products.filter(
     p =>
       p.name.toLowerCase().includes(attachSearch.toLowerCase()) ||
@@ -67,7 +65,7 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
 
   const handleCreate = () => {
     if (!createForm.name.trim()) {
-      addToast('Product name is required', 'error');
+      addToast('Product name is required', 'warning');
       return;
     }
     onCreateProduct(createForm);
@@ -76,7 +74,7 @@ const UnmappedUpcModal: React.FC<UnmappedUpcModalProps> = ({
 
   const handleAttach = () => {
     if (!selectedProductId) {
-      addToast('Select a product to attach', 'error');
+      addToast('Select a product to attach', 'warning');
       return;
     }
     onAttachToExisting(selectedProductId);

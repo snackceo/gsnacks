@@ -31,8 +31,7 @@ export interface ScannerPanelProps {
   beepEnabled?: boolean;
   cooldownMs?: number;
   onPhotoCaptured?: (photoDataUrl: string, mime: string) => void;
-  onReceiptParsed?: (items: ParsedReceiptItem[], frame?: string) => void;
-  onModeChange?: (mode: ScannerMode) => void;
+
   receiptHeaderContent?: React.ReactNode;
   receiptSaveDisabled?: boolean;
   receiptSaveDisabledReason?: string;
@@ -48,6 +47,8 @@ export interface ScannerPanelProps {
   selectedStoreLocation?: string;
   selectedStoreIsPrimary?: boolean;
   onTogglePrimarySupplier?: () => void;
+
+  disabled?: boolean;
 }
 
 const getCooldownForMode = (mode?: ScannerMode): number => {
@@ -73,7 +74,6 @@ const MAX_LEN = 14;
 const MAX_UPLOAD_MB = 6; // Reject overly large uploads to avoid memory spikes
 const MAX_IMAGE_DIMENSION = 1920; // Max width/height
 const IMAGE_COMPRESSION_QUALITY = 0.85; // JPEG quality
-const ENABLE_PLUGGABLE_DECODER_FALLBACK = false;
 
 const normalizeUpc = (raw: string) => raw.replace(/\D/g, '');
 
@@ -125,6 +125,8 @@ const compressAndResizeImage = (
 };
 
 
+const noop = () => {};
+
 const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   mode,
   onScan,
@@ -136,8 +138,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   beepEnabled = true,
   cooldownMs = 1200,
   onPhotoCaptured,
-  onReceiptParsed,
-  onModeChange,
   receiptHeaderContent,
   receiptSaveDisabled = false,
   receiptSaveDisabledReason,
@@ -152,19 +152,9 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   selectedStoreIsPrimary = false,
   onTogglePrimarySupplier
 }, ref) => {
-    // Expose capturePhoto method to parent via ref
-    useImperativeHandle(ref, () => ({
-      capturePhoto: () => {
-        if (mode === ScannerMode.RECEIPT_PARSE_LIVE) {
-          return captureReceiptAndParse();
-        }
-        return takePhoto();
-      }
-    }));
-
     // Toast context
     const toastCtx = useContext(ToastContext);
-    const addToast = toastCtx?.addToast || (() => {});
+    const addToast = toastCtx?.addToast || noop;
   const { videoRef, streamRef, streamActive, error: cameraError, startCamera, stopCamera } = useCameraStream({ autoStart: false });
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
   const lastAutoOpenUpcRef = useRef<string | null>(null);
@@ -193,8 +183,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
-  const [scannerHint, setScannerHint] = useState<string | null>(null);
-  const [blocked, setBlocked] = useState(false);
   const [manualUpc, setManualUpc] = useState('');
   const [lastDetectedUpc, setLastDetectedUpc] = useState<string | null>(null);
   const [supportsBarcodeDetector, setSupportsBarcodeDetector] = useState(true);
@@ -210,23 +198,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   const isReceiptMode = mode === ScannerMode.RECEIPT_PARSE_LIVE;
   const isManualOnlyFallback = !isReceiptMode && !supportsBarcodeDetector;
 
-  const modeFallbackHint = useCallback((scannerMode?: ScannerMode) => {
-    if (scannerMode === ScannerMode.INVENTORY_CREATE) {
-      return 'Inventory mode: enter UPC manually to continue creating or updating product details.';
-    }
-    if (scannerMode === ScannerMode.UPC_LOOKUP) {
-      return 'UPC lookup mode: enter UPC manually to find or edit registry mappings.';
-    }
-    if (
-      scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS ||
-      scannerMode === ScannerMode.CUSTOMER_RETURN_SCAN ||
-      scannerMode === ScannerMode.DRIVER_FULFILL_ORDER
-    ) {
-      return 'Returns/driver mode: enter UPC manually to continue verification and fulfillment flow.';
-    }
-    return 'Manual UPC entry is available for this scanner mode.';
-  }, []);
-
   // Native camera only on mobile for receipt mode
   const isMobile =
     typeof window !== 'undefined' &&
@@ -240,8 +211,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   }, [torchOn]);
 
   const canCapturePhoto = Boolean(onPhotoCaptured);
-  const receiptUploadBlocked = isReceiptMode && receiptSaveDisabled;
-  const shouldWarnNoStore = isReceiptMode && !selectedStoreId && !receiptSaveDisabled;
 
   useEffect(() => {
     onScanRef.current = onScan;
@@ -277,8 +246,12 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     }
   }, []);
 
-
-
+  const validateUpc = useCallback((raw: string) => {
+    const normalized = normalizeUpc(String(raw || '').trim());
+    if (!normalized) return { ok: false as const, upc: '' };
+    if (normalized.length < MIN_LEN || normalized.length > MAX_LEN) return { ok: false as const, upc: '' };
+    return { ok: true as const, upc: normalized };
+  }, []);
 
   const stopScanner = useCallback(async () => {
     cancelledRef.current = true;
@@ -340,7 +313,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       lastAutoOpenUpcRef.current = upc;
       setIsSheetOpen(true);
       if (beepEnabledRef.current) playBeep();
-      onScanRef.current(upc);
+      onScanRef.current?.(upc);
 
       if (closeOnScanRef.current && onCloseRef.current) {
         handleClose();
@@ -349,69 +322,13 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     [handleClose, playBeep, addToast]
   );
 
-  const toggleTorch = useCallback(async () => {
-    if (!torchSupported) {
-      setScannerError('Torch not supported on this device.');
-      addToast('Torch not supported', { type: 'error' });
-      return;
-    }
-    if (!videoTrackRef.current) return;
-    const next = !torchOnRef.current;
-    try {
-      await videoTrackRef.current.applyConstraints({ advanced: [{ torch: next } as any] });
-      setTorchOn(next);
-      addToast(next ? 'Torch enabled' : 'Torch disabled', { type: 'info' });
-    } catch (err) {
-      setScannerError('Failed to toggle torch. Your device or browser may not support this feature.');
-      addToast('Failed to toggle torch', { type: 'error' });
-      // Do not restart or stop the camera, just show error
-    }
-  }, [torchSupported, addToast]);
-
-  const takePhoto = useCallback(() => {
-    if (!videoRef.current || !onPhotoCaptured) {
-      addToast('Camera not ready for photo', { type: 'error' });
-      return;
-    }
-
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      addToast('Failed to access camera', { type: 'error' });
-      return;
-    }
-
-    const w = videoRef.current.videoWidth;
-    const h = videoRef.current.videoHeight;
-    if (!w || !h) {
-      addToast('Camera not ready for photo', { type: 'error' });
-      return;
-    }
-
-    canvas.width = w;
-    canvas.height = h;
-
-    ctx.drawImage(videoRef.current, 0, 0, w, h);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    addToast('Photo captured', { type: 'success' });
-    onPhotoCaptured(dataUrl, 'image/jpeg');
-  }, [onPhotoCaptured, addToast]);
-
-  const validateUpc = useCallback((raw: string) => {
-    const normalized = normalizeUpc(String(raw || '').trim());
-    if (!normalized) return { ok: false as const, upc: '' };
-    if (normalized.length < MIN_LEN || normalized.length > MAX_LEN) return { ok: false as const, upc: '' };
-    return { ok: true as const, upc: normalized };
-  }, []);
-
   const startScanner = useCallback(async () => {
+
 
     await stopScanner();
     setTorchOn(false); // Always reset torch state on start
     cancelledRef.current = false;
-    setBlocked(false);
     setScannerError(null);
-    setScannerHint(null);
 
     if (typeof window === 'undefined') {
       setScannerError('Scanner unavailable.');
@@ -422,7 +339,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     if (useNativeCameraOnly) {
       setIsScanning(false);
       setScannerError(null);
-      setScannerHint(null);
       return;
     }
 
@@ -440,7 +356,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       if (!streamRef.current) {
         setScannerError('Camera blocked. Enable permissions and retry.');
         setIsScanning(false);
-        setBlocked(true);
         return;
       }
       const track = streamRef.current.getVideoTracks()[0];
@@ -465,7 +380,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       }
       if (!streamRef.current || !videoRef.current) {
         setScannerError('Camera failed to start. Tap Retry.');
-        setScannerHint('On mobile Chrome, tap once to grant permission or retry after allowing camera access.');
         setIsScanning(false);
         videoTrackRef.current = null;
         return;
@@ -479,12 +393,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 
       // Keep camera preview active and route users to manual entry.
       if (!hasBarcodeDetector) {
-        setScannerError(null);
-        setScannerHint(modeFallbackHint(mode));
-        if (ENABLE_PLUGGABLE_DECODER_FALLBACK) {
-          setScannerHint(`${modeFallbackHint(mode)} Experimental decoder fallback is enabled.`);
-          // Pluggable decoder can be integrated here behind feature flags/settings.
-        }
         return;
       }
 
@@ -566,21 +474,8 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     } catch {
       setScannerError('Camera blocked. Enable permissions.');
       setIsScanning(false);
-      setBlocked(true);
     }
-  }, [acceptScan, stopScanner, validateUpc, isReceiptMode, useNativeCameraOnly, startCamera, stopCamera, mode, modeFallbackHint]);
-
-  useEffect(() => {
-    setIsScanning(streamActive);
-  }, [streamActive]);
-
-  useEffect(() => {
-    if (cameraError && !scannerError) {
-      setScannerError('Camera blocked. Enable permissions.');
-      setBlocked(true);
-    }
-  }, [cameraError, scannerError]);
-
+  }, [acceptScan, stopScanner, validateUpc, isReceiptMode, useNativeCameraOnly, startCamera, stopCamera, streamRef, videoRef]);
 
   const captureReceiptAndParse = useCallback(async () => {
     if (!videoRef.current) {
@@ -609,7 +504,76 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       addToast('Failed to capture image', { type: 'error' });
       void startScanner(); // Retry if capture failed
     }
-  }, [stopScanner, startScanner, addToast]);
+  }, [stopScanner, startScanner, addToast, videoRef]);
+
+  const takePhoto = useCallback(() => {
+    if (!videoRef.current || !onPhotoCaptured) {
+      addToast('Camera not ready for photo', { type: 'error' });
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      addToast('Failed to access camera', { type: 'error' });
+      return;
+    }
+
+    const w = videoRef.current.videoWidth;
+    const h = videoRef.current.videoHeight;
+    if (!w || !h) {
+      addToast('Camera not ready for photo', { type: 'error' });
+      return;
+    }
+
+    canvas.width = w;
+    canvas.height = h;
+
+    ctx.drawImage(videoRef.current, 0, 0, w, h);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    addToast('Photo captured', { type: 'success' });
+    onPhotoCaptured(dataUrl, 'image/jpeg');
+  }, [onPhotoCaptured, addToast, videoRef]);
+
+  // Expose capturePhoto method to parent via ref
+  useImperativeHandle(ref, () => ({
+    capturePhoto: () => {
+      if (mode === ScannerMode.RECEIPT_PARSE_LIVE) {
+        return captureReceiptAndParse();
+      }
+      return takePhoto();
+    }
+  }));
+
+  const toggleTorch = useCallback(async () => {
+    if (!torchSupported) {
+      setScannerError('Torch not supported on this device.');
+      addToast('Torch not supported', { type: 'error' });
+      return;
+    }
+    if (!videoTrackRef.current) return;
+    const next = !torchOnRef.current;
+    try {
+      await videoTrackRef.current.applyConstraints({ advanced: [{ torch: next } as any] });
+      setTorchOn(next);
+      addToast(next ? 'Torch enabled' : 'Torch disabled', { type: 'info' });
+    } catch (err) {
+      setScannerError('Failed to toggle torch. Your device or browser may not support this feature.');
+      addToast('Failed to toggle torch', { type: 'error' });
+      // Do not restart or stop the camera, just show error
+    }
+  }, [torchSupported, addToast]);
+
+  useEffect(() => {
+    setIsScanning(streamActive);
+  }, [streamActive]);
+
+  useEffect(() => {
+    if (cameraError && !scannerError) {
+      setScannerError('Camera blocked. Enable permissions.');
+    }
+  }, [cameraError, scannerError]);
+
 
   const handleUsePhoto = useCallback(() => {
     if (!previewImage || !onPhotoCaptured) {
@@ -678,7 +642,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       };
       reader.readAsDataURL(file);
     },
-    [startScanner, addToast]
+    [startScanner, stopScanner, addToast]
   );
 
   const handleReceiptFileInput = useCallback(
@@ -747,7 +711,6 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
     if (manualStart) {
       void stopScanner();
       setScannerError(null);
-      setScannerHint(null);
       setIsScanning(false);
       return;
     }
@@ -837,7 +800,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
         </div>
 
         {/* Store context header */}
-        {selectedStoreName && (
+        {false && selectedStoreName && (
           <div className="rounded-xl bg-black/70 border border-white/10 px-3 py-2 text-center">
             <p className="text-xs text-slate-400 font-semibold uppercase tracking-widest">Current Store</p>
             <p className="text-sm text-white font-bold truncate">{selectedStoreName}</p>
@@ -888,14 +851,14 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
       )}
 
       {/* Preview overlay */}
-      {previewImage && (
+      {false && previewImage && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-ninpo-black/95 backdrop-blur-md p-4">
           <div className="flex flex-col items-center gap-4 w-full max-w-sm">
             <h2 className="text-lg font-bold text-white">Review Photo</h2>
 
             {/* Thumbnail preview */}
             <img
-              src={previewImage}
+              src={previewImage || undefined}
               alt="Receipt preview"
               className="w-full rounded-xl border border-white/20 shadow-lg max-h-[50vh] object-contain"
             />
@@ -923,7 +886,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
 
 
       {/* Bottom capture/upload button (receipt mode) with upload/drag-drop UI */}
-      {isReceiptMode && canCapturePhoto && !previewImage && (
+      {false && isReceiptMode && canCapturePhoto && !previewImage && (
         <div className="absolute bottom-0 left-0 right-0 z-30 flex flex-col items-center justify-end pb-8 pointer-events-none">
           <div className="flex flex-col items-center gap-3 pointer-events-auto">
             {/* Hide camera shutter button on mobile receipt mode */}
@@ -933,7 +896,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
                 className="w-20 h-20 rounded-full bg-ninpo-lime text-ninpo-black flex items-center justify-center shadow-neon text-3xl font-black focus:outline-none focus:ring-4 focus:ring-ninpo-lime/40 transition hover:bg-ninpo-lime/90"
                 aria-label="Capture photo"
                 type="button"
-                disabled={receiptUploadBlocked}
+                disabled={receiptSaveDisabled}
               >
                 <Camera className="w-10 h-10" />
               </button>
@@ -947,7 +910,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
                 capture="environment"
                 className="hidden"
                 onChange={handleReceiptFileInput}
-                disabled={receiptUploadBlocked}
+                disabled={receiptSaveDisabled}
               />
             </label>
             <div
@@ -1024,13 +987,13 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
         </div>
       )}
 
-      {!isReceiptMode && (isManualOnlyFallback || scannerHint) && (
+      {!isReceiptMode && isManualOnlyFallback && (
         <div className="absolute bottom-4 left-4 right-4 z-20 rounded-2xl border border-white/20 bg-black/80 backdrop-blur-sm p-4 shadow-xl">
           <p className="text-[11px] font-black uppercase tracking-widest text-ninpo-lime">
-            {isManualOnlyFallback ? 'Manual UPC entry' : 'Scanner hint'}
+            Manual UPC entry
           </p>
           <p className="mt-1 text-xs text-slate-200 font-semibold">
-            {scannerHint ?? modeFallbackHint(mode)}
+            Scanner not supported on this device. Please enter UPC manually.
           </p>
 
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">

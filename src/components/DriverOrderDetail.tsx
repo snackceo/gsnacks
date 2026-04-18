@@ -453,15 +453,10 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
           <div className="space-y-6">
             {/* Items Not Found Tracker */}
             <ItemNotFoundTracker
-              orderId={order?.orderId || order?.id || ''}
               notFoundItems={notFoundItems}
               onItemNotFound={handleUpdateNotFound}
               onRemoveNotFound={handleRemoveNotFound}
               currentStore={currentStoreId ? getStoreNameFromId(currentStoreId) : 'N/A'}
-              availableStores={Object.entries(groupedByStore).map(([id, items]) => ({
-                id,
-                name: items[0]?.store || `Store ${id}`
-              }))}
               onMarkFound={(sku, store) => handleMarkFoundAt(sku, store)}
             />
 

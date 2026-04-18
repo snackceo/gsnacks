@@ -286,6 +286,58 @@ const buildSearchSummary = items => {
   return lines.join('\n');
 };
 
+// Helper function for natural search (extracted for reuse)
+const naturalSearchInternal = async ({ query, products = [], model = getDefaultModel() }) => {
+  // Simplified internal version of natural-search logic
+  const matchedProducts = products.filter(p => {
+    const text = `${p.name} ${p.category} ${p.description || ''}`.toLowerCase();
+    return text.includes(query.toLowerCase());
+  });
+
+  return {
+    matchedProducts: matchedProducts.map(p => p._id || p.id),
+    interpretation: `Searching for: ${query}`,
+    count: matchedProducts.length
+  };
+};
+
+// Helper function for chat (extracted for reuse)
+const chatInternal = async ({ message, conversationHistory = [], userContext = {}, model = getDefaultModel() }) => {
+  const apiKey = getGeminiApiKey();
+  const ai = new GoogleGenAI({ apiKey });
+
+  const history = Array.isArray(conversationHistory) ? conversationHistory : [];
+  const context = userContext || {};
+
+  const systemPrompt = `You are a helpful customer support agent for NinpoSnacks.
+
+## KNOWLEDGE BASE:
+${CUSTOMER_KNOWLEDGE}
+
+## CUSTOMER CONTEXT:
+${JSON.stringify(context, null, 2)}
+
+## INSTRUCTIONS:
+- Answer ONLY based on knowledge base
+- Be friendly, helpful, concise
+- Never discuss internal logic or code
+- Always include "Believe it! 🍜" at end
+- For contact: Instagram @ninpo_llc`;
+
+  const prompt = `${systemPrompt}\n\nCustomer: ${message}\nAgent:`;
+
+  const response = await ai.models.generateContent({
+    model,
+    contents: prompt,
+    generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
+  });
+
+  return {
+    reply: response?.text?.trim?.() || 'I apologize, could you rephrase?',
+    timestamp: new Date().toISOString()
+  };
+};
+
 // ============================================================
 // UNIFIED AI ASSISTANT ENDPOINT
 // ============================================================
@@ -411,58 +463,6 @@ Guidelines:
     });
   }
 });
-
-// Helper function for natural search (extracted for reuse)
-const naturalSearchInternal = async ({ query, products = [], model = getDefaultModel() }) => {
-  // Simplified internal version of natural-search logic
-  const matchedProducts = products.filter(p => {
-    const text = `${p.name} ${p.category} ${p.description || ''}`.toLowerCase();
-    return text.includes(query.toLowerCase());
-  });
-
-  return {
-    matchedProducts: matchedProducts.map(p => p._id || p.id),
-    interpretation: `Searching for: ${query}`,
-    count: matchedProducts.length
-  };
-};
-
-// Helper function for chat (extracted for reuse)
-const chatInternal = async ({ message, conversationHistory = [], userContext = {}, model = getDefaultModel() }) => {
-  const apiKey = getGeminiApiKey();
-  const ai = new GoogleGenAI({ apiKey });
-
-  const history = Array.isArray(conversationHistory) ? conversationHistory : [];
-  const context = userContext || {};
-
-  const systemPrompt = `You are a helpful customer support agent for NinpoSnacks.
-
-## KNOWLEDGE BASE:
-${CUSTOMER_KNOWLEDGE}
-
-## CUSTOMER CONTEXT:
-${JSON.stringify(context, null, 2)}
-
-## INSTRUCTIONS:
-- Answer ONLY based on knowledge base
-- Be friendly, helpful, concise
-- Never discuss internal logic or code
-- Always include "Believe it! 🍜" at end
-- For contact: Instagram @ninpo_llc`;
-
-  const prompt = `${systemPrompt}\n\nCustomer: ${message}\nAgent:`;
-
-  const response = await ai.models.generateContent({
-    model,
-    contents: prompt,
-    generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
-  });
-
-  return {
-    reply: response?.text?.trim?.() || 'I apologize, could you rephrase?',
-    timestamp: new Date().toISOString()
-  };
-};
 
 router.get('/health', (req, res) => {
   const apiKey = getGeminiApiKey();

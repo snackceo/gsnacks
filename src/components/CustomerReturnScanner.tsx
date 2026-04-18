@@ -268,7 +268,7 @@ const CustomerReturnScanner: React.FC<CustomerReturnScannerProps> = ({
   }, [persistState]);
 
   // Calculate totals and fees
-  const { totalCount, grossCredit, handlingFee, glassFee, netCredit } = useMemo(() => {
+  const { totalCount, netCredit } = useMemo(() => {
     const count = returnUpcs.reduce((sum, e) => sum + e.quantity, 0);
     let gross = 0;
     let handling = 0;
@@ -414,7 +414,7 @@ const CustomerReturnScanner: React.FC<CustomerReturnScannerProps> = ({
         </div>
       )}
     </div>
-  ), [totalCount, grossCredit, handlingFee, glassFee, netCredit, scanError, isChecking, returnUpcs, eligibilityCache, clearAll, decrementUpc, incrementUpc, removeUpc]);
+  ), [scanError, isChecking, returnUpcs, eligibilityCache, clearAll, decrementUpc, incrementUpc, removeUpc]);
 
   return (
     <div className={`space-y-4 ${className}`}>

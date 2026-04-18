@@ -1,11 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   ArrowLeft,
   MapPin,
   Navigation2,
   CheckCircle2,
   AlertCircle,
-  Clock,
   Package,
   Camera,
   Signature,
@@ -42,7 +41,7 @@ const DriverOrderFlow: React.FC<DriverOrderFlowProps> = ({ order, onBack, onRefr
     else if (order?.status === 'ARRIVING') setStep('deliver');
   }, [order?.status]);
 
-  const fetchShoppingList = async () => {
+  const fetchShoppingList = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       const orderId = order?.orderId || order?.id;
@@ -55,11 +54,11 @@ const DriverOrderFlow: React.FC<DriverOrderFlowProps> = ({ order, onBack, onRefr
     } catch (err) {
       console.error('Failed to fetch shopping list', err);
     }
-  };
+  }, [order?.orderId, order?.id]);
 
   useEffect(() => {
     fetchShoppingList();
-  }, [order?.orderId, order?.id]);
+  }, [fetchShoppingList]);
 
   const handleAccept = async () => {
     try {
@@ -149,6 +148,13 @@ const DriverOrderFlow: React.FC<DriverOrderFlowProps> = ({ order, onBack, onRefr
     reader.readAsDataURL(file);
   };
 
+  const getCanvasPos = (e: React.MouseEvent | React.TouchEvent, canvas: HTMLCanvasElement) => {
+    const rect = canvas.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  };
+
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handlePhotoFile(file);
@@ -194,13 +200,6 @@ const DriverOrderFlow: React.FC<DriverOrderFlowProps> = ({ order, onBack, onRefr
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     setCustomerSignature(null);
-  };
-
-  const getCanvasPos = (e: React.MouseEvent | React.TouchEvent, canvas: HTMLCanvasElement) => {
-    const rect = canvas.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    return { x: clientX - rect.left, y: clientY - rect.top };
   };
 
   const handlePaymentCapture = async (_payload: {

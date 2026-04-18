@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Navigation2, AlertCircle, Loader2, X } from 'lucide-react';
 
 interface DriverRealTimeNavigationProps {
@@ -78,6 +78,46 @@ const DriverRealTimeNavigation: React.FC<DriverRealTimeNavigationProps> = ({ add
       }
     };
   }, []);
+
+  const tryCalculateDistanceMatrix = useCallback((origin: LatLng, destination: any) => {
+    if (!googleRef || !googleRef.maps) return;
+
+    const service = new googleRef.maps.DistanceMatrixService();
+
+    service.getDistanceMatrix(
+      {
+        origins: [origin],
+        destinations: [destination],
+        travelMode: googleRef.maps.TravelMode.DRIVING,
+        unitSystem: googleRef.maps.UnitSystem.IMPERIAL
+      },
+      (response: any, status: string) => {
+        if (status !== 'OK' || !response?.rows?.[0]?.elements?.[0]) {
+          setEtaText(null);
+          setDistanceMiles(null);
+          return;
+        }
+
+        const element = response.rows[0].elements[0];
+        if (element.status !== 'OK') {
+          setEtaText(null);
+          setDistanceMiles(null);
+          return;
+        }
+
+        const meters = element.distance?.value;
+        const durationText = element.duration?.text;
+
+        if (typeof meters === 'number') {
+          setDistanceMiles(metersToMiles(meters));
+        } else {
+          setDistanceMiles(null);
+        }
+
+        setEtaText(typeof durationText === 'string' ? durationText : null);
+      }
+    );
+  }, [googleRef]);
 
   // 2) Initialize map once we have location and google maps loaded
   useEffect(() => {
@@ -164,60 +204,15 @@ const DriverRealTimeNavigation: React.FC<DriverRealTimeNavigationProps> = ({ add
       tryCalculateDistanceMatrix(location, destination);
     });
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, location, googleRef]);
+  }, [address, location, googleRef, tryCalculateDistanceMatrix]);
 
   // 4) Whenever location updates AND we have a destination, refresh distance/ETA
   useEffect(() => {
-    if (!location) return;
-    if (!googleRef || !googleRef.maps) return;
-
+    if (!location || !googleRef || !googleRef.maps) return;
     const destination = destLatLngRef.current;
     if (!destination) return;
-
     tryCalculateDistanceMatrix(location, destination);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location]);
-
-  const tryCalculateDistanceMatrix = (origin: LatLng, destination: any) => {
-    if (!googleRef || !googleRef.maps) return;
-
-    const service = new googleRef.maps.DistanceMatrixService();
-
-    service.getDistanceMatrix(
-      {
-        origins: [origin],
-        destinations: [destination],
-        travelMode: googleRef.maps.TravelMode.DRIVING,
-        unitSystem: googleRef.maps.UnitSystem.IMPERIAL
-      },
-      (response: any, status: string) => {
-        if (status !== 'OK' || !response?.rows?.[0]?.elements?.[0]) {
-          setEtaText(null);
-          setDistanceMiles(null);
-          return;
-        }
-
-        const element = response.rows[0].elements[0];
-        if (element.status !== 'OK') {
-          setEtaText(null);
-          setDistanceMiles(null);
-          return;
-        }
-
-        const meters = element.distance?.value;
-        const durationText = element.duration?.text;
-
-        if (typeof meters === 'number') {
-          setDistanceMiles(metersToMiles(meters));
-        } else {
-          setDistanceMiles(null);
-        }
-
-        setEtaText(typeof durationText === 'string' ? durationText : null);
-      }
-    );
-  };
+  }, [location, googleRef, tryCalculateDistanceMatrix]);
 
   const showMap = !error && !loadingLocation;
 

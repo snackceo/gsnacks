@@ -1,11 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState
-} from 'react';
-
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import ScannerPanel, { ScannerPanelProps } from './ScannerPanel';
@@ -56,11 +49,6 @@ interface ReceiptCaptureFlowProps
   onStoreSelected?: (storeId: string) => void;
   onPrimarySupplierToggle?: (storeId: string, nextValue: boolean) => void;
 }
-
-const PRIMARY_SUPPLIER_SESSION_KEY = 'receipt.primarySupplierOverrides';
-
-const formatStoreBrand = (storeType?: string) =>
-  storeType ? storeType.charAt(0).toUpperCase() + storeType.slice(1) : 'Other';
 
 // UUID v4 generator (RFC4122 compliant, browser-safe)
 function generateUUIDv4() {
@@ -126,27 +114,6 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
   // Store selection effect removed
 
   // ─────────────────────────────────────────────────────────────
-  // SESSION PRIMARY SUPPLIER OVERRIDES
-  // ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    try {
-      const stored = sessionStorage.getItem(PRIMARY_SUPPLIER_SESSION_KEY);
-      if (stored) {
-        setSessionPrimarySupplier(JSON.parse(stored));
-      }
-    } catch {
-      setSessionPrimarySupplier({});
-    }
-  }, []);
-
-  useEffect(() => {
-    sessionStorage.setItem(
-      PRIMARY_SUPPLIER_SESSION_KEY,
-      JSON.stringify(sessionPrimarySupplier)
-    );
-  }, [sessionPrimarySupplier]);
-
-  // ─────────────────────────────────────────────────────────────
   // OPEN / CLOSE FLOW
   // ─────────────────────────────────────────────────────────────
   // Always open camera when modal is open (for debugging and strict UX)
@@ -159,10 +126,121 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
       setError(null);
     }
   }, [isOpen]);
-  // Handle file upload (image)
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
+
+  // Store selection logic removed
+
+  // ─────────────────────────────────────────────────────────────
+  // 🔥 CORE FIX: RECEIPT CAPTURE + PARSE (FULLY WIRED)
+  // ─────────────────────────────────────────────────────────────
+  const triggerParse = useCallback(
+    async (captureId: string, options?: { isRetry?: boolean }) => {
+      const { isRetry = false } = options || {};
+      if (isRetry) {
+        setIsParseRetrying(true);
+      }
+
+      try {
+        // DO NOT pass abort signal to parse trigger (fire-and-forget)
+        setParseState('queued');
+        const parseData = await receiptApiClient.triggerParse(captureId);
+        setParseState('parsing');
+
+        setParseRetryCaptureId(null);
+        if (isRetry) {
+          addToast('Receipt parse retry started.', 'success');
+        }
+
+        return { ok: true, data: parseData };
+      } catch (err: any) {
+        // ✅ Ignore AbortError (user closed camera, etc.)
+        if (err?.name === 'AbortError' || err?.code === 20) return { ok: false };
+
+        const message = getGateErrorMessage(err, 'Parse request failed.');
+        console.error('Receipt parse trigger failed:', { captureId, error: err });
+        setError(message);
+        setParseState('failed');
+        setParseRetryCaptureId(captureId);
+        addToast(message, 'warning');
+
+        return { ok: false };
+      } finally {
+        if (isRetry) {
+          setIsParseRetrying(false);
+        }
+      }
+    },
+    [addToast]
+  );
+
+  const handleReceiptCaptured = useCallback(
+    async (photoDataUrl: string, mime: string) => {
+      setIsSubmitting(true);
+      setError(null);
+      setParseRetryCaptureId(null);
+      setParseState(null);
+      addToast('Uploading receipt…', 'info');
+      try {
+        setShowSuccess(false);
+        // 1️⃣ Upload image to backend to get imageUrl and thumbnailUrl
+        const uploadResp = await receiptApiClient.uploadReceiptImage({ image: photoDataUrl, mime });
+        const url = uploadResp.url;
+        const thumbnailUrl = uploadResp.thumbnailUrl;
+        if (!url) throw new Error('Image upload failed: no URL returned');
+
+        // 2️⃣ CREATE RECEIPT CAPTURE with image URLs and captureRequestId
+        const captureRequestId = generateUUIDv4();
+        const captureBody = {
+          images: [{ url, thumbnailUrl: thumbnailUrl || url }],
+          captureRequestId
+        };
+        console.log('DEBUG: captureRequestId', captureRequestId, 'captureBody', captureBody);
+        const captureResp = await receiptApiClient.createCapture(captureBody);
+        const captureId = captureResp.captureId;
+
+        // 3️⃣ IMMEDIATE PARSE (do not block UI forever)
+
+        const { ok: parseOk, data: parseData } = await triggerParse(captureId);
+
+        if (!mountedRef.current) return;
+
+        // 4️⃣ HAND OFF TO REVIEW / QUEUE
+        setShowSuccess(true);
+        setTimeout(() => {
+          setShowSuccess(false);
+          addToast(parseOk ? 'Receipt added! Parsing in progress…' : 'Receipt added! Parse pending…', 'success');
+          onReceiptCreated?.(captureId);
+        }, 1200);
+
+        // Optionally notify parent of parsed items (if implemented in future)
+        if (typeof onParsedItems === 'function' && parseData?.items) {
+          onParsedItems?.(parseData.items);
+        }
+        // Auto-refresh dashboard after parse/upload
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('ninpo:dashboard-refresh'));
+        }
+
+        // Optionally notify parent of image upload
+        if (typeof onImageUploaded === 'function' && url) {
+          onImageUploaded?.(url, thumbnailUrl || url);
+        }
+
+        // Close camera and overlay after success
+        setIsCameraOpen(false);
+        if (typeof onCancel === 'function') onCancel();
+      } catch (err: any) {
+        console.error('Receipt capture failed:', err);
+        if (mountedRef.current) {
+          setError(getGateErrorMessage(err, 'Failed to capture receipt.'));
+        }
+      } finally {
+        if (mountedRef.current) {
+          setIsSubmitting(false);
+        }
+      }
+    },
+    [addToast, onCancel, onImageUploaded, onParsedItems, onReceiptCreated, triggerParse]
+  );
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -179,12 +257,96 @@ const ReceiptCaptureFlow: React.FC<ReceiptCaptureFlowProps> = ({
     e.target.value = '';
   };
 
-  // Store selection logic removed
+  // ─────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────
+  if (!isOpen) return null;
 
-  // ─────────────────────────────────────────────────────────────
-  // 🔥 CORE FIX: RECEIPT CAPTURE + PARSE (FULLY WIRED)
-  // ─────────────────────────────────────────────────────────────
-  const triggerParse = useCallback(
+  // NOTE: Do not auto-close the flow when camera isn't available.
+  // We want to render the fallback UI with "Reopen Camera" instead.
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[min(92vw,48rem)] rounded-xl border border-white/20 bg-black/70 px-4 py-3 text-center text-[11px] text-slate-200">
+        Canonical flow: <span className="font-semibold text-white">Capture → Immediate Parse Trigger → Poll Job → Approve/Reject</span>.{' '}
+        Capture starts a <span className="font-semibold text-white">ReceiptParseJob</span> and stages parsed data for review.{' '}
+        <span className="font-semibold text-white">Approve &amp; Apply</span> later commits
+        <span className="font-semibold text-white"> StoreInventory</span> updates.
+      </div>
+      {/* CAMERA */}
+      {isCameraOpen ? (
+        <>
+          <div className="w-full h-full flex flex-col items-center justify-center">
+              {/* Only ScannerPanel shutter triggers capture. No extra full-width button. */}
+              <ScannerPanel
+                ref={scannerPanelRef}
+                {...scannerProps}
+                mode={mode}
+                onPhotoCaptured={handleReceiptCaptured}
+                showClose={true}
+                onClose={() => {
+                  setIsCameraOpen(false);
+                  onCancel?.(); // ✅ close the receipt flow and return to the tab
+                }}
+                disabled={isSubmitting}
+              />
+            {isSubmitting && (
+              <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80">
+                <Loader2 className="w-12 h-12 text-ninpo-lime animate-spin mb-4" />
+                <div className="text-white font-black text-lg uppercase tracking-widest">Uploading & Parsing…</div>
+              </div>
+            )}
+            {showSuccess && !isSubmitting && (
+              <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80">
+                <CheckCircle2 className="w-16 h-16 text-ninpo-lime mb-4" />
+                <div className="text-ninpo-lime font-black text-lg uppercase tracking-widest">Receipt Added!<br/>Parsing in Progress…</div>
+              </div>
+            )}
+            {parseState && (
+              <div className="absolute bottom-8 left-1/2 -translate-x-1/2 rounded-full border border-blue-300/60 bg-blue-900/70 px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-blue-100">
+                Parse status: {parseState}
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-col items-center justify-center w-full h-full">
+          <div className="text-white text-lg font-bold mb-4">Camera unavailable or closed.</div>
+          <button
+            className="py-3 px-8 bg-ninpo-lime text-ninpo-black rounded-xl font-black uppercase tracking-widest hover:bg-white transition-colors"
+            onClick={() => {
+              setIsCameraOpen(true);
+              setError(null);
+              addToast('Camera re-opened.', 'info');
+            }}
+          >
+            Reopen Camera
+          </button>
+        </div>
+      )}
+
+      {/* ERROR TOAST */}
+      {error && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-red-900/90 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex flex-col gap-2 items-center">
+          <span>{error}</span>
+          {parseRetryCaptureId && (
+            <button
+              type="button"
+              className="px-3 py-1 rounded-md bg-white text-red-900 font-semibold text-sm hover:bg-red-100 transition-colors disabled:opacity-60"
+              onClick={() => triggerParse(parseRetryCaptureId, { isRetry: true })}
+              disabled={isParseRetrying}
+            >
+              {isParseRetrying ? 'Retrying parse…' : 'Parse failed — retry now'}
+            </button>
+          )}
+        </div>
+      )}
+    </div>,
+    document.body
+  );
+};
+
+export default ReceiptCaptureFlow;
     async (captureId: string, options?: { isRetry?: boolean }) => {
       const { isRetry = false } = options || {};
       if (isRetry) {
