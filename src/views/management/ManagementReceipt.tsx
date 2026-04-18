@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-// ...existing code...
+import React, { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+
 import ReceiptReviewPanel from './receipt/ReceiptReviewPanel';
 import { classifyItems } from '../../utils/classificationUtils';
 import { getReceiptItemKey } from '../../utils/receiptHelpers';
@@ -16,6 +16,7 @@ import {
   StoreRecord,
   StoreMatchCandidateOption
 } from '../../types';
+
 import { useNinpoCore } from '../../hooks/useNinpoCore';
 import ReceiptCaptureFlow from '../../components/ReceiptCaptureFlow';
 import { getReceiptParseUiStatus, receiptApiClient } from '../../api/receiptApiClient';
@@ -286,6 +287,79 @@ const parseReceiptApproveResponse = (data: ReceiptApproveResponse): ReceiptAppro
   };
 };
 
+interface ReceiptState {
+  receiptFlow: ReceiptWorkflowTab;
+  isReceiptFlowOpen: boolean;
+  parseJobs: ReceiptParseJob[];
+  isLoadingJobs: boolean;
+  jobsError: string | null;
+  receiptQueueStatus: ReceiptQueueStatus | null;
+  receiptIngestionGate: ReceiptIngestionGateHealth | null;
+  receiptOcrProviderSummary: ReceiptOcrProviderSummary | null;
+  selectedJob: ReceiptParseJob | null;
+  isProcessing: boolean;
+  visibleJobCount: number;
+  activeReceiptCaptureId: string | null;
+  classifiedItems: ClassifiedReceiptItem[];
+  approvalMode: ReceiptApprovalMode;
+  forceUpcOverride: boolean;
+  ignorePriceLocks: boolean;
+  finalStoreMode: FinalStoreMode;
+  finalStoreDraft: ReceiptApprovalStoreDraft;
+  receiptApprovalItems: Array<ReceiptApprovalDraftItem & { id: string }>;
+  receiptApprovalNotes: string;
+  receiptApprovalIdempotencyKey: string;
+  receiptApprovalJobId: string | null;
+  receiptApprovalDrafts: Map<string, ReceiptApprovalDraftState>;
+  scanTargetItemId: string | null;
+  selectedItemsForCommit: Map<string, boolean>;
+  isCommitting: boolean;
+  showReceiptReview: boolean;
+  approvalOutcomeByJobId: Record<string, ReceiptApprovalOutcome>;
+  approvalPanelExpandedByJobId: Record<string, boolean>;
+  scanModalOpen: boolean;
+  lockDurationDays: number;
+}
+
+type ReceiptAction =
+  | { type: 'SET_STATE'; payload: Partial<ReceiptState> }
+  | { type: 'SET_FINAL_STORE_DRAFT'; payload: Partial<ReceiptApprovalStoreDraft> }
+  | { type: 'SET_APPROVAL_OUTCOME'; payload: { jobId: string; outcome: ReceiptApprovalOutcome } }
+  | { type: 'TOGGLE_APPROVAL_PANEL'; payload: { jobId: string } }
+  | { type: 'UPDATE_RECEIPT_APPROVAL_ITEM'; payload: { itemId: string; updater: (item: ReceiptApprovalDraftItem & { id: string }) => ReceiptApprovalDraftItem & { id: string } } }
+  | { type: 'SET_RECEIPT_APPROVAL_DRAFT'; payload: { jobId: string; draft: ReceiptApprovalDraftState } }
+  | { type: 'TOGGLE_ITEM_FOR_COMMIT'; payload: { key: string; checked?: boolean } };
+
+const receiptReducer = (state: ReceiptState, action: ReceiptAction): ReceiptState => {
+  switch (action.type) {
+    case 'SET_STATE':
+      return { ...state, ...action.payload };
+    case 'SET_FINAL_STORE_DRAFT':
+      return { ...state, finalStoreDraft: { ...state.finalStoreDraft, ...action.payload } };
+    case 'SET_APPROVAL_OUTCOME':
+      return { ...state, approvalOutcomeByJobId: { ...state.approvalOutcomeByJobId, [action.payload.jobId]: action.payload.outcome } };
+    case 'TOGGLE_APPROVAL_PANEL':
+      return { ...state, approvalPanelExpandedByJobId: { ...state.approvalPanelExpandedByJobId, [action.payload.jobId]: !state.approvalPanelExpandedByJobId[action.payload.jobId] } };
+    case 'UPDATE_RECEIPT_APPROVAL_ITEM':
+      return { ...state, receiptApprovalItems: state.receiptApprovalItems.map(item => (item.id === action.payload.itemId ? action.payload.updater(item) : item)) };
+    case 'SET_RECEIPT_APPROVAL_DRAFT':
+      const newDrafts = new Map(state.receiptApprovalDrafts);
+      newDrafts.set(action.payload.jobId, action.payload.draft);
+      return { ...state, receiptApprovalDrafts: newDrafts };
+    case 'TOGGLE_ITEM_FOR_COMMIT':
+      const newSelection = new Map(state.selectedItemsForCommit);
+      const shouldSelect = action.payload.checked ?? !newSelection.has(action.payload.key);
+      if (shouldSelect) {
+        newSelection.set(action.payload.key, true);
+      } else {
+        newSelection.delete(action.payload.key);
+      }
+      return { ...state, selectedItemsForCommit: newSelection };
+    default:
+      return state;
+  }
+};
+
 const deriveResolvedStoreCandidate = (
   previousCandidate: ReceiptStoreCandidate | undefined,
   responseData: ReceiptApproveResponse
@@ -386,6 +460,7 @@ interface ReceiptCapture {
  * - Receipt parse jobs review & approval
  */
 const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
+  activeStoreId,
   fmtTime,
   stores,
   setActiveStoreId,
@@ -395,52 +470,52 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const captureItemsInFlightRef = useRef<Set<string>>(new Set());
   const captureItemsAbortRef = useRef<AbortController | null>(null);
   const lastLoadedCaptureIdRef = useRef<string | null>(null);
-  const [receiptFlow, setReceiptFlow] = useState<ReceiptWorkflowTab>('capture');
-  
-  // Capture state
-  const [isReceiptFlowOpen, setIsReceiptFlowOpen] = useState(false);
 
-  const [parseJobs, setParseJobs] = useState<ReceiptParseJob[]>([]);
-  const [isLoadingJobs, setIsLoadingJobs] = useState(false); // This state seems to be unused
-  const [jobsError, setJobsError] = useState<string | null>(null);
-  const [receiptQueueStatus, setReceiptQueueStatus] = useState<ReceiptQueueStatus | null>(null);
-  const [receiptIngestionGate, setReceiptIngestionGate] = useState<ReceiptIngestionGateHealth | null>(null);
-  const [receiptOcrProviderSummary, setReceiptOcrProviderSummary] = useState<ReceiptOcrProviderSummary | null>(null);
-  const [selectedJob, setSelectedJob] = useState<ReceiptParseJob | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [visibleJobCount, setVisibleJobCount] = useState(20);
+  const initialState: ReceiptState = {
+    receiptFlow: 'capture',
+    isReceiptFlowOpen: false,
+    parseJobs: [],
+    isLoadingJobs: false,
+    jobsError: null,
+    receiptQueueStatus: null,
+    receiptIngestionGate: null,
+    receiptOcrProviderSummary: null,
+    selectedJob: null,
+    isProcessing: false,
+    visibleJobCount: 20,
+    activeReceiptCaptureId: null,
+    classifiedItems: [],
+    approvalMode: DEFAULT_RECEIPT_APPROVAL_MODE,
+    forceUpcOverride: false,
+    ignorePriceLocks: false,
+    finalStoreMode: 'MATCHED',
+    finalStoreDraft: {},
+    receiptApprovalItems: [],
+    receiptApprovalNotes: '',
+    receiptApprovalIdempotencyKey: createIdempotencyKey(),
+    receiptApprovalJobId: null,
+    receiptApprovalDrafts: new Map(),
+    scanTargetItemId: null,
+    selectedItemsForCommit: new Map(),
+    isCommitting: false,
+    showReceiptReview: false,
+    approvalOutcomeByJobId: {},
+    approvalPanelExpandedByJobId: {},
+    scanModalOpen: false,
+    lockDurationDays: 7,
+  };
 
-  // Receipt review state (moved from Pricing Intelligence)
-  const [activeReceiptCaptureId, setActiveReceiptCaptureId] = useState<string | null>(null);
-  const [classifiedItems, setClassifiedItems] = useState<ClassifiedReceiptItem[]>([]);
-  const [approvalMode, setApprovalMode] = useState<ReceiptApprovalMode>(DEFAULT_RECEIPT_APPROVAL_MODE);
-  const [forceUpcOverride, setForceUpcOverride] = useState(false);
-  const [ignorePriceLocks, setIgnorePriceLocks] = useState(false);
-  const [finalStoreMode, setFinalStoreMode] = useState<FinalStoreMode>('MATCHED');
-  const [finalStoreDraft, setFinalStoreDraft] = useState<ReceiptApprovalStoreDraft>({});
-  const [receiptApprovalItems, setReceiptApprovalItems] = useState<Array<ReceiptApprovalDraftItem & { id: string }>>([]);
-  const [receiptApprovalNotes, setReceiptApprovalNotes] = useState('');
-  const [receiptApprovalIdempotencyKey, setReceiptApprovalIdempotencyKey] = useState(createIdempotencyKey());
-  const [receiptApprovalJobId, setReceiptApprovalJobId] = useState<string | null>(null);
+  const [state, dispatch] = useReducer(receiptReducer, initialState);
+  const { receiptFlow, isReceiptFlowOpen, parseJobs, isLoadingJobs, jobsError, receiptQueueStatus, receiptIngestionGate, receiptOcrProviderSummary, selectedJob, isProcessing, visibleJobCount, activeReceiptCaptureId, classifiedItems, approvalMode, forceUpcOverride, ignorePriceLocks, finalStoreMode, finalStoreDraft, receiptApprovalItems, receiptApprovalNotes, receiptApprovalIdempotencyKey, receiptApprovalJobId, receiptApprovalDrafts, scanTargetItemId, selectedItemsForCommit, isCommitting, showReceiptReview, approvalOutcomeByJobId, approvalPanelExpandedByJobId, scanModalOpen, lockDurationDays } = state;
 
-  // Stable job identifiers for idempotency key logic
   const selectedJobId = selectedJob?._id ?? null;
   const selectedCaptureId = selectedJob?.captureId ?? null;
-  const [receiptApprovalDrafts, setReceiptApprovalDrafts] = useState<Map<string, ReceiptApprovalDraftState>>(new Map());
-  const [scanTargetItemId, setScanTargetItemId] = useState<string | null>(null);
-  const [selectedItemsForCommit, setSelectedItemsForCommit] = useState<Map<string, boolean>>(new Map());
-  const [isCommitting, setIsCommitting] = useState(false);
-  const [showReceiptReview, setShowReceiptReview] = useState(false);
-  const [approvalOutcomeByJobId, setApprovalOutcomeByJobId] = useState<Record<string, ReceiptApprovalOutcome>>({});
-  const [approvalPanelExpandedByJobId, setApprovalPanelExpandedByJobId] = useState<Record<string, boolean>>({});
-  const [scanModalOpen, setScanModalOpen] = useState(false);
-  const [settings] = useState<any>({}); // Placeholder for settings if needed
 
   const finalStoreId = finalStoreDraft.finalStoreId ?? '';
   const confirmStoreCreate = Boolean(finalStoreDraft.confirmStoreCreate);
 
   const updateStoreDraft = useCallback((updates: Partial<ReceiptApprovalStoreDraft>) => {
-    setFinalStoreDraft(prev => ({ ...prev, ...updates }));
+    dispatch({ type: 'SET_FINAL_STORE_DRAFT', payload: updates });
   }, []);
 
   const updateStoreCandidateDraft = useCallback((candidate?: ReceiptStoreCandidate) => {
@@ -449,7 +524,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   const updateReceiptApprovalItem = useCallback(
     (itemId: string, updater: (item: ReceiptApprovalDraftItem & { id: string }) => ReceiptApprovalDraftItem & { id: string }) => {
-      setReceiptApprovalItems(prev => prev.map(item => (item.id === itemId ? updater(item) : item)));
+      dispatch({ type: 'UPDATE_RECEIPT_APPROVAL_ITEM', payload: { itemId, updater } });
     },
     []
   );
@@ -550,7 +625,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     [addToast]
   );
 
-  const [lockDurationDays, setLockDurationDays] = useState(7);
+  const setLockDurationDays = (days: number) => dispatch({ type: 'SET_STATE', payload: { lockDurationDays: days } });
   const formatRetryAfter = useCallback((retryAfter?: string) => {
     if (!retryAfter) return null;
     const retryDate = new Date(retryAfter);
@@ -587,19 +662,19 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         addToast('No items extracted from receipt. Check image quality or parser output.', 'warning');
         console.warn('No classified items extracted from receipt:', { captureId, items });
       }
-      setClassifiedItems(classified);
+      dispatch({ type: 'SET_STATE', payload: { classifiedItems: classified } });
       const updated = new Map<string, boolean>();
       classified.forEach(item => {
         updated.set(getReceiptItemKey(item), true);
       });
-      setSelectedItemsForCommit(updated);
+      dispatch({ type: 'SET_STATE', payload: { selectedItemsForCommit: updated } });
     } catch (err: any) {
       if (err?.name === 'AbortError') {
         // Silently ignore aborts
         return;
       }
       addToast(err?.message || 'Failed to load receipt items', 'warning');
-      setClassifiedItems([]);
+      dispatch({ type: 'SET_STATE', payload: { classifiedItems: [] } });
     } finally {
       captureItemsInFlightRef.current.delete(captureId);
       if (captureItemsAbortRef.current === abortController) {
@@ -610,7 +685,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   const handleConfirmAll = useCallback(() => {
     // Mark all items as confirmed (example logic)
-    setSelectedItemsForCommit(new Map(classifiedItems.map(item => [getReceiptItemKey(item), true])));
+    dispatch({ type: 'SET_STATE', payload: { selectedItemsForCommit: new Map(classifiedItems.map(item => [getReceiptItemKey(item), true])) } });
     addToast('All items selected for commit.', 'info');
   }, [classifiedItems, addToast]);
 
@@ -619,8 +694,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     try {
       const data: any = await receiptApiClient.resetReview(activeReceiptCaptureId);
       if (data?.error) throw new Error(data.error || 'Failed to reset review'); // This state seems to be unused
-      setSelectedItemsForCommit(new Map()); // This state seems to be unused
-      setApprovalMode(DEFAULT_RECEIPT_APPROVAL_MODE);
+      dispatch({ type: 'SET_STATE', payload: { selectedItemsForCommit: new Map(), approvalMode: DEFAULT_RECEIPT_APPROVAL_MODE } });
       lastLoadedCaptureIdRef.current = null;
       loadCaptureItems(activeReceiptCaptureId);
       addToast('Review reset.', 'success');
@@ -658,7 +732,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       addToast('Resolve blocking receipt approval items before committing.', 'warning');
       return;
     }
-    setIsCommitting(true);
+    dispatch({ type: 'SET_STATE', payload: { isCommitting: true } });
     try {
       const selectedIndices =
         approvalMode === 'selected'
@@ -672,13 +746,13 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
       if (approvalMode === 'selected' && selectedIndices.length === 0) {
         addToast('Select at least one item for selected mode.', 'warning');
-        setIsCommitting(false);
+        dispatch({ type: 'SET_STATE', payload: { isCommitting: false } });
         return;
       }
 
       if (finalStoreMode === 'CREATE_DRAFT' && !confirmStoreCreate) {
         addToast('Confirm store creation before committing.', 'warning');
-        setIsCommitting(false);
+        dispatch({ type: 'SET_STATE', payload: { isCommitting: false } });
         return;
       }
 
@@ -696,7 +770,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       const invalidActions = draftItems.filter(item => item.action === 'LINK_UPC_TO_PRODUCT' && !item.productId);
       if (invalidActions.length > 0) {
         addToast('Link actions require a matched product before committing.', 'warning');
-        setIsCommitting(false);
+        dispatch({ type: 'SET_STATE', payload: { isCommitting: false } });
         return;
       }
 
@@ -726,8 +800,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       const { outcome, appliedCount, skippedCount, backendErrors } = parseReceiptApproveResponse(approvalData);
       const summarizedErrors = summarizeApprovalErrors(backendErrors);
 
-      setApprovalOutcomeByJobId(prev => ({ ...prev, [selectedJob._id]: outcome }));
-      setApprovalPanelExpandedByJobId(prev => ({ ...prev, [selectedJob._id]: true }));
+      dispatch({ type: 'SET_APPROVAL_OUTCOME', payload: { jobId: selectedJob._id, outcome } });
+      dispatch({ type: 'TOGGLE_APPROVAL_PANEL', payload: { jobId: selectedJob._id } });
 
       if (approvalData?.error || appliedCount < 1) {
         if (approvalData?.needsStoreResolution) {
@@ -736,7 +810,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             storeCandidate: resolvedCandidate,
             finalStoreId: null
           });
-          setFinalStoreMode('MATCHED');
+          dispatch({ type: 'SET_STATE', payload: { finalStoreMode: 'MATCHED' } });
           throw new Error('Store resolution required: choose one of the suggested stores before approving.');
         }
         const backendReason = approvalData?.error || 'No receipt lines were applied. Verify mappings and prices, then retry.';
@@ -750,13 +824,11 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       const buildIdSummary = formatBackendBuildIdSummary(outcome.backendBuildId);
       const compactSummary = `Matched products updated: ${applySummary.matchedProductsUpdated} · Unmapped lines recorded: ${applySummary.unmappedLinesRecorded} · UPC links created: ${applySummary.upcLinksCreated}.`;
       addToast(`${summary} ${buildIdSummary} ${compactSummary}`, 'success');
-      setShowReceiptReview(false);
-      setSelectedJob(null);
-      setParseJobs(prev => prev.filter(j => j._id !== selectedJob._id));
+      dispatch({ type: 'SET_STATE', payload: { showReceiptReview: false, selectedJob: null, parseJobs: parseJobs.filter(j => j._id !== selectedJob._id) } });
     } catch (err: any) { // This state seems to be unused
       addToast(err?.message || 'Failed to commit items', 'error');
     } finally {
-      setIsCommitting(false);
+      dispatch({ type: 'SET_STATE', payload: { isCommitting: false } });
     }
   }, [
     selectedJob,
@@ -777,7 +849,6 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     receiptApprovalNotes,
     addToast,
     updateStoreDraft,
-    setApprovalPanelExpandedByJobId
   ]);
 
   const buildReceiptApprovalItems = useCallback(
@@ -816,8 +887,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       captureId: activeReceiptCaptureId || selectedJob?.captureId,
       lineIndex: item.lineIndex
     });
-    setScanTargetItemId(targetId);
-    setScanModalOpen(true);
+    dispatch({ type: 'SET_STATE', payload: { scanTargetItemId: targetId, scanModalOpen: true } });
   }, [activeReceiptCaptureId, selectedJob?.captureId]);
 
   const handleSearchProduct = useCallback((item: ClassifiedReceiptItem) => {
@@ -839,7 +909,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     addToast(`Scanned UPC: ${upc}`, 'info');
     if (scanTargetItemId) {
       updateReceiptApprovalItemUpc(scanTargetItemId, upc);
-      setReceiptApprovalItems(prev =>
+      dispatch({ type: 'SET_STATE', payload: { receiptApprovalItems: receiptApprovalItems.map(item => {
         prev.map(item => {
           if (item.id !== scanTargetItemId) return item;
           const nextAction: ReceiptApprovalAction = item.productId ? 'LINK_UPC_TO_PRODUCT' : 'CREATE_UPC';
@@ -849,13 +919,13 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             action: nextAction
           };
         })
-      );
+      }) } });
     }
-    setScanModalOpen(false);
+    dispatch({ type: 'SET_STATE', payload: { scanModalOpen: false } });
   }, [addToast, scanTargetItemId, updateReceiptApprovalItemUpc]);
 
   const handleScannerClose = useCallback(() => {
-    setScanModalOpen(false);
+    dispatch({ type: 'SET_STATE', payload: { scanModalOpen: false } });
   }, []);
 
   // ...existing code...
@@ -866,21 +936,17 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const loadReceiptHealth = useCallback(async () => {
     try {
       const data: any = await receiptApiClient.getHealth();
-      setReceiptQueueStatus(data?.queueStatus || null);
-      setReceiptIngestionGate(data?.ingestionGate || null);
-      setReceiptOcrProviderSummary(data?.ocrProviderSummary7d || null); // This state seems to be unused
+      dispatch({ type: 'SET_STATE', payload: { receiptQueueStatus: data?.queueStatus || null, receiptIngestionGate: data?.ingestionGate || null, receiptOcrProviderSummary: data?.ocrProviderSummary7d || null } });
     } catch {
-      setReceiptQueueStatus(null);
-      setReceiptIngestionGate(null);
-      setReceiptOcrProviderSummary(null);
+      dispatch({ type: 'SET_STATE', payload: { receiptQueueStatus: null, receiptIngestionGate: null, receiptOcrProviderSummary: null } });
     }
   }, []);
 
   // Load parse jobs for pending workflow and completed history
   const loadParseJobs = useCallback(async () => {
-    setIsLoadingJobs(true);
+    dispatch({ type: 'SET_STATE', payload: { isLoadingJobs: true } });
     void loadReceiptHealth();
-    setJobsError(null);
+    dispatch({ type: 'SET_STATE', payload: { jobsError: null } });
     try {
       const data: any = await receiptApiClient.listJobs('CREATED,QUEUED,PARSING,NEEDS_REVIEW,PARSED,FAILED,APPROVED');
       if (data?.error) throw new Error(data.error || 'Failed to load parse jobs');
@@ -890,11 +956,11 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       // Keep queue semantics first, then completed history
       const statusOrder: Record<string, number> = { CREATED: 0, QUEUED: 1, PARSING: 2, NEEDS_REVIEW: 3, PARSED: 4, APPROVED: 5, FAILED: 6 };
       jobs.sort((a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99));
-      setParseJobs(jobs);
+      dispatch({ type: 'SET_STATE', payload: { parseJobs: jobs } });
     } catch (err: any) {
-      setJobsError(err?.message || 'Failed to load parse jobs');
+      dispatch({ type: 'SET_STATE', payload: { jobsError: err?.message || 'Failed to load parse jobs' } });
     } finally {
-      setIsLoadingJobs(false);
+      dispatch({ type: 'SET_STATE', payload: { isLoadingJobs: false } });
     }
   }, [loadReceiptHealth]);
 
@@ -907,23 +973,22 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   // Real-time: Remove deleted receipt parse jobs instantly
   useEffect(() => {
     const unsub = onReceiptCaptureDeleted(({ captureId }) => {
-      setParseJobs(prev => prev.filter(j => j.captureId !== captureId));
+      dispatch({ type: 'SET_STATE', payload: { parseJobs: parseJobs.filter(j => j.captureId !== captureId) } });
     });
     return () => {
       if (typeof unsub === 'function') unsub();
     };
-  }, []);
+  }, [parseJobs]);
 
   const handleReceiptCaptured = useCallback((captureId: string) => {
     addToast('Receipt captured. Parse queued; monitor status before approve/reject.', 'success');
-    setIsReceiptFlowOpen(false);
-    setReceiptFlow('pending');
+    dispatch({ type: 'SET_STATE', payload: { isReceiptFlowOpen: false, receiptFlow: 'pending' } });
   }, [addToast]);
 
   // Enhanced handleApproveReceipt: builds full payload, posts, resets state, refreshes stores/products
   const handleApproveReceipt = useCallback(
     async (job: ReceiptParseJob, modeFromUi: ReceiptApprovalMode) => {
-      setIsProcessing(true);
+      dispatch({ type: 'SET_STATE', payload: { isProcessing: true } });
       try {
         // Build store override if needed
         let storeCandidateOverride: ReceiptStoreCandidate | undefined = undefined;
@@ -973,8 +1038,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         const { outcome, appliedCount, skippedCount, backendErrors } = parseReceiptApproveResponse(data);
         const summarizedErrors = summarizeApprovalErrors(backendErrors);
 
-        setApprovalOutcomeByJobId(prev => ({ ...prev, [job._id]: outcome }));
-        setApprovalPanelExpandedByJobId(prev => ({ ...prev, [job._id]: true }));
+        dispatch({ type: 'SET_APPROVAL_OUTCOME', payload: { jobId: job._id, outcome } });
+        dispatch({ type: 'TOGGLE_APPROVAL_PANEL', payload: { jobId: job._id } });
 
         if (data?.error || appliedCount < 1) {
           if (data?.needsStoreResolution) {
@@ -983,7 +1048,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
               storeCandidate: resolvedCandidate,
               finalStoreId: null
             });
-            setFinalStoreMode('MATCHED');
+            dispatch({ type: 'SET_STATE', payload: { finalStoreMode: 'MATCHED' } });
             throw new Error('Store resolution required: choose one of the suggested stores before approving.');
           }
           const backendReason = data?.error || 'No receipt lines were applied. Verify mappings and prices, then retry.';
@@ -1002,14 +1067,16 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
         // Reset review state/drafts
 
-        setShowReceiptReview(false);
-        setSelectedJob(null);
-        setParseJobs(prev => prev.filter(j => j._id !== job._id));
-        setReceiptApprovalItems([]);
-        setReceiptApprovalNotes('');
-        setReceiptApprovalIdempotencyKey(createIdempotencyKey());
-        setFinalStoreDraft({});
-        setFinalStoreMode('MATCHED');
+        dispatch({ type: 'SET_STATE', payload: {
+          showReceiptReview: false,
+          selectedJob: null,
+          parseJobs: parseJobs.filter(j => j._id !== job._id),
+          receiptApprovalItems: [],
+          receiptApprovalNotes: '',
+          receiptApprovalIdempotencyKey: createIdempotencyKey(),
+          finalStoreDraft: {},
+          finalStoreMode: 'MATCHED'
+        } });
         setActiveStoreId('');
 
         // Refresh stores and products
@@ -1021,23 +1088,22 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         const isNoApplied = String(err?.message || '').toLowerCase().includes('no receipt lines were applied');
         addToast(err?.message || 'Failed to approve job', isNoApplied ? 'warning' : 'warning');
       } finally {
-        setIsProcessing(false);
+        dispatch({ type: 'SET_STATE', payload: { isProcessing: false } });
       }
     },
-    [addToast, finalStoreMode, finalStoreDraft, receiptApprovalItems, receiptApprovalIdempotencyKey, receiptApprovalNotes, ignorePriceLocks, refreshStores, fetchProducts]
+    [addToast, finalStoreMode, finalStoreDraft, receiptApprovalItems, receiptApprovalIdempotencyKey, receiptApprovalNotes, ignorePriceLocks, refreshStores, fetchProducts, parseJobs, setActiveStoreId]
   );
 
   const handleRejectParseJob = useCallback(async (jobId: string) => {
-    setIsProcessing(true);
+    dispatch({ type: 'SET_STATE', payload: { isProcessing: true } });
     try {
       await receiptApiClient.rejectJob(jobId, 'dismissed_by_operator');
       addToast('Parse job rejected', 'success');
-      setParseJobs(prev => prev.filter(j => j._id !== jobId));
-      setSelectedJob(null);
+      dispatch({ type: 'SET_STATE', payload: { parseJobs: parseJobs.filter(j => j._id !== jobId), selectedJob: null } });
     } catch (err: any) { // This state seems to be unused
       addToast(err?.message || 'Failed to reject job', 'error');
     } finally {
-      setIsProcessing(false);
+      dispatch({ type: 'SET_STATE', payload: { isProcessing: false } });
     }
   }, [addToast]);
 
@@ -1055,21 +1121,22 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       : selectedJob.storeCandidate?.storeId
         ? 'MATCHED'
         : 'CREATE_DRAFT';
-    setFinalStoreMode(mode);
+    dispatch({ type: 'SET_STATE', payload: { finalStoreMode: mode } });
   }, [selectedJob, finalStoreDraft.finalStoreId]);
 
   useEffect(() => {
     if (!receiptApprovalJobId) return;
-    setReceiptApprovalDrafts(prev => {
-      const next = new Map(prev);
-      next.set(receiptApprovalJobId, {
+    dispatch({
+      type: 'SET_RECEIPT_APPROVAL_DRAFT',
+      payload: {
+        jobId: receiptApprovalJobId,
+        draft: {
         finalStoreMode,
         finalStoreDraft,
         receiptApprovalItems,
         receiptApprovalNotes,
         receiptApprovalIdempotencyKey
-      });
-      return next;
+      }}
     });
   }, [
     receiptApprovalJobId,
@@ -1082,12 +1149,9 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   useEffect(() => {
     if (!selectedJob) return;
-    setActiveReceiptCaptureId(selectedJob.captureId);
-    setShowReceiptReview(true);
+    dispatch({ type: 'SET_STATE', payload: { activeReceiptCaptureId: selectedJob.captureId, showReceiptReview: true } });
     updateStoreCandidateDraft(selectedJob.storeCandidate);
-    setForceUpcOverride(false);
-    setIgnorePriceLocks(false);
-    setApprovalMode(DEFAULT_RECEIPT_APPROVAL_MODE);
+    dispatch({ type: 'SET_STATE', payload: { forceUpcOverride: false, ignorePriceLocks: false, approvalMode: DEFAULT_RECEIPT_APPROVAL_MODE } });
     if (lastLoadedCaptureIdRef.current === selectedJob.captureId) {
       return;
     }
@@ -1096,26 +1160,30 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     if (receiptApprovalJobId !== selectedJob._id) {
       const existingDraft = receiptApprovalDrafts.get(selectedJob._id);
       if (existingDraft) {
-        setFinalStoreMode(existingDraft.finalStoreMode);
-        setFinalStoreDraft(existingDraft.finalStoreDraft);
-        setReceiptApprovalItems(existingDraft.receiptApprovalItems);
-        setReceiptApprovalNotes(existingDraft.receiptApprovalNotes);
-        setReceiptApprovalIdempotencyKey(existingDraft.receiptApprovalIdempotencyKey);
+        dispatch({ type: 'SET_STATE', payload: {
+          finalStoreMode: existingDraft.finalStoreMode,
+          finalStoreDraft: existingDraft.finalStoreDraft,
+          receiptApprovalItems: existingDraft.receiptApprovalItems,
+          receiptApprovalNotes: existingDraft.receiptApprovalNotes,
+          receiptApprovalIdempotencyKey: existingDraft.receiptApprovalIdempotencyKey
+        } });
       } else {
         const nextFinalStoreMode: FinalStoreMode = selectedJob.storeCandidate?.storeId
           ? 'MATCHED'
           : 'CREATE_DRAFT';
-        setFinalStoreMode(nextFinalStoreMode);
-        setFinalStoreDraft({
+        dispatch({ type: 'SET_STATE', payload: {
+          finalStoreMode: nextFinalStoreMode,
+          finalStoreDraft: {
           finalStoreId: null,
           storeCandidate: selectedJob.storeCandidate,
           confirmStoreCreate: false
-        });
-        setReceiptApprovalItems(buildReceiptApprovalItems(selectedJob, classifiedItems));
-        setReceiptApprovalNotes('');
-        setSelectedItemsForCommit(new Map());
+        },
+          receiptApprovalItems: buildReceiptApprovalItems(selectedJob, classifiedItems),
+          receiptApprovalNotes: '',
+          selectedItemsForCommit: new Map()
+        } });
       }
-      setReceiptApprovalJobId(selectedJob._id);
+      dispatch({ type: 'SET_STATE', payload: { receiptApprovalJobId: selectedJob._id } });
     }
   }, [
     selectedJob,
@@ -1134,15 +1202,14 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     // If we're still on the same job, do nothing.
     if (receiptApprovalJobId === selectedJobId) return;
     // New job selected: create a fresh idempotency key ONCE.
-    setReceiptApprovalIdempotencyKey(createIdempotencyKey());
+    dispatch({ type: 'SET_STATE', payload: { receiptApprovalIdempotencyKey: createIdempotencyKey() } });
     // ...other one-time "open job" setup can go here if needed...
   }, [selectedJobId, selectedCaptureId, receiptApprovalJobId]);
-  const [approvalPanelExpandedByJobId, setApprovalPanelExpandedByJobId] = useState<Record<string, boolean>>({});
   useEffect(() => {
     if (!selectedJob) return;
     if (receiptApprovalJobId !== selectedJob._id) return;
     if (classifiedItems.length === 0 || receiptApprovalItems.length > 0) return;
-    setReceiptApprovalItems(buildReceiptApprovalItems(selectedJob, classifiedItems));
+    dispatch({ type: 'SET_STATE', payload: { receiptApprovalItems: buildReceiptApprovalItems(selectedJob, classifiedItems) } });
   }, [
     selectedJob,
     receiptApprovalJobId,
@@ -1176,10 +1243,10 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   useEffect(() => {
     if (activeJobs.length <= 20) {
-      setVisibleJobCount(20);
+      dispatch({ type: 'SET_STATE', payload: { visibleJobCount: 20 } });
       return;
     }
-    setVisibleJobCount(prev => Math.min(prev, activeJobs.length));
+    dispatch({ type: 'SET_STATE', payload: { visibleJobCount: Math.min(visibleJobCount, activeJobs.length) } });
   }, [activeJobs.length]);
 
   const tabContent = useMemo(() => {
@@ -1187,7 +1254,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       return (
         <div className="space-y-6">
           <button
-            onClick={() => setIsReceiptFlowOpen(true)}
+            onClick={() => dispatch({ type: 'SET_STATE', payload: { isReceiptFlowOpen: true } })}
             className="w-full py-4 bg-ninpo-lime text-ninpo-black rounded-xl font-black uppercase tracking-widest hover:bg-white transition-colors"
           >
             Capture or Upload Receipt
@@ -1203,7 +1270,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             stores={stores}
             isOpen={isReceiptFlowOpen}
             onReceiptCreated={handleReceiptCaptured}
-            onCancel={() => setIsReceiptFlowOpen(false)}
+            onCancel={() => dispatch({ type: 'SET_STATE', payload: { isReceiptFlowOpen: false } })}
           />
         </div>
       );
@@ -1227,26 +1294,25 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             receiptApprovalStatus={approvalStatus}
             receiptApprovalItems={receiptApprovalItems}
             approvalNotes={receiptApprovalNotes}
-            onApprovalNotesChange={setReceiptApprovalNotes}
+            onApprovalNotesChange={(notes) => dispatch({ type: 'SET_STATE', payload: { receiptApprovalNotes: notes } })}
             receiptApprovalIdempotencyKey={receiptApprovalIdempotencyKey}
-            onReceiptApprovalIdempotencyKeyChange={setReceiptApprovalIdempotencyKey}
+            onReceiptApprovalIdempotencyKeyChange={(key) => dispatch({ type: 'SET_STATE', payload: { receiptApprovalIdempotencyKey: key } })}
             show={showReceiptReview}
             onClose={() => {
-              setShowReceiptReview(false);
-              setSelectedJob(null);
+              dispatch({ type: 'SET_STATE', payload: { showReceiptReview: false, selectedJob: null } });
             }}
             onParse={handleParse}
             onConfirmAll={handleConfirmAll}
             onResetReview={handleResetReview}
             onLock={handleLock}
             onUnlock={handleUnlock}
-            onApprovalMode={mode => setApprovalMode(mode)}
+            onApprovalMode={mode => dispatch({ type: 'SET_STATE', payload: { approvalMode: mode } })}
             onSelectAll={() => {
               const updated = new Map<string, boolean>();
               classifiedItems.forEach(item => {
                 updated.set(getReceiptItemKey(item), true);
               });
-              setSelectedItemsForCommit(updated);
+              dispatch({ type: 'SET_STATE', payload: { selectedItemsForCommit: updated } });
             }}
             onSelectSafe={() => {
               const updated = new Map<string, boolean>();
@@ -1255,24 +1321,15 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                 .forEach(item => {
                   updated.set(getReceiptItemKey(item), true);
                 });
-              setSelectedItemsForCommit(updated);
+              dispatch({ type: 'SET_STATE', payload: { selectedItemsForCommit: updated } });
             }}
-            onClearSelection={() => setSelectedItemsForCommit(new Map())}
+            onClearSelection={() => dispatch({ type: 'SET_STATE', payload: { selectedItemsForCommit: new Map() } })}
             onCommit={handleCommit}
             onScanItem={handleScanItem}
             onSearchProduct={handleSearchProduct}
             onSelectForCommit={(item, checked) => {
               const key = getReceiptItemKey(item);
-              setSelectedItemsForCommit(prev => {
-                const updated = new Map(prev);
-                const shouldSelect = checked ?? !updated.has(key);
-                if (shouldSelect) {
-                  updated.set(key, true);
-                } else {
-                  updated.delete(key);
-                }
-                return updated;
-              });
+              dispatch({ type: 'TOGGLE_ITEM_FOR_COMMIT', payload: { key, checked } });
             }}
             onItemUpcChange={updateReceiptApprovalItemUpc}
             onItemActionChange={updateReceiptApprovalItemAction}
@@ -1280,18 +1337,17 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
             scanModalOpen={scanModalOpen}
             handleScannerScan={handleScannerScan}
             handleScannerClose={handleScannerClose}
-            settings={settings}
             confirmStoreCreate={confirmStoreCreate}
             forceUpcOverride={forceUpcOverride}
             ignorePriceLocks={ignorePriceLocks}
             canOverridePriceLocks={canOverridePriceLocks}
             finalStoreId={finalStoreId}
             onConfirmStoreCreate={value => updateStoreDraft({ confirmStoreCreate: value })}
-            onForceUpcOverride={setForceUpcOverride}
-            onIgnorePriceLocks={setIgnorePriceLocks}
+            onForceUpcOverride={(value) => dispatch({ type: 'SET_STATE', payload: { forceUpcOverride: value } })}
+            onIgnorePriceLocks={(value) => dispatch({ type: 'SET_STATE', payload: { ignorePriceLocks: value } })}
             onFinalStoreIdChange={value => updateStoreDraft({ finalStoreId: value })}
             finalStoreMode={finalStoreMode}
-            onFinalStoreModeChange={setFinalStoreMode}
+            onFinalStoreModeChange={(mode) => dispatch({ type: 'SET_STATE', payload: { finalStoreMode: mode } })}
             onLockDurationChange={setLockDurationDays}
             stores={stores}
             storeCandidate={finalStoreDraft.storeCandidate || selectedJob.storeCandidate}
@@ -1417,7 +1473,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                   <div
                     key={job._id!}
                     className="bg-ninpo-card border border-white/10 rounded-2xl p-4 cursor-pointer hover:border-ninpo-lime/50 transition"
-                    onClick={() => setSelectedJob(selectedJob?._id === job._id ? null : job)}
+                    onClick={() => dispatch({ type: 'SET_STATE', payload: { selectedJob: selectedJob?._id === job._id ? null : job } })}
                   >
                     <div className="flex items-center justify-between">
                       <div>
@@ -1485,13 +1541,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                           <div className="rounded-xl border border-ninpo-lime/30 bg-ninpo-lime/10 p-3 text-[11px] text-slate-100">
                             <button
                               type="button"
-                              onClick={event => {
-                                event.stopPropagation();
-                                setApprovalPanelExpandedByJobId(prev => ({
-                                  ...prev,
-                                  [job._id]: !prev[job._id]
-                                }));
-                              }}
+                              onClick={event => { event.stopPropagation(); dispatch({ type: 'TOGGLE_APPROVAL_PANEL', payload: { jobId: job._id } }); }}
                               className="flex w-full items-center justify-between text-left"
                             >
                               <p className="font-bold uppercase tracking-widest text-[10px] text-ninpo-lime">Last approval result</p>
@@ -1622,7 +1672,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
               {canLoadMoreJobs && (
                 <button
                   type="button"
-                  onClick={() => setVisibleJobCount(prev => Math.min(prev + 20, activeJobs.length))}
+                  onClick={() => dispatch({ type: 'SET_STATE', payload: { visibleJobCount: Math.min(visibleJobCount + 20, activeJobs.length) } })}
                   className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-white/70 hover:text-white hover:border-white/30 transition"
                 >
                   Load more
@@ -1635,6 +1685,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     }
   }, [
     receiptFlow,
+    activeStoreId,
     stores,
     fmtTime,
     parseJobs,
@@ -1651,7 +1702,6 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     showReceiptReview,
     scanModalOpen,
     confirmStoreCreate,
-    forceUpcOverride,
     finalStoreId,
     receiptApprovalNotes,
     approvalStatus.hasBlocking,
@@ -1692,7 +1742,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         ].map(tab => (
           <button
             key={tab.id}
-            onClick={() => setReceiptFlow(tab.id as ReceiptWorkflowTab)}
+            onClick={() => dispatch({ type: 'SET_STATE', payload: { receiptFlow: tab.id as ReceiptWorkflowTab } })}
             className={`px-4 py-3 text-[11px] font-black uppercase tracking-widest border-b-2 transition ${
               receiptFlow === tab.id
                 ? 'border-ninpo-lime text-ninpo-lime'
