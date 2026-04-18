@@ -1,5 +1,4 @@
 // CartDrawer.tsx (FULL REPLACEMENT)
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   ShoppingBag,
@@ -8,9 +7,7 @@ import {
   Loader2,
   Zap,
   Landmark,
-  Plus,
   ScanLine,
-  Info,
   AlertCircle
 } from 'lucide-react';
 import { Product, ReturnUpcCount, UserTier } from '../types';
@@ -58,13 +55,11 @@ interface CartDrawerProps {
 
 const LS_KEY_UPCS = 'ninpo_return_upcs_v1';
 const LS_KEY_UPC_ELIGIBILITY = 'ninpo_upc_eligibility_v1';
-const UPC_ELIGIBILITY_TTL_MS = 1 * 60 * 60 * 1000;
 
 // Michigan default deposit
 const MI_DEPOSIT_VALUE = 0.1; // 10¢
 const DEFAULT_HANDLING_FEE = 0.02;
 const DEFAULT_GLASS_HANDLING_FEE = 0.02;
-const NOT_ELIGIBLE_MESSAGE = "This container isn't eligible for return value.";
 
 type UpcEligibilityCache = Record<
   string,
@@ -207,7 +202,6 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       addToast('Cart optimization complete!', 'success');
     } catch (error: any) {
       console.error('Cart optimization failed:', error);
-      addToast(error.message || 'Cart optimization failed.', 'error');
       addToast(error.message || 'Cart optimization failed.', 'warning');
       setOptimizationResult(null);
     } finally {
@@ -218,15 +212,12 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
   const handleAcceptOptimization = async () => {
     if (!optimizationResult) return;
 
-    const newCartItems = optimizationResult.optimizedCart.items.map(item => ({
-    const newCartItems = optimizationResult.optimizedCart.items.map((item: { product: any; quantity: any; }) => ({
     const newCartItems: CartItem[] = optimizationResult.optimizedCart.items.map((item: { product: any; quantity: any; }) => ({
       productId: resolveProductId(item.product),
       quantity: item.quantity,
     }));
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/cart/update`, {
       const response = await fetch(`${BACKEND_URL}/api/cart/update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -235,11 +226,8 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
             items: newCartItems,
             subtotal: optimizationResult.optimizedCart.subtotal,
         }),
-        })
       });
 
-      const data = await res.json();
-      if (!res.ok) {
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.message || 'Failed to update cart');
@@ -250,8 +238,6 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
       addToast('Cart updated with optimized items!', 'success');
 
     } catch (error: any) {
-        console.error('Failed to accept optimization:', error);
-        addToast(error.message || 'Failed to update cart.', 'error');
       console.error('Failed to accept optimization:', error);
       addToast(error.message || 'Failed to update cart.', 'warning');
     }
@@ -259,7 +245,6 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const cartIsEmpty = cart.length === 0;
   const hasReturnUpcs = totalReturnContainers > 0;
-  const isPickupOnlyOrder = cartIsEmpty && hasReturnUpcs;
   
   const allowCashPayout = useMemo(() => 
     quote?.tierBenefits?.allowedReturnPayoutMethods?.includes('CASH') ?? false
@@ -959,17 +944,12 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
                     <p className="text-sm text-white">Optimization Found: <span className='font-bold'>{optimizationResult.planName}</span></p>
                     <p className="text-xs text-slate-400">{optimizationResult.reason}</p>
                     <div className="bg-black/30 border border-white/10 rounded-2xl p-5 space-y-3">
-                        {optimizationResult.optimizedCart.items.map((item, index) => (
-                        {optimizationResult.optimizedCart.items.map((item: { product: { name: React.ReactNode; price: number; }; quantity: React.ReactNode; originalPrice: number; }, index: React.Key | null | undefined) => (
-                        {optimizationResult.optimizedCart.items.map((item: any, index: number) => (
                         {optimizationResult.optimizedCart.items.map((item: any, index: React.Key) => (
                             <div key={index} className="flex justify-between items-center">
                                 <p className="text-white">{item.product.name} (x{item.quantity})</p>
                                 <div className='flex items-center gap-2'>
                                   {item.originalPrice && <p className="text-slate-400 line-through">{money(item.originalPrice)}</p>}
                                   <p className="text-ninpo-lime">{money(item.product.price)}</p>
-                                  {item.originalPrice && <p className="text-slate-400 line-through">${item.originalPrice.toFixed(2)}</p>}
-                                  <p className="text-ninpo-lime">${item.product.price.toFixed(2)}</p>
                                 </div>
                             </div>
                         ))}
