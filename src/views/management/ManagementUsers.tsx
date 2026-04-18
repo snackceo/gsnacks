@@ -10,7 +10,7 @@ interface ManagementUsersProps {
   userStats: Record<string, UserStatsSummary>;
   userDrafts: Record<string, Partial<User>>;
   expandedUserId: string | null;
-  setExpandedUserId: (id: string | null) => void;
+  setExpandedUserId: React.Dispatch<React.SetStateAction<string | null>>;
   userLedgers: Record<string, LedgerEntry[]>;
   ledgerLoading: Record<string, boolean>;
   ledgerErrors: Record<string, string | null>;
@@ -62,17 +62,17 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
   getTierStyles,
   isNewSignupWithBonus
 }) => {
-  const { addToast } = useNinpoCore ? useNinpoCore() : { addToast: () => {} };
+  const { addToast } = useNinpoCore();
 
   // Toast for usersError
   useEffect(() => {
-    if (usersError) addToast(usersError, 'error');
+    if (usersError) addToast(usersError, 'warning');
   }, [usersError, addToast]);
 
   // Toast for ledger errors
   useEffect(() => {
     Object.values(ledgerErrors).forEach(err => {
-      if (err) addToast(err, 'error');
+      if (err) addToast(err, 'warning');
     });
   }, [ledgerErrors, addToast]);
 
@@ -130,14 +130,15 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6">
-          {filteredUsers.map(u => {
-            const stats = userStats[u.id];
-            const draft = userDrafts[u.id] || {};
-            const isExpanded = expandedUserId === u.id;
-            const ledgerEntries = userLedgers[u.id] || [];
-            const ledgerBusy = ledgerLoading[u.id];
-            const ledgerError = ledgerErrors[u.id];
-            const statsLoading = userStatsLoading[u.id];
+          {filteredUsers.map((u: User) => {
+            if (!u.id) return null;
+            const stats = userStats[u.id!];
+            const draft = userDrafts[u.id!] || {};
+            const isExpanded = expandedUserId === u.id!;
+            const ledgerEntries = userLedgers[u.id!] || [];
+            const ledgerBusy = ledgerLoading[u.id!];
+            const ledgerError = ledgerErrors[u.id!];
+            const statsLoading = userStatsLoading[u.id!];
             const tierKey = (u.membershipTier || 'COMMON').toString().toUpperCase();
             const tierLabel =
               tierKey === 'NONE'
@@ -160,7 +161,7 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
 
             return (
               <div
-                key={u.id}
+                key={u.id!}
                 className="group bg-ninpo-card p-6 rounded-[2.5rem] border border-white/5 space-y-4 transition-all hover:border-white/10"
                 onClick={() => toggleUserDetails(u)}
               >
@@ -243,8 +244,8 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
                           placeholder="Credits"
                           value={draft.creditBalance ?? u.creditBalance ?? 0}
                           onClick={e => e.stopPropagation()}
-                          onChange={e =>
-                            handleUserDraftChange(u.id, {
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                            u.id && handleUserDraftChange(u.id, {
                               creditBalance: Number(e.target.value)
                             })
                           }
@@ -257,8 +258,8 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
                           placeholder="Points"
                           value={draft.loyaltyPoints ?? u.loyaltyPoints ?? 0}
                           onClick={e => e.stopPropagation()}
-                          onChange={e =>
-                            handleUserDraftChange(u.id, {
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                            u.id && handleUserDraftChange(u.id, {
                               loyaltyPoints: Number(e.target.value)
                             })
                           }
@@ -268,8 +269,8 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
                           value={(draft.membershipTier ?? u.membershipTier ?? 'COMMON').toString()}
                           onClick={e => e.stopPropagation()}
                           disabled={!allowPlatinumTier && u.membershipTier === 'PLATINUM'}
-                          onChange={e =>
-                            handleUserDraftChange(u.id, {
+                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                            u.id && handleUserDraftChange(u.id, {
                               membershipTier: e.target.value as any
                             })
                           }
@@ -295,7 +296,7 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
                         <button
                           onClick={e => {
                             e.stopPropagation();
-                            saveUserDraft(u.id);
+                            if (u.id) saveUserDraft(u.id);
                             addToast('User updated', 'success');
                           }}
                           className="px-6 py-3 rounded-2xl bg-ninpo-lime text-ninpo-black text-[10px] font-black uppercase tracking-widest"
@@ -306,7 +307,7 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
                           <button
                             onClick={e => {
                               e.stopPropagation();
-                              apiDeleteUser(u.id);
+                              if (u.id) apiDeleteUser(u.id);
                               addToast('User deleted', 'success');
                             }}
                             className="px-6 py-3 rounded-2xl bg-ninpo-red text-white text-[10px] font-black uppercase tracking-widest"
@@ -317,7 +318,7 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
                         <button
                           onClick={e => {
                             e.stopPropagation();
-                            setExpandedUserId(prev => (prev === u.id ? null : u.id));
+                            setExpandedUserId(prev => (prev === u.id ? null : u.id!));
                           }}
                           className="px-6 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest"
                         >
@@ -334,7 +335,7 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
                         <button
                           onClick={e => {
                             e.stopPropagation();
-                            fetchUserLedger(u.id);
+                            if (u.id) fetchUserLedger(u.id);
                           }}
                           className="px-3 py-1 rounded-xl bg-white/5 border border-white/10 text-[9px] font-black uppercase tracking-widest text-white/70 hover:text-white"
                         >
@@ -356,7 +357,7 @@ const ManagementUsers: React.FC<ManagementUsersProps> = ({
                         </div>
                       ) : (
                         <div className="space-y-2 max-h-44 overflow-auto pr-1">
-                          {ledgerEntries.map(entry => (
+                          {ledgerEntries.map((entry: LedgerEntry) => (
                             <div
                               key={entry.id}
                               className="border border-white/5 rounded-2xl px-3 py-2 bg-black/30"

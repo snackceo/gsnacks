@@ -4,11 +4,8 @@ import { useNinpoCore } from '../../hooks/useNinpoCore';
 
 interface ManagementSettingsProps {
   settingsDraft: AppSettings;
-  setSettingsDraft: (draft: AppSettings) => void;
   settingsDirty: boolean;
-  setSettingsDirty: (dirty: boolean) => void;
   isSavingSettings: boolean;
-  setIsSavingSettings: (saving: boolean) => void;
   settingsError: string | null;
   setSettingsError: (error: string | null) => void;
   settingsSaved: boolean;
@@ -19,11 +16,8 @@ interface ManagementSettingsProps {
 
 const ManagementSettings: React.FC<ManagementSettingsProps> = ({
   settingsDraft,
-  setSettingsDraft,
   settingsDirty,
-  setSettingsDirty,
   isSavingSettings,
-  setIsSavingSettings,
   settingsError,
   setSettingsError,
   settingsSaved,
@@ -41,7 +35,7 @@ const ManagementSettings: React.FC<ManagementSettingsProps> = ({
     }
     if (settingsError) {
       console.log('[ManagementSettings] Showing error toast:', settingsError);
-      addToast(settingsError, 'error');
+      addToast(settingsError, 'warning');
       setTimeout(() => setSettingsError(null), 100);
     }
   }, [settingsSaved, settingsError, addToast, setSettingsSaved, setSettingsError])
@@ -164,7 +158,7 @@ const ManagementSettings: React.FC<ManagementSettingsProps> = ({
       <button
         type="submit"
         className="bg-ninpo-lime text-ninpo-black font-black px-8 py-4 rounded-2xl mt-8 shadow-neon text-lg tracking-widest uppercase"
-        disabled={isSavingSettings}
+        disabled={isSavingSettings || !settingsDirty}
       >
         {isSavingSettings ? 'Saving...' : 'Save Settings'}
       </button>

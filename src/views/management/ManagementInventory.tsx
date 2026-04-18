@@ -101,7 +101,7 @@ export const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
 
   React.useEffect(() => {
     if (createError) {
-      addToast(createError, 'error');
+      addToast(createError, 'warning');
     }
   }, [createError, addToast]);
 
@@ -120,12 +120,12 @@ export const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
   const handleUseNewScan = () => {
     if (!pendingUpc) return;
     setScannedUpcForCreation?.(pendingUpc);
-    handleManualUpcChange(pendingUpc);
+    if (typeof handleManualUpcChange === 'function') handleManualUpcChange(pendingUpc);
     setPendingUpc(null);
     setIsDirty(false);
     setDraftStatus('scanned');
-    setNewProduct(prev => ({
-      ...prev,
+    setNewProduct({
+      ...(newProduct || {}),
       name: '',
       brand: '',
       productType: '',
@@ -138,9 +138,9 @@ export const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
       sizeOz: 0,
       sizeUnit: 'oz',
       isGlass: false
-    }));
-    setUpcDraft(prev => ({
-      ...prev,
+    } as Product);
+    setUpcDraft({
+      ...(upcDraft || {}),
       upc: pendingUpc,
       name: '',
       price: 0,
@@ -149,7 +149,7 @@ export const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
       sizeOz: 0,
       sizeUnit: 'oz',
       isEligible: true
-    }));
+    } as UpcItem);
   };
 
   const handleFieldChange = (onChange: () => void) => {
@@ -160,12 +160,12 @@ export const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
 
   const handleBatchCommit = async () => {
     const result = await addBatchQueueToRegistry();
-    if (result.successCount && result.failCount) {
+    if (result.successCount > 0 && result.failCount > 0) {
       addToast(`Added ${result.successCount}, failed ${result.failCount}`, 'warning');
-    } else if (result.successCount) {
+    } else if (result.successCount > 0) {
       addToast(`Added ${result.successCount} UPCs`, 'success');
-    } else if (result.failCount) {
-      addToast(`Failed ${result.failCount} UPCs`, 'error');
+    } else if (result.failCount > 0) {
+      addToast(`Failed ${result.failCount} UPCs`, 'warning');
     }
   };
 
@@ -268,14 +268,14 @@ export const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
                   addToast('Successfully added to registry', 'success');
                   handleManualUpcChange('');
                 } else {
-                  addToast('Unexpected response from server', 'error');
+                  addToast('Unexpected response from server', 'warning');
                 }
               } catch (err: any) {
                 const message = err?.message || 'Failed to add to registry';
                 if (message.includes('409')) {
-                  addToast('UPC already in registry', 'error');
+                  addToast('UPC already in registry', 'warning');
                 } else {
-                  addToast(message, 'error');
+                  addToast(message, 'warning');
                 }
               } finally {
                 setIsAddingUpc(false);
@@ -629,7 +629,7 @@ export const InventoryCreateForm: React.FC<InventoryCreateFormProps> = ({
               Cancel
             </button>
             <button
-              onClick={apiCreateProduct}
+              onClick={() => apiCreateProduct()}
               disabled={isCreating || batchMode}
               className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.01] transition-all shadow-neon"
             >

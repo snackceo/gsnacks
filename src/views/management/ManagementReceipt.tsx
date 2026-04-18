@@ -388,12 +388,8 @@ interface ReceiptCapture {
 const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   fmtTime,
   stores,
-  activeStoreId,
   setActiveStoreId,
-  refreshStores,
-  isLoadingStores,
-  storeError,
-  setStoreError
+  refreshStores
 }) => {
   const { addToast, fetchProducts, currentUser } = useNinpoCore();
   const captureItemsInFlightRef = useRef<Set<string>>(new Set());
@@ -410,7 +406,6 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [receiptQueueStatus, setReceiptQueueStatus] = useState<ReceiptQueueStatus | null>(null);
   const [receiptIngestionGate, setReceiptIngestionGate] = useState<ReceiptIngestionGateHealth | null>(null);
   const [receiptOcrProviderSummary, setReceiptOcrProviderSummary] = useState<ReceiptOcrProviderSummary | null>(null);
-  const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<ReceiptParseJob | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [visibleJobCount, setVisibleJobCount] = useState(20);
@@ -420,7 +415,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [classifiedItems, setClassifiedItems] = useState<ClassifiedReceiptItem[]>([]);
   const [approvalMode, setApprovalMode] = useState<ReceiptApprovalMode>(DEFAULT_RECEIPT_APPROVAL_MODE);
   const [forceUpcOverride, setForceUpcOverride] = useState(false);
-  const [ignorePriceLocks, setIgnorePriceLocks] = useState(false); // This state seems to be unused
+  const [ignorePriceLocks, setIgnorePriceLocks] = useState(false);
   const [finalStoreMode, setFinalStoreMode] = useState<FinalStoreMode>('MATCHED');
   const [finalStoreDraft, setFinalStoreDraft] = useState<ReceiptApprovalStoreDraft>({});
   const [receiptApprovalItems, setReceiptApprovalItems] = useState<Array<ReceiptApprovalDraftItem & { id: string }>>([]);
@@ -432,14 +427,13 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const selectedJobId = selectedJob?._id ?? null;
   const selectedCaptureId = selectedJob?.captureId ?? null;
   const [receiptApprovalDrafts, setReceiptApprovalDrafts] = useState<Map<string, ReceiptApprovalDraftState>>(new Map());
-  const [scanTargetItemId, setScanTargetItemId] = useState<string | null>(null); // This state seems to be unused
+  const [scanTargetItemId, setScanTargetItemId] = useState<string | null>(null);
   const [selectedItemsForCommit, setSelectedItemsForCommit] = useState<Map<string, boolean>>(new Map());
   const [isCommitting, setIsCommitting] = useState(false);
   const [showReceiptReview, setShowReceiptReview] = useState(false);
   const [approvalOutcomeByJobId, setApprovalOutcomeByJobId] = useState<Record<string, ReceiptApprovalOutcome>>({});
   const [approvalPanelExpandedByJobId, setApprovalPanelExpandedByJobId] = useState<Record<string, boolean>>({});
   const [scanModalOpen, setScanModalOpen] = useState(false);
-  const [lockDurationDays, setLockDurationDays] = useState(7); // Or get from settings if available
   const [settings] = useState<any>({}); // Placeholder for settings if needed
 
   const finalStoreId = finalStoreDraft.finalStoreId ?? '';
@@ -515,13 +509,13 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         return !/^https?:\/\//.test(img.url) && !/^data:/.test(img.url) && !/res\.cloudinary\.com/.test(img.url);
       });
       if (invalidImages.length > 0) {
-        addToast('Some receipt images are invalid or missing. Please re-upload or check image sources.', 'error');
+        addToast('Some receipt images are invalid or missing. Please re-upload or check image sources.', 'warning');
         // Optionally: log details for debugging
         console.warn('Invalid receipt images:', invalidImages);
         return;
       }
     } catch (err: any) {
-      addToast('Failed to validate receipt images before parsing.', 'error');
+      addToast('Failed to validate receipt images before parsing.', 'warning');
       return;
     }
     // Now trigger parse (do not abort request)
@@ -535,7 +529,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       }
       // Optionally reload jobs or state here
     } catch (err: any) {
-      addToast(err?.message || 'Failed to parse receipt', 'error');
+      addToast(err?.message || 'Failed to parse receipt', 'warning');
     }
   }, [activeReceiptCaptureId, addToast]);
 
@@ -550,12 +544,13 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
           addToast(data?.queued ? 'Receipt parsing queued.' : 'Receipt parsing retried.', 'success');
         }
       } catch (err: any) {
-        addToast(err?.message || 'Failed to retry parse', 'error');
+        addToast(err?.message || 'Failed to retry parse', 'warning');
       }
     },
     [addToast]
   );
 
+  const [lockDurationDays, setLockDurationDays] = useState(7);
   const formatRetryAfter = useCallback((retryAfter?: string) => {
     if (!retryAfter) return null;
     const retryDate = new Date(retryAfter);
@@ -604,7 +599,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         return;
       }
       addToast(err?.message || 'Failed to load receipt items', 'warning');
-      setClassifiedItems([]); // This state seems to be unused
+      setClassifiedItems([]);
     } finally {
       captureItemsInFlightRef.current.delete(captureId);
       if (captureItemsAbortRef.current === abortController) {
@@ -623,16 +618,16 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     if (!activeReceiptCaptureId) return;
     try {
       const data: any = await receiptApiClient.resetReview(activeReceiptCaptureId);
-      if (data?.error) throw new Error(data.error || 'Failed to reset review');
+      if (data?.error) throw new Error(data.error || 'Failed to reset review'); // This state seems to be unused
       setSelectedItemsForCommit(new Map()); // This state seems to be unused
       setApprovalMode(DEFAULT_RECEIPT_APPROVAL_MODE);
       lastLoadedCaptureIdRef.current = null;
       loadCaptureItems(activeReceiptCaptureId);
       addToast('Review reset.', 'success');
-    } catch (err: any) { // This state seems to be unused
+    } catch (err: any) {
       addToast(err?.message || 'Failed to reset review', 'warning');
     }
-  }, [activeReceiptCaptureId, addToast, loadCaptureItems]);
+  }, [activeReceiptCaptureId, addToast, loadCaptureItems]); // This state seems to be unused
 
   const handleLock = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
@@ -640,27 +635,27 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       const data: any = await receiptApiClient.lockCapture(activeReceiptCaptureId, lockDurationDays);
       if (data?.error) throw new Error(data.error || 'Failed to lock receipt');
       addToast(`Receipt locked for ${lockDurationDays} days.`, 'success');
-    } catch (err: any) {
-      addToast(err?.message || 'Failed to lock receipt', 'error');
+    } catch (err: any) { // This state seems to be unused
+      addToast(err?.message || 'Failed to lock receipt', 'warning');
     }
-  }, [activeReceiptCaptureId, lockDurationDays, addToast]);
+  }, [activeReceiptCaptureId, lockDurationDays, addToast]); // This state seems to be unused
 
   const handleUnlock = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
     try {
-      const data: any = await receiptApiClient.unlockCapture(activeReceiptCaptureId);
+      const data: any = await receiptApiClient.unlockCapture(activeReceiptCaptureId); // This state seems to be unused
       if (data?.error) throw new Error(data.error || 'Failed to unlock receipt');
       addToast('Receipt unlocked.', 'success');
     } catch (err: any) {
-      addToast(err?.message || 'Failed to unlock receipt', 'warning');
+      addToast(err?.message || 'Failed to unlock receipt', 'warning'); // This state seems to be unused
     }
-  }, [activeReceiptCaptureId, addToast]);
+  }, [activeReceiptCaptureId, addToast]); // This state seems to be unused
 
   const handleCommit = useCallback(async () => {
     if (!selectedJob) return;
     if (!activeReceiptCaptureId || !approvalMode) return;
     if (approvalStatus.hasBlocking) { // This state seems to be unused
-      addToast('Resolve blocking receipt approval items before committing.', 'error');
+      addToast('Resolve blocking receipt approval items before committing.', 'warning');
       return;
     }
     setIsCommitting(true);
@@ -717,7 +712,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
       const approvalData = await receiptApiClient.approveJob(selectedJob._id, {
         mode: approvalMode,
-        approvalDraft,
+        approvalDraft, // This state seems to be unused
         selectedIndices: approvalMode === 'selected' ? selectedIndices : undefined,
         lockDurationDays,
         idempotencyKey: receiptApprovalIdempotencyKey,
@@ -767,7 +762,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     selectedJob,
     activeReceiptCaptureId,
     approvalMode,
-    classifiedItems,
+    classifiedItems, // eslint-disable-line react-hooks/exhaustive-deps
     receiptApprovalItems,
     selectedItemsForCommit,
     lockDurationDays,
@@ -780,12 +775,14 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     finalStoreMode,
     finalStoreDraft.storeCandidate,
     receiptApprovalNotes,
-    addToast
+    addToast,
+    updateStoreDraft,
+    setApprovalPanelExpandedByJobId
   ]);
 
   const buildReceiptApprovalItems = useCallback(
     (job: ReceiptParseJob, items: ClassifiedReceiptItem[]) => {
-      const jobItems = new Map<number, ReceiptParseJob['items'][number]>();
+      const jobItems = new Map<number, NonNullable<ReceiptParseJob['items']>[number]>();
       job.items?.forEach(jobItem => {
         if (typeof jobItem.lineIndex === 'number') {
           jobItems.set(jobItem.lineIndex, jobItem);
@@ -868,7 +865,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
   const loadReceiptHealth = useCallback(async () => {
     try {
-      const data: any = await receiptApiClient.getHealth(activeStoreId || undefined);
+      const data: any = await receiptApiClient.getHealth();
       setReceiptQueueStatus(data?.queueStatus || null);
       setReceiptIngestionGate(data?.ingestionGate || null);
       setReceiptOcrProviderSummary(data?.ocrProviderSummary7d || null); // This state seems to be unused
@@ -877,7 +874,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       setReceiptIngestionGate(null);
       setReceiptOcrProviderSummary(null);
     }
-  }, [activeStoreId]);
+  }, []);
 
   // Load parse jobs for pending workflow and completed history
   const loadParseJobs = useCallback(async () => {
@@ -886,7 +883,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     setJobsError(null);
     try {
       const data: any = await receiptApiClient.listJobs('CREATED,QUEUED,PARSING,NEEDS_REVIEW,PARSED,FAILED,APPROVED');
-      if (data?.error) throw new Error(data.error || 'Failed to load parse jobs'); // This state seems to be unused
+      if (data?.error) throw new Error(data.error || 'Failed to load parse jobs');
       const validStatuses = [...PENDING_WORKFLOW_STATUSES, ...COMPLETED_WORKFLOW_STATUSES];
       let jobs: ReceiptParseJob[] = Array.isArray(data?.jobs) ? data.jobs : [];
       jobs = jobs.filter((j: any) => validStatuses.includes(j.status));
@@ -943,7 +940,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         const approvalItems = receiptApprovalItems.map(item => {
           const base: any = {
             lineIndex: item.lineIndex,
-            action: item.action,
+            action: item.action, // This state seems to be unused
             upc: item.upc,
             productId: item.productId,
             sku: item.sku
@@ -1033,16 +1030,23 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const handleRejectParseJob = useCallback(async (jobId: string) => {
     setIsProcessing(true);
     try {
-      const data = await receiptApiClient.rejectJob(jobId);
+      await receiptApiClient.rejectJob(jobId, 'dismissed_by_operator');
       addToast('Parse job rejected', 'success');
       setParseJobs(prev => prev.filter(j => j._id !== jobId));
-      setSelectedJob(null); // This state seems to be unused
+      setSelectedJob(null);
     } catch (err: any) { // This state seems to be unused
       addToast(err?.message || 'Failed to reject job', 'error');
     } finally {
       setIsProcessing(false);
     }
   }, [addToast]);
+
+  useEffect(() => {
+    const storedActive = localStorage.getItem('management.activeStoreId') || '';
+    if (activeStoreId && activeStoreId !== storedActive) {
+      localStorage.setItem('management.activeStoreId', activeStoreId);
+    }
+  }, [activeStoreId]);
 
   useEffect(() => {
     if (!selectedJob) return;
@@ -1130,11 +1134,10 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     // If we're still on the same job, do nothing.
     if (receiptApprovalJobId === selectedJobId) return;
     // New job selected: create a fresh idempotency key ONCE.
-    setReceiptApprovalJobId(selectedJobId);
     setReceiptApprovalIdempotencyKey(createIdempotencyKey());
     // ...other one-time "open job" setup can go here if needed...
   }, [selectedJobId, selectedCaptureId, receiptApprovalJobId]);
-
+  const [approvalPanelExpandedByJobId, setApprovalPanelExpandedByJobId] = useState<Record<string, boolean>>({});
   useEffect(() => {
     if (!selectedJob) return;
     if (receiptApprovalJobId !== selectedJob._id) return;
@@ -1151,7 +1154,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   // Tab content
   // Only ADMIN and OWNER can manage products
   const canManageProducts = currentUser?.role === 'ADMIN' || currentUser?.role === 'OWNER';
-  const canOverridePriceLocks = currentUser?.role === 'MANAGER';
+  const canOverridePriceLocks = currentUser?.role === 'OWNER';
   const pendingWorkflowJobs = useMemo(
     () => parseJobs.filter(job => PENDING_WORKFLOW_STATUSES.includes(job.status as (typeof PENDING_WORKFLOW_STATUSES)[number])),
     [parseJobs]
@@ -1412,7 +1415,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                 const parseState = parseStateLabels[uiParseState];
                 return ( // This state seems to be unused
                   <div
-                    key={job._id}
+                    key={job._id!}
                     className="bg-ninpo-card border border-white/10 rounded-2xl p-4 cursor-pointer hover:border-ninpo-lime/50 transition"
                     onClick={() => setSelectedJob(selectedJob?._id === job._id ? null : job)}
                   >
@@ -1428,7 +1431,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                         {/* Dismiss/Reject always visible */}
                         <button
                           onClick={e => {
-                            e.stopPropagation();
+                            e.stopPropagation(); // eslint-disable-line @typescript-eslint/no-unused-expressions
                             handleRejectParseJob(job._id);
                           }}
                           disabled={isProcessing}
@@ -1551,7 +1554,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                                         <div key={`${job._id}-approval-line-${lineKey}`} className="rounded-lg border border-white/10 bg-black/20 px-2 py-1">
                                           <p className="font-semibold text-slate-200">Line {lineKey}</p>
                                           <ul className="mt-1 list-disc space-y-1 pl-4 text-slate-100">
-                                            {lineErrors.map((entry, idx) => (
+                                            {(lineErrors as any[]).map((entry: any, idx: number) => (
                                               <li key={`${job._id}-approval-line-${lineKey}-error-${idx}`}>
                                                 {entry.error || 'Unknown error'}
                                                 {entry.code ? ` (${entry.code})` : ''}
@@ -1571,7 +1574,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                           {job.items?.map((item, idx) => (
                             <div key={idx} className="text-[10px] bg-black/30 rounded p-2">
                               <p className="text-white">{item.nameCandidate}</p>
-                              <p className="text-slate-400">${item.lineTotal.toFixed(2)} × {item.quantity}</p>
+                              <p className="text-slate-400">${(item.lineTotal ?? 0).toFixed(2)} × {item.quantity}</p>
                             </div>
                           ))}
                         </div>
@@ -1602,7 +1605,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                           {/* Dismiss/Reject also visible here for consistency */}
                           <button
                             onClick={e => {
-                              e.stopPropagation();
+                            e.stopPropagation();
                               handleRejectParseJob(job._id);
                             }}
                             disabled={isProcessing}
@@ -1632,7 +1635,6 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     }
   }, [
     receiptFlow,
-    isReceiptFlowOpen,
     stores,
     fmtTime,
     parseJobs,
@@ -1672,8 +1674,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     handleScannerScan,
     handleScannerClose,
     loadParseJobs,
-    handleApproveReceipt,
-    handleRejectParseJob,
+    handleApproveReceipt, // This state seems to be unused
     visibleJobCount,
     visibleJobs,
     canLoadMoreJobs,

@@ -229,8 +229,8 @@ const ManagementUnmappedProducts: React.FC<ManagementUnmappedProductsProps> = ({
     if (maxPrice) arr = arr.filter(e => e.price <= parseFloat(maxPrice));
     arr.sort((a, b) =>
       priceSort === 'desc'
-        ? b.observedAt.localeCompare(a.observedAt)
-        : a.observedAt.localeCompare(b.observedAt)
+        ? (b.observedAt || '').localeCompare(a.observedAt || '')
+        : (a.observedAt || '').localeCompare(b.observedAt || '')
     );
     return arr;
   }, [priceHistory, priceSort, minPrice, maxPrice]);

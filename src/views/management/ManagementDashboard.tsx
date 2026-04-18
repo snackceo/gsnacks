@@ -9,9 +9,8 @@ const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: React.Re
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNinpoCore } from '../../hooks/useNinpoCore';
 import { ErrorMonitorPanel } from './ErrorMonitorPanel';
-import { BarChart3, ShieldAlert, Loader2, BrainCircuit, TrendingUp, Users, ShoppingCart, Package, RefreshCw, TrendingDown, Sparkles } from 'lucide-react';
+import { BarChart3, Loader2, BrainCircuit, TrendingUp, Users, ShoppingCart, Package, RefreshCw, TrendingDown, Sparkles } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { Order } from '../../types';
 import { analytics } from '../../services/analyticsService';
 import { getDemandForecast, DemandForecastItem } from '../../services/geminiService';
 import { receiptApiClient } from '../../api/receiptApiClient';
@@ -116,8 +115,8 @@ const ParseJobHistoryPanel: React.FC = () => {
     let isMounted = true;
     setLoading(true);
     setError(null);
-    receiptApiClient.listJobsWithLimit(pageSize)
-      .then(data => {
+    receiptApiClient.listJobs()
+      .then((data: any) => {
         if (!isMounted) return;
         if (data?.jobs) {
           setJobs(data.jobs);
@@ -137,13 +136,13 @@ const ParseJobHistoryPanel: React.FC = () => {
           }
         } else {
           setError(data?.error || 'No jobs found');
-          addToast(data?.error || 'No jobs found', 'error');
+          addToast(data?.error || 'No jobs found', 'warning');
         }
       })
-      .catch(e => {
+      .catch((e: any) => {
         if (!isMounted) return;
         setError(e?.message || 'Failed to load jobs');
-        addToast(e?.message || 'Failed to load jobs', 'error');
+        addToast(e?.message || 'Failed to load jobs', 'warning');
       })
       .finally(() => {
         if (isMounted) setLoading(false);
@@ -415,8 +414,7 @@ const ManagementDashboard: React.FC = () => {
   const [isReceiptStatsLoading, setIsReceiptStatsLoading] = useState(false);
   const { addToast } = useNinpoCore();
 
-  // Fetch summary from backend
-  const fetchReceiptCaptureStats = async () => {
+  const fetchReceiptCaptureStats = useCallback(async () => {
     setIsReceiptStatsLoading(true);
     try {
       const data = await receiptApiClient.getCaptureSummary();
@@ -432,15 +430,15 @@ const ManagementDashboard: React.FC = () => {
     } finally {
       setIsReceiptStatsLoading(false);
     }
-  };
+  }, [addToast]);
   useEffect(() => {
-    fetchReceiptCaptureStats();
-  }, []);
+    void fetchReceiptCaptureStats();
+  }, [fetchReceiptCaptureStats]);
 
   // Listen for dashboard refresh event (auto-refresh after parse)
   useEffect(() => {
     function handleDashboardRefresh() {
-      fetchReceiptCaptureStats();
+      void fetchReceiptCaptureStats();
     }
     window.addEventListener('ninpo:dashboard-refresh', handleDashboardRefresh);
     return () => {
@@ -512,12 +510,12 @@ const ManagementDashboard: React.FC = () => {
   }, [events]);
 
   // Dummy audit model state for completeness (replace with real logic as needed)
-  const [auditModel, setAuditModel] = useState('');
-  const [auditModels, setAuditModels] = useState<string[]>([]);
-  const [isAuditModelsLoading, setIsAuditModelsLoading] = useState(false);
-  const [auditModelsError, setAuditModelsError] = useState<string | null>(null);
-  const [isAuditing, setIsAuditing] = useState(false);
-  const [auditResult, setAuditResult] = useState<string | null>(null);
+  const [auditModel] = useState('');
+  const [auditModels] = useState<string[]>([]);
+  const [isAuditModelsLoading] = useState(false);
+  const [auditModelsError] = useState<string | null>(null);
+  const [isAuditing] = useState(false);
+  const [auditResult] = useState<string | null>(null);
   const runAudit = () => {};
 
   // Main dashboard JSX
