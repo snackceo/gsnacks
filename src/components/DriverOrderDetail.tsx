@@ -1,8 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ArrowLeft,
-  MapPin,
-  Package,
   DollarSign,
   Clock,
   Store,
@@ -10,14 +8,12 @@ import {
   AlertCircle,
   Loader2,
   Home,
-  Eye,
   SkipForward,
   X
 } from 'lucide-react';
 import ItemNotFoundTracker from './ItemNotFoundTracker';
 import ReceiptCapture from './ReceiptCapture';
 import ReceiptCaptureFlow from './ReceiptCaptureFlow';
-import ScannerModal from './ScannerModal';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
@@ -42,6 +38,7 @@ interface NotFoundItem {
 
 interface OrderDetail {
   orderId: string;
+  id?: string;
   customerId: string;
   address: string;
   total: number;
@@ -68,7 +65,6 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
   const [error, setError] = useState<string | null>(null);
   const [groupedByStore, setGroupedByStore] = useState<Record<string, ShoppingListItem[]>>({});
   const [currentStoreId, setCurrentStoreId] = useState<string | null>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' | 'info' } | null>(null);
   const [showReceiptCapture, setShowReceiptCapture] = useState(false);
   const [showPhotoCapture, setShowPhotoCapture] = useState(false);
@@ -77,24 +73,20 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
+  const loadNotFoundItemsFromStorage = useCallback(() => {
+    try {
+      const orderId = order?.orderId || order?.id;
+      const storageKey = `notFoundItems_${orderId}`;
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        setNotFoundItems(JSON.parse(stored));
+      }
+    } catch (err) {
+      console.warn('Failed to load items from storage:', err);
+    }
+  }, [order?.id, order?.orderId]);
 
-
-  // Use ReceiptCaptureFlow for all receipt capture/parse
-
-  useEffect(() => {
-    fetchShoppingList();
-    fetchNotFoundItemsFromBackend();
-  }, [order?.orderId]);
-
-  // Periodic backend refresh for items-not-found while view is open
-  useEffect(() => {
-    const id = setInterval(() => {
-      fetchNotFoundItemsFromBackend();
-    }, 30000);
-    return () => clearInterval(id);
-  }, [order?.orderId]);
-
-  const fetchNotFoundItemsFromBackend = async () => {
+  const fetchNotFoundItemsFromBackend = useCallback(async () => {
     try {
       const orderId = order?.orderId || order?.id;
       const storageKey = `notFoundItems_${orderId}`;
@@ -148,9 +140,9 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
       // Fallback to local-only load
       loadNotFoundItemsFromStorage();
     }
-  };
+  }, [order?.id, order?.orderId, loadNotFoundItemsFromStorage]);
 
-  const fetchShoppingList = async () => {
+  const fetchShoppingList = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -184,9 +176,46 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
     } finally {
       setLoading(false);
     }
-  };
+  }, [order?.id, order?.orderId]);
 
-  const handleItemNotFound = (item: ShoppingListItem, storeId: string) => {
+
+  // Use ReceiptCaptureFlow for all receipt capture/parse
+
+  useEffect(() => {
+    fetchShoppingList();
+    fetchNotFoundItemsFromBackend();
+  }, [order?.orderId, fetchShoppingList, fetchNotFoundItemsFromBackend]);
+
+  // Periodic backend refresh for items-not-found while view is open
+  useEffect(() => {
+    const id = setInterval(() => {
+      fetchNotFoundItemsFromBackend();
+    }, 30000);
+    return () => clearInterval(id);
+  }, [order?.orderId, fetchNotFoundItemsFromBackend]);
+  const saveNotFoundItemsToStorage = useCallback(async (items: NotFoundItem[]) => {
+    try {
+      const orderId = order?.orderId || order?.id;
+      const storageKey = `notFoundItems_${orderId}`;
+      localStorage.setItem(storageKey, JSON.stringify(items));
+
+      // Sync to backend
+      const token = localStorage.getItem('token');
+      await fetch(`${BACKEND_URL}/api/driver/order/${orderId}/items-not-found`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ items })
+      }).catch(err => console.warn('Backend sync failed:', err));
+    } catch (err) {
+      showToast('Failed to sync items not found', 'error');
+      console.error(err);
+    }
+  }, [order?.id, order?.orderId]);
+
+  const handleItemNotFound = useCallback((item: ShoppingListItem, storeId: string) => {
     const existing = notFoundItems.find(n => n.sku === item.sku);
     const storeName = groupedByStore[storeId]?.[0]?.store || `Store ${storeId}`;
     
@@ -216,7 +245,7 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
     }
     setNotFoundItems(updated);
     saveNotFoundItemsToStorage(updated);
-  };
+  }, [notFoundItems, groupedByStore, saveNotFoundItemsToStorage]);
 
   const handleUpdateNotFound = (item: NotFoundItem) => {
     const updated = notFoundItems.map(n => (n.sku === item.sku ? item : n));
@@ -263,41 +292,6 @@ const DriverOrderDetail: React.FC<DriverOrderDetailProps> = ({ order, onBack }) 
       return items[0].store || `Store ${storeId}`;
     }
     return `Store ${storeId}`;
-  };
-
-  const loadNotFoundItemsFromStorage = () => {
-    try {
-      const orderId = order?.orderId || order?.id;
-      const storageKey = `notFoundItems_${orderId}`;
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        setNotFoundItems(JSON.parse(stored));
-      }
-    } catch (err) {
-      console.warn('Failed to load items from storage:', err);
-    }
-  };
-
-  const saveNotFoundItemsToStorage = async (items: NotFoundItem[]) => {
-    try {
-      const orderId = order?.orderId || order?.id;
-      const storageKey = `notFoundItems_${orderId}`;
-      localStorage.setItem(storageKey, JSON.stringify(items));
-
-      // Sync to backend
-      const token = localStorage.getItem('token');
-      await fetch(`${BACKEND_URL}/api/driver/order/${orderId}/items-not-found`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ items })
-      }).catch(err => console.warn('Backend sync failed:', err));
-    } catch (err) {
-      showToast('Failed to sync items not found', 'error');
-      console.error(err);
-    }
   };
 
   const getTotalItems = () => shoppingList.reduce((sum, item) => sum + item.quantity, 0);
