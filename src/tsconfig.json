@@ -22,7 +22,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
+    "paths": {
+      "@/constants": ["./constants.tsx"]
+    },
   },
-  "include": ["."],
+  "include": ["./constants.tsx", "."],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
