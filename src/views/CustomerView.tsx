@@ -111,7 +111,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
   const filteredProducts = products.filter(p => {
     const matchesCategory = activeCategory === 'ALL' || p.category.toUpperCase() === activeCategory;
     const matchesText = p.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesAi = aiFilteredIds.length === 0 || aiFilteredIds.includes(p._id || (p as any).frontendId);
+    const matchesAi = aiFilteredIds.length === 0 || aiFilteredIds.includes(p.id || (p as any).frontendId);
     return matchesCategory && matchesText && matchesAi;
   });
 
@@ -314,7 +314,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({
                   </span>
                   <button
                     onClick={() => {
-                      const productId = (p as any).frontendId || p.id || (p as any)._id;
+                      const productId = (p as any).frontendId || p.id;
                       addToCart(productId);
                       analytics.trackProductInteraction('add_to_cart', productId, p.name);
                     }}

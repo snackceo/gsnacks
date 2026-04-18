@@ -1,5 +1,5 @@
 import { apiFetch } from './apiFetch';
-import { ReceiptCapture, ReceiptParseJob } from '../types';
+import { ReceiptCapture, ReceiptParseJob } from './types';
 
 interface CapturePayload {
   images: { url: string; thumbnailUrl?: string }[];
@@ -24,4 +24,8 @@ export const triggerParse = (captureId: string): Promise<{ ok: boolean; job: Rec
     method: 'POST',
     body: JSON.stringify({ captureId }),
   });
+};
+
+export const getCapture = (captureId: string): Promise<ReceiptCapture> => {
+  return apiFetch(`/api/driver/receipt-capture/${captureId}`);
 };

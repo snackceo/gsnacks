@@ -379,6 +379,7 @@ export interface ReturnAiAnalysis {
 
 export interface Order {
   id: string;
+  orderId?: string;
   customerId: string;
   driverId?: string;
   items: { productId: string; quantity: number }[];
@@ -388,6 +389,8 @@ export interface Order {
   routeFee?: number;
   distanceMiles?: number;
   distanceFee?: number;
+  largeOrderFee?: number;
+  heavyItemFee?: number;
 
   creditAuthorizedCents?: number;
   creditAppliedCents?: number;
@@ -421,6 +424,7 @@ export interface Order {
   verificationPhoto?: string;
   returnPhoto?: string;
   returnAiAnalysis?: ReturnAiAnalysis;
+  contaminationFlagged?: boolean;
 
   gpsCoords?: { lat: number; lng: number };
 }

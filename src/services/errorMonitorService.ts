@@ -1,8 +1,10 @@
 // src/services/errorMonitorService.ts
 import * as Sentry from '@sentry/react';
+import { apiFetch } from '../apiFetch';
 
 export interface ErrorEvent {
-  id: string;
+  id: string; // The frontend component uses `id`. We will map _id to id.
+  _id: string;
   message: string;
   level: 'error' | 'warning' | 'info';
   timestamp: string;
@@ -12,28 +14,19 @@ export interface ErrorEvent {
   context?: Record<string, any>;
 }
 
-// Initialize error collection
-const MAX_STORED_ERRORS = 50;
-const STORAGE_KEY = 'ninpo_error_events';
+type ErrorEventInput = Omit<ErrorEvent, 'id' | '_id' | 'timestamp'>;
 
 /**
- * Store error event in localStorage for dashboard display
+ * Log error event to the backend.
  */
-export function storeErrorEvent(event: ErrorEvent): void {
+export async function logErrorEvent(event: ErrorEventInput): Promise<void> {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    const errors: ErrorEvent[] = stored ? JSON.parse(stored) : [];
-    
-    errors.unshift(event);
-    
-    // Keep only recent errors
-    if (errors.length > MAX_STORED_ERRORS) {
-      errors.length = MAX_STORED_ERRORS;
-    }
-    
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(errors));
+    await apiFetch('/api/v1/errors', {
+      method: 'POST',
+      body: JSON.stringify(event),
+    });
   } catch (e) {
-    console.error('Failed to store error event:', e);
+    console.error('Failed to log error event to backend:', e);
   }
 }
 
@@ -47,7 +40,7 @@ export function captureError(
 ): void {
   const errorMessage = error instanceof Error ? error.message : error;
   const stackTrace = error instanceof Error ? error.stack : undefined;
-  
+
   // Send to Sentry
   if (error instanceof Error) {
     Sentry.captureException(error, {
@@ -60,45 +53,39 @@ export function captureError(
       extra: context
     });
   }
-  
-  // Store locally for dashboard
-  const errorEvent: ErrorEvent = {
-    id: `err_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+
+  // Log to our backend
+  const errorEvent: ErrorEventInput = {
     message: errorMessage,
     level,
-    timestamp: new Date().toISOString(),
-    url: window.location.href,
+    url: typeof window !== 'undefined' ? window.location.href : undefined,
     stackTrace,
     context
   };
-  
-  storeErrorEvent(errorEvent);
+
+  logErrorEvent(errorEvent);
 }
 
 /**
- * Fetch recent error events from localStorage
+ * Fetch recent error events from the backend.
  */
 export async function fetchRecentErrors(): Promise<ErrorEvent[]> {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored);
-    }
-    return [];
+    const { data } = await apiFetch<{ data: ErrorEvent[] }>('/api/v1/errors');
+    // The frontend component expects an `id` property.
+    return data.map(event => ({ ...event, id: event._id }));
   } catch (error) {
     console.error('Failed to fetch recent errors:', error);
-    return [];
-  }
-}
-
-/**
- * Clear stored errors
- */
-export function clearStoredErrors(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch (e) {
-    console.error('Failed to clear errors:', e);
+    // Return a synthetic error to display on the dashboard
+    return [
+      {
+        id: 'fetch-error-1',
+        _id: 'fetch-error-1',
+        message: 'Failed to fetch error events from the server.',
+        level: 'error',
+        timestamp: new Date().toISOString(),
+      },
+    ];
   }
 }
 
@@ -111,21 +98,21 @@ export async function getErrorStats(): Promise<{
   recent: ErrorEvent[];
 }> {
   const errors = await fetchRecentErrors();
-  
+
   const byLevel: Record<string, number> = {
     error: 0,
     warning: 0,
-    info: 0
+    info: 0,
   };
-  
+
   errors.forEach(err => {
     byLevel[err.level] = (byLevel[err.level] || 0) + 1;
   });
-  
+
   return {
     total: errors.length,
     byLevel,
-    recent: errors.slice(0, 10)
+    recent: errors.slice(0, 10),
   };
 }
 
@@ -138,7 +125,7 @@ if (typeof window !== 'undefined') {
       colno: event.colno
     });
   });
-  
+
   window.addEventListener('unhandledrejection', (event) => {
     captureError(
       event.reason instanceof Error ? event.reason : String(event.reason),

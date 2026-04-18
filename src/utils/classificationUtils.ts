@@ -40,8 +40,7 @@ export function classifyItem(
   config: ClassificationConfig = {}
 ): ClassifiedReceiptItem {
   const {
-    autoUpdateThreshold = 0.85,
-    reviewThreshold = 0.5
+    autoUpdateThreshold = 0.85
   } = config;
 
   const unitPrice = item.totalPrice / item.quantity;
@@ -78,7 +77,7 @@ export function classifyItem(
     if (!hasProvidedConfidence) {
       matchConfidence = 0.9;
     }
-    classification = matchConfidence >= autoUpdateThreshold ? 'A' : 'B';
+    classification = (matchConfidence ?? 0) >= autoUpdateThreshold ? 'A' : 'B';
     reason = 'common_brand_match';
   }
   // Heuristic 4: Full UPC-like names
@@ -98,7 +97,7 @@ export function classifyItem(
   const resolvedMatchConfidence =
     typeof item.matchConfidence === 'number'
       ? item.matchConfidence
-      : matchConfidence > 0
+      : (matchConfidence ?? 0) > 0
         ? matchConfidence
         : undefined;
 

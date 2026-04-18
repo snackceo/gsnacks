@@ -97,12 +97,21 @@ const orderSchema = new mongoose.Schema(
       }],
       default: []
     },
+    contaminationFlagged: { type: Boolean, default: false },
 
     /* =========================================================
        RETURNS – CREDIT FLOW (NO FEES)
        ========================================================= */
     estimatedReturnCreditGross: { type: Number, default: 0 },
     estimatedReturnCredit: { type: Number, default: 0 },
+
+    verifiedReturnUpcCounts: {
+      type: [{
+        upc: String,
+        quantity: Number
+      }],
+      default: []
+    },
 
     verifiedReturnCreditGross: { type: Number, default: 0 },
     verifiedReturnCredit: { type: Number, default: 0 },
@@ -151,7 +160,12 @@ const orderSchema = new mongoose.Schema(
        ========================================================= */
     deliveryProof: {
       photo: { type: String, default: null },
-      capturedAt: { type: Date, default: null }
+      capturedAt: { type: Date, default: null },
+      gpsCoords: {
+        lat: { type: Number },
+        lng: { type: Number }
+      },
+      returnPhoto: { type: String, default: null }
     },
 
     /* =========================================================

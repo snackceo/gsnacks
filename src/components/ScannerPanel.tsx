@@ -31,6 +31,8 @@ export interface ScannerPanelProps {
   beepEnabled?: boolean;
   cooldownMs?: number;
   onPhotoCaptured?: (photoDataUrl: string, mime: string) => void;
+  onReceiptParsed?: (items: ParsedReceiptItem[], frame?: string) => void;
+  onModeChange?: (mode: ScannerMode) => void;
 
   receiptHeaderContent?: React.ReactNode;
   receiptSaveDisabled?: boolean;
@@ -138,6 +140,7 @@ const ScannerPanel = forwardRef<any, ScannerPanelProps>(({
   beepEnabled = true,
   cooldownMs = 1200,
   onPhotoCaptured,
+  onReceiptParsed,
   receiptHeaderContent,
   receiptSaveDisabled = false,
   receiptSaveDisabledReason,

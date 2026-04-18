@@ -84,6 +84,7 @@ const defaultSettings: AppSettings = {
   showAdvancedInventoryInsights: false,
   allowPlatinumTier,
   platinumFreeDelivery: false,
+  allowGreenTier: false,
   allowReceiptApprovalCreateProduct: false,
   priceLockDays: 7,
   storageZones: [],

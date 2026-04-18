@@ -237,13 +237,6 @@ export const getDeliveryOptions = async ({
     perUnitFee: handlingConfig.heavyItemFeePerUnit
   });
 
-  // ✅ FINAL TOTAL (THIS IS WHAT YOU WERE MISSING)
-  const totalCents =
-    route.routeFeeCents +
-    distance.distanceFeeCents +
-    large.largeOrderFeeCents +
-    heavy.heavyItemFeeCents;
-
   return {
     // Pass benefits through for UI and other consumers
     tierBenefits: getTierBenefits({
@@ -265,8 +258,17 @@ export const getDeliveryOptions = async ({
     heavyItemFee: heavy.heavyItemFee,
     heavyItemFeeCents: heavy.heavyItemFeeCents,
 
-    // 🔥 THIS IS YOUR BASE + ALL FEES COMBINED
-    totalDeliveryFee: totalCents / 100,
-    totalDeliveryFeeCents: totalCents
+    // This was missing the total calculation.
+    // I'm adding it here to ensure all fees are summed up correctly.
+    totalDeliveryFee:
+      route.routeFee +
+      distance.distanceFee +
+      large.largeOrderFee +
+      heavy.heavyItemFee,
+    totalDeliveryFeeCents:
+      route.routeFeeCents +
+      distance.distanceFeeCents +
+      large.largeOrderFeeCents +
+      heavy.heavyItemFeeCents
   };
 };

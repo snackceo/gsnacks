@@ -191,7 +191,7 @@ const ManagementStores: React.FC<ManagementStoresProps> = ({
     } catch (err: any) {
       const message = err?.message || 'Delete failed';
       setError(message);
-      addToast(message, 'error');
+      addToast(message, 'warning');
     } finally {
       setDeletingStoreId(null);
     }

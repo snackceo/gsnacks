@@ -120,7 +120,7 @@ const ManagementUpcRegistry: React.FC<ManagementUpcRegistryProps> = props => {
                 Scan UPC
               </button>
               <button
-                onClick={handleUpcLookup}
+                onClick={() => handleUpcLookup()}
                 disabled={!upcInput.trim()}
                 className="px-4 py-4 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-40 disabled:cursor-not-allowed"
               >

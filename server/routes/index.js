@@ -1,22 +1,39 @@
-export { default as AppSettings } from './AppSettings.js';
-export { default as ApprovalRequest } from './ApprovalRequest.js';
-export { default as AuditLog } from './AuditLog.js';
-export { default as Batch } from './Batch.js';
-export { default as Cart } from './cart.js';
-export { default as CashPayout } from './CashPayout.js';
-export { default as DriverNotFound } from './DriverNotFound.js';
-export { default as InventoryAudit } from './InventoryAudit.js';
-export { default as LedgerEntry } from './LedgerEntry.js';
-export { default as Order } from './Order.js';
-export { default as PriceObservation } from './PriceObservation.js';
-export { default as Product } from './Product.js';
-export { default as ReceiptCapture } from './ReceiptCapture.js';
-export { default as ReceiptNameAlias } from './ReceiptNameAlias.js';
-export { default as ReceiptParseJob } from './ReceiptParseJob.js';
-export { default as ReturnUpcs } from './ReturnUpcs.js';
-export { default as ScanSession } from './ScanSession.js';
-export { default as Store } from './Store.js';
-export { default as StoreInventory } from './StoreInventory.js';
-export { default as UnmappedProduct } from './UnmappedProduct.js';
-export { default as UpcItem } from './UpcItem.js';
-export { default as User } from './User.js';
+const express = require('express');
+const router = express.Router();
+
+const adminRoutes = require('./adminRoutes');
+const authRoutes = require('./authRoutes');
+const bottleReturnRoutes = require('./bottleReturnRoutes');
+const orderRoutes = require('./orderRoutes');
+const paymentRoutes = require('./paymentRoutes');
+const productRoutes = require('./productRoutes');
+const errorRoutes = require('./errorRoutes');
+const healthRoutes = require('./health');
+const distanceRoutes = require('./distance');
+const receiptRoutes = require('./receipts');
+const upcRoutes = require('./upc');
+
+
+router.use('/admin', adminRoutes);
+router.use('/auth', authRoutes);
+router.use('/bottle-returns', bottleReturnRoutes);
+router.use('/orders', orderRoutes);
+router.use('/payments', paymentRoutes);
+router.use('/products', productRoutes);
+router.use('/errors', errorRoutes);
+router.use('/health', healthRoutes);
+router.use('/distance', distanceRoutes);
+router.use('/receipts', receiptRoutes);
+router.use('/upc', upcRoutes);
+
+
+// These seem to be legacy or duplicates, based on other files.
+// I will not include them for now to avoid conflicts.
+// router.use('/ai', require('./ai'));
+// router.use('/approvals', require('./approvals'));
+// router.use('/audit-logs', require('./audit-logs'));
+// router.use('/cart', require('./cart'));
+// router.use('/driver', require('./driver'));
+
+
+module.exports = router;

@@ -175,3 +175,71 @@ exports.getAssignedOrders = asyncHandler(async (req, res, next) => {
   const orders = await Order.find({ driver: req.user._id });
   res.status(200).json({ success: true, count: orders.length, data: orders });
 });
+
+// @desc    Complete a delivery
+// @route   POST /api/v1/orders/:id/complete
+// @access  Private (Driver)
+exports.completeDelivery = asyncHandler(async (req, res, next) => {
+  const { id } = req.params;
+  const {
+    gpsCoords,
+    verificationPhoto, // from frontend: capturedPhoto
+    returnPhoto,       // from frontend: returnCapturedPhoto
+    contaminationConfirmed,
+    verifiedReturnUpcs,
+  } = req.body;
+
+  const order = await Order.findById(id);
+
+  if (!order) {
+    return res.status(404).json({ success: false, error: 'Order not found' });
+  }
+
+  // --- Authorization ---
+  if (req.user.role === 'DRIVER' && order.driver.toString() !== req.user._id.toString()) {
+      return res.status(401).json({ success: false, error: 'Not authorized for this order' });
+  }
+
+  // --- Business Logic Validation ---
+  const isReturnOnlyOrder = (order.orderItems?.length || 0) === 0 && (order.returnItems?.length || 0) > 0;
+  if (!order.isPaid && !isReturnOnlyOrder) {
+      return res.status(400).json({ success: false, error: 'Payment must be captured before completing delivery.' });
+  }
+
+  const expectedReturnCount = order.returnItems?.reduce((sum, item) => sum + item.count, 0) || 0;
+  const verifiedReturnCount = verifiedReturnUpcs?.reduce((sum, item) => sum + item.quantity, 0) || 0;
+  const requiresReturnPhoto = expectedReturnCount > 0 || verifiedReturnCount > 0;
+
+  if (requiresReturnPhoto && !returnPhoto) {
+    return res.status(400).json({ success: false, error: 'A photo of the returned items is required.' });
+  }
+
+  if (order.contaminationFlagged && !contaminationConfirmed) {
+      return res.status(400).json({ success: false, error: 'You must confirm the contamination status of the returns.' });
+  }
+
+  if (!verificationPhoto) {
+    return res.status(400).json({ success: false, error: 'A delivery proof photo is required.' });
+  }
+
+  // --- All checks passed, update the order ---
+  order.status = 'DELIVERED';
+  order.deliveredAt = new Date();
+  order.statusHistory.push({ status: 'DELIVERED', timestamp: new Date() });
+
+  order.deliveryProof.photo = verificationPhoto;
+  order.deliveryProof.returnPhoto = returnPhoto;
+  order.deliveryProof.gpsCoords = gpsCoords;
+  order.deliveryProof.capturedAt = new Date();
+
+  if (isReturnOnlyOrder && verifiedReturnUpcs) {
+      order.verifiedReturnUpcCounts = verifiedReturnUpcs;
+  }
+
+  const savedOrder = await order.save();
+
+  // --- Post-delivery actions ---
+  await User.findByIdAndUpdate(order.user, { $inc: { ordersCompleted: 1 } });
+
+  res.status(200).json({ success: true, data: savedOrder });
+});

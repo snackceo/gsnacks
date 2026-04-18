@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { createCapture, triggerParse } from '../services/receiptService';
+import { createCapture, triggerParse } from '../receiptService';
 import { ReceiptParseJob } from '../types';
 
 interface UseReceiptParse {

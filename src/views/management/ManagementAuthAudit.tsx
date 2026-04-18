@@ -394,6 +394,7 @@ const ManagementAuthAudit: React.FC<ManagementAuthAuditProps> = ({
         runAuditSummary={runAuditSummary}
         auditSummary={auditSummary}
         isAuditSummaryLoading={isAuditSummaryLoading}
+        fmtTime={fmtTime}
       />
     </div>
   );

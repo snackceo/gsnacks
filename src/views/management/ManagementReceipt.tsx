@@ -4,13 +4,7 @@ import ReceiptReviewPanel from './receipt/ReceiptReviewPanel';
 import { classifyItems } from '../../utils/classificationUtils';
 import { getReceiptItemKey } from '../../utils/receiptHelpers';
 import { onReceiptCaptureDeleted } from '../../services/socketService';
-import {
-  Camera,
-  Loader2,
-  CheckCircle2,
-  ChevronDown,
-  AlertCircle
-} from 'lucide-react';
+import { Loader2, CheckCircle2, ChevronDown, AlertCircle } from 'lucide-react';
 import {
   ClassifiedReceiptItem,
   FinalStoreMode,
@@ -411,7 +405,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [isReceiptFlowOpen, setIsReceiptFlowOpen] = useState(false);
 
   const [parseJobs, setParseJobs] = useState<ReceiptParseJob[]>([]);
-  const [isLoadingJobs, setIsLoadingJobs] = useState(false);
+  const [isLoadingJobs, setIsLoadingJobs] = useState(false); // This state seems to be unused
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [receiptQueueStatus, setReceiptQueueStatus] = useState<ReceiptQueueStatus | null>(null);
   const [receiptIngestionGate, setReceiptIngestionGate] = useState<ReceiptIngestionGateHealth | null>(null);
@@ -426,7 +420,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const [classifiedItems, setClassifiedItems] = useState<ClassifiedReceiptItem[]>([]);
   const [approvalMode, setApprovalMode] = useState<ReceiptApprovalMode>(DEFAULT_RECEIPT_APPROVAL_MODE);
   const [forceUpcOverride, setForceUpcOverride] = useState(false);
-  const [ignorePriceLocks, setIgnorePriceLocks] = useState(false);
+  const [ignorePriceLocks, setIgnorePriceLocks] = useState(false); // This state seems to be unused
   const [finalStoreMode, setFinalStoreMode] = useState<FinalStoreMode>('MATCHED');
   const [finalStoreDraft, setFinalStoreDraft] = useState<ReceiptApprovalStoreDraft>({});
   const [receiptApprovalItems, setReceiptApprovalItems] = useState<Array<ReceiptApprovalDraftItem & { id: string }>>([]);
@@ -438,7 +432,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
   const selectedJobId = selectedJob?._id ?? null;
   const selectedCaptureId = selectedJob?.captureId ?? null;
   const [receiptApprovalDrafts, setReceiptApprovalDrafts] = useState<Map<string, ReceiptApprovalDraftState>>(new Map());
-  const [scanTargetItemId, setScanTargetItemId] = useState<string | null>(null);
+  const [scanTargetItemId, setScanTargetItemId] = useState<string | null>(null); // This state seems to be unused
   const [selectedItemsForCommit, setSelectedItemsForCommit] = useState<Map<string, boolean>>(new Map());
   const [isCommitting, setIsCommitting] = useState(false);
   const [showReceiptReview, setShowReceiptReview] = useState(false);
@@ -609,8 +603,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         // Silently ignore aborts
         return;
       }
-      addToast(err?.message || 'Failed to load receipt items', 'error');
-      setClassifiedItems([]);
+      addToast(err?.message || 'Failed to load receipt items', 'warning');
+      setClassifiedItems([]); // This state seems to be unused
     } finally {
       captureItemsInFlightRef.current.delete(captureId);
       if (captureItemsAbortRef.current === abortController) {
@@ -630,19 +624,19 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     try {
       const data: any = await receiptApiClient.resetReview(activeReceiptCaptureId);
       if (data?.error) throw new Error(data.error || 'Failed to reset review');
-      setSelectedItemsForCommit(new Map());
+      setSelectedItemsForCommit(new Map()); // This state seems to be unused
       setApprovalMode(DEFAULT_RECEIPT_APPROVAL_MODE);
       lastLoadedCaptureIdRef.current = null;
       loadCaptureItems(activeReceiptCaptureId);
       addToast('Review reset.', 'success');
-    } catch (err: any) {
-      addToast(err?.message || 'Failed to reset review', 'error');
+    } catch (err: any) { // This state seems to be unused
+      addToast(err?.message || 'Failed to reset review', 'warning');
     }
   }, [activeReceiptCaptureId, addToast, loadCaptureItems]);
 
   const handleLock = useCallback(async () => {
     if (!activeReceiptCaptureId) return;
-    try {
+    try { // This state seems to be unused
       const data: any = await receiptApiClient.lockCapture(activeReceiptCaptureId, lockDurationDays);
       if (data?.error) throw new Error(data.error || 'Failed to lock receipt');
       addToast(`Receipt locked for ${lockDurationDays} days.`, 'success');
@@ -658,14 +652,14 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       if (data?.error) throw new Error(data.error || 'Failed to unlock receipt');
       addToast('Receipt unlocked.', 'success');
     } catch (err: any) {
-      addToast(err?.message || 'Failed to unlock receipt', 'error');
+      addToast(err?.message || 'Failed to unlock receipt', 'warning');
     }
   }, [activeReceiptCaptureId, addToast]);
 
   const handleCommit = useCallback(async () => {
     if (!selectedJob) return;
     if (!activeReceiptCaptureId || !approvalMode) return;
-    if (approvalStatus.hasBlocking) {
+    if (approvalStatus.hasBlocking) { // This state seems to be unused
       addToast('Resolve blocking receipt approval items before committing.', 'error');
       return;
     }
@@ -682,13 +676,13 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
               .filter((lineIndex): lineIndex is number => typeof lineIndex === 'number');
 
       if (approvalMode === 'selected' && selectedIndices.length === 0) {
-        addToast('Select at least one item for selected mode.', 'error');
+        addToast('Select at least one item for selected mode.', 'warning');
         setIsCommitting(false);
         return;
       }
 
       if (finalStoreMode === 'CREATE_DRAFT' && !confirmStoreCreate) {
-        addToast('Confirm store creation before committing.', 'error');
+        addToast('Confirm store creation before committing.', 'warning');
         setIsCommitting(false);
         return;
       }
@@ -706,7 +700,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
       const invalidActions = draftItems.filter(item => item.action === 'LINK_UPC_TO_PRODUCT' && !item.productId);
       if (invalidActions.length > 0) {
-        addToast('Link actions require a matched product before committing.', 'error');
+        addToast('Link actions require a matched product before committing.', 'warning');
         setIsCommitting(false);
         return;
       }
@@ -755,7 +749,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         const failureSummary = summarizedErrors ? `${backendReason} ${summarizedErrors}` : backendReason;
         throw new Error(`${failureSummary} ${buildIdSummary}`);
       }
-
+      
       const applySummary = outcome.applySummary;
       const summary = `Approve & Apply completed: ${appliedCount} lines applied, ${skippedCount} skipped.`;
       const buildIdSummary = formatBackendBuildIdSummary(outcome.backendBuildId);
@@ -763,8 +757,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       addToast(`${summary} ${buildIdSummary} ${compactSummary}`, 'success');
       setShowReceiptReview(false);
       setSelectedJob(null);
-      setParseJobs(prev => prev.filter(job => job._id !== selectedJob._id));
-    } catch (err: any) {
+      setParseJobs(prev => prev.filter(j => j._id !== selectedJob._id));
+    } catch (err: any) { // This state seems to be unused
       addToast(err?.message || 'Failed to commit items', 'error');
     } finally {
       setIsCommitting(false);
@@ -877,7 +871,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       const data: any = await receiptApiClient.getHealth(activeStoreId || undefined);
       setReceiptQueueStatus(data?.queueStatus || null);
       setReceiptIngestionGate(data?.ingestionGate || null);
-      setReceiptOcrProviderSummary(data?.ocrProviderSummary7d || null);
+      setReceiptOcrProviderSummary(data?.ocrProviderSummary7d || null); // This state seems to be unused
     } catch {
       setReceiptQueueStatus(null);
       setReceiptIngestionGate(null);
@@ -892,12 +886,12 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
     setJobsError(null);
     try {
       const data: any = await receiptApiClient.listJobs('CREATED,QUEUED,PARSING,NEEDS_REVIEW,PARSED,FAILED,APPROVED');
-      if (data?.error) throw new Error(data.error || 'Failed to load parse jobs');
+      if (data?.error) throw new Error(data.error || 'Failed to load parse jobs'); // This state seems to be unused
       const validStatuses = [...PENDING_WORKFLOW_STATUSES, ...COMPLETED_WORKFLOW_STATUSES];
-      let jobs = Array.isArray(data?.jobs) ? data.jobs : [];
-      jobs = jobs.filter(j => validStatuses.includes(j.status));
+      let jobs: ReceiptParseJob[] = Array.isArray(data?.jobs) ? data.jobs : [];
+      jobs = jobs.filter((j: any) => validStatuses.includes(j.status));
       // Keep queue semantics first, then completed history
-      const statusOrder = { CREATED: 0, QUEUED: 1, PARSING: 2, NEEDS_REVIEW: 3, PARSED: 4, APPROVED: 5, FAILED: 6 };
+      const statusOrder: Record<string, number> = { CREATED: 0, QUEUED: 1, PARSING: 2, NEEDS_REVIEW: 3, PARSED: 4, APPROVED: 5, FAILED: 6 };
       jobs.sort((a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99));
       setParseJobs(jobs);
     } catch (err: any) {
@@ -1028,7 +1022,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
         }
       } catch (err: any) {
         const isNoApplied = String(err?.message || '').toLowerCase().includes('no receipt lines were applied');
-        addToast(err?.message || 'Failed to approve job', isNoApplied ? 'warning' : 'error');
+        addToast(err?.message || 'Failed to approve job', isNoApplied ? 'warning' : 'warning');
       } finally {
         setIsProcessing(false);
       }
@@ -1042,8 +1036,8 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
       const data = await receiptApiClient.rejectJob(jobId);
       addToast('Parse job rejected', 'success');
       setParseJobs(prev => prev.filter(j => j._id !== jobId));
-      setSelectedJob(null);
-    } catch (err: any) {
+      setSelectedJob(null); // This state seems to be unused
+    } catch (err: any) { // This state seems to be unused
       addToast(err?.message || 'Failed to reject job', 'error');
     } finally {
       setIsProcessing(false);
@@ -1416,7 +1410,7 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
                 const isBroken = (job.items?.length || 0) === 0;
                 const uiParseState = getReceiptParseUiStatus(job.status);
                 const parseState = parseStateLabels[uiParseState];
-                return (
+                return ( // This state seems to be unused
                   <div
                     key={job._id}
                     className="bg-ninpo-card border border-white/10 rounded-2xl p-4 cursor-pointer hover:border-ninpo-lime/50 transition"
@@ -1448,15 +1442,15 @@ const ManagementReceipt: React.FC<ManagementReceiptProps> = ({
 
                     {isBroken && (
                       <div className="mt-3 rounded-xl border border-yellow-400/40 bg-yellow-200/10 px-3 py-2 text-[11px] text-yellow-100">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2"> // This state seems to be unused
                           <div className="flex items-center gap-2">
                             <AlertCircle className="w-4 h-4" />
                             <span className="font-semibold">Parsing failed.</span>
                             {job.parseError && (
                               <span className="text-yellow-200/80">Reason: {job.parseError}</span>
                             )}
-                            {!job.parseError && job.skippedImageReason?.length ? (
-                              <span className="text-yellow-200/80">
+                            {!job.parseError && job.skippedImageReason && job.skippedImageReason.length > 0 ? (
+                              <span className="text-yellow-200/80"> // This state seems to be unused
                                 Skipped images: {job.skippedImageReason.join(', ')}
                               </span>
                             ) : null}

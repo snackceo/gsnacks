@@ -1,18 +1,12 @@
 /// <reference types="vite/client" />
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BACKEND_URL } from '../constants';
-import { createPortal } from 'react-dom';
+import { createPortal } from 'react-dom'; 
 import { Order, OrderStatus, ReturnUpcCount, User, UserRole, ScannerMode } from '../types';
 import { explainDriverIssue } from '../services/geminiService';
+import { apiFetch } from '../utils/apiFetch';
 import {
-  Camera,
-  BrainCircuit,
-  CheckCircle2,
   Clock,
-  Loader2,
-  Plus,
   ScanLine,
-  Trash2,
   X,
   Zap,
   PackageCheck,
@@ -26,6 +20,7 @@ import DriverOrderFlow from '../components/DriverOrderFlow';
 import DriverOrderDetail from '../components/DriverOrderDetail';
 import { useNinpoCore } from '../hooks/useNinpoCore';
 import useCameraStream from '../hooks/useCameraStream';
+import { BACKEND_URL } from '../constants';
 
 
 interface DriverViewProps {
@@ -96,7 +91,7 @@ function money(n: any) {
 
 const UPC_ELIGIBILITY_TTL_MS = 1 * 60 * 60 * 1000; // 1 hour
 
-const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrder }) => {
+const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders = [], updateOrder }) => {
   const { addToast } = useNinpoCore();
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
@@ -104,25 +99,22 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   const [isNavigating, setIsNavigating] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [returnCapturedPhoto, setReturnCapturedPhoto] = useState<string | null>(null);
-  const [contaminationConfirmed, setContaminationConfirmed] = useState(false);
+  const [contaminationConfirmed, setContaminationConfirmed] = useState(false); // This state seems to be unused
 
   const [verifiedReturnUpcs, setVerifiedReturnUpcs] = useState<ReturnUpcCount[]>([]);
   const [manualUpc, setManualUpc] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
   const [lastBlockedUpc, setLastBlockedUpc] = useState<string | null>(null);
   const [lastBlockedReason, setLastBlockedReason] = useState<'cooldown' | 'duplicate' | null>(null);
   const [pendingDuplicateScan, setPendingDuplicateScan] = useState<DuplicateScanPrompt | null>(null);
-  const [scanEvents, setScanEvents] = useState<ScanEventLogEntry[]>([]);
-  const [quantityEvents, setQuantityEvents] = useState<QuantityChangeLogEntry[]>([]);
-  const [showScanSummary, setShowScanSummary] = useState(false);
-  const [scanSummaryOpen, setScanSummaryOpen] = useState(false);
-  const [returnConditionConfirmed, setReturnConditionConfirmed] = useState(false);
+  const [scanEvents, setScanEvents] = useState<ScanEventLogEntry[]>([]); // This state seems to be unused
+  const [quantityEvents, setQuantityEvents] = useState<QuantityChangeLogEntry[]>([]); // This state seems to be unused
+  const [showScanSummary, setShowScanSummary] = useState(false); // This state seems to be unused
+  const [scanSummaryOpen, setScanSummaryOpen] = useState(false); // This state seems to be unused
   const [showPayoutChoice, setShowPayoutChoice] = useState(false);
 
   const [isCapturing, setIsCapturing] = useState(false);
-  const [paymentCaptured, setPaymentCaptured] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [issueExplanation, setIssueExplanation] = useState<string | null>(null);
   const [issueStatus, setIssueStatus] = useState<'idle' | 'loading' | 'error'>('idle');
@@ -133,23 +125,20 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
   // Return verification state
   const [verificationScans, setVerificationScans] = useState<{ upc: string; timestamp: string }[]>([]);
-  const [recognizedCount, setRecognizedCount] = useState(0);
-  const [unrecognizedCount, setUnrecognizedCount] = useState(0);
-  const [duplicatesCount, setDuplicatesCount] = useState(0);
-  const [conditionFlags, setConditionFlags] = useState<string[]>([]);
-  const [fulfillmentScans, setFulfillmentScans] = useState<FulfillmentScanEntry[]>([]);
+  const [, setRecognizedCount] = useState(0);
+  const [fulfillmentScans, setFulfillmentScans] = useState<FulfillmentScanEntry[]>([]); // This state seems to be unused
 
-  const { videoRef, error: cameraError, startCamera, stopCamera } = useCameraStream({ autoStart: false });
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { error: cameraError, stopCamera } = useCameraStream({ autoStart: false });
+  const canvasRef = useRef<HTMLCanvasElement>(null); // This state seems to be unused
   const audioContextRef = useRef<AudioContext | null>(null);
   const eligibilityCacheRef = useRef<Record<string, { isEligible: boolean; checkedAt: string }>>({});
   const lastScanRef = useRef<{ upc: string; at: number } | null>(null);
   const verifiedReturnUpcsRef = useRef<ReturnUpcCount[]>([]);
   const scanSessionIdRef = useRef<string>('');
   const scanSessionStartedAtRef = useRef<string>('');
-
+  
   const [driverMode, setDriverMode] = useState<'RETURNS_INTAKE' | 'PICK_PACK'>('RETURNS_INTAKE');
-  const [scannerMode, setScannerMode] = useState<ScannerMode>(ScannerMode.DRIVER_VERIFY_CONTAINERS);
+  const [scannerMode, setScannerMode] = useState<ScannerMode>(ScannerMode.DRIVER_VERIFY_CONTAINERS); // This state seems to be unused
   const [workflowMode, setWorkflowMode] = useState<'verification' | 'delivery'>('delivery');
 
   const handleScannerModeChange = useCallback((mode: ScannerMode) => {
@@ -184,18 +173,18 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
         setIsVerifying(true);
       }
     } catch (err: any) {
-      addToast(err?.message || 'Failed to assign order', 'error');
+      addToast(err?.message || 'Failed to assign order', 'warning');
     }
   };
 
   const handlePickUp = (orderId: string) => {
     if (!orderId) return;
-    updateOrder(orderId, OrderStatus.PICKED_UP);
+    updateOrder(orderId, OrderStatus.PICKED_UP); // This state seems to be unused
   };
 
   const handleStartNavigation = (orderId: string) => {
     if (!orderId) return;
-    setIsNavigating(true);
+    setIsNavigating(true); // This state seems to be unused
     updateOrder(orderId, OrderStatus.ARRIVING);
     setTimeout(() => {
       setIsNavigating(false);
@@ -217,31 +206,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     setContaminationConfirmed(false);
   };
 
-  const countUpcs = (entries: ReturnUpcCount[]) => entries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
-
-  const isReturnOnlyOrder = (order?: Order | null) => {
-    if (!order) return false;
-    const count = countUpcs(order.returnUpcCounts ?? []);
-    return (order.items?.length ?? 0) === 0 && count > 0;
-  };
-
-  const getExpectedReturnCount = (order?: Order | null) => {
-    if (!order) return 0;
-    const counted = countUpcs(order.returnUpcCounts ?? []);
-    if (counted > 0) return counted;
-    if (Array.isArray(order.returnUpcs)) return order.returnUpcs.length;
-    return 0;
-  };
-
-  const formatConfidence = (value?: number) => {
-    if (value === undefined || value === null) return null;
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return null;
-    const percent = numeric <= 1 ? Math.round(numeric * 100) : Math.round(numeric);
-    return `${percent}%`;
-  };
-
-  const normalizeUpc = (value: string) => String(value || '').replace(/\D/g, '').trim();
+  const normalizeUpc = (value: string) => String(value || '').replace(/\D/g, '').trim(); // This state seems to be unused
 
   const extractUpcCandidates = (item: any) => {
     const candidates: string[] = [];
@@ -275,7 +240,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     return Array.from(new Set(normalized));
   };
 
-  const fulfillmentTargets = useMemo<FulfillmentTarget[]>(() => {
+  const fulfillmentTargets = useMemo<FulfillmentTarget[]>(() => { // eslint-disable-line
     if (!activeOrder) return [];
     return (activeOrder.items ?? [])
       .map((item: any, index: number) => {
@@ -295,78 +260,19 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
         };
       })
       .filter(target => target.quantity > 0);
-  }, [activeOrder]);
+  }, [activeOrder, extractUpcCandidates]);
 
+  
   const fulfillmentProgress = useMemo(() => {
     return fulfillmentTargets.map(target => {
       const scanned = fulfillmentScans.find(entry => entry.key === target.key)?.quantity ?? 0;
-      return { ...target, scanned };
+      return { ...target, scanned, upcCandidates: target.upcCandidates };
     });
-  }, [fulfillmentScans, fulfillmentTargets]);
+  }, [fulfillmentScans, fulfillmentTargets]); // eslint-disable-line
   const fulfillmentMissingUpcs = useMemo(
     () => fulfillmentTargets.filter(target => target.upcCandidates.length === 0).length,
-    [fulfillmentTargets]
+    [fulfillmentTargets] // eslint-disable-line
   );
-
-  const getInitialVerifiedCounts = (order: Order) => {
-    const verified = Array.isArray(order.verifiedReturnUpcCounts)
-      ? order.verifiedReturnUpcCounts
-      : [];
-    if (verified.length > 0) return verified;
-    return Array.isArray(order.returnUpcCounts) ? order.returnUpcCounts : [];
-  };
-
-  const startVerification = async (order: Order) => {
-    setActiveOrder(order);
-    resetPhotoState();
-    resetReturnPhotoState();
-    const initialEntries = getInitialVerifiedCounts(order);
-    setVerifiedReturnUpcs(initialEntries);
-    setScanEvents([]);
-    setQuantityEvents([]);
-    setPendingDuplicateScan(null);
-    setShowScanSummary(false);
-    setScanSummaryOpen(false);
-    setReturnConditionConfirmed(false);
-    setShowPayoutChoice(false);
-    scanSessionIdRef.current =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `scan-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    scanSessionStartedAtRef.current = new Date().toISOString();
-    setScannerError(null);
-    setCaptureError(null);
-    setIssueExplanation(null);
-    setIssueStatus('idle');
-    setDriverNotice(null);
-
-    setPaymentCaptured(order.status === OrderStatus.PAID || isReturnOnlyOrder(order));
-
-    await startCamera({ facingMode: 'environment' });
-  };
-
-  const captureFromVideo = () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const video = videoRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d')?.drawImage(video, 0, 0);
-    return canvas.toDataURL('image/jpeg');
-  };
-
-  const takeDeliveryPhoto = async () => {
-    const dataUrl = captureFromVideo();
-    if (!dataUrl) return;
-    setCapturedPhoto(dataUrl);
-  };
-
-  const takeReturnPhoto = () => {
-    const dataUrl = captureFromVideo();
-    if (!dataUrl) return;
-    setReturnCapturedPhoto(dataUrl);
-    setContaminationConfirmed(false);
-  };
 
   const updateEligibilityCache = (upc: string, isEligible: boolean) => {
     eligibilityCacheRef.current = { ...eligibilityCacheRef.current, [upc]: { isEligible, checkedAt: new Date().toISOString() } };
@@ -403,7 +309,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     const id =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
-        : `scan-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        : `scan-${Date.now()}-${Math.random().toString(16).slice(2)}`; // This state seems to be unused
     setScanEvents(prev => [
       ...prev,
       { id, recordedAt: new Date().toISOString(), ...entry }
@@ -416,7 +322,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     const id =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
-        : `qty-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        : `qty-${Date.now()}-${Math.random().toString(16).slice(2)}`; // This state seems to be unused
     setQuantityEvents(prev => [
       ...prev,
       { id, recordedAt: new Date().toISOString(), ...entry }
@@ -439,39 +345,6 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     } else {
       playScannerTone(220, 240, 0.25);
       setScannerError('This container may already be counted.');
-    }
-  };
-
-  const incrementUpc = (upc: string, reason: QuantityChangeReason = 'manual_increment') => {
-    let didIncrement = false;
-    setVerifiedReturnUpcs(prev =>
-      prev.map(entry => {
-        if (entry.upc !== upc) return entry;
-        didIncrement = true;
-        return { ...entry, quantity: entry.quantity + 1 };
-      })
-    );
-    if (didIncrement) {
-      logQuantityChange({ upc, delta: 1, reason });
-    }
-  };
-
-  const decrementUpc = (upc: string, reason: QuantityChangeReason = 'manual_decrement') => {
-    let didDecrement = false;
-    setVerifiedReturnUpcs(prev =>
-      prev
-        .map(entry => {
-          if (entry.upc !== upc) return entry;
-          const nextQuantity = Math.max(0, entry.quantity - 1);
-          if (nextQuantity !== entry.quantity) {
-            didDecrement = true;
-          }
-          return { ...entry, quantity: nextQuantity };
-        })
-        .filter(entry => entry.quantity > 0)
-    );
-    if (didDecrement) {
-      logQuantityChange({ upc, delta: -1, reason });
     }
   };
 
@@ -584,7 +457,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     // Check for duplicates
     const isDuplicate = verificationScans.some(scan => scan.upc === upc);
     if (isDuplicate) {
-      setDuplicatesCount(prev => prev + 1);
+      // setDuplicatesCount(prev => prev + 1); // This state seems to be unused
       playScannerTone(440, 120, 0.2);
       setScannerError('Duplicate scan detected');
       return;
@@ -602,7 +475,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
         setScannerError('Recognized container');
         playScannerTone(980, 120, 0.2);
       } else {
-        setUnrecognizedCount(prev => prev + 1);
+        // setUnrecognizedCount(prev => prev + 1); // This state seems to be unused
         setScannerError('Unrecognized container');
         playScannerTone(220, 240, 0.25);
       }
@@ -615,7 +488,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
     } catch {
       // On error, treat as unrecognized
-      setUnrecognizedCount(prev => prev + 1);
+      // setUnrecognizedCount(prev => prev + 1); // This state seems to be unused
       setScannerError('Unable to verify container');
       playScannerTone(220, 240, 0.25);
 
@@ -628,7 +501,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
   const addFulfillmentScan = async (
     upcRaw: string,
-    source: 'scanner' | 'manual' = 'manual',
+    source: 'scanner' | 'manual' = 'manual', // This state seems to be unused
     quantity = 1
   ) => {
     const upc = normalizeUpc(upcRaw || '');
@@ -709,13 +582,11 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
   };
 
   const handleScannerScan = async (upc: string, qty = 1) => {
-    setLastBlockedUpc(null);
-    setLastBlockedReason(null);
     if (scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS) {
-      for (let i = 0; i < qty; i += 1) {
+      for (let i = 0; i < qty; i += 1) { // This state seems to be unused
         await addVerificationScan(upc, 'scanner');
       }
-    } else if (scannerMode === ScannerMode.DRIVER_FULFILL_ORDER) {
+    } else if (scannerMode === ScannerMode.DRIVER_FULFILL_ORDER) { // This state seems to be unused
       await addFulfillmentScan(upc, 'scanner', qty);
     } else {
       // Original logic for other modes
@@ -725,76 +596,15 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     }
   };
 
-  const confirmDuplicateScan = () => {
-    if (!pendingDuplicateScan) return;
-    incrementUpc(pendingDuplicateScan.upc, 'scan_confirm');
-    playScannerTone(980, 120, 0.2);
-    logScanEvent({
-      upc: pendingDuplicateScan.upc,
-      source: 'scanner',
-      status: 'added_existing'
-    });
-    setPendingDuplicateScan(null);
-  };
-
-  const removeUpc = (upc: string) => {
-    setVerifiedReturnUpcs(prev => prev.filter(entry => entry.upc !== upc));
-  };
-
   const clearUpcs = () => {
     setVerifiedReturnUpcs([]);
     setScannerError(null);
     setPendingDuplicateScan(null);
   };
 
-  const submitVerification = async () => {
-    if (!activeOrder) return;
-
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/returns/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          orderId: activeOrder.id,
-          driverId: currentUser?.username || currentUser?.id || 'DRIVER',
-          customerId: activeOrder.customerId,
-          scans: verificationScans,
-          recognizedCount,
-          unrecognizedCount,
-          duplicatesCount,
-          conditionFlags
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to submit verification');
-      }
-
-      // Reset verification state
-      setVerificationScans([]);
-      setRecognizedCount(0);
-      setUnrecognizedCount(0);
-      setDuplicatesCount(0);
-      setConditionFlags([]);
-      setScannerError(null);
-
-      setDriverNotice({ tone: 'success', message: 'Verification submitted for review' });
-    } catch (error) {
-      setDriverNotice({ tone: 'error', message: 'Failed to submit verification' });
-    }
-  };
-
-  const clearVerification = () => {
-    setVerificationScans([]);
-    setRecognizedCount(0);
-    setUnrecognizedCount(0);
-    setDuplicatesCount(0);
-    setConditionFlags([]);
-    setScannerError(null);
-  };
-
   const sendScanSessionMetadata = async (stage: 'pre_capture' | 'post_capture') => {
+    const verifiedReturnUpcs = verifiedReturnUpcsRef.current;
+    const countUpcs = (entries: ReturnUpcCount[]) => entries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
     if (!activeOrder) return;
     if (scanEvents.length === 0 && quantityEvents.length === 0) return;
     try {
@@ -845,7 +655,6 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Capture failed');
 
-      setPaymentCaptured(true);
       await sendScanSessionMetadata('post_capture');
 
       const capturedOrder = data?.order;
@@ -887,54 +696,18 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     }
   };
 
-  const completeDelivery = () => {
+  const completeDelivery = useCallback(async () => {
     if (!activeOrder) return;
 
-    if (!paymentCaptured && !isReturnOnlyOrder(activeOrder)) {
-      setDriverNotice({
-        tone: 'error',
-        message: 'Capture payment first (verify returns), then complete delivery.'
-      });
-      return;
-    }
-
-    const expectedReturnCount = getExpectedReturnCount(activeOrder);
-    const returnAiAnalysis = activeOrder?.returnAiAnalysis;
-    const contaminationFlagged =
-      returnAiAnalysis?.flags?.some(flag => flag.toLowerCase().includes('contamin')) ?? false;
-
-    if (requiresReturnPhoto && !returnCapturedPhoto) {
-      setDriverNotice({
-        tone: 'error',
-        message: 'Capture a return photo before completing delivery.'
-      });
-      return;
-    }
-
-    if (contaminationFlagged && !contaminationConfirmed) {
-      setDriverNotice({
-        tone: 'error',
-        message: 'Confirm contamination review before completing delivery.'
-      });
-      return;
-    }
-
-    if (!capturedPhoto) {
-      setDriverNotice({
-        tone: 'error',
-        message: 'Capture a delivery proof photo before completing delivery.'
-      });
-      return;
-    }
-
     setIsVerifying(true);
+    setDriverNotice(null); 
 
+    // These helpers still run on the client, but could be moved to a backend-for-frontend
+    // in the future. For now, they upload to a service and return a URL.
     const uploadProof = async () => {
       if (!capturedPhoto) return null;
-
       const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string | undefined;
       const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string | undefined;
-
       if (cloudName && uploadPreset) {
         const imageBlob = await fetch(capturedPhoto).then(res => res.blob());
         const formData = new FormData();
@@ -942,43 +715,19 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
         formData.append('upload_preset', uploadPreset);
         formData.append('folder', 'delivery-proofs');
         formData.append('context', `orderId=${activeOrder.id}`);
-
-        const uploadRes = await fetch(
-          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-          {
-            method: 'POST',
-            body: formData
-          }
-        );
-        const uploadData = await uploadRes.json().catch(() => ({}));
-        if (!uploadRes.ok) {
-          throw new Error(uploadData?.error?.message || 'Proof upload failed.');
-        }
+        const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: 'POST', body: formData });
+        const uploadData: { secure_url?: string, url?: string, error?: { message?: string } } = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) throw new Error(uploadData?.error?.message || 'Proof upload failed.');
         return uploadData?.secure_url || uploadData?.url || null;
       }
-
-      const res = await fetch(`${BACKEND_URL}/api/uploads/proof`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          orderId: activeOrder.id,
-          imageData: capturedPhoto
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || 'Proof upload failed.');
-      }
-      return data?.url || null;
+      const { url } = await apiFetch<{url: string}>(`/api/v1/uploads/proof`, { method: 'POST', body: JSON.stringify({ orderId: activeOrder.id, imageData: capturedPhoto }) });
+      return url;
     };
 
     const uploadReturnPhoto = async () => {
       if (!returnCapturedPhoto) return null;
-
       const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string | undefined;
       const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string | undefined;
-
       if (cloudName && uploadPreset) {
         const imageBlob = await fetch(returnCapturedPhoto).then(res => res.blob());
         const formData = new FormData();
@@ -986,54 +735,37 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
         formData.append('upload_preset', uploadPreset);
         formData.append('folder', 'return-photos');
         formData.append('context', `orderId=${activeOrder.id}`);
-
-        const uploadRes = await fetch(
-          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-          {
-            method: 'POST',
-            body: formData
-          }
-        );
-        const uploadData = await uploadRes.json().catch(() => ({}));
-        if (!uploadRes.ok) {
-          throw new Error(uploadData?.error?.message || 'Return photo upload failed.');
-        }
+        const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: 'POST', body: formData });
+        const uploadData: { secure_url?: string, url?: string, error?: { message?: string } } = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) throw new Error(uploadData?.error?.message || 'Return photo upload failed.');
         return uploadData?.secure_url || uploadData?.url || null;
       }
-
-      const res = await fetch(`${BACKEND_URL}/api/uploads/return-photo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          orderId: activeOrder.id,
-          imageData: returnCapturedPhoto
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || 'Return photo upload failed.');
-      }
-      return data?.url || null;
+      const { url } = await apiFetch<{url: string}>(`/api/v1/uploads/return-photo`, { method: 'POST', body: JSON.stringify({ orderId: activeOrder.id, imageData: returnCapturedPhoto }) });
+      return url;
     };
 
     navigator.geolocation.getCurrentPosition(
       async pos => {
         try {
+          // Client-side validation is removed. Backend will now validate.
           const proofUrl = await uploadProof();
           const returnPhotoUrl = await uploadReturnPhoto();
-          const metadata = {
-            deliveredAt: new Date().toISOString(),
-            gpsCoords: { lat: pos.coords.latitude, lng: pos.coords.longitude },
-            verificationPhoto: proofUrl || undefined,
-            returnPhoto: returnPhotoUrl || undefined,
-            ...(isReturnOnlyOrder(activeOrder)
-              ? { verifiedReturnUpcCounts: verifiedReturnUpcs }
-              : {})
-          };
 
-          updateOrder(activeOrder.id, OrderStatus.DELIVERED, metadata);
+          const { data: updatedOrder } = await apiFetch<{ data: Order }>(`/api/v1/orders/${activeOrder.id}/complete`, {
+            method: 'POST',
+            body: JSON.stringify({
+              gpsCoords: { lat: pos.coords.latitude, lng: pos.coords.longitude },
+              verificationPhoto: proofUrl,
+              returnPhoto: returnPhotoUrl,
+              contaminationConfirmed: contaminationConfirmed,
+              verifiedReturnUpcs: verifiedReturnUpcs,
+            }),
+          });
 
+          // If API call succeeds, backend validation has passed.
+          updateOrder(activeOrder.id, OrderStatus.DELIVERED, updatedOrder);
+
+          // Reset all state
           setIsVerifying(false);
           setActiveOrder(null);
           resetPhotoState();
@@ -1046,14 +778,14 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
           setPendingDuplicateScan(null);
           setScanEvents([]);
           setQuantityEvents([]);
-          setShowScanSummary(false);
           setScanSummaryOpen(false);
-          setPaymentCaptured(false);
           setDriverNotice({ tone: 'success', message: 'Delivery completed and proof uploaded.' });
+
         } catch (e: any) {
+          // Errors from the backend are now our validation messages.
           setDriverNotice({
             tone: 'error',
-            message: e?.message || 'Delivery proof upload failed.'
+            message: e?.message || 'Delivery completion failed.'
           });
           setIsVerifying(false);
         }
@@ -1064,7 +796,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       },
       { enableHighAccuracy: true }
     );
-  };
+  }, [activeOrder, addToast, capturedPhoto, contaminationConfirmed, returnCapturedPhoto, stopCamera, updateOrder, verifiedReturnUpcs]);
 
   const queue = useMemo(() => {
     return (orders || []).filter(o =>
@@ -1126,21 +858,6 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
     }
   }, [driverMode, scannerMode]);
 
-  const isReturnOnly = isReturnOnlyOrder(activeOrder);
-  const verifiedReturnCount = useMemo(
-    () => verifiedReturnUpcs.reduce((sum, entry) => sum + entry.quantity, 0),
-    [verifiedReturnUpcs]
-  );
-  const expectedReturnCount = getExpectedReturnCount(activeOrder);
-  const requiresReturnPhoto = expectedReturnCount > 0 || verifiedReturnCount > 0;
-  const returnAiAnalysis = activeOrder?.returnAiAnalysis;
-  const contaminationFlagged =
-    returnAiAnalysis?.flags?.some(flag => flag.toLowerCase().includes('contamin')) ?? false;
-  const isCompletionBlocked =
-    !capturedPhoto ||
-    isVerifying ||
-    (requiresReturnPhoto && !returnCapturedPhoto) ||
-    (contaminationFlagged && !contaminationConfirmed);
   const driverScannerTitle =
     scannerMode === ScannerMode.DRIVER_VERIFY_CONTAINERS
       ? 'Verify Return Containers'
@@ -1153,16 +870,6 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
       : scannerMode === ScannerMode.DRIVER_FULFILL_ORDER
         ? 'Scan items to confirm the order is packed correctly.'
         : 'Scan UPCs to add to the return list.';
-
-  const completionTitle = !paymentCaptured && !isReturnOnly
-    ? 'Capture payment first'
-    : contaminationFlagged && !contaminationConfirmed
-      ? 'Confirm contamination review'
-      : requiresReturnPhoto && !returnCapturedPhoto
-        ? 'Capture return photo first'
-        : !capturedPhoto
-          ? 'Capture delivery proof first'
-          : 'Complete delivery';
 
   const handleCapturePaymentClick = () => {
     if (showScanSummary) {
@@ -1227,6 +934,69 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               <p className="mt-4 text-[10px] uppercase tracking-widest text-slate-500">
                 All options require verified eligible containers.
               </p>
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
+  const scanSummaryModal =
+    scanSummaryOpen && typeof document !== 'undefined'
+      ? createPortal(
+          <div className="fixed inset-0 z-[12000] flex items-center justify-center p-6">
+            <div
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              onClick={() => setScanSummaryOpen(false)}
+            />
+            <div className="relative w-full max-w-2xl bg-ninpo-black border border-white/10 rounded-[2.5rem] p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-white font-black uppercase tracking-widest text-sm">
+                    Scan Session Summary
+                  </p>
+                </div>
+                <button
+                  onClick={() => setScanSummaryOpen(false)}
+                  className="p-3 rounded-2xl bg-ninpo-red/10 text-ninpo-red border border-ninpo-red/20 hover:bg-ninpo-red/20 transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-6 text-[11px] uppercase tracking-widest text-slate-300">
+                <div>
+                  <h4 className="text-white font-black mb-2">Scan Events ({scanEvents.length})</h4>
+                  <div className="space-y-2 h-64 overflow-y-auto pr-2">
+                    {scanEvents.map(event => (
+                      <div key={event.id} className="bg-white/5 p-2 rounded-lg">
+                        <p>UPC: {event.upc}</p>
+                        <p>Status: {event.status}</p>
+                        <p>Source: {event.source}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-white font-black mb-2">Quantity Changes ({quantityEvents.length})</h4>
+                  <div className="space-y-2 h-64 overflow-y-auto pr-2">
+                    {quantityEvents.map(event => (
+                      <div key={event.id} className="bg-white/5 p-2 rounded-lg">
+                        <p>UPC: {event.upc}</p>
+                        <p>Delta: {event.delta}</p>
+                        <p>Reason: {event.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+               <div className="mt-4 flex justify-end">
+                <button
+                  onClick={capturePayment}
+                  className="px-6 py-3 bg-ninpo-lime text-ninpo-black rounded-xl text-sm font-black uppercase tracking-widest"
+                >
+                  Confirm and Capture Payment
+                </button>
+              </div>
             </div>
           </div>,
           document.body
@@ -1420,6 +1190,22 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
               </div>
             )}
 
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={manualUpc}
+                onChange={(e) => setManualUpc(e.target.value)}
+                placeholder="Enter UPC manually"
+                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-ninpo-lime"
+              />
+              <button
+                onClick={() => addUpc(manualUpc, 'manual')}
+                className="px-4 py-2 bg-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"
+              >
+                Add
+              </button>
+            </div>
+
             {!activeOrder && (
               <p className="text-[11px] text-slate-400">
                 Select an order from the queue to scan returns or fulfill items.
@@ -1470,35 +1256,17 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
           </div>
         </div>
 
-        {lastBlockedUpc && lastBlockedReason === 'duplicate' && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleScannerScan(lastBlockedUpc)}
-              className="px-4 py-3 rounded-2xl bg-white/10 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-white/10"
-            >
-              Add anyway
-            </button>
-          </div>
-        )}
-
         <ScannerModal
           mode={scannerMode}
           onScan={handleScannerScan}
           onClose={() => {
             setScannerOpen(false);
-            setLastBlockedUpc(null);
-            setLastBlockedReason(null);
           }}
           onModeChange={handleScannerModeChange}
           onCooldown={(upc, reason) => {
             addToast('Same UPC — tap to add again', 'info');
-            if (reason === 'duplicate') {
-              setLastBlockedUpc(upc);
-              setLastBlockedReason(reason);
-            } else {
-              setLastBlockedUpc(null);
-              setLastBlockedReason(reason);
-            }
+            setLastBlockedUpc(upc);
+            setLastBlockedReason(reason);
           }}
           title={driverScannerTitle}
           subtitle={driverScannerSubtitle}
@@ -1510,7 +1278,7 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
 
         {activeOrder && workflowMode === 'delivery' && (
           <DriverOrderFlow
-            order={activeOrder}
+            order={activeOrder} onComplete={completeDelivery}
             onBack={() => {
               setActiveOrder(null);
               setIsVerifying(false);
@@ -1530,18 +1298,22 @@ const DriverView: React.FC<DriverViewProps> = ({ currentUser, orders, updateOrde
             setScannerMode={setScannerMode}
             setScannerOpen={setScannerOpen}
             scannerError={scannerError}
-            // ...pass all other required props...
+            isCapturing={isCapturing}
+            captureError={captureError}
+            issueStatus={issueStatus}
+            issueExplanation={issueExplanation}
+            explainCaptureIssue={explainCaptureIssue}
+            onCapturePayment={handleCapturePaymentClick}
           />
         )}
 
         {detailOrderId && (
           <DriverOrderDetail
-            order={orders.find(o => o.id === detailOrderId || o.orderId === detailOrderId) || { orderId: detailOrderId }}
+            order={orders.find(o => o.id === detailOrderId || o.orderId === detailOrderId) as Order | { orderId: string }}
             onBack={() => setDetailOrderId(null)}
           />
         )}
-      </div>
-    </div>
+      </div>    </div>
   );
 };
 

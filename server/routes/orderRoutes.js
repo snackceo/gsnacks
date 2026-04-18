@@ -8,6 +8,7 @@ import {
   assignDriverToOrder,
   getAssignedOrders,
   updateDriverLocation,
+  completeDelivery,
 } from '../controllers/orderController.js';
 
 const router = express.Router();
@@ -42,5 +43,9 @@ router
 router
   .route('/:id/location')
   .put(protect, authorize('driver'), updateDriverLocation);
+
+router
+  .route('/:id/complete')
+  .post(protect, authorize('driver'), completeDelivery);
 
 export default router;

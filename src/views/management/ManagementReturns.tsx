@@ -405,7 +405,7 @@ const ManagementReturns: React.FC<ManagementReturnsProps> = ({
                 Cancel
               </button>
               <button
-                onClick={apiCreateProduct}
+                onClick={() => apiCreateProduct()}
                 disabled={isCreating}
                 className="w-full py-5 bg-ninpo-lime text-ninpo-black rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.01] transition-all shadow-neon"
               >

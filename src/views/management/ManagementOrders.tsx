@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Order, OrderStatus, ReturnUpcCount, User } from '../../types';
 import {
   AlertCircle,
@@ -168,6 +168,13 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
 }) => {
   const [openDetail, setOpenDetail] = useState<Record<string, boolean>>({});
 
+  const userMap = useMemo(() => {
+    const map = new Map<string, User>();
+    for (const user of users) {
+      map.set(user.id, user);
+    }
+    return map;
+  }, [users]);
   const toggleDetail = (id: string) =>
     setOpenDetail(prev => ({ ...prev, [id]: !prev[id] }));
 
@@ -253,6 +260,7 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
               : [];
             const returnCountTotal = countTotalUpcs(returnCounts);
             const verifiedCountTotal = countTotalUpcs(verifiedCounts);
+            const customer = o.customerId ? userMap.get(o.customerId) : undefined;
 
             return (
               <div
@@ -293,7 +301,10 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
 
                     <p className="text-[11px] text-slate-500 mt-4">
                       CustomerId:{' '}
-                      <span className="text-slate-300 font-bold">{o.customerId}</span>
+                      <span className="text-slate-300 font-bold">
+                        {o.customerId}
+                        {customer && <span className="text-slate-400 ml-2">({customer.username})</span>}
+                      </span>
                     </p>
 
                     {o.address && (
@@ -489,7 +500,7 @@ const ManagementOrders: React.FC<ManagementOrdersProps> = ({
                 <div className="pt-6 border-t border-white/5">
                   <button
                     className="text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition"
-                    onClick={() => toggleDetail(o.id)}
+                    onClick={() => o.id && toggleDetail(o.id)}
                   >
                     {openDetail[o.id] ? 'Hide Details' : 'View Details'}
                   </button>
