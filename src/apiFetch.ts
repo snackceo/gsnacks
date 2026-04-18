@@ -1,4 +1,4 @@
-import { BACKEND_URL } from '../constants';
+import { BACKEND_URL } from '../constants.tsx';
 
 export const apiFetch = async <T>(
   endpoint: string,
